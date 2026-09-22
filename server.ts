@@ -6,11 +6,11 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { createServer } from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, limit } from "firebase/firestore";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
+import { db, auth } from "./services/firebaseClient";
+import { doc, getDoc, setDoc, getDocs, collection, query, where, limit } from "firebase/firestore";
 
 import { trimTrailingSlash } from "hono/trailing-slash";
 import { appendShippingTimeline, buildEventKey, getEventAt, mapBostaStatus, mapTurboStatus, shouldApplyShippingUpdate } from './utils/shippingStatus';
@@ -465,25 +465,20 @@ async function getCachedStore(db: any, storeId: string) {
     }
     
     try {
-        // Prune stale cache entries if cache is growing
-        if (storeCache.size > MAX_STORE_CACHE_SIZE) {
-            for (const [k, v] of storeCache.entries()) {
-                if (now - v.timestamp >= CACHE_TTL) storeCache.delete(k);
-            }
-            if (storeCache.size > MAX_STORE_CACHE_SIZE) {
-                const firstKey = storeCache.keys().next().value;
-                if (firstKey) storeCache.delete(firstKey);
-            }
-        }
+        const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+        const { data: storeRow, error } = await supabase
+            .from('stores_data')
+            .select('settings')
+            .eq('id', storeId)
+            .single();
 
-        const storeSnap = await getDoc(doc(db, "stores_data", storeId));
-        if (storeSnap.exists()) {
-            const data = storeSnap.data();
+        if (storeRow) {
+            const data = { id: storeId, settings: storeRow.settings };
             storeCache.set(storeId, { data, timestamp: now });
             return data;
         }
     } catch (e) {
-        console.error(`Error fetching store ${storeId} from Firestore:`, e);
+        console.error(`[SUPABASE-CACHE] Error fetching store ${storeId}:`, e);
     }
     return null;
 }
@@ -504,22 +499,7 @@ async function startServer() {
 
   app.use("/*", cors());
 
-  // Load Firebase Config
-  let firebaseConfig = {};
-  try {
-    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-    if (fs.existsSync(configPath)) {
-      firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    }
-  } catch (err) {
-    console.warn("Could not load firebase-applet-config.json on server:", err);
-  }
-
-  const firebaseApp = initializeApp(firebaseConfig);
-  const db = (firebaseConfig as any).firestoreDatabaseId 
-    ? getFirestore(firebaseApp, (firebaseConfig as any).firestoreDatabaseId)
-    : getFirestore(firebaseApp);
-
+  // Supabase Client is initialized where needed or as a global if requested
   // --- API ROUTES ---
   
   app.post("/api/gemini", async (c) => {
@@ -534,19 +514,6 @@ async function startServer() {
     } catch (error: any) {
         console.error("Gemini API Error:", error);
         return c.json({ error: error.message }, 500);
-    }
-  });
-
-  // OTP Verification API for Firebase
-  app.post("/api/verify-otp", async (c) => {
-    try {
-      const { email, otp } = await c.req.json();
-      if (otp && /^\d{6}$/.test(otp)) {
-        return c.json({ valid: true });
-      }
-      return c.json({ valid: false, message: "رمز التحقق غير صحيح." }, 400);
-    } catch (e) {
-      return c.json({ valid: false, message: "خطأ في البيانات" }, 400);
     }
   });
 
@@ -583,12 +550,18 @@ async function startServer() {
     let matchingStoreData: any = null;
     let matchingKeyObj: any = null;
 
+    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
+
     // 1. If explicit store ID provided, check it first
     if (headerStoreId) {
       try {
-        const snap = await getDoc(doc(db, "stores_data", headerStoreId));
-        if (snap.exists()) {
-          const sData = snap.data();
+        const { data: sData, error } = await supabase
+          .from('stores_data')
+          .select('*')
+          .eq('id', headerStoreId)
+          .single();
+          
+        if (sData) {
           const keys = sData.settings?.storeApiKeys || [];
           const found = keys.find((k: any) => k.key === rawKey);
           if (found) {
@@ -605,16 +578,20 @@ async function startServer() {
     // 2. If not found yet, scan all stores_data
     if (!matchingKeyObj) {
       try {
-        const allStoresSnap = await getDocs(collection(db, "stores_data"));
-        for (const d of allStoresSnap.docs) {
-          const sData = d.data();
-          const keys = sData.settings?.storeApiKeys || [];
-          const found = keys.find((k: any) => k.key === rawKey);
-          if (found) {
-            matchingStoreId = d.id;
-            matchingStoreData = sData;
-            matchingKeyObj = found;
-            break;
+        const { data: allStores, error } = await supabase
+          .from('stores_data')
+          .select('*');
+
+        if (allStores) {
+          for (const sData of allStores) {
+            const keys = sData.settings?.storeApiKeys || [];
+            const found = keys.find((k: any) => k.key === rawKey);
+            if (found) {
+              matchingStoreId = sData.id;
+              matchingStoreData = sData;
+              matchingKeyObj = found;
+              break;
+            }
           }
         }
       } catch (e) {
@@ -4131,6 +4108,74 @@ async function startServer() {
         // Also update in stores_data table if orders array exists
         const sId = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId;
         if (sId) {
+          // --- Ensure whatsapp_messages is the primary source of truth ---
+          try {
+            let convId: string | null = null;
+            const { data: conv } = await sbClient.from("whatsapp_conversations").select("id").eq("order_id", matchedOrder.id).limit(1).maybeSingle();
+            if (conv?.id) {
+              convId = conv.id;
+            } else {
+              const { data: newConv } = await sbClient.from("whatsapp_conversations").insert({
+                store_id: sId,
+                order_id: matchedOrder.id,
+                customer_phone: phone || matchedOrder.customerPhone || matchedOrder.customer_phone || "",
+                customer_name: contactName || matchedOrder.customerName || matchedOrder.customer_name || "العميل",
+                last_message_preview: (replyMessage || text || "").slice(0, 120),
+                last_message_at: new Date().toISOString(),
+                last_message_direction: replyMessage ? 'outgoing' : 'incoming'
+              }).select("id").single();
+              convId = newConv?.id || null;
+            }
+
+            if (convId) {
+              await sbClient.from("whatsapp_messages").insert({
+                conversation_id: convId,
+                store_id: sId,
+                order_id: matchedOrder.id,
+                customer_phone: phone || matchedOrder.customerPhone || "",
+                provider: "meta_cloud",
+                provider_message_id: messageId || incomingMsgLog.id,
+                direction: "incoming",
+                message_type: "text",
+                body: text,
+                sender_name: contactName || matchedOrder.customerName || "العميل",
+                sender_phone: phone,
+                recipient_phone: "store",
+                status: "received",
+                occurred_at: incomingMsgLog.timestamp,
+                metadata: { source: source, action: actionName }
+              });
+
+              if (replyMessage && replyMsgLog) {
+                await sbClient.from("whatsapp_messages").insert({
+                  conversation_id: convId,
+                  store_id: sId,
+                  order_id: matchedOrder.id,
+                  customer_phone: phone || matchedOrder.customerPhone || "",
+                  provider: "meta_cloud",
+                  provider_message_id: replyMsgLog.id,
+                  direction: "outgoing",
+                  message_type: "text",
+                  body: replyMessage,
+                  sender_name: "المتجر (رد تلقائي)",
+                  recipient_phone: phone,
+                  status: "sent",
+                  occurred_at: replyMsgLog.timestamp,
+                  sent_at: replyMsgLog.timestamp,
+                  metadata: { source: "auto_reply", action: actionName }
+                });
+
+                await sbClient.from("whatsapp_conversations").update({
+                  last_message_preview: replyMessage.slice(0, 120),
+                  last_message_at: replyMsgLog.timestamp,
+                  last_message_direction: "outgoing"
+                }).eq("id", convId);
+              }
+            }
+          } catch (waMsgErr) {
+            console.error("[WHATSAPP-MESSAGES-PRIMARY-SOURCE-ERR]", waMsgErr);
+          }
+
           const { data: sDoc } = await sbClient.from("stores_data").select("*").eq("id", sId).single();
           if (sDoc && sDoc.orders && Array.isArray(sDoc.orders)) {
             const updatedSbOrders = sDoc.orders.map((o: any) => {
@@ -4605,12 +4650,18 @@ async function startServer() {
       const mode = reqUrl.searchParams.get("hub.mode") || c.req.query("hub.mode") || c.req.query("mode");
       const token = reqUrl.searchParams.get("hub.verify_token") || c.req.query("hub.verify_token") || c.req.query("token");
       const challenge = reqUrl.searchParams.get("hub.challenge") || c.req.query("hub.challenge") || c.req.query("challenge");
+      const verifyToken = process.env.META_VERIFY_TOKEN || 'abdomedi_wa_verify_2024';
 
       console.log(`[WHATSAPP-WEBHOOK-GET] URL=${c.req.url} | mode=${mode}, token=${token}, challenge=${challenge}`);
 
-      if (challenge) {
-        console.log(`✅ [WHATSAPP-WEBHOOK-GET] Returning challenge to Meta: ${challenge}`);
-        return c.text(challenge, 200);
+      if (mode === "subscribe" && token === verifyToken) {
+        if (challenge) {
+          console.log(`✅ [WHATSAPP-WEBHOOK-GET] Token valid. Returning challenge: ${challenge}`);
+          return c.text(challenge, 200);
+        }
+      } else if (mode === "subscribe") {
+        console.warn(`❌ [WHATSAPP-WEBHOOK-GET] Token mismatch. Expected=${verifyToken}, Received=${token}`);
+        return c.text("Forbidden", 403);
       }
     } catch (err) {
       console.error("[WHATSAPP-WEBHOOK-GET] Error parsing challenge:", err);
@@ -10044,78 +10095,13 @@ async function startServer() {
     }
   });
 
-  // Fetch all recent webhook logs (Bosta, Turbo, Akked, Meta) for Monitor Page
+  // Fetch all recent webhook logs (Direct from Supabase)
   app.get("/api/webhooks/all", async (c) => {
-    try {
-      // Allow specific store access if needed, else fetch all for global admin view
-      const storeId = c.req.query("storeId") || c.req.header("X-Store-Id");
-      
-      const [bostaSnap, turboSnap, whatsappSnap] = await Promise.all([
-        getDocs(collection(db, "bosta_webhook_logs")),
-        getDocs(collection(db, "turbo_webhook_logs")),
-        getDocs(collection(db, "whatsapp_webhook_logs")).catch(() => ({ docs: [] })) // Handle if not exists yet
-      ]);
-      
-      const bostaLogs = bostaSnap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          source: 'bosta',
-          sourceLabel: 'شركة بوسطة (Bosta)',
-          eventType: data.rawPayload?.event || data.rawPayload?.type || 'delivery.updated',
-          timestamp: data.receivedAt || new Date().toISOString(),
-          statusCode: 200,
-          statusText: '200 OK',
-          durationMs: data.durationMs || Math.floor(Math.random() * 50) + 20,
-          success: true,
-          trackingNumber: data.trackingNumber,
-          orderNumber: data.orderNumber || data.businessReference,
-          payload: data.rawPayload
-        };
-      });
-
-      const turboLogs = turboSnap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          source: 'turbo',
-          sourceLabel: 'شركة تربو (Turbo)',
-          eventType: 'shipment.status_update',
-          timestamp: data.receivedAt || new Date().toISOString(),
-          statusCode: 200,
-          statusText: '200 OK',
-          durationMs: data.durationMs || Math.floor(Math.random() * 50) + 20,
-          success: true,
-          trackingNumber: data.trackingNumber,
-          orderNumber: data.remoteOrderId,
-          payload: data.rawPayload
-        };
-      });
-      
-      const whatsappLogs = (whatsappSnap as any).docs.map((d: any) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          source: 'whatsapp',
-          sourceLabel: 'ميتا واتساب (Meta Cloud)',
-          eventType: data.eventType || 'messages.received',
-          timestamp: data.receivedAt || new Date().toISOString(),
-          statusCode: 200,
-          statusText: '200 OK',
-          durationMs: data.durationMs || Math.floor(Math.random() * 30) + 10,
-          success: true,
-          payload: data.rawPayload
-        };
-      });
-
-      const combinedLogs = [...bostaLogs, ...turboLogs, ...whatsappLogs];
-      combinedLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
-      return c.json({ success: true, logs: combinedLogs.slice(0, 100) });
-    } catch (err: any) {
-      console.error("[WEBHOOK-LOGS-API-ERROR]", err);
-      return c.json({ success: false, error: err.message, logs: [] }, 500);
-    }
+    return c.json({ 
+      success: true, 
+      message: "Please fetch directly from Supabase client for better security and live updates.",
+      logs: [] 
+    });
   });
 
   // Webhook Simulator for Testing

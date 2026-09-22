@@ -1,17 +1,16 @@
-import { db as firebaseDb, auth } from './firebaseClient';
 import { db as localDb } from '../src/lib/db';
 import { createClient } from '@supabase/supabase-js';
+import { db as firebaseDb, auth } from './firebaseClient';
 import { 
     collection, 
     doc, 
+    setDoc, 
     getDoc, 
     getDocs, 
-    setDoc, 
     deleteDoc, 
     query, 
     where, 
-    getDocFromServer,
-    updateDoc
+    onSnapshot 
 } from 'firebase/firestore';
 import { 
     Store, 
@@ -150,39 +149,31 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-export interface FirestoreErrorInfo {
+export const handleFirestoreError = (err: any, operation: OperationType, path: string) => {
+    console.error(`[FIRESTORE-ERROR] ${operation} failed at ${path}:`, err);
+};
+
+export interface DatabaseErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
   authInfo: {
     userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
   }
 }
 
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+function handleDatabaseError(error: unknown, operationType: OperationType, path: string | null) {
   const errMsg = error instanceof Error ? error.message : String(error);
-  if (errMsg.includes('resource-exhausted') || errMsg.includes('quota') || errMsg.includes('QUOTA_EXCEEDED')) {
-      if (typeof window !== 'undefined') {
-          localStorage.setItem('firestore_quota_exceeded', 'true');
-      }
-      console.warn('[FIRESTORE QUOTA EXCEEDED] Automatically switching to Local/Offline Storage mode.');
-      throw new Error('QUOTA_EXCEEDED');
-  }
-  const errInfo: FirestoreErrorInfo = {
+  
+  const errInfo: DatabaseErrorInfo = {
     error: errMsg,
     authInfo: {
-      userId: localStorage.getItem('currentUserPhone') || null,
-      email: null,
-      emailVerified: null,
-      isAnonymous: null
+      userId: typeof window !== 'undefined' ? localStorage.getItem('currentUserPhone') : null,
     },
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.error('Database Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
 
@@ -213,8 +204,7 @@ export const checkSupabaseConnection = async (): Promise<boolean> => {
             const { error } = await supabase.from('stores_data').select('id').limit(1);
             return !error;
         }
-        await getDocFromServer(doc(firebaseDb, 'stores_data', 'connection_test'));
-        return true;
+        return false;
     } catch (error: any) {
         return false;
     }
@@ -383,14 +373,19 @@ export const deleteStoreItem = async (storeId: string, collectionName: string, i
             LAST_KNOWN_DOC_IDS[hashKey].delete(rawId);
         }
 
-        const docRef = doc(firebaseDb, collectionName, docId);
-        await deleteDoc(docRef).catch(err => {
-            console.warn(`[deleteStoreItem] Firestore delete error for ${collectionName}/${docId}:`, err);
-        });
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            await supabase.from(collectionName).delete().or(`id.eq.${docId},id.eq.${rawId}`).catch(() => {});
+        }
 
-        if (docId !== rawId) {
-            const rawDocRef = doc(firebaseDb, collectionName, rawId);
-            await deleteDoc(rawDocRef).catch(() => {});
+        if (firebaseDb) {
+            const docRef = doc(firebaseDb, collectionName, docId);
+            await deleteDoc(docRef).catch(() => {});
+
+            if (docId !== rawId) {
+                const rawDocRef = doc(firebaseDb, collectionName, rawId);
+                await deleteDoc(rawDocRef).catch(() => {});
+            }
         }
 
         return true;
@@ -417,8 +412,10 @@ function getCollectionHash(items: any[] | null | undefined): string {
 
 export const ensureStoreRecordExists = async (storeId: string, storeName: string): Promise<{ success: boolean, error?: string }> => {
     try {
-        const storeRef = doc(firebaseDb, 'stores_data', storeId);
-        await WITH_TIMEOUT(setDoc(storeRef, { id: storeId, name: storeName }, { merge: true }));
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            await supabase.from('stores_data').upsert({ id: storeId, name: storeName }, { onConflict: 'id' }).catch(() => {});
+        }
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
@@ -665,250 +662,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         }
     }
 
-    try {
-        const storeSnap = await WITH_TIMEOUT(getDoc(doc(firebaseDb, 'stores_data', storeId))).catch(err => {
-            handleFirestoreError(err, OperationType.GET, `stores_data/${storeId}`);
-            throw err;
-        });
-
-        const fetchCollection = async <T>(collectionName: string, localItems: T[]): Promise<T[]> => {
-            try {
-                let snap = await getDocs(query(collection(firebaseDb, collectionName), where('storeId', '==', storeId)));
-                let items = snap.docs.map(doc => {
-                    const data = doc.data();
-                    const detailsObj = data.details && typeof data.details === 'object' ? data.details : (typeof data.details === 'string' && data.details ? JSON.parse(data.details) : {});
-                    const mergedData = { ...detailsObj };
-                    Object.entries(data).forEach(([key, val]) => {
-                        const detailsVal = detailsObj[key];
-                        const isValEmpty = val === null || val === undefined || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
-                        const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
-                        if (isValEmpty && !isDetailsEmpty) {
-                            // Keep non-empty details value
-                        } else {
-                            mergedData[key] = val;
-                        }
-                    });
-                    const rawDocItems = Array.isArray(mergedData.items) ? mergedData.items : (mergedData.items && typeof mergedData.items === 'object' ? Object.values(mergedData.items) : []);
-                    const localOrder = (localItems as any[])?.find(lo => lo.id === doc.id || lo.id === (doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id));
-                    const docItems = (rawDocItems.length > 0 || !(localOrder?.items?.length)) ? rawDocItems : (Array.isArray(localOrder.items) ? localOrder.items : []);
-                    return { 
-                        id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
-                        ...mergedData,
-                        ...(collectionName === 'orders' ? { items: docItems } : {})
-                    } as any;
-                });
-                if (items.length === 0) {
-                    const snap_snake = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', storeId)));
-                    items = snap_snake.docs.map(doc => {
-                        const data = doc.data();
-                        const detailsObj = data.details && typeof data.details === 'object' ? data.details : (typeof data.details === 'string' && data.details ? JSON.parse(data.details) : {});
-                        const mergedData = { ...detailsObj };
-                        Object.entries(data).forEach(([key, val]) => {
-                            const detailsVal = detailsObj[key];
-                            const isValEmpty = val === null || val === undefined || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
-                            const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
-                            if (isValEmpty && !isDetailsEmpty) {
-                                // Keep non-empty details value
-                            } else {
-                                mergedData[key] = val;
-                            }
-                        });
-                        const rawDocItems = Array.isArray(mergedData.items) ? mergedData.items : (mergedData.items && typeof mergedData.items === 'object' ? Object.values(mergedData.items) : []);
-                        const localOrder = (localItems as any[])?.find(lo => lo.id === doc.id || lo.id === (doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id));
-                        const docItems = (rawDocItems.length > 0 || !(localOrder?.items?.length)) ? rawDocItems : (Array.isArray(localOrder.items) ? localOrder.items : []);
-                        return { 
-                            id: doc.id.startsWith(storeId + '_') ? doc.id.substring(storeId.length + 1) : doc.id, 
-                            ...mergedData,
-                            ...(collectionName === 'orders' ? { items: docItems } : {})
-                        } as any;
-                    });
-                }
-                
-                // If forceRemote is true, we trust the cloud even if it's empty
-                // unless it feels like an accidental wipe (safeguard)
-                let finalItems = items;
-                if (items.length === 0 && !forceRemote && localItems.length > 0) {
-                    finalItems = localItems;
-                }
-                
-                // Cache loaded results hash & register known IDs for this client session
-                LAST_SYNCED_HASHES[`${storeId}_${collectionName}`] = getCollectionHash(finalItems);
-                LAST_KNOWN_DOC_IDS[`${storeId}_${collectionName}`] = new Set(finalItems.map(i => {
-                    const baseId = String((i as any).id || (i as any).phone || '');
-                    return baseId.startsWith(storeId) ? baseId : `${storeId}_${baseId}`;
-                }));
-                
-                return finalItems;
-            } catch (err) {
-                return localItems;
-            }
-        };
-
-        const [
-            products, orders, transactions, treasuryAccounts, treasuryTransactions, suppliers, supplyOrders, reviews, abandonedCarts, 
-            activityLogs, employees, discountCodes, collectionsList, customPages, 
-            paymentMethods, customers, globalOptions, shippingIntegrations,
-            partners, partnerTransactions, warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales, cashHolders, cashHandovers,
-            whatsappTemplates, callScripts
-        ] = await Promise.all([
-            fetchCollection<Product>('products', local?.settings?.products || []),
-            fetchCollection<Order>('orders', local?.orders || []),
-            fetchCollection<Transaction>('transactions', local?.wallet?.transactions || []),
-            fetchCollection<TreasuryAccount>('treasury_accounts', local?.treasury?.accounts || []),
-            fetchCollection<TreasuryTransaction>('treasury_transactions', local?.treasury?.transactions || []),
-            fetchCollection<Supplier>('suppliers', local?.settings?.suppliers || []),
-            fetchCollection<SupplyOrder>('supply_orders', local?.settings?.supplyOrders || []),
-            fetchCollection<Review>('reviews', local?.settings?.reviews || []),
-            fetchCollection<AbandonedCart>('abandoned_carts', local?.settings?.abandonedCarts || []),
-            fetchCollection<ActivityLog>('activity_logs', local?.settings?.activityLogs || []),
-            fetchCollection<Employee>('employees', local?.settings?.employees || []),
-            fetchCollection<DiscountCode>('discount_codes', local?.settings?.discountCodes || []),
-            fetchCollection<Collection>('collections', local?.settings?.collections || []),
-            fetchCollection<CustomPage>('custom_pages', local?.settings?.customPages || []),
-            fetchCollection<PaymentMethod>('payment_methods', local?.settings?.paymentMethods || []),
-            fetchCollection<CustomerProfile>('customers', local?.customers || []),
-            fetchCollection<GlobalOption>('global_options', local?.settings?.globalOptions || []),
-            fetchCollection<ShippingCarrierIntegration>('shipping_integrations', local?.settings?.shippingIntegrations || []),
-            fetchCollection<Partner>('partners', local?.settings?.partners || []),
-            fetchCollection<PartnerTransaction>('partner_transactions', local?.settings?.partnerTransactions || []),
-            fetchCollection<Warehouse>('warehouses', local?.settings?.warehouses || []),
-            fetchCollection<InventoryAuditSession>('inventory_audits', local?.settings?.inventoryAudits || []),
-            fetchCollection<StockTransfer>('stock_transfers', local?.settings?.stockTransfers || []),
-            fetchCollection<OrderReturn>('order_returns', local?.settings?.orderReturns || []),
-            fetchCollection<PurchaseReturn>('purchase_returns', local?.settings?.purchaseReturns || []),
-            fetchCollection<POSSale>('pos_sales', local?.settings?.posSales || []),
-            fetchCollection<CashHolder>('cash_holders', local?.settings?.cashHolders || []),
-            fetchCollection<CashHandover>('cash_handovers', local?.settings?.cashHandovers || []),
-            fetchCollection<WhatsAppTemplate>('whatsapp_templates', local?.settings?.whatsappTemplates || []),
-            fetchCollection<CallScript>('call_scripts', local?.settings?.callScripts || [])
-        ]);
-
-        const storeSnapData = storeSnap.exists() ? storeSnap.data() : {};
-        const storeSettings = storeSnapData.settings || {};
-        const storeName = storeSnapData.name || '';
-
-        let finalProducts = products;
-        if (finalProducts.length === 0) {
-            // Priority: Cloud Relational -> Cloud Legacy -> Local Cache -> Initial
-            if (storeSettings.products && Array.isArray(storeSettings.products) && storeSettings.products.length > 0) {
-                finalProducts = storeSettings.products;
-            } else if (local?.settings?.products && Array.isArray(local?.settings?.products) && local.settings.products.length > 0) {
-                finalProducts = local.settings.products;
-            } else if (!storeSnap.exists() && !local) {
-                // Only provide initial demo products if store is brand-new and has never been created
-                finalProducts = INITIAL_SETTINGS.products || [];
-            } else {
-                finalProducts = [];
-            }
-        }
-
-        let finalCollections = collectionsList;
-        if (finalCollections.length === 0) {
-            finalCollections = (storeSettings.collections && storeSettings.collections.length > 0)
-                ? storeSettings.collections
-                : (!storeSnap.exists() && !local ? (INITIAL_SETTINGS.collections || []) : []);
-        }
-
-        let finalReviews = reviews;
-        if (finalReviews.length === 0) {
-            finalReviews = (storeSettings.reviews && storeSettings.reviews.length > 0)
-                ? storeSettings.reviews
-                : (!storeSnap.exists() && !local ? (INITIAL_SETTINGS.reviews || []) : []);
-        }
-
-        const walletSettingsObj = storeSettings.wallet_settings;
-        const withdrawRequestsArr = storeSettings.withdraw_requests || [];
-        const supplyBalanceNum = storeSettings.supply_balance || 0;
-        const mainBalanceNum = storeSettings.wallet_balance || 0;
-
-        const customization = {
-            ...(INITIAL_SETTINGS.customization || {}),
-            ...(storeSettings.customization || {})
-        };
-        // Ensure pageSections exists
-        if (!customization.pageSections || customization.pageSections.length === 0) {
-            customization.pageSections = INITIAL_SETTINGS.customization.pageSections;
-        }
-
-        const fullData: StoreData = {
-            settings: {
-                ...INITIAL_SETTINGS,
-                ...storeSettings,
-                customization,
-                products: finalProducts,
-                suppliers: suppliers.length > 0 ? suppliers : (storeSettings.suppliers || local?.settings?.suppliers || []),
-                supplyOrders: supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || []),
-                reviews: finalReviews,
-                abandonedCarts: abandonedCarts.length > 0 ? abandonedCarts : (storeSettings.abandonedCarts || local?.settings?.abandonedCarts || []),
-                activityLogs: activityLogs.length > 0 ? activityLogs : (storeSettings.activityLogs || local?.settings?.activityLogs || []),
-                employees: employees.length > 0 ? employees : (storeSettings.employees || []),
-                discountCodes: discountCodes.length > 0 ? discountCodes : (storeSettings.discountCodes || local?.settings?.discountCodes || []),
-                collections: finalCollections,
-                customPages: customPages.length > 0 ? customPages : (storeSettings.customPages || local?.settings?.customPages || []),
-                paymentMethods: paymentMethods.length > 0 ? paymentMethods : (storeSettings.paymentMethods || local?.settings?.paymentMethods || []),
-                globalOptions: globalOptions.length > 0 ? globalOptions : (storeSettings.globalOptions || local?.settings?.globalOptions || []),
-                shippingIntegrations: shippingIntegrations.length > 0 ? shippingIntegrations : (storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || []),
-                partners: partners.length > 0 ? partners : (storeSettings.partners || local?.settings?.partners || []),
-                partnerTransactions: partnerTransactions.length > 0 ? partnerTransactions : (storeSettings.partnerTransactions || local?.settings?.partnerTransactions || []),
-                warehouses: warehouses.length > 0 ? warehouses : (storeSettings.warehouses || local?.settings?.warehouses || []),
-                inventoryAudits: inventoryAudits.length > 0 ? inventoryAudits : (storeSettings.inventoryAudits || []),
-                stockTransfers: stockTransfers.length > 0 ? stockTransfers : (storeSettings.stockTransfers || []),
-                orderReturns: orderReturns.length > 0 ? orderReturns : (storeSettings.orderReturns || []),
-                purchaseReturns: purchaseReturns.length > 0 ? purchaseReturns : (storeSettings.purchaseReturns || []),
-                posSales: posSales.length > 0 ? posSales : (storeSettings.posSales || []),
-                cashHolders: (cashHolders.length > 0 ? cashHolders : (storeSettings.cashHolders || [])).map((ch: any) => ({
-                    ...ch,
-                    userId: ch.userId || ch.user_id || ch.id || '',
-                    userName: ch.userName || ch.user_name || '',
-                    currentBalance: Number(ch.currentBalance ?? ch.current_balance ?? 0),
-                    lastUpdated: ch.lastUpdated || ch.last_updated || new Date().toISOString()
-                })),
-                cashHandovers: cashHandovers.length > 0 ? cashHandovers : (storeSettings.cashHandovers || []),
-                whatsappTemplates: whatsappTemplates,
-                callScripts: callScripts
-            },
-            orders: orders,
-            wallet: { 
-                balance: mainBalanceNum,
-                supplyBalance: supplyBalanceNum,
-                transactions: transactions,
-                settings: walletSettingsObj,
-                withdrawRequests: withdrawRequestsArr
-            },
-            treasury: {
-                accounts: treasuryAccounts,
-                transactions: treasuryTransactions
-            },
-            cart: [],
-            customers: customers
-        };
-
-        if (typeof window !== 'undefined') {
-            const localUrl = localStorage.getItem('custom_cloud_url');
-            const localKey = localStorage.getItem('custom_cloud_anon_key');
-            
-            if (fullData.settings.supabaseUrl && fullData.settings.supabaseAnonKey) {
-                if (localUrl !== fullData.settings.supabaseUrl || localKey !== fullData.settings.supabaseAnonKey) {
-                    console.log('[SUPABASE] Detected global database connection in settings. Activating for this device...');
-                    localStorage.setItem('custom_cloud_url', fullData.settings.supabaseUrl);
-                    localStorage.setItem('custom_cloud_anon_key', fullData.settings.supabaseAnonKey);
-                    // Re-fetch now that localStorage has the custom connection
-                    return getStoreData(storeId, forceRemote);
-                }
-            } else if (localUrl && localKey) {
-                // Ensure fullData.settings retains the custom connection credentials
-                fullData.settings.supabaseUrl = localUrl;
-                fullData.settings.supabaseAnonKey = localKey;
-            }
-        }
-
-        // Cache fetched data to local
-        await saveLocal(storeId, fullData);
-        return fullData;
-    } catch (err: any) {
-        // Fallback to local if fetch fails
-        return local;
-    }
+    return local;
 };
 
 export const saveStoreData = async (store: Store, data: StoreData): Promise<{ success: boolean, error?: string }> => {
@@ -1693,7 +1447,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 }
                 
                 const existingDbDocs = snap.docs.map(doc => ({ _ref: doc.ref, id: doc.id, ...doc.data() }) as any);
-                const existingDocsMap = new Map(existingDbDocs.map(doc => [doc.id, doc]));
+                const existingDocsMap = new Map<string, any>(existingDbDocs.map(doc => [doc.id as string, doc]));
 
                 const activeIds = new Set(stateItems.map(item => {
                     const baseId = String(item[idField] || item.phone || item.id);
@@ -2197,37 +1951,29 @@ export const updateUserInSupabase = async (user: User): Promise<{ success: boole
 
 export const getUserByPhone = async (phone: string): Promise<User | null> => {
     try {
-        // Try Firestore first if authenticated
-        if (auth.currentUser) {
-            console.log('[FIRESTORE] Fetching user by phone:', phone);
-            const userRef = doc(firebaseDb, 'users', phone);
-            try {
-                const docSnap = await getDoc(userRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    return {
-                        fullName: data.fullName || '',
-                        phone: docSnap.id,
-                        email: data.email || '',
-                        stores: data.stores || [],
-                        sites: data.sites || [],
-                        isAdmin: data.isAdmin || false,
-                        isBanned: data.isBanned || false,
-                        joinDate: data.joinDate || ''
-                    };
-                }
-            } catch (fsErr: any) {
-                if (fsErr?.code === 'permission-denied') {
-                    console.log('[FIRESTORE] Access denied to user doc (expected for non-admins), falling back to Supabase...');
-                } else {
-                    console.warn('[DATABASE-SERVICE] Firestore fetch in getUserByPhone failed:', fsErr);
-                }
+        console.log('[FIRESTORE] Fetching user by phone:', phone);
+        const userRef = doc(firebaseDb, 'users', phone);
+        try {
+            const docSnap = await getDoc(userRef);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                return {
+                    fullName: data.fullName || '',
+                    phone: docSnap.id,
+                    email: data.email || '',
+                    password: data.password || '',
+                    stores: data.stores || [],
+                    sites: data.sites || [],
+                    isAdmin: data.isAdmin || false,
+                    isBanned: data.isBanned || false,
+                    joinDate: data.joinDate || ''
+                };
             }
-        } else {
-            console.log('[AUTH GUARD] Skipping Firestore getUserByPhone because user is not authenticated.');
+        } catch (fsErr: any) {
+            console.warn('[DATABASE-SERVICE] Firestore fetch in getUserByPhone failed:', fsErr);
         }
 
-        // If not found, failed, or not authenticated, try Supabase if active
+        // Try Supabase if not found in Firestore or if Firestore check failed
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
@@ -2261,17 +2007,12 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
 
 export const createUserDoc = async (user: User): Promise<boolean> => {
     try {
-        if (!auth.currentUser) {
-            console.log('[AUTH GUARD] Skipping Firestore createUserDoc because user is not authenticated.');
-            return false;
-        }
-        
-        console.log('[FIRESTORE] Creating user document inside Firestore (no password storage) for:', user.phone);
+        console.log('[FIRESTORE] Creating/Updating user record in Firestore for:', user.phone);
         const userRef = doc(firebaseDb, 'users', user.phone);
         const userPayload = {
             fullName: user.fullName,
-            phone: user.phone,
             email: user.email,
+            password: user.password || '',
             stores: user.stores || [],
             sites: user.sites || [],
             isAdmin: user.isAdmin || false,
@@ -2279,7 +2020,24 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
             joinDate: user.joinDate || new Date().toISOString(),
             ownedStoreIds: (user.stores || []).map(s => s.id)
         };
-        await setDoc(userRef, userPayload);
+        await setDoc(userRef, userPayload, { merge: true });
+        console.log('[FIRESTORE] Successfully created user record in Firestore.');
+
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            console.log('[SUPABASE] Creating/Updating user record in Supabase for:', user.phone);
+            const supabasePayload = {
+                full_name: user.fullName,
+                phone: user.phone,
+                email: user.email,
+                stores: user.stores || [],
+                sites: user.sites || [],
+                is_admin: user.isAdmin || false,
+                is_banned: user.isBanned || false,
+                join_date: user.joinDate || new Date().toISOString()
+            };
+            await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
+        }
         return true;
     } catch (err) {
         console.error('[DATABASE-SERVICE] Error in createUserDoc:', err);

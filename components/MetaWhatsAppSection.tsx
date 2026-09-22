@@ -50,11 +50,12 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
   );
   const [metaConfigId, setMetaConfigId] = useState(config.metaConfigId || '');
   const [metaAppSecret, setMetaAppSecret] = useState(config.metaAppSecret || '');
-  const [metaVerifyToken, setMetaVerifyToken] = useState(config.metaVerifyToken || 'abdomedi_whatsapp_meta_token');
+  const [metaVerifyToken, setMetaVerifyToken] = useState(config.metaVerifyToken || 'abdomedi_wa_verify_2024');
   const [metaTemplateName, setMetaTemplateName] = useState(config.metaTemplateName || '');
   const [metaTemplateLanguage, setMetaTemplateLanguage] = useState(config.metaTemplateLanguage || 'ar');
 
   // WABA Discovery State (Phone Numbers & Templates from Meta Graph API)
+  const [showAccessToken, setShowAccessToken] = useState(false);
   const [fetchedPhoneNumbers, setFetchedPhoneNumbers] = useState<any[]>([]);
   const [isLoadingPhoneNumbers, setIsLoadingPhoneNumbers] = useState(false);
   const [fetchedTemplates, setFetchedTemplates] = useState<any[]>([]);
@@ -399,7 +400,7 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
       metaAppId: metaAppId.trim() || undefined,
       metaAppSecret: metaAppSecret.trim() || undefined,
       metaConfigId: metaConfigId.trim() || undefined,
-      metaVerifyToken: metaVerifyToken.trim() || 'abdomedi_whatsapp_meta_token',
+      metaVerifyToken: metaVerifyToken.trim() || 'abdomedi_wa_verify_2024',
       metaTemplateName: metaTemplateName.trim() || undefined,
       metaTemplateLanguage: metaTemplateLanguage.trim() || 'ar'
     };
@@ -1106,7 +1107,7 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
               <ol className="list-decimal list-inside space-y-1.5 leading-relaxed font-medium">
                 <li>افتح تطبيقك في <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-blue-600 underline font-bold">Meta Developers</a> ثم اختر <strong>WhatsApp &gt; Configuration</strong>.</li>
                 <li>انقر على زر <strong>Edit</strong> بجانب الـ Webhook.</li>
-                <li>الصق رابط الـ <strong>Callback URL</strong> (<code>https://app.abdomedi.com/api/webhook/whatsapp</code>) ورمز الـ <strong>Verify Token</strong> (<code>abdomedi_whatsapp_meta_token</code>).</li>
+                <li>الصق رابط الـ <strong>Callback URL</strong> (<code>https://app.abdomedi.com/api/webhook/whatsapp</code>) ورمز الـ <strong>Verify Token</strong> (<code>abdomedi_wa_verify_2024</code>).</li>
                 <li>انقر <strong>Verify and Save</strong> (سيتفعل فورياً لأن الخادم مهيأ للرد على التحدي).</li>
                 <li>في جدول Webhook Fields، فعّل خيار <strong>messages</strong> لتلقي ضغطات الأزرار التفاعلية تلقائياً!</li>
               </ol>
@@ -1489,18 +1490,56 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                    <span>Access Token (رمز الوصول الدائم) *</span>
-                    <span className="text-[10px] text-slate-400">System User Token أو EAAG...</span>
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="EAAGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                    value={accessToken}
-                    onChange={(e) => setAccessToken(e.target.value)}
-                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500"
-                    dir="ltr"
-                  />
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                      Access Token (رمز الوصول الدائم) *
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {accessToken && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAccessToken(!showAccessToken)}
+                          className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                        >
+                          {showAccessToken ? '🙈 إخفاء الرمز' : '👁️ إظهار الرمز'}
+                        </button>
+                      )}
+                      {accessToken && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAccessToken('');
+                            setShowAccessToken(true);
+                          }}
+                          className="text-[11px] font-bold text-red-500 hover:text-red-700"
+                        >
+                          تغيير الرمز
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {showAccessToken || !accessToken ? (
+                    <textarea
+                      rows={3}
+                      placeholder="EAAGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      value={accessToken}
+                      onChange={(e) => setAccessToken(e.target.value)}
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                      dir="ltr"
+                    />
+                  ) : (
+                    <div className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700/50 rounded-xl flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                          EAAG••••••••••••••••{accessToken.slice(-6)}
+                        </span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md">
+                          محفوظ ومحمي
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1532,13 +1571,10 @@ export const MetaWhatsAppSection: React.FC<MetaWhatsAppSectionProps> = ({
                     <label className="text-xs font-black text-slate-700 dark:text-slate-300">
                       Webhook Verify Token
                     </label>
-                    <input
-                      type="text"
-                      value={metaVerifyToken}
-                      onChange={(e) => setMetaVerifyToken(e.target.value)}
-                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500"
-                      dir="ltr"
-                    />
+                    <div className="w-full p-3 bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-500 flex items-center justify-between">
+                      <span>{metaVerifyToken || 'abdomedi_wa_verify_2024'}</span>
+                      <span className="text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded italic">نظامي</span>
+                    </div>
                   </div>
                 </div>
 

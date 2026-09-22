@@ -85,6 +85,41 @@ const INITIAL_CUSTOMIZATION: StoreCustomization = {
   }
 };
 
+export const generateBostaShippingOptions = (): ShippingOption[] => {
+  return EGYPT_GOVERNORATES.map((gov, index) => {
+    let defaultPrice = 65;
+    if (["القاهرة", "الجيزة", "الإسكندرية"].includes(gov.name)) defaultPrice = 45;
+    else if (["القليوبية", "المنوفية", "الدقهلية", "الغربية", "الشرقية", "البحيرة", "دمياط", "كفر الشيخ"].includes(gov.name)) defaultPrice = 55;
+    else if (["بورسعيد", "الإسماعيلية", "السويس"].includes(gov.name)) defaultPrice = 60;
+    else if (["قنا", "الأقصر", "أسوان", "سوهاج", "أسيوط", "المنيا", "بني سويف", "الفيوم"].includes(gov.name)) defaultPrice = 70;
+    else if (["البحر الأحمر", "مطروح", "الوادي الجديد", "الساحل الشمالي", "جنوب سيناء", "شمال سيناء"].includes(gov.name)) defaultPrice = 85;
+
+    return {
+      id: `bosta_gov_${index + 1}`,
+      label: gov.name,
+      details: 'شحن بوسطة الرسمي',
+      deliveryPrice: defaultPrice, 
+      baseWeight: 1,
+      extraKgPrice: 10,
+      returnPrice: 35,
+      exchangePrice: 35,
+      cashCollectionPrice: 15,
+      returnToSenderPrice: 35,
+      cities: gov.cities.map((city, cIndex) => ({
+        id: `bosta_city_${index + 1}_${cIndex + 1}`,
+        name: city,
+        deliveryPrice: defaultPrice,
+        extraKgPrice: 10,
+        returnPrice: 35,
+        exchangePrice: 35,
+        cashCollectionPrice: 15,
+        returnToSenderPrice: 35,
+        useParentFees: true
+      }))
+    };
+  });
+};
+
 export const EGYPT_GOVERNORATES = [
     { name: "القاهرة", cities: ["مدينة نصر", "مصر الجديدة", "المعادي", "التجمع الخامس", "الرحاب", "مدينتي", "الشروق", "العبور", "بدر", "المقطم", "وسط البلد", "شبرا", "عين شمس", "المطرية", "المرج", "الزيتون", "حدائق القبة", "الوايلي", "الزاوية الحمراء", "الشرابية", "الساحل", "روض الفرج", "بولاق", "منشأة ناصر", "الجمالية", "الدرب الأحمر", "باب الشعرية", "الموسكي", "الأزبكية", "عابدين", "السيدة زينب", "مصر القديمة", "البساتين", "دار السلام", "المعصرة", "حلوان", "التبين", "15 مايو", "الزمالك", "جاردن سيتي", "المنيل", "الفسطاط", "الأميرية", "الحلمية", "طره"] },
     { name: "الجيزة", cities: ["6 أكتوبر", "الشيخ زايد", "الهرم", "فيصل", "الدقي", "المهندسين", "العجوزة", "إمبابة", "الوراق", "بولاق الدكرور", "العمرانية", "الطالبية", "الجيزة", "الحوامدية", "البدرشين", "العياط", "الصف", "أطفيح", "الواحات البحرية", "أوسيم", "كرداسة", "أبو النمرس", "منشأة القناطر", "الحرانية", "سقارة", "ميت رهينة", "أرض اللواء"] },
@@ -302,10 +337,11 @@ export const INITIAL_SETTINGS: Settings = {
   warehouses: [],
   shippingOptions: {
     'شحن داخلي': generateEgyptShippingOptions(),
+    'بوسطة': generateBostaShippingOptions(),
     'تربو': generateTurboShippingOptions()
   },
-  activeCompanies: { 'شحن داخلي': true, 'تربو': true },
-  exchangeSupported: { 'شحن داخلي': true, 'تربو': true },
+  activeCompanies: { 'شحن داخلي': true, 'بوسطة': true, 'تربو': true },
+  exchangeSupported: { 'شحن داخلي': true, 'بوسطة': true, 'تربو': true },
   companySpecificFees: {
     'شحن داخلي': {
       insuranceFeePercent: 1,
@@ -322,6 +358,23 @@ export const INITIAL_SETTINGS: Settings = {
       enableExchange: true,
       enableFixedReturn: true,
       postCollectionReturnRefundsProductPrice: true,
+    },
+    'بوسطة': {
+      insuranceFeePercent: 1,
+      inspectionFee: 7,
+      returnShippingFee: 35,
+      useCustomFees: false,
+      defaultInspectionActive: true,
+      enableCodFees: true,
+      codThreshold: 2000,
+      codFeeRate: 0.01,
+      codTaxRate: 0.14,
+      enableReturnAfter: true,
+      enableReturnWithout: true,
+      enableExchange: true,
+      enableFixedReturn: true,
+      postCollectionReturnRefundsProductPrice: true,
+      baseWeight: 1
     },
     'تربو': {
       insuranceFeePercent: 0,

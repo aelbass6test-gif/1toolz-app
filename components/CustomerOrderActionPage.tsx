@@ -15,8 +15,7 @@ import {
   Check,
   ArrowRight
 } from 'lucide-react';
-import { db as firebaseDb } from '../services/firebaseClient';
-import { collection, getDocs, doc, getDoc, setDoc } from 'firebase/firestore';
+import { getSupabaseClient } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 
 interface CustomerOrderActionPageProps {
@@ -226,40 +225,22 @@ export const CustomerOrderActionPage: React.FC<CustomerOrderActionPageProps> = (
         }
       }
 
-      // Strategy 5: Direct Firestore Query in 'orders' collection
-      if (!targetOrder && firebaseDb) {
+      // Strategy 5: Direct Supabase Query in 'orders' table
+      const supabase = getSupabaseClient();
+      if (!targetOrder && supabase) {
         try {
-          const ordersSnap = await getDocs(collection(firebaseDb, 'orders'));
-          for (const ordDoc of ordersSnap.docs) {
-            const ordData = { id: ordDoc.id, ...ordDoc.data() as any };
-            if (matchesOrder(ordData)) {
-              targetOrder = ordData;
-              foundStoreId = ordData.storeId || ordData.store_id || null;
-              break;
+          const { data: ords } = await supabase.from('orders').select('*').limit(30);
+          if (ords) {
+            for (const ordData of ords) {
+              if (matchesOrder(ordData)) {
+                targetOrder = ordData;
+                foundStoreId = ordData.storeId || ordData.store_id || null;
+                break;
+              }
             }
           }
-        } catch (fErr) {
-          console.warn('Firestore orders collection search note:', fErr);
-        }
-      }
-
-      // Strategy 6: Direct Firestore Query in 'stores_data' collection
-      if (!targetOrder && firebaseDb) {
-        try {
-          const storesSnap = await getDocs(collection(firebaseDb, 'stores_data'));
-          for (const sDoc of storesSnap.docs) {
-            const sData = sDoc.data();
-            const sOrders = sData.orders || sData.storeData?.orders || [];
-            const match = sOrders.find(matchesOrder);
-            if (match) {
-              targetOrder = match;
-              foundStoreId = sDoc.id;
-              foundStoreName = sData.settings?.general?.storeName || sData.settings?.storeName || sData.name || foundStoreName;
-              break;
-            }
-          }
-        } catch (fErr) {
-          console.warn('Firestore stores_data search note:', fErr);
+        } catch (sbErr) {
+          console.warn('Supabase orders search note:', sbErr);
         }
       }
 
@@ -340,32 +321,21 @@ export const CustomerOrderActionPage: React.FC<CustomerOrderActionPageProps> = (
         notes: `${currentOrder.notes || ''} [بوابة العميل: ${actionType === 'confirm' ? 'تأكيد الطلب' : actionType === 'cancel' ? 'إلغاء الطلب' : `تعديل العنوان إلى: ${newAddress}`}]`.trim()
       };
 
-      // 1. Direct Firestore Update (Orders Collection)
-      if (firebaseDb) {
+      // 1. Direct Supabase Update (Orders Table)
+      const supabase = getSupabaseClient();
+      if (supabase) {
         try {
-          const docId = currentOrder.id || `${currentStoreId || 'store'}_${currentOrder.orderNumber}`;
-          await setDoc(doc(firebaseDb, 'orders', docId), updatedOrderObj, { merge: true });
-        } catch (fErr) {
-          console.warn('Direct Firestore orders collection update notice:', fErr);
-        }
-      }
-
-      // 2. Direct Firestore Update (Stores Data Collection)
-      if (firebaseDb && currentStoreId) {
-        try {
-          const storeRef = doc(firebaseDb, 'stores_data', currentStoreId);
-          const storeDoc = await getDoc(storeRef);
-          if (storeDoc.exists()) {
-            const data = storeDoc.data();
-            const currentOrders = data.orders || [];
-            const idx = currentOrders.findIndex((o: any) => String(o.id) === String(currentOrder.id) || String(o.orderNumber) === String(currentOrder.orderNumber));
-            if (idx !== -1) {
-              currentOrders[idx] = { ...currentOrders[idx], ...updatedOrderObj };
-              await setDoc(storeRef, { orders: currentOrders }, { merge: true });
-            }
+          const docId = currentOrder.id;
+          if (docId) {
+            await supabase.from('orders').update({
+              status: targetStatus,
+              customer_address: updatedOrderObj.customerAddress,
+              notes: updatedOrderObj.notes,
+              updated_at: updatedOrderObj.updatedAt
+            }).eq('id', docId);
           }
-        } catch (fErr) {
-          console.warn('Direct Firestore stores_data update notice:', fErr);
+        } catch (sbErr) {
+          console.warn('Direct Supabase orders table update notice:', sbErr);
         }
       }
 

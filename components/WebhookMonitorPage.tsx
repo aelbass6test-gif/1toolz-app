@@ -13,6 +13,7 @@ import {
 } from '../services/webhookDispatcherService';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, Order } from '../types';
+import { getSupabaseClient } from '../services/databaseService';
 
 interface WebhookMonitorPageProps {
   settings: Settings;
@@ -78,12 +79,40 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
   const [simulateModalOpen, setSimulateModalOpen] = useState(false);
   const [simulationResult, setSimulationResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Sync logs from both inbound & outbound logs
+  // Sync logs from Supabase for "Direct & Secure Search"
   const refreshLogs = async () => {
-    let combined: InboundWebhookEvent[] = [];
+    const supabase = getSupabaseClient();
+    if (!supabase || !activeStoreId) {
+      console.log('[WEBHOOK] Supabase client or activeStoreId pending for log refresh');
+      return;
+    }
 
-    // 1. Get Outbound Logs (Local Storage)
     try {
+      const { data, error } = await supabase
+        .from('webhook_logs')
+        .select('*')
+        .eq('store_id', activeStoreId)
+        .order('occurred_at', { ascending: false })
+        .limit(200);
+
+      if (error) throw error;
+
+      const formatted: InboundWebhookEvent[] = (data || []).map(o => ({
+        id: o.id,
+        source: o.source as any,
+        sourceLabel: o.source === 'meta_whatsapp' ? 'WhatsApp (Meta)' : (o.source === 'bosta' ? 'Bosta' : (o.source === 'turbo' ? 'Turbo' : o.source)),
+        eventType: o.event_type,
+        timestamp: o.occurred_at,
+        statusCode: o.status_code || (o.success ? 200 : 500),
+        statusText: o.success ? 'OK' : 'Error',
+        durationMs: 0,
+        success: o.success,
+        payload: o.payload,
+        headers: o.headers,
+        error: o.error_message
+      }));
+
+      // Add outbound logs from local storage if any (to keep the combined view)
       const outboundRaw = getStoredWebhookLogs();
       const outboundFormatted: InboundWebhookEvent[] = outboundRaw.map(o => ({
         id: o.id || `out_${o.eventId}_${Math.random()}`,
@@ -92,99 +121,24 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
         eventType: o.event || 'webhook.dispatch',
         timestamp: o.timestamp,
         statusCode: o.statusCode || (o.success ? 200 : 500),
-        statusText: o.statusText || (o.success ? 'OK' : 'Error'),
+        statusText: o.success ? 'OK' : 'Error',
         durationMs: o.durationMs || 45,
         success: o.success,
         orderNumber: o.payloadSummary?.orderNumber,
         payload: o.fullPayload || o.payloadSummary,
         error: o.error
       }));
-      combined = [...outboundFormatted];
-    } catch (e) {
-      console.warn("Could not load outbound logs", e);
-    }
 
-    // 2. Fetch Inbound Logs from Server (Bosta, Turbo, WhatsApp)
-    try {
-      const res = await fetch('/api/webhooks/all');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && Array.isArray(data.logs)) {
-          combined = [...combined, ...data.logs];
-        }
-      }
+      const combined = [...formatted, ...outboundFormatted].sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      setLogs(combined);
     } catch (err) {
-      console.error('Failed to fetch server webhook logs:', err);
-      // Fallback to local inbound logs
-      const inbound = getStoredInboundLogs();
-      combined = [...combined, ...inbound];
+      console.error('Failed to fetch webhook logs from Supabase:', err);
+      // Fallback to local logs
+      setLogs(getStoredInboundLogs());
     }
-
-    // If initial empty state, seed with realistic health check events if none exist
-    if (combined.length === 0) {
-      const now = new Date();
-      const initialLogs: InboundWebhookEvent[] = [
-        {
-          id: 'init_turbo_1',
-          source: 'turbo',
-          sourceLabel: 'شركة تربو (Turbo)',
-          eventType: 'shipment.status_update',
-          timestamp: new Date(now.getTime() - 1000 * 60 * 4).toISOString(),
-          statusCode: 200,
-          statusText: '200 OK',
-          durationMs: 38,
-          success: true,
-          trackingNumber: 'TRB-894210',
-          orderNumber: orders[0]?.orderNumber || 'ORD-1001',
-          payload: {
-            event: 'DELIVERED',
-            status: 'تم التسليم بنجاح',
-            tracking_code: 'TRB-894210',
-            collected_amount: 580,
-            date: new Date().toISOString()
-          }
-        },
-        {
-          id: 'init_bosta_1',
-          source: 'bosta',
-          sourceLabel: 'شركة بوسطة (Bosta)',
-          eventType: 'delivery.updated',
-          timestamp: new Date(now.getTime() - 1000 * 60 * 18).toISOString(),
-          statusCode: 200,
-          statusText: '200 OK',
-          durationMs: 42,
-          success: true,
-          trackingNumber: 'BST-40291',
-          orderNumber: orders[1]?.orderNumber || 'ORD-1002',
-          payload: {
-            state: 'Delivered',
-            trackingNumber: 'BST-40291',
-            packageCOD: 420,
-            subType: 'Delivery'
-          }
-        },
-        {
-          id: 'init_wa_1',
-          source: 'whatsapp',
-          sourceLabel: 'ميتا واتساب (Meta Cloud)',
-          eventType: 'messages.received',
-          timestamp: new Date(now.getTime() - 1000 * 60 * 35).toISOString(),
-          statusCode: 200,
-          statusText: '200 OK',
-          durationMs: 25,
-          success: true,
-          payload: {
-            object: 'whatsapp_business_account',
-            entry: [{ changes: [{ value: { messages: [{ from: '201012345678', text: { body: 'تم تأكيد الاستلام شكرا' } }] } }] }]
-          }
-        }
-      ];
-      initialLogs.forEach(recordInboundLog);
-      combined = initialLogs;
-    }
-
-    combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    setLogs(combined);
   };
 
   useEffect(() => {

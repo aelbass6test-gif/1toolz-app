@@ -7,8 +7,6 @@ import { getLatestProductCost, calculateInsuranceFee, getStandardShippingFee, ca
 import { OrderPreConfirmationModal } from './OrderPreConfirmationModal';
 import { OrderConfirmationSummary } from './OrderConfirmationSummary';
 import { triggerWebhooks } from '../utils/webhook';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc } from 'firebase/firestore';
 import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
 import { deductOrderStock } from '../utils/inventoryManager';
@@ -58,7 +56,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         floorNumber: '',
         apartmentNumber: '',
         items: [],
-        shippingCompany: Object.keys(settings?.shippingOptions || {})[0] || 'بوسطة',
+        shippingCompany: '',
         governorate: '',
         city: '',
         shippingFee: 0,
@@ -554,8 +552,14 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 laborCost: 0
             };
 
-            addDoc(collection(db, 'maintenance_requests'), maintenanceRequest)
-                .catch(err => console.error("Error creating linked maintenance request:", err));
+            const supabase = getSupabaseClient();
+            if (supabase) {
+                supabase
+                    .from('maintenance_requests')
+                    .insert(maintenanceRequest)
+                    .then(() => {})
+                    .catch(err => console.error("Error creating linked maintenance request:", err));
+            }
         }
         // ----------------------------------
 

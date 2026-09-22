@@ -561,7 +561,8 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
             category: 'manual_deposit' as TransactionCategory
           };
 
-          const updatedAccounts = (treasury.accounts || []).map((acc: TreasuryAccount) => {
+          const currentAccList = Array.isArray(treasury.accounts) ? treasury.accounts : Object.values(treasury.accounts || {});
+          const updatedAccounts = currentAccList.map((acc: any) => {
             if (acc.id === modalTreasuryAccountId) {
               return {
                 ...acc,
@@ -1356,7 +1357,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
                           المحفظة الماليّة المركزيّة (الرصيد الأساسي) - الرصيد: {Math.round(calculateWalletLiveBalance(wallet, treasury) * 100) / 100} ج.م
                         </option>
                       )}
-                      {treasury?.accounts.map(acc => (
+                      {(Array.isArray(treasury?.accounts) ? treasury.accounts : Object.values(treasury?.accounts || {})).map((acc: any) => (
                         <option key={acc.id} value={acc.id}>
                           {acc.name} ({acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'خزينة'}) - الرصيد: {acc.balance} ج.م
                         </option>

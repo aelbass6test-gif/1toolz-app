@@ -339,7 +339,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
       totalLoans,
       totalRepaid,
       netLoans: Math.max(0, totalLoans - totalRepaid),
-      currentBalance: partner.balance,
+      currentBalance: partner.balance ?? 0,
       partnerCustody,
       partnerUnallocatedProfit,
       settledCustodyTotal
@@ -441,11 +441,11 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
         
         <div style="background: #ffffff; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; text-align: right;">
           <div style="font-size: 9px; color: #64748b; font-weight: bold;">الرصيد الصافي</div>
-          <div style="font-size: 13px; font-weight: 900; color: ${partner.balance >= 0 ? '#059669' : '#dc2626'}; font-family: monospace; margin-top: 4px;">
-            ${partner.balance.toLocaleString()} ج.م
+          <div style="font-size: 13px; font-weight: 900; color: ${(partner.balance ?? 0) >= 0 ? '#059669' : '#dc2626'}; font-family: monospace; margin-top: 4px;">
+            ${(partner.balance ?? 0).toLocaleString()} ج.م
           </div>
-          <div style="font-size: 8px; color: ${partner.balance >= 0 ? '#059669' : '#dc2626'}; font-weight: bold;">
-            ${partner.balance >= 0 ? 'مستحق للشريك' : 'سلفة عليه'}
+          <div style="font-size: 8px; color: ${(partner.balance ?? 0) >= 0 ? '#059669' : '#dc2626'}; font-weight: bold;">
+            ${(partner.balance ?? 0) >= 0 ? 'مستحق للشريك' : 'سلفة عليه'}
           </div>
         </div>
 
@@ -596,8 +596,8 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
                 <td colspan="3" style="padding: 10px 12px; text-align: right; color: #1e293b;">
                   صافي الرصيد الختامي بعد جميع الحركات:
                 </td>
-                <td colspan="2" style="padding: 10px 12px; text-align: left; font-size: 14px; font-weight: 900; color: ${partner.balance >= 0 ? '#059669' : '#dc2626'}; font-family: monospace;">
-                  ${partner.balance >= 0 ? '+' : ''}${partner.balance.toLocaleString()} ج.م
+                <td colspan="2" style="padding: 10px 12px; text-align: left; font-size: 14px; font-weight: 900; color: ${(partner.balance ?? 0) >= 0 ? '#059669' : '#dc2626'}; font-family: monospace;">
+                  ${(partner.balance ?? 0) >= 0 ? '+' : ''}${(partner.balance ?? 0).toLocaleString()} ج.م
                 </td>
               </tr>
             </tfoot>
@@ -643,7 +643,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
 🏢 المتجر: ${(settings as any).storeName || (settings as any).companyName || 'وان تولز للعدد اليدوية'}
 📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}
 ────────────────────
-💰 *الرصيد الصافي الحالي:* ${partner.balance >= 0 ? 'مستحق له ' : 'مديونية عليه '}${partner.balance.toLocaleString()} ج.م
+💰 *الرصيد الصافي الحالي:* ${(partner.balance ?? 0) >= 0 ? 'مستحق له ' : 'مديونية عليه '}${(partner.balance ?? 0).toLocaleString()} ج.م
 💼 *إجمالي رأس المال والتمويل:* ${overallStats.totalInvested.toLocaleString()} ج.م
 📈 *الأرباح الموزعة:* ${overallStats.totalDividends.toLocaleString()} ج.م
 💸 *إجمالي المسحوبات والسلف:* ${(overallStats.totalWithdrawn + overallStats.totalLoans).toLocaleString()} ج.م
@@ -873,11 +873,11 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs">
                   <span className="text-[10px] font-black text-slate-400 block mb-1 uppercase">الرصيد الصافي</span>
-                  <p className={`text-sm sm:text-base font-black font-mono ${partner.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {partner.balance.toLocaleString()} <span className="text-[9px]">ج.م</span>
+                  <p className={`text-sm sm:text-base font-black font-mono ${(partner.balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {(partner.balance ?? 0).toLocaleString()} <span className="text-[9px]">ج.م</span>
                   </p>
-                  <span className={`text-[9px] font-bold ${partner.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {partner.balance >= 0 ? 'مستحق للشريك' : 'سلفة عليه'}
+                  <span className={`text-[9px] font-bold ${(partner.balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {(partner.balance ?? 0) >= 0 ? 'مستحق للشريك' : 'سلفة عليه'}
                   </span>
                 </div>
 
@@ -1004,8 +1004,8 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
                       <td colSpan={3} className="p-3 text-slate-800">
                         صافي الرصيد المستحق للشريك:
                       </td>
-                      <td colSpan={2} className={`p-3 text-left font-mono text-sm ${partner.balance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {partner.balance >= 0 ? '+' : ''}{partner.balance.toLocaleString()} ج.م
+                      <td colSpan={2} className={`p-3 text-left font-mono text-sm ${(partner.balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {(partner.balance ?? 0) >= 0 ? '+' : ''}${(partner.balance ?? 0).toLocaleString()} ج.م
                       </td>
                     </tr>
                   </tfoot>

@@ -264,7 +264,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   // UI Modes & Wizard State
   const [uiMode, setUiMode] = useState<"wizard" | "single">("wizard");
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
   const [showFraudModal, setShowFraudModal] = useState(false);
@@ -1220,7 +1220,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   const handleNextStep = () => {
     if (!validateStep(wizardStep)) return;
-    if (wizardStep < 4) {
+    if (wizardStep < 3) {
       setWizardStep((prev) => (prev + 1) as any);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -3305,12 +3305,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         {/* Wizard Progress Header (Only when uiMode === 'wizard') */}
         {uiMode === "wizard" && (
           <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
               {[
                 { step: 1, label: "1. العميل والعملية", icon: <UserIcon size={18} /> },
                 { step: 2, label: "2. المنتجات والمخزون", icon: <Package size={18} />, badge: `${getArray(orderData.items).length} صنف` },
-                { step: 3, label: "3. الشحن والتوصيل", icon: <Truck size={18} />, badge: `${orderData.shippingFee || 0} ج.م` },
-                { step: 4, label: "4. الحسابات والتأكيد", icon: <Coins size={18} /> },
+                { step: 3, label: "3. شركة الشحن والحسابات", icon: <Truck size={18} />, badge: `${orderData.shippingFee || 0} ج.م` },
               ].map((item) => {
                 const isActive = wizardStep === item.step;
                 const isCompleted = wizardStep > item.step;
@@ -3362,8 +3361,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               <div className="space-y-6">
                 {wizardStep === 1 && renderStep1_CustomerAndShipment()}
                 {wizardStep === 2 && renderStep2_ProductsAndFulfillment()}
-                {wizardStep === 3 && renderStep3_ShippingAndServices()}
-                {wizardStep === 4 && renderStep4_FinancialsAndNotes()}
+                {wizardStep === 3 && (
+                  <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                    {renderStep3_ShippingAndServices()}
+                    {renderStep4_FinancialsAndNotes()}
+                  </div>
+                )}
 
                 {/* Wizard Navigation Footer */}
                 <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between gap-4">
@@ -3377,7 +3380,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     <span>الخطوة السابقة</span>
                   </button>
 
-                  {wizardStep < 4 ? (
+                  {wizardStep < 3 ? (
                     <button
                       type="button"
                       onClick={handleNextStep}

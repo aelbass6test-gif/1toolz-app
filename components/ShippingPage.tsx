@@ -5,7 +5,7 @@ import SaveBar from './SaveBar';
 import BostaSystemPortal from './BostaSystemPortal';
 import TurboSystemPortal from './TurboSystemPortal';
 import { motion } from 'framer-motion';
-import { generateEgyptShippingOptions, EGYPT_GOVERNORATES } from '../constants';
+import { generateEgyptShippingOptions, generateBostaShippingOptions, EGYPT_GOVERNORATES } from '../constants';
 import { isBosta } from '../utils/financials';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 
@@ -250,7 +250,21 @@ const ShippingPage: React.FC<{
   useEffect(() => {
     // Sync with external changes, but only if not dirty
     if (!isDirty) {
-      setLocalSettings(settings);
+      let updated = { ...settings };
+      if (!updated.shippingOptions?.['بوسطة']) {
+        updated = {
+          ...updated,
+          shippingOptions: {
+            'بوسطة': generateBostaShippingOptions(),
+            ...(updated.shippingOptions || {}),
+          },
+          activeCompanies: {
+            'بوسطة': true,
+            ...(updated.activeCompanies || {}),
+          }
+        };
+      }
+      setLocalSettings(updated);
     }
   }, [settings]);
 

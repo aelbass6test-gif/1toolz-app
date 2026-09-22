@@ -74,17 +74,7 @@ import {
   Wallet as WalletIcon,
   Store as StoreIcon,
 } from "lucide-react";
-import { db } from "../services/firebaseClient";
-import { deleteStoreItem } from "../services/databaseService";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  deleteDoc,
-  doc,
-  setDoc,
-} from "firebase/firestore";
+import { deleteStoreItem, getSupabaseClient } from "../services/databaseService";
 import {
   Order,
   Settings,
@@ -726,16 +716,22 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   useEffect(() => {
     if (reportPreviewHtml !== null) {
-      const storeName = activeStore?.name || "متجري";
-      const html = generateOrdersReportHTML(
-        filteredOrders,
-        settings,
-        storeName,
-        undefined,
-        reportIsContinuous,
-        reportOrientation
-      );
-      setReportPreviewHtml(html);
+      try {
+        const storeName = activeStore?.name || "متجري";
+        const html = generateOrdersReportHTML(
+          filteredOrders || [],
+          settings,
+          storeName,
+          undefined,
+          reportIsContinuous,
+          reportOrientation
+        );
+        if (html) {
+          setReportPreviewHtml(html);
+        }
+      } catch (err) {
+        console.error("Error regenerating report HTML:", err);
+      }
     }
   }, [reportIsContinuous, reportOrientation]);
 
@@ -2115,19 +2111,17 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     // Logic for deleting related maintenance request...
     if (deleteRelated && orderToDelete.orderType === "maintenance") {
-      const maintenanceQuery = query(
-        collection(db, "maintenance_requests"),
-        where("orderNumber", "==", orderToDelete.orderNumber),
-      );
-      getDocs(maintenanceQuery)
-        .then((snapshot) => {
-          snapshot.forEach((doc) => {
-            deleteDoc(doc.ref);
-          });
-        })
-        .catch((err) =>
-          console.error("Error deleting maintenance request:", err),
-        );
+      const supabase = getSupabaseClient();
+      if (supabase && orderToDelete.orderNumber) {
+        supabase
+          .from("maintenance_requests")
+          .delete()
+          .or(`orderNumber.eq.${orderToDelete.orderNumber},order_number.eq.${orderToDelete.orderNumber}`)
+          .then(() => {})
+          .catch((err) =>
+            console.error("Error deleting maintenance request:", err),
+          );
+      }
     }
 
     const orderIdToDelete = orderToDelete.id;
@@ -4096,19 +4090,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const handleExportOrders = () => {
-    const storeName = activeStore?.name || "متجري";
-    setReportIsContinuous(false);
-    setReportOrientation("landscape");
-    const html = generateOrdersReportHTML(filteredOrders, settings, storeName, undefined, false, "landscape");
-    setReportPreviewHtml(html);
+    try {
+      const storeName = activeStore?.name || "متجري";
+      setReportIsContinuous(false);
+      setReportOrientation("landscape");
+      const html = generateOrdersReportHTML(filteredOrders || [], settings, storeName, undefined, false, "landscape");
+      if (html) {
+        setReportPreviewHtml(html);
+      }
+    } catch (err) {
+      console.error("PDF export error:", err);
+    }
   };
 
   const handleExportPDF = () => {
-    const storeName = activeStore?.name || "متجري";
-    setReportIsContinuous(false);
-    setReportOrientation("landscape");
-    const html = generateOrdersReportHTML(filteredOrders, settings, storeName, undefined, false, "landscape");
-    setReportPreviewHtml(html);
+    try {
+      const storeName = activeStore?.name || "متجري";
+      setReportIsContinuous(false);
+      setReportOrientation("landscape");
+      const html = generateOrdersReportHTML(filteredOrders || [], settings, storeName, undefined, false, "landscape");
+      if (html) {
+        setReportPreviewHtml(html);
+      }
+    } catch (err) {
+      console.error("PDF export error:", err);
+    }
   };
 
   const handleAutoAssign = () => {
@@ -7538,11 +7544,15 @@ const ProfitBreakdown: React.FC<{
   treasury?: any;
   onToggleFlexShipPaid?: () => void;
 }> = ({ order, settings, treasury, onToggleFlexShipPaid }) => {
-  const safeProductPrice = Number(order.productPrice) || 0;
+  const safeProductPrice = (order.productPrice && Number(order.productPrice) > 0)
+    ? Number(order.productPrice)
+    : (order.items && order.items.length > 0
+        ? order.items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0)
+        : 0);
   const safeShippingFee = Number(order.shippingFee) || 0;
   const safeAdminFee = Number(order.adminFee) || 0;
   const safeDiscount = Number(order.discount) || 0;
-  const safeProductCost = Number(order.productCost) || 0;
+  const safeProductCost = getOrderProductCost(order, settings);
   const safeAdvance = Number(order.advancePayment) || 0;
   const safeCredit = Number((order as any).creditAmount) || 0;
   const safeReturnCash = order.returnCashToCustomer && (order as any).cashToReturnAmount ? Number((order as any).cashToReturnAmount) : 0;
@@ -7653,9 +7663,11 @@ const ProfitBreakdown: React.FC<{
       ? (order.flexShipCompanyFee ?? flexCompanyFeeValue)
       : 0;
 
+  const calcResult = calculateOrderProfitLoss(order, settings);
+
   const netProfit = isReturnedOrFailed
     ? flexPaidAmount - carrierCost - flexCompanyFeePaid
-    : baseRevenue - safeDiscount + (extraAdjustment < 0 ? extraAdjustment : 0) - totalExpenses;
+    : calcResult.net;
 
   const profitLabel = isReturnedOrFailed
     ? netProfit >= 0

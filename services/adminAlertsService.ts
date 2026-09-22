@@ -1,5 +1,4 @@
-import { getDoc, doc } from "firebase/firestore";
-import { db } from "./firebaseClient";
+import { getSupabaseClient, getLocal } from "./databaseService";
 
 export async function sendAdminAlert(
   storeId: string,
@@ -7,18 +6,28 @@ export async function sendAdminAlert(
   messageContent: string
 ) {
   try {
-    let storeSettings = null;
-    if (storeId === "main_store" || storeId) {
-      const storeSnap = await getDoc(doc(db, "stores_data", storeId || "main_store")).catch(() => null);
-      if (storeSnap?.exists()) {
-        storeSettings = storeSnap.data().settings;
+    let storeSettings: any = null;
+    const targetStoreId = storeId || "main_store";
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      const { data } = await supabase.from("stores_data").select("settings").eq("id", targetStoreId).maybeSingle();
+      if (data?.settings) {
+        storeSettings = data.settings;
       }
     }
-    
+
     if (!storeSettings) {
-      const globalSettingsSnap = await getDoc(doc(db, "settings", "global")).catch(() => null);
-      if (globalSettingsSnap?.exists()) {
-        storeSettings = globalSettingsSnap.data();
+      const localStore = await getLocal(targetStoreId);
+      if (localStore?.settings) {
+        storeSettings = localStore.settings;
+      }
+    }
+
+    if (!storeSettings) {
+      const globalLocal = await getLocal("global");
+      if (globalLocal) {
+        storeSettings = globalLocal;
       }
     }
 

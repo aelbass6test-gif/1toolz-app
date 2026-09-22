@@ -50,23 +50,40 @@ export const getOrderProductCost = (order: Order, settings?: Settings): number =
     if (order.maintenanceItemValue && order.maintenanceItemValue > 0) {
         return order.maintenanceItemValue;
     }
-    if (order.productCost && order.productCost > 0) {
-        return order.productCost;
-    }
+    
+    // First, check items and product settings catalog if items are present
     if (order.items && order.items.length > 0) {
-        return order.items.reduce((sum, item) => {
+        const itemsCost = order.items.reduce((sum, item) => {
             const isExternalItem = (item as any).isExternal || item.productId?.startsWith('external-') || item.productId?.startsWith('custom-');
             let cost = 0;
-            if (item.cost !== undefined && item.cost !== null && (item.cost > 0 || isExternalItem)) {
+            const catalogCost = settings ? getLatestProductCost(item.productId, settings) : 0;
+            
+            if (catalogCost > 0 && (item.cost === undefined || item.cost === null || item.cost === 0 || item.cost === item.price)) {
+                cost = catalogCost;
+            } else if (item.cost !== undefined && item.cost !== null && (item.cost > 0 || isExternalItem)) {
                 cost = item.cost;
             } else if (settings) {
-                cost = getLatestProductCost(item.productId, settings) || item.cost || 0;
+                cost = catalogCost || item.cost || 0;
             } else {
                 cost = item.cost || 0;
             }
             return sum + (cost * (item.quantity || 1));
         }, 0);
+        
+        if (itemsCost > 0) {
+            return itemsCost;
+        }
     }
+    
+    // Fallback to order level productCost if present and valid (and not mistakenly set equal to productPrice when price > 0)
+    if (order.productCost && order.productCost > 0) {
+        if (order.productPrice && order.productPrice > 0 && order.productCost === order.productPrice && order.items && order.items.length > 0) {
+            // Likely placeholder/default where cost was set to price
+            return 0;
+        }
+        return order.productCost;
+    }
+    
     return 0;
 };
 
@@ -442,7 +459,14 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
   let profit = 0;
   let loss = 0;
   let carrierFees = 0;
-  let productCostCalculated = order.status === 'تم_الاستبدال' ? 0 : (getOrderProductCost(order, settings) || 0);
+  const isShipmentExchange = order.shipmentType === 'exchange' || order.orderType === 'exchange';
+  
+  let productCostCalculated = 0;
+  if (order.status === 'تم_الاستبدال') {
+    productCostCalculated = 0;
+  } else {
+    productCostCalculated = getOrderProductCost(order, settings) || 0;
+  }
   let netRevenue = 0;
   let closingDifference = 0;
 
@@ -488,7 +512,8 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
 
     const codFee = (order.status === 'مدفوعة' || isPos || isExchange) ? 0 : calculateCodFee(order, settings);
 
-    const safeProductPrice = order.status === 'تم_الاستبدال' ? 0 : (Number(order.productPrice) || 0);
+    const itemsPriceSum = (order.items || []).reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+    const safeProductPrice = order.status === 'تم_الاستبدال' ? 0 : ((Number(order.productPrice) && Number(order.productPrice) > 0) ? Number(order.productPrice) : itemsPriceSum);
     const defaultFlexShipFee = useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0);
     const flexShipFeeValue = order.flexShipFee ?? defaultFlexShipFee;
     const safeShippingFee = order.status === 'تم_الاستبدال' ? 
@@ -506,29 +531,33 @@ export const calculateOrderProfitLoss = (order: Order, settings: Settings): {
 
     const baseExpectedRevenue = safeProductPrice + safeShippingFee + safeTax - safeDiscount + inspectionRevenue + flexShipRevenue + safeAdminFee;
 
-    let totalRevenueForProfit = baseExpectedRevenue;
-    let netRevenueCollected = baseExpectedRevenue;
-
+    let grossCollectedRevenue = 0;
     if (order.status === 'تم_الاستبدال') {
-        netRevenueCollected = baseExpectedRevenue;
-    } else if (order.netRevenue != null && !isNaN(Number(order.netRevenue))) {
-        netRevenueCollected = Number(order.netRevenue);
-    } else if (order.source === 'synced' && order.totalPrice != null) {
-        netRevenueCollected = Number(order.totalPrice) + inspectionRevenue + flexShipRevenue;
+        grossCollectedRevenue = baseExpectedRevenue;
+    } else if (order.netRevenue != null && !isNaN(Number(order.netRevenue)) && Number(order.netRevenue) > 0) {
+        grossCollectedRevenue = Number(order.netRevenue);
     } else if (order.totalAmountOverride !== undefined && order.totalAmountOverride !== null && String(order.totalAmountOverride).trim() !== '') {
-        // totalAmountOverride is the COD amount. Gross Revenue = COD + Advance.
-        netRevenueCollected = Number(order.totalAmountOverride) + safeAdvance;
+        // totalAmountOverride is the COD cash amount. For exchange orders, Gross Revenue = COD + Advance + Credit Applied from returned product.
+        const overrideVal = Number(order.totalAmountOverride);
+        grossCollectedRevenue = overrideVal + safeAdvance + (isShipmentExchange || safeCredit > 0 ? safeCredit : 0);
+    } else if (order.source === 'synced' && order.totalPrice != null && Number(order.totalPrice) > 0) {
+        grossCollectedRevenue = Number(order.totalPrice) + inspectionRevenue + flexShipRevenue;
+    } else if (order.totalPrice != null && Number(order.totalPrice) > 0) {
+        grossCollectedRevenue = Number(order.totalPrice) + safeAdvance;
     }
+
+    let netRevenueCollected = grossCollectedRevenue > 0 ? grossCollectedRevenue : baseExpectedRevenue;
+    let totalRevenueForProfit = Math.max(baseExpectedRevenue, netRevenueCollected);
         
     const manualShippingFee = (order.isManualShippingOverride && order.shippingFee !== undefined) ? order.shippingFee : null;
-    const standardShippingFee = manualShippingFee !== null ? manualShippingFee : getStandardShippingFee(order, settings);
-    carrierFees = (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionExpense + codFee + bostaVat + flexShipCompanyDeduction;
+    const standardShippingFee = manualShippingFee !== null ? manualShippingFee : (order.shippingFee || 0);
+    carrierFees = (isPos ? 0 : standardShippingFee) + insuranceFee + inspectionExpense + codFee + bostaVat + safeTax + flexShipCompanyDeduction;
     
     netRevenue = netRevenueCollected;
     const baseExpectedRevenueWithFees = baseExpectedRevenue - safeCredit - safeReturnCash;
     closingDifference = netRevenueCollected - baseExpectedRevenueWithFees;
 
-    // Calculate profit based on base expected revenue (without manual differences)
+    // Calculate profit based on the max of expected or collected revenue
     const extraMarkup = Number((order as any).externalProfitMarkup) || Number((order as any).dropshipCommission) || 0;
     profit = totalRevenueForProfit - carrierFees - productCostCalculated + extraMarkup;
 
@@ -612,7 +641,8 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   const bostaVat = calculateBostaVat(o, insuranceFee, settings);
   
   const manualShippingFee = (o.isManualShippingOverride && o.shippingFee !== undefined) ? o.shippingFee : null;
-  const baseShippingFee = manualShippingFee !== null ? manualShippingFee : getStandardShippingFee(o, settings);
+  const isSuccessful = o.status === 'تم_الاستبدال' || o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل';
+  const baseShippingFee = manualShippingFee !== null ? manualShippingFee : (isSuccessful ? (o.shippingFee || 0) : getStandardShippingFee(o, settings));
 
   const inspectionExpense = (!isPos && (o.includeInspectionFee !== false)) ? effectiveInspectionCost : 0;
   // Inspection is only revenue if the customer is the one paying for it

@@ -1,13 +1,4 @@
-import { auth } from './firebaseClient';
 import { getSupabaseClient } from './databaseService';
-import { 
-    doc, 
-    updateDoc, 
-    arrayUnion, 
-    getDoc,
-    serverTimestamp,
-    Timestamp
-} from 'firebase/firestore';
 import { 
     SharedAudit, 
     SharedAuditLogEntry, 
@@ -22,19 +13,27 @@ export const addSharedAuditLog = async (
     log: Omit<SharedAuditLogEntry, 'id' | 'timestamp' | 'userId' | 'userName'>,
     userName: string
 ) => {
-    
     const newLog: SharedAuditLogEntry = {
         ...log,
         id: Math.random().toString(36).substring(2, 15),
         timestamp: new Date().toISOString(),
-        userId: auth.currentUser?.uid || 'anonymous',
-        userName: userName || auth.currentUser?.displayName || 'User',
-        userEmail: auth.currentUser?.email || undefined
+        userId: 'user',
+        userName: userName || 'User',
+        userEmail: undefined
     };
     
-    const supabase = getSupabaseClient(); if(supabase) await supabase.from('shared_audits').update({
-        logs: arrayUnion(newLog)
-    }).eq('id', sessionId);
+    const supabase = getSupabaseClient();
+    if (supabase) {
+        try {
+            const { data: audit } = await supabase.from('shared_audits').select('logs').eq('id', sessionId).maybeSingle();
+            const existingLogs = Array.isArray(audit?.logs) ? audit.logs : [];
+            await supabase.from('shared_audits').update({
+                logs: [...existingLogs, newLog]
+            }).eq('id', sessionId);
+        } catch (e) {
+            console.error('Error updating audit logs:', e);
+        }
+    }
 };
 
 /**

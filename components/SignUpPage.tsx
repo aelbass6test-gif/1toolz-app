@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Store, Mail, User as UserIcon, ShieldAlert, Phone, KeyRound, LogIn, UserPlus, Loader2, X, BarChart, Settings, Users, ArrowLeft, CheckCircle, Database, AlertCircle, Copy, Check, RefreshCw, Shield } from 'lucide-react';
 import { User } from '../types';
-import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase } from '../services/databaseService';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase, getSupabaseClient } from '../services/databaseService';
 import { auth } from '../services/firebaseClient';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { motion } from 'framer-motion';
 
@@ -907,8 +907,22 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                                        err?.message?.includes('user-not-found') || 
                                        err?.message?.includes('invalid-credential');
         if (isUserNotFoundOrInvalid) {
-          console.log('[MIGRATION/AUTH] Login failed. Checking Supabase for user:', userPhone);
+          console.log('[MIGRATION/AUTH] Login failed. Checking Firestore and Supabase for user:', userPhone);
           try {
+            // Check in Firestore first
+            const firestoreUser = await getUserByPhone(userPhone.trim());
+            if (firestoreUser && firestoreUser.password === userPassword) {
+              console.log('[AUTH/RECOVERY] Found user in Firestore with correct password. Healing Firebase Auth...');
+              try {
+                await createUserWithEmailAndPassword(auth, firebaseEmail, userPassword);
+                console.log('[AUTH/RECOVERY] Firebase Auth account created on-the-fly successfully.');
+                onPasswordSuccess(firestoreUser, userPassword);
+                return;
+              } catch (createErr) {
+                console.error('[AUTH/RECOVERY] Failed to heal Firebase Auth account on-the-fly:', createErr);
+              }
+            }
+
             const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
             
             // 1. Check if they have a CUSTOM email in Supabase (meaning they updated it in settings)
@@ -1152,9 +1166,22 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                                      err?.message?.includes('user-not-found') || 
                                      err?.message?.includes('invalid-credential');
       if (isUserNotFoundOrInvalid) {
-        console.log('[MIGRATION] Firebase Auth failed for admin. Checking legacy Supabase table for phone:', adminPhone);
-        // Search ONLY in Supabase for user
+        console.log('[MIGRATION] Firebase Auth failed for admin. Checking Firestore and Supabase for phone:', adminPhone);
         try {
+          // Check in Firestore first
+          const firestoreUser = await getUserByPhone(adminPhone.trim());
+          if (firestoreUser && firestoreUser.isAdmin && firestoreUser.password === adminPassword) {
+            console.log('[AUTH/RECOVERY] Found admin in Firestore with correct password. Healing Firebase Auth...');
+            try {
+              await createUserWithEmailAndPassword(auth, firebaseEmail, adminPassword);
+              console.log('[AUTH/RECOVERY] Admin Firebase Auth account created on-the-fly successfully.');
+              onPasswordSuccess(firestoreUser, adminPassword);
+              return;
+            } catch (createErr) {
+              console.error('[AUTH/RECOVERY] Failed to heal admin Firebase Auth account on-the-fly:', createErr);
+            }
+          }
+
           const legacyUser = await getUserByPhoneFromSupabase(adminPhone.trim());
           if (legacyUser && legacyUser.isAdmin) {
             console.log('[MIGRATION] Legacy admin found in Supabase. Checking password...');

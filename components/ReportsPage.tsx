@@ -1452,6 +1452,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         totalCogs += extraPosCOGS;
         totalProfit += extraPosProfit;
 
+        const totalNetRevenue = totalRevenue - totalActualShipping - totalInsuranceFees - totalInspectionFees - totalCodFees - totalReturnFees;
+
         const totalExpenses = (wallet?.transactions || []).filter(t => t.type === 'سحب' && (t.category?.startsWith('expense_') || t.category?.startsWith('supply_expense_') || (settings?.expenseCategories || []).includes(t.category || ''))).reduce((sum, t) => sum + t.amount, 0);
 
         const finalNet = totalProfit - totalLoss - totalExpenses;
@@ -1618,7 +1620,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
             totalRevenue, totalProductRevenue, totalProductExtraMarkup, totalExtraMarkup, totalShippingRevenue, totalActualShipping, totalShippingMarkup, totalCogs, 
             totalInsuranceFees, totalInspectionFees, totalCodFees, totalProfit, 
             totalLoss, totalFailedShipping, totalFailedInsurance, totalFailedInspection, 
-            totalReturnFees, totalExpenses, finalNet, totalPercentageProfit, totalCommissionProfit,
+            totalReturnFees, totalExpenses, finalNet, totalPercentageProfit, totalCommissionProfit, totalNetRevenue,
             successRate, lossRatio, avgProfitPerOrder, carrierStats, productStats, pendingCollection,
             collectedOrdersCount: collectedOrders.length, geoData, expenseCategories, inventoryValue, inventorySalesValue,
             partnerPerformance, totalCapital, totalLoans, totalAdvances, totalProfitWithdrawals, totalRequiredCollection
@@ -2002,11 +2004,11 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                    <ReportCard title="إجمالي مبيعات المنتجات" value={`${(stats.totalProductRevenue + stats.totalProductExtraMarkup).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="ثمن البيع (الأساسي + زيادة المنتج)" tooltip="إجمالي المبالغ التي تم بيع المنتجات بها للعملاء (السعر الأساسي للمنتج + زيادة سعر المنتج)." />
-                    <ReportCard title="إجمالي المطلوب تحصيله" value={`${stats.totalRequiredCollection.toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="المبلغ المفترض تحصيله من العملاء" tooltip="إجمالي المبالغ المفترض تحصيلها من العملاء عند التوصيل (ثمن المنتج + الشحن - العربون والخصومات)." />
-                    <ReportCard title="مبيعات المنتجات (بالأساسي)" value={`${stats.totalProductRevenue.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="أصل ثمن البيع قبل الزيادة" tooltip="إجمالي السعر الأساسي للمنتجات المباعة، بدون حساب أي زيادة إضافية قمت بوضعها." />
-                    <ReportCard title="الربح الإضافي (تعلية المنتجات)" value={`${stats.totalProductExtraMarkup.toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" subValue="الفرق بين سعر البيع والأساسي" tooltip="إجمالي الأرباح الناتجة عن بيع المنتجات بسعر أعلى من سعرها الأساسي الموصى به." />
-                    <ReportCard title="تحصيل الشحن" value={`${stats.totalShippingRevenue.toLocaleString('ar-EG')} ج.م`} icon={<Truck size={24}/>} color="blue" subValue="المبالغ المدفوعة للشحن" tooltip="إجمالي رسوم الشحن التي دفعها العملاء عند استلام الطلبات." />
+                    <ReportCard title="إجمالي مبيعات المنتجات" value={`${((stats.totalProductRevenue || 0) + (stats.totalProductExtraMarkup || 0)).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="ثمن البيع (الأساسي + زيادة المنتج)" tooltip="إجمالي المبالغ التي تم بيع المنتجات بها للعملاء (السعر الأساسي للمنتج + زيادة سعر المنتج)." />
+                    <ReportCard title="إجمالي المطلوب تحصيله" value={`${(stats.totalRequiredCollection || 0).toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="المبلغ المفترض تحصيله من العملاء" tooltip="إجمالي المبالغ المفترض تحصيلها من العملاء عند التوصيل (ثمن المنتج + الشحن - العربون والخصومات)." />
+                    <ReportCard title="مبيعات المنتجات (بالأساسي)" value={`${(stats.totalProductRevenue || 0).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="أصل ثمن البيع قبل الزيادة" tooltip="إجمالي السعر الأساسي للمنتجات المباعة، بدون حساب أي زيادة إضافية قمت بوضعها." />
+                    <ReportCard title="الربح الإضافي (تعلية المنتجات)" value={`${(stats.totalProductExtraMarkup || 0).toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" subValue="الفرق بين سعر البيع والأساسي" tooltip="إجمالي الأرباح الناتجة عن بيع المنتجات بسعر أعلى من سعرها الأساسي الموصى به." />
+                    <ReportCard title="تحصيل الشحن" value={`${(stats.totalShippingRevenue || 0).toLocaleString('ar-EG')} ج.م`} icon={<Truck size={24}/>} color="blue" subValue="المبالغ المدفوعة للشحن" tooltip="إجمالي رسوم الشحن التي دفعها العملاء عند استلام الطلبات." />
                 </div>
             </div>
 
@@ -2024,8 +2026,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <ReportCard title="إجمالي تكلفة البضاعة" value={`${stats.totalCogs.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="للطلبات التي تم تحصيلها" tooltip="إجمالي التكلفة الأصلية للمنتجات (سعر الجملة) للطلبات التي تم تسليمها بنجاح." />
-                    <ReportCard title="مصاريف شحن الذهاب" value={`${stats.totalShippingRevenue.toLocaleString('ar-EG')} ج.م`} icon={<Truck size={24}/>} color="red" subValue="المدفوعة لشركات الشحن" tooltip="إجمالي مصاريف الشحن التي تم دفعها لشركات الشحن مقابل توصيل الطلبات الناجحة." />
+                    <ReportCard title="إجمالي تكلفة البضاعة" value={`${(stats.totalCogs || 0).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="للطلبات التي تم تحصيلها" tooltip="إجمالي التكلفة الأصلية للمنتجات (سعر الجملة) للطلبات التي تم تسليمها بنجاح." />
+                    <ReportCard title="مصاريف شحن الذهاب" value={`${(stats.totalShippingRevenue || 0).toLocaleString('ar-EG')} ج.م`} icon={<Truck size={24}/>} color="red" subValue="المدفوعة لشركات الشحن" tooltip="إجمالي مصاريف الشحن التي تم دفعها لشركات الشحن مقابل توصيل الطلبات الناجحة." />
                 </div>
             </div>
 
@@ -2043,9 +2045,9 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <ReportCard title="إجمالي التأمين (ناجح)" value={`${stats.totalInsuranceFees.toLocaleString('ar-EG')} ج.م`} icon={<FileText size={24}/>} color="blue" subValue="رسوم التأمين للطلبات المحصلة" tooltip="إجمالي رسوم التأمين التي تم خصمها على الطلبات التي تم تسليمها بنجاح." />
-                    <ReportCard title="إجمالي المعاينة (ناجح)" value={`${stats.totalInspectionFees.toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="رسوم المعاينة للطلبات المحصلة" tooltip="إجمالي رسوم المعاينة التي تم خصمها على الطلبات التي تم تسليمها بنجاح." />
-                    <ReportCard title="إجمالي الـ COD (ناجح)" value={`${stats.totalCodFees.toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="رسوم التحصيل للطلبات المحصلة" tooltip="إجمالي رسوم الدفع عند الاستلام (COD) التي تم خصمها على الطلبات التي تم تسليمها بنجاح." />
+                    <ReportCard title="إجمالي التأمين (ناجح)" value={`${(stats.totalInsuranceFees || 0).toLocaleString('ar-EG')} ج.م`} icon={<FileText size={24}/>} color="blue" subValue="رسوم التأمين للطلبات المحصلة" tooltip="إجمالي رسوم التأمين التي تم خصمها على الطلبات التي تم تسليمها بنجاح." />
+                    <ReportCard title="إجمالي المعاينة (ناجح)" value={`${(stats.totalInspectionFees || 0).toLocaleString('ar-EG')} ج.م`} icon={<Package size={24}/>} color="blue" subValue="رسوم المعاينة للطلبات المحصلة" tooltip="إجمالي رسوم المعاينة التي تم خصمها على الطلبات التي تم تسليمها بنجاح." />
+                    <ReportCard title="إجمالي الـ COD (ناجح)" value={`${(stats.totalCodFees || 0).toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="رسوم التحصيل للطلبات المحصلة" tooltip="إجمالي رسوم الدفع عند الاستلام (COD) التي تم خصمها على الطلبات التي تم تسليمها بنجاح." />
                 </div>
             </div>
 
@@ -2063,15 +2065,15 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <ReportCard title="إجمالي خسائر المرتجعات" value={`${stats.totalLoss.toLocaleString('ar-EG')} ج.م`} icon={<ArrowDown size={24}/>} color="red" subValue="شحن مهدر (فشل/مرتجع)" tooltip="إجمالي الخسائر الناتجة عن مصاريف الشحن المهدرة للطلبات التي لم يتم تسليمها." />
-                    <ReportCard title="إجمالي المصروفات الإدارية" value={`${stats.totalExpenses.toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="amber" subValue="إعلانات، مرتبات، إلخ." tooltip="إجمالي المصروفات الإدارية المسجلة في المحفظة (مثل الإعلانات، الرواتب، الإيجار)." />
+                    <ReportCard title="إجمالي خسائر المرتجعات" value={`${(stats.totalLoss || 0).toLocaleString('ar-EG')} ج.م`} icon={<ArrowDown size={24}/>} color="red" subValue="شحن مهدر (فشل/مرتجع)" tooltip="إجمالي الخسائر الناتجة عن مصاريف الشحن المهدرة للطلبات التي لم يتم تسليمها." />
+                    <ReportCard title="إجمالي المصروفات الإدارية" value={`${(stats.totalExpenses || 0).toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="amber" subValue="إعلانات، مرتبات، إلخ." tooltip="إجمالي المصروفات الإدارية المسجلة في المحفظة (مثل الإعلانات، الرواتب، الإيجار)." />
                 </div>
 
                 {/* Final Net Banner */}
                 <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-8 rounded-2xl text-white text-center shadow-xl relative overflow-hidden group">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-150 transition-transform duration-700"></div>
                     <h3 className="text-lg font-bold opacity-80 relative z-10">صافي الربح النهائي</h3>
-                    <p className="text-6xl font-black tracking-tighter mt-2 relative z-10">{stats.finalNet.toLocaleString('ar-EG')} ج.م</p>
+                    <p className="text-6xl font-black tracking-tighter mt-2 relative z-10">{(stats.finalNet || 0).toLocaleString('ar-EG')} ج.م</p>
                     <p className="text-xs opacity-70 mt-2 relative z-10">(إجمالي الأرباح - إجمالي الخسائر - إجمالي المصروفات والرسوم)</p>
                     <div className="mt-6 pt-6 border-t border-white/20 text-sm relative z-10">
                         نقطة التعادل: تحتاج إلى <span className="font-black underline text-yellow-300">{Math.ceil(stats.totalExpenses / (stats.totalProfit / stats.collectedOrdersCount || 1))}</span> أوردر ناجح إضافي لتغطية المصروفات الإدارية.
@@ -2107,7 +2109,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     </div>
                     <div className="p-6 rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center relative group" title="متوسط الربح الصافي الذي تحققه من كل طلب (بما في ذلك الطلبات الفاشلة).">
                         <h4 className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-2 flex items-center justify-center gap-1">متوسط الربح للطلب <span className="text-slate-300 cursor-help">ⓘ</span></h4>
-                        <p className="text-3xl font-black text-blue-600">{stats.avgProfitPerOrder.toLocaleString()} ج.م</p>
+                        <p className="text-3xl font-black text-blue-600">{(stats.avgProfitPerOrder || 0).toLocaleString()} ج.م</p>
                         <p className="text-[10px] mt-1 text-slate-400">صافي الربح الفعلي لكل طلب</p>
                     </div>
                 </div>
@@ -2116,12 +2118,12 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div className="bg-emerald-50 dark:bg-emerald-900/10 p-6 rounded-2xl border border-emerald-200 dark:border-emerald-800">
                         <h4 className="font-bold text-emerald-800 dark:text-emerald-400 mb-1 flex items-center gap-2"><WalletIcon size={18}/> النقدية المحققة</h4>
-                        <p className="text-2xl font-black text-emerald-600">{(stats.totalCogs + (stats.totalProfit - stats.totalLoss)).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
+                        <p className="text-2xl font-black text-emerald-600">{( (stats.totalCogs || 0) + ((stats.totalProfit || 0) - (stats.totalLoss || 0)) ).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                         <p className="text-[10px] text-emerald-500 mt-1">تكلفة البضاعة المباعة + صافي الربح التشغيلي</p>
                     </div>
                     <div className="bg-blue-50 dark:bg-blue-900/10 p-6 rounded-2xl border border-blue-200 dark:border-blue-800">
                         <h4 className="font-bold text-blue-800 dark:text-blue-400 mb-1 flex items-center gap-2"><Truck size={18}/> مستحقات الشحن</h4>
-                        <p className="text-2xl font-black text-blue-600">{stats.pendingCollection.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
+                        <p className="text-2xl font-black text-blue-600">{(stats.pendingCollection || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                         <p className="text-[10px] text-blue-400 mt-1">مبالغ تم توصيلها ولم تُحصل بعد</p>
                     </div>
                     <div className="bg-amber-50 dark:bg-amber-900/10 p-6 rounded-2xl border border-amber-200 dark:border-amber-800 relative group">
@@ -2136,7 +2138,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             </button>
                         </div>
                         {showInventoryValue ? (
-                            <p className="text-2xl font-black text-amber-600">{stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
+                            <p className="text-2xl font-black text-amber-600">{(stats.inventoryValue || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</p>
                         ) : (
                             <p className="text-2xl font-black text-amber-600/50 tracking-widest">•••••• ج.م</p>
                         )}
@@ -2152,23 +2154,23 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-2">إجمالي المبيعات (كلي)</p>
-                            <p className="text-2xl font-black">{(stats.totalProductRevenue + stats.totalExtraMarkup + stats.totalShippingRevenue).toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
+                            <p className="text-2xl font-black">{((stats.totalProductRevenue || 0) + (stats.totalExtraMarkup || 0) + (stats.totalShippingRevenue || 0)).toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
                         </div>
                         <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-2">إجمالي تكلفة البضاعة (COGS)</p>
-                            <p className="text-2xl font-black text-red-400">{stats.totalCogs.toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
+                            <p className="text-2xl font-black text-red-400">{(stats.totalCogs || 0).toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
                         </div>
                         <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-2">إجمالي الخسائر (مرتجع)</p>
-                            <p className="text-2xl font-black text-red-400">{stats.totalLoss.toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
+                            <p className="text-2xl font-black text-red-400">{(stats.totalLoss || 0).toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
                         </div>
                         <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-2">إجمالي المصروفات الإدارية</p>
-                            <p className="text-2xl font-black text-amber-400">{stats.totalExpenses.toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
+                            <p className="text-2xl font-black text-amber-400">{(stats.totalExpenses || 0).toLocaleString('ar-EG')} <span className="text-sm font-normal">ج.م</span></p>
                         </div>
                         <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-2">الصافي النهائي</p>
-                            <p className="text-3xl font-black text-emerald-400">{stats.finalNet.toLocaleString('ar-EG')} <span className="text-base font-normal">ج.م</span></p>
+                            <p className="text-3xl font-black text-emerald-400">{(stats.finalNet || 0).toLocaleString('ar-EG')} <span className="text-base font-normal">ج.م</span></p>
                         </div>
                         
                         <div className="lg:col-span-3 border-t border-slate-700 pt-6 mt-2 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2187,11 +2189,11 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                                             <p className="text-slate-400 text-[10px]">بسعر الشراء</p>
-                                            <p className="font-black">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</p>
+                                            <p className="font-black">{(stats.inventoryValue || 0).toLocaleString('ar-EG')} ج.م</p>
                                         </div>
                                         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700">
                                             <p className="text-slate-400 text-[10px]">بسعر البيع</p>
-                                            <p className="font-black text-emerald-300">{stats.inventorySalesValue.toLocaleString('ar-EG')} ج.م</p>
+                                            <p className="font-black text-emerald-300">{(stats.inventorySalesValue || 0).toLocaleString('ar-EG')} ج.م</p>
                                         </div>
                                     </div>
                                 ) : (
@@ -2207,7 +2209,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                         <div key={p.id} className="flex justify-between items-center bg-slate-800 p-2 rounded-lg text-sm">
                                             <span className="font-bold">{p.name}</span>
                                             <span className={`${p.currentBalance >= 0 ? 'text-emerald-400' : 'text-red-400'} font-black tabular-nums`}>
-                                                {p.currentBalance.toLocaleString('ar-EG')} ج.م
+                                                {(p.currentBalance || 0).toLocaleString('ar-EG')} ج.م
                                             </span>
                                         </div>
                                     ))}
@@ -2245,10 +2247,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <ReportCard title="إجمالي رأس المال" value={`${stats.totalCapital.toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="رؤوس الأموال المودعة" tooltip="إجمالي المبالغ التي ساهم بها الشركاء كرأس مال للمشروع." />
-                    <ReportCard title="إجمالي السلف" value={`${stats.totalLoans.toLocaleString('ar-EG')} ج.م`} icon={<ArrowUp size={24}/>} color="red" subValue="مبالغ مسحوبة كسلف" tooltip="إجمالي المبالغ التي سحبها الشركاء كسلف أو قروض من المشروع." />
+                    <ReportCard title="إجمالي رأس المال" value={`${(stats.totalCapital || 0).toLocaleString('ar-EG')} ج.م`} icon={<DollarSign size={24}/>} color="blue" subValue="رؤوس الأموال المودعة" tooltip="إجمالي المبالغ التي ساهم بها الشركاء كرأس مال للمشروع." />
+                    <ReportCard title="إجمالي السلف" value={`${(stats.totalLoans || 0).toLocaleString('ar-EG')} ج.م`} icon={<ArrowUp size={24}/>} color="red" subValue="مبالغ مسحوبة كسلف" tooltip="إجمالي المبالغ التي سحبها الشركاء كسلف أو قروض من المشروع." />
                     <ReportCard title="إجمالي العرابين" value={`${(stats.totalAdvances || 0).toLocaleString('ar-EG')} ج.م`} icon={<Coins size={24}/>} color="teal" subValue="العرابين المحصلة للشركاء" tooltip="إجمالي مبالغ العربون المستلمة والمودعة لدى الشركاء كعهد مبيعات." />
-                    <ReportCard title="أرباح تحت التوزيع" value={`${stats.finalNet.toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" subValue="صافي ربح الفترة الحالية" tooltip="صافي الأرباح المحققة في هذه الفترة والجاهزة للتوزيع حسب النسب." />
+                    <ReportCard title="أرباح تحت التوزيع" value={`${(stats.finalNet || 0).toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp size={24}/>} color="emerald" subValue="صافي ربح الفترة الحالية" tooltip="صافي الأرباح المحققة في هذه الفترة والجاهزة للتوزيع حسب النسب." />
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
@@ -2290,17 +2292,17 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                         {p.name}
                                                     </td>
                                                     <td className="px-4 py-3"><span className="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
-                                                    <td className="px-4 py-3 font-mono">{p.capitalContribution.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
-                                                    <td className="px-4 py-3 font-mono text-emerald-600">+{p.currentProfitShare.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                                    <td className="px-4 py-3 font-mono">{(p.capitalContribution || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                                                    <td className="px-4 py-3 font-mono text-emerald-600">+{(p.currentProfitShare || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                                                     <td className="px-4 py-3 font-mono text-red-600 font-bold hover:underline" title="انقر لعرض تفاصيل المسحوبات">
-                                                        -{p.netLoan.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                                        -{(p.netLoan || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                                                     </td>
-                                                    <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) : '0'}</td>
+                                                    <td className="px-4 py-3 font-mono text-teal-600">-{(p.advances || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                                                     <td className={`px-4 py-3 font-black ${p.currentBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                        {p.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                                                        {(p.currentBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                                     </td>
                                                     <td className="px-4 py-3 font-mono text-amber-600 font-black">
-                                                        +{netLiquidationVal.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                                                        +{(netLiquidationVal || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                                                     </td>
                                                     <td className="px-4 py-3 text-center">
                                                         <button
@@ -2469,9 +2471,9 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                         
                                         const totalStockVal = stats.inventoryValue || 85200;
 
-                                        const copyCashMsg = `يا ${p.name}، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:\nإنت ليك رأس مال ${capital.toLocaleString('ar-EG')} ج.م.\nوليك أرباح موزعة وغير موزعة إجماليتها ${profits.toLocaleString('ar-EG')} ج.م.\nيبقى إجمالي حقك بالكامل ${totalRights.toLocaleString('ar-EG')} ج.م.\nنخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ ${withdrawals.toLocaleString('ar-EG')} ج.م.\n💰 يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وحسابك يتصفّى تماماً وتخرج بالخير هي: ${netCash.toLocaleString('ar-EG')} ج.م.`;
+                                        const copyCashMsg = `يا ${p.name || 'الشريك'}، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:\nإنت ليك رأس مال ${(capital || 0).toLocaleString('ar-EG')} ج.م.\nوليك أرباح موزعة وغير موزعة إجماليتها ${(profits || 0).toLocaleString('ar-EG')} ج.م.\nيبقى إجمالي حقك بالكامل ${(totalRights || 0).toLocaleString('ar-EG')} ج.م.\nنخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ ${(withdrawals || 0).toLocaleString('ar-EG')} ج.م.\n💰 يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وحسابك يتصفّى تماماً وتخرج بالخير هي: ${(netCash || 0).toLocaleString('ar-EG')} ج.م.`;
 
-                                        const otherPartnerName = stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك التاني';
+                                        const otherPartnerName = stats.partnerPerformance.filter(o => o && o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك التاني';
 
                                         return (
                                             <div key={p.id} className="bg-white dark:bg-slate-800/95 border border-amber-200 dark:border-amber-800/60 rounded-xl p-3.5 space-y-3 shadow-sm text-xs">
@@ -2483,7 +2485,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                         <button
                                                             onClick={() => {
                                                                 navigator.clipboard.writeText(copyCashMsg);
-                                                                alert(`تم نسخ نص تصفية الكاش للشريك (${p.name})!`);
+                                                                alert(`تم نسخ نص تصفية الكاش للشريك (${p.name || ''})!`);
                                                             }}
                                                             className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 px-2 py-1 rounded-md border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 transition-all cursor-pointer"
                                                             title="نسخ نص التصفية كاش"
@@ -2492,10 +2494,10 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                         </button>
                                                         <button
                                                             onClick={() => {
-                                                                const otherName = stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر';
-                                                                const copyBuyoutMsg = `🛍️ خيار شراء واستحواذ الشريك الآخر على حصة الشريك (${p.name}) بالبضاعة والمتجر بالكامل:\n• إجمالي بضاعة المتجر = ${totalStockVal.toLocaleString('ar-EG')} ج.م.\n• يدفع الشريك المشتري (${otherName}) لـ (${p.name}) مبلغ صافي مستحقاته كاش وقدره = ${netCash.toLocaleString('ar-EG')} ج.م.\n👉 النتيجة: انتقال ملكية المتجر والمخزون بنسبة 100% للشريك المشتري (${otherName}) وتخارج الشريك (${p.name}) وإخلاء طرفه نهائياً.`;
+                                                                const otherName = stats.partnerPerformance.filter(o => o && o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر';
+                                                                const copyBuyoutMsg = `🛍️ خيار شراء واستحواذ الشريك الآخر على حصة الشريك (${p.name || ''}) بالبضاعة والمتجر بالكامل:\n• إجمالي بضاعة المتجر = ${(totalStockVal || 0).toLocaleString('ar-EG')} ج.م.\n• يدفع الشريك المشتري (${otherName}) لـ (${p.name || ''}) مبلغ صافي مستحقاته كاش وقدره = ${(netCash || 0).toLocaleString('ar-EG')} ج.م.\n👉 النتيجة: انتقال ملكية المتجر والمخزون بنسبة 100% للشريك المشتري (${otherName}) وتخارج الشريك (${p.name || ''}) وإخلاء طرفه نهائياً.`;
                                                                 navigator.clipboard.writeText(copyBuyoutMsg);
-                                                                alert(`تم نسخ نص شراء واستحواذ الحصة للشريك (${p.name})!`);
+                                                                alert(`تم نسخ نص شراء واستحواذ الحصة للشريك (${p.name || ''})!`);
                                                             }}
                                                             className="text-[10px] font-bold text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-950/50 px-2 py-1 rounded-md border border-purple-300 dark:border-purple-800 flex items-center gap-1 transition-all cursor-pointer"
                                                             title="نسخ نص شراء واستحواذ الحصة بالكامل"
@@ -2512,15 +2514,15 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                     </p>
                                                     <p className="font-semibold">يا <strong className="text-indigo-700 dark:text-indigo-300">{p.name}</strong>، عشان نصلّي على النبي ونصفّي الحساب بينّا بكل أمانة ووضوح:</p>
                                                     <div className="pr-1 space-y-0.5 text-slate-600 dark:text-slate-400 text-[11px]">
-                                                        <div>• إنت ليك رأس مال <strong className="font-mono text-indigo-700 dark:text-indigo-300 font-bold">{capital.toLocaleString('ar-EG')} ج.م.</strong></div>
-                                                        <div>• وليك أرباح موزعة وغير موزعة إجماليتها <strong className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{profits.toLocaleString('ar-EG')} ج.م.</strong></div>
-                                                        <div>• يبقى إجمالي حقك بالكامل <strong className="font-mono text-slate-800 dark:text-white font-bold">{totalRights.toLocaleString('ar-EG')} ج.م.</strong></div>
-                                                        <div>• نخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ <strong className="font-mono text-red-600 dark:text-red-400 font-bold">{withdrawals.toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• إنت ليك رأس مال <strong className="font-mono text-indigo-700 dark:text-indigo-300 font-bold">{(capital || 0).toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• وليك أرباح موزعة وغير موزعة إجماليتها <strong className="font-mono text-emerald-700 dark:text-emerald-400 font-bold">{(profits || 0).toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• يبقى إجمالي حقك بالكامل <strong className="font-mono text-slate-800 dark:text-white font-bold">{(totalRights || 0).toLocaleString('ar-EG')} ج.م.</strong></div>
+                                                        <div>• نخصم منهم المسحوبات الشخصية والتسويات اللي سحبتها خلال الفترة بـ <strong className="font-mono text-red-600 dark:text-red-400 font-bold">{(withdrawals || 0).toLocaleString('ar-EG')} ج.م.</strong></div>
                                                     </div>
                                                     <div className="pt-2 font-bold text-slate-800 dark:text-white border-t border-amber-200/60 dark:border-amber-800/50 text-[11.5px] flex items-center justify-between flex-wrap gap-1">
                                                         <span>💰 يبقى صافي الفلوس اللي تدريجياً أو كاش بتاخدها في إيدك وتخرج بالخير:</span>
                                                         <span className="text-emerald-700 dark:text-emerald-300 font-black bg-emerald-100 dark:bg-emerald-950/90 px-2.5 py-1 rounded-md border border-emerald-300 dark:border-emerald-700 font-mono text-xs shadow-xs">
-                                                            {netCash.toLocaleString('ar-EG')} ج.م
+                                                            {(netCash ?? 0).toLocaleString('ar-EG')} ج.م
                                                         </span>
                                                     </div>
                                                 </div>
@@ -2531,9 +2533,9 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                         <span>🛍️ <strong>خيار 2: شراء واستحواذ الشريك المستمر على حصة البضاعة والمتجر بالكامل:</strong></span>
                                                     </p>
                                                     <div className="p-2 rounded-md text-[11px] font-bold bg-purple-100/70 dark:bg-purple-950/80 text-purple-950 dark:text-purple-200 border border-purple-200 dark:border-purple-800 leading-normal">
-                                                        🤝 <strong>اتفاق الاستحواذ والتملك الكامل:</strong> في حال رغبة الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> في تملك المتجر والمخزون بالكامل ({totalStockVal.toLocaleString('ar-EG')} ج.م):
+                                                        🤝 <strong>اتفاق الاستحواذ والتملك الكامل:</strong> في حال رغبة الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o && o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> في تملك المتجر والمخزون بالكامل ({(totalStockVal || 0).toLocaleString('ar-EG')} ج.م):
                                                         <br />
-                                                        يدفع الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> لـ <strong className="text-purple-700 dark:text-purple-300">{p.name}</strong> صافي مستحقاته كاش وقدره <strong className="font-mono text-emerald-700 dark:text-emerald-300 underline font-black text-xs">{netCash.toLocaleString('ar-EG')} ج.م</strong> مقابل شراء كافة حقوقه وحصته بالبضاعة وتملك المتجر بالكامل بنسبة 100% وإخلاء طرف <strong className="text-purple-700 dark:text-purple-300">{p.name}</strong> نهائياً.
+                                                        يدفع الشريك المشتري <strong className="text-indigo-700 dark:text-indigo-300">({stats.partnerPerformance.filter(o => o && o.id !== p.id).map(o => o.name).join(' أو ') || 'الشريك المستمر'})</strong> لـ <strong className="text-purple-700 dark:text-purple-300">{p.name}</strong> صافي مستحقاته كاش وقدره <strong className="font-mono text-emerald-700 dark:text-emerald-300 underline font-black text-xs">{(netCash ?? 0).toLocaleString('ar-EG')} ج.م</strong> مقابل شراء كافة حقوقه وحصته بالبضاعة وتملك المتجر بالكامل بنسبة 100% وإخلاء طرف <strong className="text-purple-700 dark:text-purple-300">{p.name}</strong> نهائياً.
                                                     </div>
                                                 </div>
                                             </div>
@@ -2857,8 +2859,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                     );
                                                 })}
                                             </td>
-                                            <td className="p-2 border border-slate-100 dark:border-slate-800">{order.productPrice.toLocaleString()} ج.م</td>
-                                            <td className="p-2 border border-slate-100 dark:border-slate-800 font-bold text-emerald-600">{profit.toLocaleString()} ج.م</td>
+                                             <td className="p-2 border border-slate-100 dark:border-slate-800">{(order.productPrice ?? 0).toLocaleString()} ج.م</td>
+                                            <td className="p-2 border border-slate-100 dark:border-slate-800 font-bold text-emerald-600">{(profit ?? 0).toLocaleString()} ج.م</td>
                                         </tr>
                                     );
                                 })
@@ -2872,8 +2874,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             <tfoot className="bg-slate-50 dark:bg-slate-800/50 font-black text-slate-900 dark:text-white">
                                 <tr>
                                     <td colSpan={3} className="p-2 border border-slate-100 dark:border-slate-800 text-left">الإجمالي:</td>
-                                    <td className="p-2 border border-slate-100 dark:border-slate-800">{(stats.totalProductRevenue + stats.totalProductExtraMarkup).toLocaleString()} ج.م</td>
-                                    <td className="p-2 border border-slate-100 dark:border-slate-800 text-emerald-600">{stats.totalProfit.toLocaleString()} ج.م</td>
+                                    <td className="p-2 border border-slate-100 dark:border-slate-800">{((stats.totalProductRevenue ?? 0) + (stats.totalProductExtraMarkup ?? 0)).toLocaleString()} ج.م</td>
+                                    <td className="p-2 border border-slate-100 dark:border-slate-800 text-emerald-600">{(stats.totalProfit ?? 0).toLocaleString()} ج.م</td>
                                 </tr>
                             </tfoot>
                         )}
@@ -2936,7 +2938,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                     );
                                                 })()}
                                             </td>
-                                            <td className="p-2 border border-slate-100 dark:border-slate-800 font-bold text-red-600">-{loss.toLocaleString()} ج.م</td>
+                                            <td className="p-2 border border-slate-100 dark:border-slate-800 font-bold text-red-600">-{(loss ?? 0).toLocaleString()} ج.م</td>
                                         </tr>
                                     );
                                 })
@@ -2952,7 +2954,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                             <tfoot className="bg-slate-50 dark:bg-slate-800/50 font-black text-slate-900 dark:text-white">
                                 <tr>
                                     <td colSpan={4} className="p-2 border border-slate-100 dark:border-slate-800 text-left">الإجمالي:</td>
-                                    <td className="p-2 border border-slate-100 dark:border-slate-800 text-red-600">-{stats.totalLoss.toLocaleString()} ج.م</td>
+                                    <td className="p-2 border border-slate-100 dark:border-slate-800 text-red-600">-{(stats.totalLoss ?? 0).toLocaleString()} ج.م</td>
                                 </tr>
                             </tfoot>
                         )}
@@ -3347,7 +3349,7 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                 const withdrawals = pTx.filter(t => t.type === 'profit_withdrawal').reduce((a, b) => a + b.amount, 0);
                 const distributions = pTx.filter(t => t.type === 'profit_distribution').reduce((a, b) => a + b.amount, 0);
                 const profitShare = Math.max(0, (allTimeNetProfit * (p.profitRatio / 100)) - distributions);
-                const balance = p.balance;
+                const balance = p.balance ?? 0;
                 
                 return {
                     ...p,
@@ -3610,23 +3612,23 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                 <div className="flex gap-2">
                     <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 text-right">
                         <p className="text-[10px] text-indigo-200 font-bold">أرباح تم توزيعها</p>
-                        <p className="text-lg font-black text-emerald-300">+{stats.distributedProfit.toLocaleString()} ج.م</p>
+                        <p className="text-lg font-black text-emerald-300">+{(stats.distributedProfit ?? 0).toLocaleString()} ج.م</p>
                     </div>
                     <div className="bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 text-right">
                         <p className="text-[10px] text-indigo-200 font-bold">أرباح قابلة للتوزيع</p>
-                        <p className="text-lg font-black text-amber-300">{stats.undistributedProfit.toLocaleString()} ج.م</p>
+                        <p className="text-lg font-black text-amber-300">{(stats.undistributedProfit ?? 0).toLocaleString()} ج.م</p>
                     </div>
                 </div>
             </div>
 
             {/* Key Metric Scorecards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-                <ReportCard title="إجمالي رأس المال" value={`${stats.totals.capital.toLocaleString()} ج.م`} icon={<ArrowUpLeft size={22}/>} color="blue" tooltip="مجموع رؤوس الأموال التي تم إيداعها من قبل جميع الشركاء." />
-                <ReportCard title="الأرباح الموزعة" value={`${stats.distributedProfit.toLocaleString()} ج.م`} icon={<TrendingUp size={22}/>} color="emerald" tooltip="إجمالي الأرباح التي تم سحبها بالفعل من قبل الشركاء." />
-                <ReportCard title="الأرباح المستحقة (غير الموزعة)" value={`${stats.undistributedProfit.toLocaleString()} ج.م`} icon={<PieChartIcon size={22}/>} color="amber" tooltip="الأرباح المحققة التي لم يتم توزيعها على الشركاء بعد." />
-                <ReportCard title="إجمالي السلف القائمة" value={`${Math.max(0, stats.totals.loans - stats.totals.repayments).toLocaleString()} ج.م`} icon={<ArrowDownRight size={22}/>} color="red" tooltip="إجمالي مديونات الشركاء (السلف التي لم يتم سدادها بعد)." />
-                <ReportCard title="إجمالي العربونات المستلمة" value={`${stats.totals.advances.toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="teal" tooltip="إجمالي عربونات العملاء التي تم استلامها." />
-                <ReportCard title="عهد المبيعات (POS)" value={`${(stats.totals.posSales || 0).toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="indigo" tooltip="إجمالي عهد مبيعات الكاشير المباشر لدى الشركاء." />
+                <ReportCard title="إجمالي رأس المال" value={`${(stats.totals?.capital ?? 0).toLocaleString()} ج.م`} icon={<ArrowUpLeft size={22}/>} color="blue" tooltip="مجموع رؤوس الأموال التي تم إيداعها من قبل جميع الشركاء." />
+                <ReportCard title="الأرباح الموزعة" value={`${(stats.distributedProfit ?? 0).toLocaleString()} ج.م`} icon={<TrendingUp size={22}/>} color="emerald" tooltip="إجمالي الأرباح التي تم سحبها بالفعل من قبل الشركاء." />
+                <ReportCard title="الأرباح المستحقة (غير الموزعة)" value={`${(stats.undistributedProfit ?? 0).toLocaleString()} ج.م`} icon={<PieChartIcon size={22}/>} color="amber" tooltip="الأرباح المحققة التي لم يتم توزيعها على الشركاء بعد." />
+                <ReportCard title="إجمالي السلف القائمة" value={`${Math.max(0, (stats.totals?.loans ?? 0) - (stats.totals?.repayments ?? 0)).toLocaleString()} ج.م`} icon={<ArrowDownRight size={22}/>} color="red" tooltip="إجمالي مديونات الشركاء (السلف التي لم يتم سدادها بعد)." />
+                <ReportCard title="إجمالي العربونات المستلمة" value={`${(stats.totals?.advances ?? 0).toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="teal" tooltip="إجمالي عربونات العملاء التي تم استلامها." />
+                <ReportCard title="عهد المبيعات (POS)" value={`${(stats.totals?.posSales ?? 0).toLocaleString()} ج.م`} icon={<Coins size={22}/>} color="indigo" tooltip="إجمالي عهد مبيعات الكاشير المباشر لدى الشركاء." />
             </div>
 
             {/* Controls Bar: Search, Filters & View Mode */}
@@ -3745,33 +3747,33 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                     <div className="grid grid-cols-2 gap-2.5 pt-1 text-xs">
                                         <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <span className="text-[10px] font-bold text-slate-400 block">رأس المال المودع</span>
-                                            <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{p.capital.toLocaleString()} ج.م</span>
+                                            <span className="font-mono font-bold text-slate-700 dark:text-slate-200">{(p.capital ?? 0).toLocaleString()} ج.م</span>
                                         </div>
 
                                         <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <span className="text-[10px] font-bold text-slate-400 block">أرباح حصل عليها</span>
-                                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{p.distributions.toLocaleString()} ج.م</span>
+                                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">+{(p.distributions ?? 0).toLocaleString()} ج.م</span>
                                         </div>
 
                                         <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <span className="text-[10px] font-bold text-slate-400 block">السلف القائمة</span>
                                             <span className={`font-mono font-bold ${netLoan > 0 ? 'text-rose-600' : 'text-slate-600'}`}>
-                                                {netLoan.toLocaleString()} ج.م
+                                                {(netLoan ?? 0).toLocaleString()} ج.m
                                             </span>
                                         </div>
 
                                         <div className="bg-emerald-50/40 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-100/50 dark:border-emerald-900/30">
                                             <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 block">أرباح مستحقة غير موزعة</span>
-                                            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">+{Math.round(p.profitShare).toLocaleString()} ج.م</span>
+                                            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">+{Math.round(p.profitShare ?? 0).toLocaleString()} ج.م</span>
                                         </div>
 
                                         <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <span className="text-[10px] font-bold text-slate-400 block">العربونات المستلمة</span>
-                                            <span className="font-mono font-bold text-teal-600">{(p.advances || 0).toLocaleString()} ج.م</span>
+                                            <span className="font-mono font-bold text-teal-600">{(p.advances ?? 0).toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
                                             <span className="text-[10px] font-bold text-slate-400 block">عهد المبيعات (POS)</span>
-                                            <span className="font-mono font-bold text-indigo-600">{(p.posSales || 0).toLocaleString()} ج.م</span>
+                                            <span className="font-mono font-bold text-indigo-600">{(p.posSales ?? 0).toLocaleString()} ج.م</span>
                                         </div>
                                     </div>
 
@@ -3780,14 +3782,14 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                         <div>
                                             <span className="text-[9px] font-bold text-slate-400 uppercase block">الرصيد الجاري بالمحل</span>
                                             <span className={`text-xs font-bold font-mono ${p.balance >= 0 ? 'text-slate-700 dark:text-slate-300' : 'text-rose-600'}`}>
-                                                {p.balance.toLocaleString('ar-EG')} ج.م
+                                                {(p.balance ?? 0).toLocaleString('ar-EG')} ج.م
                                             </span>
                                         </div>
 
                                         <div className="text-left border-r pr-2 border-slate-100 dark:border-slate-800">
                                             <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase block">إجمالي حقوق التصفية</span>
                                             <span className="text-sm font-black text-indigo-700 dark:text-indigo-400 font-mono">
-                                                {(p.balance + p.profitShare).toLocaleString('ar-EG')} ج.م
+                                                {((p.balance ?? 0) + (p.profitShare ?? 0)).toLocaleString('ar-EG')} ج.م
                                             </span>
                                         </div>
                                     </div>
@@ -3832,18 +3834,18 @@ const PartnersFinancialReport: React.FC<ReportsPageProps> = ({ orders, settings,
                                                 </Link>
                                             </td>
                                             <td className="px-4 py-3"><span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full font-bold">{p.profitRatio}%</span></td>
-                                            <td className="px-4 py-3 font-mono">{p.capital.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-emerald-600">+{p.distributions.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-amber-600">-{p.withdrawals.toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-red-600">{Math.max(0, p.loans - p.repayments).toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-emerald-600 font-bold">+{Math.round(p.profitShare).toLocaleString()}</td>
-                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? p.advances.toLocaleString() : '0'}</td>
-                                            <td className="px-4 py-3 font-mono text-indigo-600">-{p.posSales ? p.posSales.toLocaleString() : '0'}</td>
+                                            <td className="px-4 py-3 font-mono">{(p.capital ?? 0).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-emerald-600">+{(p.distributions ?? 0).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-amber-600">-{(p.withdrawals ?? 0).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-red-600">{Math.max(0, (p.loans ?? 0) - (p.repayments ?? 0)).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-emerald-600 font-bold">+{Math.round(p.profitShare ?? 0).toLocaleString()}</td>
+                                            <td className="px-4 py-3 font-mono text-teal-600">-{p.advances ? (p.advances ?? 0).toLocaleString() : '0'}</td>
+                                            <td className="px-4 py-3 font-mono text-indigo-600">-{p.posSales ? (p.posSales ?? 0).toLocaleString() : '0'}</td>
                                             <td className={`px-4 py-3 font-bold ${p.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                                {p.balance.toLocaleString()} ج.م
+                                                {(p.balance ?? 0).toLocaleString()} ج.م
                                             </td>
                                             <td className="px-4 py-3 font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                                                {(p.balance + p.profitShare).toLocaleString()} ج.م
+                                                {((p.balance ?? 0) + (p.profitShare ?? 0)).toLocaleString()} ج.م
                                             </td>
                                         </tr>
                                     ))
@@ -4816,7 +4818,7 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                                                             {item.name}
                                                         </span>
                                                         <span className="font-mono font-bold text-slate-100">
-                                                            {item.value.toLocaleString('ar-EG')} ج.م ({percentage.toFixed(1)}%)
+                                                            {(item.value ?? 0).toLocaleString('ar-EG')} ج.م ({percentage.toFixed(1)}%)
                                                         </span>
                                                     </div>
                                                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -5075,19 +5077,19 @@ const FinalReport: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                                         <div className="space-y-1">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                                                <span className="font-black text-slate-100 text-sm sm:text-base">{p.name}</span>
+                                                <span className="font-black text-slate-100 text-sm sm:text-base">{p.name || 'الشريك'}</span>
                                             </div>
                                             <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">
-                                                <span>نسبة حصة الأرباح: <b>{p.profitRatio}%</b></span>
+                                                <span>نسبة حصة الأرباح: <b>{p.profitRatio || 0}%</b></span>
                                                 <span className="text-slate-500">|</span>
-                                                <span>إجمالي المسحوبات والتوزيعات: <b>{p.distributions.toLocaleString('ar-EG')} ج.م</b></span>
+                                                <span>إجمالي المسحوبات والتوزيعات: <b>{(p.distributions ?? 0).toLocaleString('ar-EG')} ج.م</b></span>
                                             </div>
                                         </div>
                                         <div className="text-right flex items-center justify-between sm:justify-start gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
                                             <div className="text-right">
                                                 <span className="text-[10px] text-slate-400 block">الرصيد الفعلي الحالي</span>
-                                                <span className={`block font-black font-mono text-base sm:text-lg ${p.currentBalance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                    {p.currentBalance > 0 ? '+' : ''}{p.currentBalance.toLocaleString('ar-EG')} ج.م
+                                                <span className={`block font-black font-mono text-base sm:text-lg ${(p.currentBalance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                    {(p.currentBalance ?? 0) > 0 ? '+' : ''}{(p.currentBalance ?? 0).toLocaleString('ar-EG')} ج.م
                                                 </span>
                                             </div>
                                         </div>

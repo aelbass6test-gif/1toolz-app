@@ -607,7 +607,7 @@ export const generateOrdersReportHTML = (
     const codFee = (order.status === 'مدفوعة' || isPosOrder) ? 0 : calculateCodFee(order, settings);
     const bostaVat = calculateBostaVat(order, insuranceFee, settings);
 
-    const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    const totalQuantity = (order.items || []).reduce((sum, item) => sum + (item?.quantity || 1), 0);
     
     const isFlexShipEnabled = isPosOrder ? false : (order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false)));
     const flexShipCompanyDeduction = (isFlexShipEnabled && order.flexShipFeePaidByCustomer) ? (order.flexShipCompanyFee ?? (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0))) : 0;
@@ -621,10 +621,11 @@ export const generateOrdersReportHTML = (
     sumCollectionAmount += (isPosOrder ? (order.totalAmountOverride || order.productPrice || displayTotal) : displayTotal);
     sumInvoiceTotal += invoiceTotal;
 
-    const isCompleted = ['تم_التحصيل', 'مدفوعة'].includes(order.status);
-    const isReturned = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'جاري_الاسترجاع', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(order.status);
-    const isPending = ['قيد_الشحن', 'تم_الارسال', 'تم_توصيلها', 'تم_التوصيل'].includes(order.status);
-    const isCancelled = order.status === 'ملغي';
+    const orderStatus = order.status || '';
+    const isCompleted = ['تم_التحصيل', 'مدفوعة'].includes(orderStatus);
+    const isReturned = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'جاري_الاسترجاع', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي'].includes(orderStatus);
+    const isPending = ['قيد_الشحن', 'تم_الارسال', 'تم_توصيلها', 'تم_التوصيل'].includes(orderStatus);
+    const isCancelled = orderStatus === 'ملغي';
 
     if (isCompleted) completedCount++;
     else if (isReturned) returnedCount++;
@@ -650,19 +651,25 @@ export const generateOrdersReportHTML = (
   <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.72.937 3.659 1.432 5.631 1.433h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
 </svg>`;
 
+    const safeProductName = order.productName || (order.items && order.items.map(i => i.name).filter(Boolean).join(' + ')) || 'منتج غير مسمى';
+    const itemsSumPrice = (order.items || []).reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+    const safeProductPrice = (Number(order.productPrice) && Number(order.productPrice) > 0) ? Number(order.productPrice) : itemsSumPrice;
+    const safeDiscount = Number(order.discount) || 0;
+    const safePaymentStatus = order.paymentStatus || 'غير_مدفوع';
+
     return `
       <tr>
         <td>
-          <div class="font-bold text-gray-900">${order.customerName}</div>
+          <div class="font-bold text-gray-900">${order.customerName || 'عميل'}</div>
           <div class="text-[9px] text-gray-500 mt-0.5 flex items-center gap-1">
-            <span>#${order.id.slice(0, 8)}</span>
+            <span>#${(order.id || '').slice(0, 8)}</span>
             ${isPosOrder ? `<span style="color: #6366f1; font-weight: 800;">[${posName}]</span>` : ''}
           </div>
           <div style="font-size: 8.5px; color: #475569; margin-top: 2px;">الشركة: <span style="font-weight: bold;">${order.shippingCompany || 'غير محدد'}</span></div>
           ${renderFlexShipAndCompensationBadges(order, settings)}
         </td>
         <td>
-          <div class="text-gray-900 leading-tight">${order.productName}</div>
+          <div class="text-gray-900 leading-tight">${safeProductName}</div>
           ${isPosOrder ? `
           <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">
             <span style="font-size: 8.5px; padding: 2px 8px; background: ${displayTotal === 0 ? '#f0fdf4' : '#fff7ed'}; color: ${displayTotal === 0 ? '#166534' : '#9a3412'}; border-radius: 20px; font-weight: 800; border: 1.5px solid ${displayTotal === 0 ? '#bbf7d0' : '#fde68a'}; display: inline-flex; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
@@ -673,10 +680,10 @@ export const generateOrdersReportHTML = (
           ` : ''}
         </td>
         <td class="text-center font-medium">
-          <div>${order.productPrice.toLocaleString()}</div>
-          ${order.discount > 0 ? `
+          <div>${safeProductPrice.toLocaleString()}</div>
+          ${safeDiscount > 0 ? `
           <div style="margin-top: 4px; font-size: 8.5px; color: #b91c1c; background: #fee2e2; border: 1px dashed #fecaca; padding: 1.5px 4px; border-radius: 4px; display: inline-block; font-weight: 800; white-space: nowrap;">
-            خصم: ${order.discount.toLocaleString()} ج.م
+            خصم: ${safeDiscount.toLocaleString()} ج.م
           </div>
           ` : ''}
           ${closingDifference < 0 ? `
@@ -704,19 +711,19 @@ export const generateOrdersReportHTML = (
           ` : ''}
         </td>
         <td class="text-center font-bold text-gray-900">${invoiceTotal.toLocaleString()}</td>
-        <td class="text-center"><span class="status-badge" style="${getStatusStyles(order.status, 'status')}">${order.status.replace(/_/g, ' ')}</span></td>
+        <td class="text-center"><span class="status-badge" style="${getStatusStyles(orderStatus, 'status')}">${orderStatus.replace(/_/g, ' ')}</span></td>
         <td class="text-center">
-          ${['مرتجع', 'فشل_التوصيل', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي', 'جاري_الاسترجاع'].includes(order.status) ? `
+          ${['مرتجع', 'فشل_التوصيل', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي', 'جاري_الاسترجاع'].includes(orderStatus) ? `
             <span class="status-badge" style="background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; display: inline-flex; align-items: center; gap: 4px;">
               <span>بدون تحصيل</span>
             </span>
-          ` : order.status === 'ملغي' ? `
+          ` : orderStatus === 'ملغي' ? `
             <span class="status-badge" style="background-color: #fff7ed; color: #c2410c; border: 1px solid #fdba74; display: inline-flex; align-items: center; gap: 4px;">
               <span>ملغي</span>
               ${whatsappIcon}
             </span>
           ` : `
-            <span class="status-badge" style="${getStatusStyles(order.paymentStatus, 'payment')}">${order.flexShipFeePaidByCustomer ? 'فليكس ✅' : order.paymentStatus}</span>
+            <span class="status-badge" style="${getStatusStyles(safePaymentStatus, 'payment')}">${order.flexShipFeePaidByCustomer ? 'فليكس ✅' : safePaymentStatus}</span>
           `}
         </td>
         <td class="text-center font-bold" style="color: ${net >= 0 ? '#15803d' : '#b91c1c'};" dir="ltr">${net > 0 ? '+' : ''}${net.toLocaleString()} ج.م</td>
@@ -2807,7 +2814,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const inspectionAdjustment = order.inspectionFeePaidByCustomer !== false ? 0 : inspectionCost;
         const bostaVat = calculateBostaVat(order, insuranceFee, settings);
 
-        const safeProductPrice = Number(order.productPrice) || 0;
+        const itemsProductPrice = (order.items || []).reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+        const safeProductPrice = (Number(order.productPrice) && Number(order.productPrice) > 0) ? Number(order.productPrice) : itemsProductPrice;
         const safeShippingFee = Number(order.shippingFee) || 0;
         const safeDiscount = Number(order.discount) || 0;
         const safeAdvance = Number(order.advancePayment) || 0;
@@ -2972,7 +2980,8 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const { profit, netRevenue, productCost, closingDifference } = calculateOrderProfitLoss(order, settings);
         const isPosOrder = true;
         
-        const safeProductPrice = Number(order.productPrice) || 0;
+        const posItemsProductPrice = (order.items || []).reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 1)), 0);
+        const safeProductPrice = (Number(order.productPrice) && Number(order.productPrice) > 0) ? Number(order.productPrice) : posItemsProductPrice;
         const safeShippingFee = Number(order.shippingFee) || 0;
         const safeDiscount = Number(order.discount) || 0;
         const safeAdvance = Number(order.advancePayment) || 0;

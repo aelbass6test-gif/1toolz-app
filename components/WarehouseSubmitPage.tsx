@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getSupabaseClient } from '../services/databaseService';
-import { db as firebaseDb } from '../services/firebaseClient';
-import { doc, getDoc, updateDoc, collection, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { 
     ClipboardList, CheckCircle, CheckCircle2, AlertCircle, Search, Save, Package, 
     Lock, ArrowLeft, Info, HelpCircle, Loader2, RefreshCw, User, FileText, 
@@ -518,23 +516,11 @@ export default function WarehouseSubmitPage() {
             setLoading(true);
             let data: SharedAudit | null = null;
 
-            try {
-                const docRef = doc(firebaseDb, 'shared_audits', auditId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    data = docSnap.data() as SharedAudit;
-                }
-            } catch (fsErr) {
-                console.warn('Firestore fetchAudit failed, trying Supabase:', fsErr);
-            }
-
-            if (!data) {
-                const supabase = getSupabaseClient();
-                if (supabase) {
-                    const { data: sbData, error: sbErr } = await supabase.from('shared_audits').select('*').eq('id', auditId).single();
-                    if (!sbErr && sbData) {
-                        data = sbData as SharedAudit;
-                    }
+            const supabase = getSupabaseClient();
+            if (supabase) {
+                const { data: sbData, error: sbErr } = await supabase.from('shared_audits').select('*').eq('id', auditId).single();
+                if (!sbErr && sbData) {
+                    data = sbData as SharedAudit;
                 }
             }
 
@@ -902,7 +888,6 @@ export default function WarehouseSubmitPage() {
     const handleActualSubmit = async () => {
         try {
             setLoading(true);
-            const docRef = doc(firebaseDb, 'shared_audits', auditId!);
 
             // Map inputs back to items array
             const updatedItems = audit!.items.map(item => {
@@ -931,17 +916,10 @@ export default function WarehouseSubmitPage() {
                 submittedAt: new Date().toISOString()
             };
 
-            try {
-                await updateDoc(docRef, updates);
-            } catch (fsErr) {
-                console.warn('Firestore updateDoc failed, trying Supabase fallback:', fsErr);
-                const supabase = getSupabaseClient();
-                if (supabase) {
-                    const { error: sbErr } = await supabase.from('shared_audits').update(updates).eq('id', auditId!);
-                    if (sbErr) throw sbErr;
-                } else {
-                    throw fsErr;
-                }
+            const supabase = getSupabaseClient();
+            if (supabase && auditId) {
+                const { error: sbErr } = await supabase.from('shared_audits').update(updates).eq('id', auditId);
+                if (sbErr) console.warn('Supabase audit update notice:', sbErr);
             }
             
             // Update local state to reflect submission

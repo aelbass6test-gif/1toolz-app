@@ -143,6 +143,13 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     ? Math.max(0, Math.round(Number(order.totalAmountOverride))) 
     : computedTotal;
   
+  const isShipmentExchange = order.shipmentType === 'exchange' || order.orderType === 'exchange';
+  const displayProductPrice = isShipmentExchange
+    ? (totalAmountToCollect > 0 ? Math.max(0, totalAmountToCollect - safeShippingFee) : safeProductPrice)
+    : (safeProductPrice > 0 
+      ? safeProductPrice 
+      : (totalAmountToCollect > 0 ? Math.max(0, totalAmountToCollect + safeDiscount + safeAdvance + safeCredit + safeReturnCash - safeShippingFee - safeAdminFee) : 0));
+  
   const flexFeeValue = order.flexShipFee !== undefined 
     ? order.flexShipFee 
     : (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0));
@@ -877,6 +884,38 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                 </div>
               </div>
 
+              {/* Dedicated Exchange Financial Notice Banner */}
+              {isShipmentExchange && (
+                <div className="bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 rounded-2xl p-5 text-right space-y-3">
+                  <div className="flex items-center justify-between flex-row-reverse border-b border-indigo-200/60 dark:border-indigo-800/40 pb-2">
+                    <span className="font-black text-sm text-indigo-900 dark:text-indigo-200 flex items-center gap-2 flex-row-reverse">
+                      <RefreshCcw size={16} className="text-indigo-600 dark:text-indigo-400" />
+                      <span>نظام تسوية الاستبدال المالي الشامل</span>
+                    </span>
+                    <span className="px-2.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-black rounded-lg">
+                      طلب استبدال شحنة #{order.originalOrderId || ''}
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-relaxed">
+                    في طلبات الاستبدال، تتكون القيمة الإجمالية للطلب من (**فرق التحصيل النقدي COD + رصيد المنتج المرتجع**) ليُخصم منها تكلفة المنتج الجديد ومصاريف الشحن، مما يعكس هامش الربح الحقيقي والكامل للمنتج البديل بدقة 100%.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
+                    <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                      <span className="text-slate-500 block text-[11px]">التحصيل النقدي عند التسليم:</span>
+                      <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">+{totalAmountToCollect.toLocaleString()} ج.م</span>
+                    </div>
+                    <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                      <span className="text-slate-500 block text-[11px]">تكلفة شراء المنتج الجديد:</span>
+                      <span className="font-black text-slate-800 dark:text-slate-200 text-sm">-{safeProductCost.toLocaleString()} ج.م</span>
+                    </div>
+                    <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                      <span className="text-slate-500 block text-[11px]">مصاريف الشحن لشركة الشحن:</span>
+                      <span className="font-black text-rose-600 dark:text-rose-400 text-sm">-{carrierFees.toLocaleString()} ج.م</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* 2-Column Comparison Grid: Revenues vs Expenses */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
@@ -899,7 +938,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                       <span className="text-slate-600 dark:text-slate-300">سعر المنتجات المسجل للعميل</span>
                       <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                        +{safeProductPrice.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                        +{displayProductPrice.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                       </span>
                     </div>
 
