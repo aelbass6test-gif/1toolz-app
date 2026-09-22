@@ -202,27 +202,28 @@ const Sidebar: React.FC<SidebarProps> = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
         try {
-            const saved = localStorage.getItem('sidebar_collapsed_groups_v3');
+            const saved = localStorage.getItem('sidebar_collapsed_groups_v4');
             if (saved) return JSON.parse(saved);
         } catch (e) {
             console.error('Error loading sidebar settings', e);
         }
-        // Premium default behavior: Keep primary open, collapse others for streamlined workspace
+        // Keep all dashboard sections visible on first load so no navigation items
+        // appear to be missing. Users can still collapse individual sections.
         return {
             'الرئيسية والمتابعة العامة': false,
             'إدارة المبيعات والطلبيات': false,
-            'كتالوج المنتجات والمخزون': true,
-            'التسويق وعلاقات العملاء CRM': true,
-            'المالية والشركاء والرواتب': true,
-            'الشحن والتوصيل اللوجستي': true,
-            'مظهر المتجر والتطبيقات': true,
-            'النظام وإعدادات التحكم الشاملة': true,
+            'كتالوج المنتجات والمخزون': false,
+            'التسويق وعلاقات العملاء CRM': false,
+            'المالية والشركاء والرواتب': false,
+            'الشحن والتوصيل اللوجستي': false,
+            'مظهر المتجر والتطبيقات': false,
+            'النظام وإعدادات التحكم الشاملة': false,
         };
     });
 
     const saveCollapsedState = (newState: Record<string, boolean>) => {
         setCollapsedGroups(newState);
-        localStorage.setItem('sidebar_collapsed_groups_v3', JSON.stringify(newState));
+        localStorage.setItem('sidebar_collapsed_groups_v4', JSON.stringify(newState));
     };
 
     const toggleGroup = (title: string) => {
