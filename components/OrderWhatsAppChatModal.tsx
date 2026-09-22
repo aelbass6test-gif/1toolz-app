@@ -11,8 +11,6 @@ import {
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
 import { getSupabaseClient } from '../services/databaseService';
-import { doc, setDoc } from 'firebase/firestore';
-import { db as firebaseDb } from '../services/firebaseClient';
 
 interface OrderWhatsAppChatModalProps {
   order?: Order | null;
@@ -157,10 +155,10 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                             'متجرنا';
 
   const whatsappConfig: WhatsAppConfig = settings.whatsappConfig || {
-    apiUrl: 'https://api.ultramsg.com/instance186031/',
-    instanceId: 'instance186031',
-    token: 'hilzrk5qc9lv7jfa',
-    isActive: true,
+    apiUrl: '',
+    instanceId: '',
+    token: '',
+    isActive: false,
     autoSendOnStatusChange: true,
     providerType: 'meta_cloud'
   };
@@ -316,54 +314,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         }
       }
 
-      const newLog: WhatsAppMessageLog = {
-        id: res.messageId || ('wa_' + Math.random().toString(36).substr(2, 9)),
-        timestamp: new Date().toISOString(),
-        type,
-        direction: 'outgoing',
-        message: textToSend,
-        sender: storeDisplayName + ' (المتجر)',
-        recipient: activeOrder.customerName || phone,
-        status: res.success ? (whatsappConfig.providerType === 'meta_cloud' ? 'sent' : 'delivered') : 'failed'
-      };
-
-      const updatedLogs = [...(activeOrder.whatsappLogs || []), newLog];
-      const updatedOrder = {
-        ...activeOrder,
-        whatsappLogs: updatedLogs
-      };
-
-      setActiveOrder(updatedOrder);
-      if (onUpdateOrder) {
-        await onUpdateOrder(updatedOrder);
-      }
-
-      // Helper to clean undefined values before sending to Firestore
-      const cleanUndefined = (obj: any): any => {
-        if (Array.isArray(obj)) {
-          return obj.map(cleanUndefined);
-        }
-        if (obj !== null && typeof obj === 'object') {
-          const cleanObj: any = {};
-          for (const key of Object.keys(obj)) {
-            if (obj[key] !== undefined) {
-              cleanObj[key] = cleanUndefined(obj[key]);
-            }
-          }
-          return cleanObj;
-        }
-        return obj;
-      };
-
-      // Also persist directly to Firestore orders collection for zero-loss guarantee
-      if (activeOrder.id) {
-        const cleanPayload = cleanUndefined({
-          whatsappLogs: updatedLogs,
-          updatedAt: new Date().toISOString()
-        });
-        setDoc(doc(firebaseDb, 'orders', activeOrder.id), cleanPayload, { merge: true })
-          .catch((err: any) => console.warn('[PERSIST-CHAT-WARN]', err));
-      }
+      // whatsapp_messages is the canonical message ledger. Do not mirror new
+      // messages into the legacy Firestore/order whatsappLogs fields.
 
       if (res.success) {
         setStatusMsg({ type: 'success', text: 'تم إرسال الرسالة بنجاح عبر الواتساب! ✅' });

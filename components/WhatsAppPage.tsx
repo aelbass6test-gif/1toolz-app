@@ -80,10 +80,10 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
   // WhatsApp Config state (local for form editing)
   const [config, setConfig] = useState<WhatsAppConfig>(settings.whatsappConfig || {
-    apiUrl: 'https://api.ultramsg.com/instance186031/',
-    instanceId: 'instance186031',
-    token: 'hilzrk5qc9lv7jfa',
-    isActive: true,
+    apiUrl: '',
+    instanceId: '',
+    token: '',
+    isActive: false,
     autoSendOnStatusChange: true,
     providerType: 'ultramsg',
     isConnected: false,
