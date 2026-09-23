@@ -10,7 +10,7 @@ import { motion } from 'framer-motion';
 
 // --- Reusable UI Components ---
 const FeatureCard: React.FC<{ icon: React.ReactElement<{ size?: number, className?: string }>; title: string; description: string; }> = ({ icon, title, description }) => (
-  <div className="bg-[#0d211b]/80 p-6 rounded-2xl border border-emerald-500/20/50 text-center transition-all hover:-translate-y-2 hover:border-indigo-500/50">
+  <div className="bg-[#0d211b]/80 p-6 rounded-2xl border border-emerald-500/20 text-center transition-all hover:-translate-y-2 hover:border-emerald-400/50">
     <div className="inline-block p-4 bg-slate-700/50 rounded-full mb-4 border border-slate-600">
         {React.cloneElement(icon, { size: 32, className:"text-emerald-400" })}
     </div>
@@ -1476,7 +1476,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                     <div className="flex gap-2.5 items-start">
                       <Database size={18} className="text-emerald-400 mt-0.5 shrink-0" />
                       <div>
-                        <h3 className="text-xs font-bold text-indigo-300">منبه: السيرفر المخصص مفعل</h3>
+                        <h3 className="text-xs font-bold text-emerald-300">منبه: السيرفر المخصص مفعل</h3>
                         <p className="text-slate-400 text-[11px] mt-1 leading-relaxed">
                           أنت متصل بقاعدة بيانات مخصصة جديدة وفارغة. حساباتك القديمة موجودة على السيرفر الافتراضي الأصلي. يمكنك <strong>إنشاء حساب جديد</strong> لتشغيل السيرفر المخصص، أو الرجوع فوراً للسيرفر الافتراضي لاسترجاع بياناتك.
                         </p>
@@ -1487,7 +1487,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       <button 
                         type="button" 
                         onClick={handleCopySql} 
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-950/50 hover:bg-indigo-900/50 text-indigo-300 rounded-lg font-bold border border-indigo-900/50 transition active:scale-95"
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-950/50 hover:bg-emerald-900/50 text-emerald-300 rounded-lg font-bold border border-emerald-900/50 transition active:scale-95"
                       >
                         {copiedSql ? (
                           <>
