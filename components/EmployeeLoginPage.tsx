@@ -93,26 +93,26 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
 
 
   return (
-    <div dir="rtl" className="font-cairo bg-gradient-to-br from-[#111827] to-[#0c1e3e] min-h-screen flex items-center justify-center p-4 text-white">
-      <div className="w-full max-w-md bg-slate-900/40 p-8 rounded-2xl border border-slate-700 shadow-xl backdrop-blur-sm transition-all">
+    <div dir="rtl" className="font-cairo bg-gradient-to-br from-[#071b16] via-[#0b2920] to-[#102b22] min-h-screen flex items-center justify-center p-4 text-white">
+      <div className="w-full max-w-md bg-[#101817]/90 p-8 rounded-2xl border border-emerald-500/20 shadow-xl backdrop-blur-sm transition-all">
         {activeTab === 'success' ? (
             <div className="animate-in fade-in duration-300 text-center">
-                <div className="w-20 h-20 bg-emerald-900/40 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-emerald-500/30">
+                <div className="w-20 h-20 bg-emerald-500/15 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-emerald-500/30">
                     <CheckCircle size={40} />
                 </div>
                 <h1 className="text-2xl font-black text-white">تم إرسال طلبك بنجاح!</h1>
                 <p className="text-slate-400 mt-2 mb-6">سيقوم مالك المتجر بمراجعة طلبك. سيتم إشعارك عند الموافقة.</p>
-                <button onClick={() => setActiveTab('login')} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-colors">
+                <button onClick={() => setActiveTab('login')} className="w-full bg-gradient-to-r from-emerald-600 to-[#95bf47] hover:opacity-90 text-white rounded-lg py-3 font-bold transition-colors">
                     العودة لصفحة الدخول
                 </button>
             </div>
         ) : (
           <>
-            <div className="flex bg-slate-800/50 border border-slate-700 rounded-lg p-1 mb-8">
-                <button onClick={() => setActiveTab('login')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'login' ? 'bg-slate-700/50 text-white shadow-inner' : 'text-slate-400 hover:bg-slate-700/20'}`}>
+            <div className="flex bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg p-1 mb-8">
+                <button onClick={() => setActiveTab('login')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'login' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}>
                   <LogIn size={16}/> تسجيل الدخول
                 </button>
-                <button onClick={() => setActiveTab('register')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-slate-700/50 text-white shadow-inner' : 'text-slate-400 hover:bg-slate-700/20'}`}>
+                <button onClick={() => setActiveTab('register')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}>
                   <UserPlus size={16}/> طلب انضمام
                 </button>
             </div>
@@ -126,15 +126,15 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
                     <label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label>
-                    <input type="text" placeholder="store-0" value={loginStoreId} onChange={e => setLoginStoreId(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required />
+                    <input type="text" placeholder="store-0" value={loginStoreId} onChange={e => setLoginStoreId(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required />
                   </div>
                   <div>
                     <label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم الهاتف</label>
-                    <input type="tel" placeholder="010xxxxxxxx" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required />
+                    <input type="tel" placeholder="010xxxxxxxx" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required />
                   </div>
                   <div>
                     <label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label>
-                    <input type="password" placeholder="********" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required />
+                    <input type="password" placeholder="********" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required />
                   </div>
                   {loginError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{loginError}</div>}
                   
@@ -146,13 +146,13 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                         // For simplicity, we can redirect to signup which has the modal
                         window.location.href = '/signup?forgot=true';
                       }}
-                      className="text-xs text-indigo-400 hover:underline"
+                      className="text-xs text-emerald-400 hover:underline"
                     >
                       نسيت كلمة المرور؟
                     </button>
                   </div>
 
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-wait">
+                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-600 to-[#95bf47] hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-wait">
                     {isLoading ? <Loader2 className="animate-spin" /> : <><LogIn size={18}/> تسجيل الدخول</>}
                   </button>
                 </form>
@@ -166,15 +166,15 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                     <p className="text-slate-400 mt-2">املأ بياناتك وسنرسل طلبك لمالك المتجر.</p>
                 </div>
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><UserIcon size={16}/> اسمك الكامل</label><input type="text" placeholder="اسمك الظاهر للمدير" value={regFullName} onChange={e => setRegFullName(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required /></div>
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم هاتفك</label><input type="tel" placeholder="سيستخدم لتسجيل الدخول" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required /></div>
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required /></div>
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label><input type="password" placeholder="8 أحرف على الأقل" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required /></div>
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label><input type="text" placeholder="اطلبه من مالك المتجر" value={regStoreId} onChange={e => setRegStoreId(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-white placeholder-slate-500" required /></div>
+                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><UserIcon size={16}/> اسمك الكامل</label><input type="text" placeholder="اسمك الظاهر للمدير" value={regFullName} onChange={e => setRegFullName(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required /></div>
+                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم هاتفك</label><input type="tel" placeholder="سيستخدم لتسجيل الدخول" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required /></div>
+                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required /></div>
+                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label><input type="password" placeholder="8 أحرف على الأقل" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required /></div>
+                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label><input type="text" placeholder="اطلبه من مالك المتجر" value={regStoreId} onChange={e => setRegStoreId(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-500" required /></div>
                   
                   {regError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{regError}</div>}
                   
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-600 to-[#95bf47] hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                     {isLoading ? <Loader2 className="animate-spin" /> : <><UserPlus size={18}/> إرسال طلب الانضمام</>}
                   </button>
                 </form>

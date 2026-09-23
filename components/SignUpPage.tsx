@@ -10,9 +10,9 @@ import { motion } from 'framer-motion';
 
 // --- Reusable UI Components ---
 const FeatureCard: React.FC<{ icon: React.ReactElement<{ size?: number, className?: string }>; title: string; description: string; }> = ({ icon, title, description }) => (
-  <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 text-center transition-all hover:-translate-y-2 hover:border-indigo-500/50">
+  <div className="bg-[#0d211b]/80 p-6 rounded-2xl border border-emerald-500/20/50 text-center transition-all hover:-translate-y-2 hover:border-indigo-500/50">
     <div className="inline-block p-4 bg-slate-700/50 rounded-full mb-4 border border-slate-600">
-        {React.cloneElement(icon, { size: 32, className:"text-indigo-400" })}
+        {React.cloneElement(icon, { size: 32, className:"text-emerald-400" })}
     </div>
     <h3 className="text-xl font-bold mb-2">{title}</h3>
     <p className="text-slate-400 text-sm">{description}</p>
@@ -22,7 +22,7 @@ const FeatureCard: React.FC<{ icon: React.ReactElement<{ size?: number, classNam
 const StepCard: React.FC<{ number: string; title: string; description: string; }> = ({ number, title, description }) => (
   <div className="text-center">
     <div className="relative inline-block">
-      <div className="w-16 h-16 bg-slate-800/80 border border-slate-700 rounded-full flex items-center justify-center font-black text-3xl text-indigo-400 mb-4">{number}</div>
+      <div className="w-16 h-16 bg-slate-800/80 border border-emerald-500/20 rounded-full flex items-center justify-center font-black text-3xl text-emerald-400 mb-4">{number}</div>
     </div>
     <h3 className="text-2xl font-bold mb-2">{title}</h3>
     <p className="text-slate-400 max-w-xs mx-auto">{description}</p>
@@ -37,7 +37,7 @@ const AuthModal: React.FC<{
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#02050c]/85 backdrop-blur-sm"
     onClick={onClose}
   >
     <motion.div
@@ -1251,13 +1251,13 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setUserPassword('');
   };
   
-  const navItemClasses = "font-bold text-slate-300 hover:text-white transition-colors";
+  const navItemClasses = "font-bold text-slate-300 hover:text-emerald-300 transition-colors";
 
   return (
-    <div dir="rtl" className="font-cairo bg-slate-950 text-white overflow-x-hidden">
+    <div dir="rtl" className="font-cairo bg-[#071b16] text-white overflow-x-hidden">
       
       {/* --- Header --- */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-slate-950/70 backdrop-blur-lg border-b border-slate-800">
+      <header className="fixed top-0 left-0 right-0 z-40 bg-[#071b16]/70 backdrop-blur-lg border-b border-emerald-500/15">
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
           <Link to="/" className="font-black text-2xl">منصتي</Link>
           <nav className="hidden md:flex items-center gap-8">
@@ -1265,8 +1265,8 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             <a href="#pricing" className={navItemClasses}>الأسعار</a>
           </nav>
           <div className="flex items-center gap-3">
-            <button onClick={() => openAuthModal(true)} className="font-bold text-sm text-slate-300 hover:text-white">تسجيل الدخول</button>
-            <button onClick={() => openAuthModal(false)} className="bg-indigo-600 px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-500 transition-all shadow-lg shadow-indigo-600/20">
+            <button onClick={() => openAuthModal(true)} className="font-bold text-sm text-slate-300 hover:text-emerald-300">تسجيل الدخول</button>
+            <button onClick={() => openAuthModal(false)} className="bg-emerald-600 px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/20">
               ابدأ الآن
             </button>
           </div>
@@ -1276,8 +1276,8 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       <main>
         {/* --- Hero Section --- */}
         <section className="relative pt-40 pb-24 text-center overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-indigo-900/30 to-slate-950 opacity-50"></div>
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[150%] h-[150%] rounded-full bg-[radial-gradient(circle_at_center,_rgba(129,_140,_248,_0.15),_transparent_40%)] -z-10"></div>
+          <div className="absolute inset-0 bg-gradient-to-b from-emerald-900/30 to-slate-950 opacity-50"></div>
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[150%] h-[150%] rounded-full bg-[radial-gradient(circle_at_center,_rgba(52,_211,_153,_0.16),_transparent_40%)] -z-10"></div>
           
           <div className="container mx-auto px-6 relative z-10">
             <motion.h1 
@@ -1296,7 +1296,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.4 }}
                 className="mt-10"
             >
-              <button onClick={() => openAuthModal(false)} className="bg-indigo-600 px-10 py-4 rounded-xl font-bold text-lg hover:bg-indigo-500 transition-transform hover:scale-105 shadow-2xl shadow-indigo-600/30">
+              <button onClick={() => openAuthModal(false)} className="bg-emerald-600 px-10 py-4 rounded-xl font-bold text-lg hover:bg-emerald-500 transition-transform hover:scale-105 shadow-2xl shadow-emerald-600/30">
                 أنشئ متجرك مجاناً
               </button>
             </motion.div>
@@ -1338,15 +1338,15 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         {/* --- Pricing Section --- */}
         <section id="pricing" className="py-24 bg-slate-900">
           <div className="container mx-auto px-6">
-            <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-10 rounded-3xl text-center max-w-4xl mx-auto shadow-2xl">
+            <div className="bg-gradient-to-br from-emerald-600 to-[#95bf47] p-10 rounded-3xl text-center max-w-4xl mx-auto shadow-2xl">
               <h3 className="text-4xl font-black">الخطة المجانية. مدى الحياة.</h3>
-              <p className="text-indigo-200 mt-4 text-lg">نحن نؤمن بدعم المشاريع الناشئة. لهذا، منصتنا مجانية بالكامل.</p>
-              <ul className="mt-8 space-y-3 text-indigo-100 max-w-md mx-auto">
-                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-green-400"/> عدد لا محدود من المنتجات</li>
-                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-green-400"/> عدد لا محدود من الطلبات</li>
-                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-green-400"/> 0% عمولة على المبيعات</li>
+              <p className="text-emerald-100 mt-4 text-lg">نحن نؤمن بدعم المشاريع الناشئة. لهذا، منصتنا مجانية بالكامل.</p>
+              <ul className="mt-8 space-y-3 text-emerald-50 max-w-md mx-auto">
+                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-lime-300"/> عدد لا محدود من المنتجات</li>
+                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-lime-300"/> عدد لا محدود من الطلبات</li>
+                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-lime-300"/> 0% عمولة على المبيعات</li>
               </ul>
-              <button onClick={() => openAuthModal(false)} className="mt-10 bg-white text-indigo-600 px-10 py-4 rounded-xl font-bold text-lg hover:bg-indigo-100 transition-transform hover:scale-105">
+              <button onClick={() => openAuthModal(false)} className="mt-10 bg-white text-emerald-600 px-10 py-4 rounded-xl font-bold text-lg hover:bg-emerald-100 transition-transform hover:scale-105">
                 ابدأ رحلتك الآن
               </button>
             </div>
@@ -1358,7 +1358,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             <div className="container mx-auto px-6">
                 <h2 className="text-4xl font-black">جاهز لبدء مشروعك؟</h2>
                 <p className="text-slate-400 mt-4">انضم لآلاف التجار الذين يستخدمون منصتنا لتحقيق النجاح.</p>
-                <button onClick={() => openAuthModal(false)} className="mt-8 bg-indigo-600 px-8 py-4 rounded-xl font-bold text-lg hover:bg-indigo-500 transition-transform hover:scale-105 shadow-2xl shadow-indigo-600/30 flex items-center gap-3 mx-auto">
+                <button onClick={() => openAuthModal(false)} className="mt-8 bg-emerald-600 px-8 py-4 rounded-xl font-bold text-lg hover:bg-emerald-500 transition-transform hover:scale-105 shadow-2xl shadow-emerald-600/30 flex items-center gap-3 mx-auto">
                     <span>أنشئ متجرك مجاناً</span>
                     <ArrowLeft />
                 </button>
@@ -1366,7 +1366,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         </section>
       </main>
 
-      <footer className="bg-slate-900 border-t border-slate-800 py-8">
+      <footer className="bg-slate-900 border-t border-emerald-500/15 py-8">
         <div className="container mx-auto px-6 text-center text-slate-500">
           <p>
             تم تأسيس وبرمجة المنصة بالكامل بواسطة <span className="font-bold text-slate-400">عبدالرحمن سعيد</span>.
@@ -1381,18 +1381,18 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           setAuthActionsError(null);
           setAuthActionsSuccess(null);
         }}>
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-8 shadow-2xl">
+          <div className="bg-[#101817] border border-emerald-500/20 rounded-2xl p-8 shadow-2xl">
             <div className="text-center mb-8">
               <div className="inline-block p-4 bg-indigo-500/10 rounded-2xl mb-4">
-                <KeyRound className="text-indigo-400" size={32} />
+                <KeyRound className="text-emerald-400" size={32} />
               </div>
               <h2 className="text-2xl font-bold mb-2">استعادة كلمة المرور</h2>
               <p className="text-slate-400 text-sm">سنرسل رابطاً لتعيين كلمة مرور جديدة إلى بريدك الإلكتروني المسجل لهذا الرقم:</p>
-              <div className="mt-2 text-indigo-400 font-bold">{userPhone}</div>
+              <div className="mt-2 text-emerald-400 font-bold">{userPhone}</div>
             </div>
 
             {authActionsSuccess ? (
-              <div className="bg-green-900/30 border border-green-700/50 text-green-400 p-4 rounded-xl space-y-2 mb-6">
+              <div className="bg-green-900/30 border border-green-700/50 text-lime-300 p-4 rounded-xl space-y-2 mb-6">
                 <div className="flex items-center gap-3 animate-pulse">
                   <CheckCircle size={20} />
                   <span className="text-sm font-bold">تم إرسال رابط إعادة التعيين بنجاح.</span>
@@ -1420,7 +1420,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
                 >
                   {isLoading ? <Loader2 className="animate-spin" /> : 'إرسال الرابط'}
                 </button>
@@ -1428,7 +1428,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 <button
                   type="button"
                   onClick={() => setShowResetModal(false)}
-                  className="w-full text-slate-500 hover:text-white text-xs font-bold py-2 transition-colors"
+                  className="w-full text-slate-500 hover:text-emerald-300 text-xs font-bold py-2 transition-colors"
                 >
                   إلغاء
                 </button>
@@ -1441,8 +1441,8 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       {/* --- Auth Modal --- */}
       {showAuthModal && (
         <AuthModal onClose={() => setShowAuthModal(false)}>
-          <div className="bg-slate-900/60 border border-slate-700 rounded-2xl p-8 backdrop-blur-sm">
-            <div className="flex bg-slate-800/50 border border-slate-700 rounded-lg p-1 mb-6">
+          <div className="bg-slate-900/60 border border-emerald-500/20 rounded-2xl p-8 backdrop-blur-sm">
+            <div className="flex bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg p-1 mb-6">
                 <button onClick={() => setActiveTab('user')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'user' ? 'bg-slate-700/50 text-white shadow-inner' : 'text-slate-400 hover:bg-slate-700/20'}`}><UserIcon size={16}/> المستخدمين</button>
                 {showAdminTab && (
                   <button onClick={() => setActiveTab('admin')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'admin' ? 'bg-slate-700/50 text-white shadow-inner' : 'text-slate-400 hover:bg-slate-700/20'}`}><ShieldAlert size={16}/> المدير</button>
@@ -1457,9 +1457,9 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 </div>
 
                 {hasCustomDb && (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mt-4 text-right space-y-3">
+                  <div className="bg-slate-900 border border-emerald-500/15 rounded-xl p-4 mt-4 text-right space-y-3">
                     <div className="flex gap-2.5 items-start">
-                      <Database size={18} className="text-indigo-400 mt-0.5 shrink-0" />
+                      <Database size={18} className="text-emerald-400 mt-0.5 shrink-0" />
                       <div>
                         <h3 className="text-xs font-bold text-indigo-300">منبه: السيرفر المخصص مفعل</h3>
                         <p className="text-slate-400 text-[11px] mt-1 leading-relaxed">
@@ -1476,7 +1476,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       >
                         {copiedSql ? (
                           <>
-                            <Check className="text-green-400" size={12} />
+                            <Check className="text-lime-300" size={12} />
                             <span>تم نسخ كود SQL!</span>
                           </>
                         ) : (
@@ -1502,19 +1502,19 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 <form onSubmit={handleUserSubmit} className="space-y-4 mt-6">
                   {!isLoginView && (
                     <>
-                      <div className="relative"><UserIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="الاسم الكامل" required className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
-                      <div className="relative"><Mail size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="email" placeholder="البريد الإلكتروني" required className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} /></div>
+                      <div className="relative"><UserIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="الاسم الكامل" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
+                      <div className="relative"><Mail size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="email" placeholder="البريد الإلكتروني" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} /></div>
                     </>
                   )}
-                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="رقم الموبايل / اسم المستخدم" required className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} /></div>
-                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" placeholder="كلمة المرور" required className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} /></div>
+                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="رقم الموبايل / اسم المستخدم" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} /></div>
+                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" placeholder="كلمة المرور" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} /></div>
                   
                   {isLoginView && (
                     <div className="text-left">
                       <button 
                         type="button" 
                         onClick={() => setShowResetModal(true)}
-                        className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline"
+                        className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline"
                       >
                         نسيت كلمة المرور؟
                       </button>
@@ -1522,13 +1522,13 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   )}
 
                   {userError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{userError}</div>}
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-600 to-[#95bf47] hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                       {isLoading ? <Loader2 className="animate-spin" /> : (isLoginView ? <><LogIn size={18}/> تسجيل الدخول</> : <><UserPlus size={18}/> إنشاء حساب</>)}
                   </button>
                 </form>
-                <p className="text-center text-sm text-slate-400 mt-6">{isLoginView ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}{' '}<a href="#" onClick={toggleView} className="font-bold text-indigo-400 hover:underline">{isLoginView ? 'أنشئ حساباً' : 'تسجيل الدخول'}</a></p>
-                <div className="mt-4 text-center"><Link to="/employee-login" className="text-sm text-slate-400 hover:text-indigo-400 hover:underline">تسجيل دخول الموظفين</Link></div>
-                <div className="mt-3 text-center border-t border-slate-800 pt-3">
+                <p className="text-center text-sm text-slate-400 mt-6">{isLoginView ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}{' '}<a href="#" onClick={toggleView} className="font-bold text-emerald-400 hover:underline">{isLoginView ? 'أنشئ حساباً' : 'تسجيل الدخول'}</a></p>
+                <div className="mt-4 text-center"><Link to="/employee-login" className="text-sm text-slate-400 hover:text-emerald-400 hover:underline">تسجيل دخول الموظفين</Link></div>
+                <div className="mt-3 text-center border-t border-emerald-500/15 pt-3">
                   <button 
                     type="button" 
                     onClick={() => {
@@ -1549,10 +1549,10 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               <div className="animate-in fade-in duration-300">
                  <div className="text-center"><h2 className="text-2xl font-bold">لوحة تحكم المدير</h2><p className="text-slate-400 mt-1">تسجيل دخول خاص بالإدارة.</p></div>
                  <form onSubmit={handleAdminSubmit} className="space-y-4 mt-6">
-                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" required value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" required value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" required value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
+                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" required value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
                    {adminError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{adminError}</div>}
-                   <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-red-600 to-pink-600 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                   <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-700 to-emerald-500 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                       {isLoading ? <Loader2 className="animate-spin"/> : <><LogIn size={18}/> الدخول كمدير</>}
                    </button>
                  </form>
