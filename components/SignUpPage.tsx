@@ -47,7 +47,7 @@ const AuthModal: React.FC<{
       className="relative w-full max-w-md"
       onClick={e => e.stopPropagation()}
     >
-      <button onClick={onClose} className="absolute -top-3 -right-3 z-10 p-2 bg-slate-700 hover:bg-red-500 rounded-full text-white transition-colors">
+      <button onClick={onClose} aria-label="إغلاق النافذة" className="absolute -top-3 -right-3 z-10 p-2 bg-emerald-500/15 hover:bg-red-500 rounded-full text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300">
         <X size={20} />
       </button>
       {children}
@@ -805,7 +805,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
   const [userPhone, setUserPhone] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userPassword, setUserPassword] = useState('');
-  const [resetEmail, setResetEmail] = useState('');
+  const [resetPhone, setResetPhone] = useState('');
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [userError, setUserError] = useState('');
@@ -1075,8 +1075,8 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setIsLoading(true);
     setSentToEmail('');
 
-    if (!userPhone.trim()) {
-      setAuthActionsError('يرجى إدخال رقم الموبايل أولاً.');
+    if (!resetPhone.trim()) {
+      setAuthActionsError('يرجى إدخال رقم الموبايل أو اسم المستخدم أولاً.');
       setIsLoading(false);
       return;
     }
@@ -1084,20 +1084,20 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     try {
       // 1. Try to find user in Firestore (already migrated)
       let userEmailToUse = '';
-      const firestoreUser = await getUserByPhone(userPhone.trim());
+      const firestoreUser = await getUserByPhone(resetPhone.trim());
       
       if (firestoreUser && firestoreUser.email) {
         userEmailToUse = firestoreUser.email;
         console.log('[RESET] Found email in Firestore:', userEmailToUse);
       } else {
         // 2. Try Supabase
-        const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
+        const legacyUser = await getUserByPhoneFromSupabase(resetPhone.trim());
         if (legacyUser && legacyUser.email && legacyUser.email.includes('@') && !legacyUser.email.includes('mystore-auth.app')) {
           userEmailToUse = legacyUser.email;
           console.log('[RESET] Found valid email in Supabase:', userEmailToUse);
         } else {
           // 3. Fallback to generated
-          userEmailToUse = `${userPhone.trim()}@mystore-auth.app`;
+          userEmailToUse = `${resetPhone.trim()}@mystore-auth.app`;
           console.log('[RESET] Using generated email fallback:', userEmailToUse);
         }
       }
@@ -1338,7 +1338,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         {/* --- Pricing Section --- */}
         <section id="pricing" className="py-24 bg-slate-900">
           <div className="container mx-auto px-6">
-            <div className="bg-gradient-to-br from-emerald-600 to-[#95bf47] p-10 rounded-3xl text-center max-w-4xl mx-auto shadow-2xl">
+            <div className="bg-gradient-to-br from-emerald-800 to-emerald-700 p-10 rounded-3xl text-center max-w-4xl mx-auto shadow-2xl">
               <h3 className="text-4xl font-black">الخطة المجانية. مدى الحياة.</h3>
               <p className="text-emerald-100 mt-4 text-lg">نحن نؤمن بدعم المشاريع الناشئة. لهذا، منصتنا مجانية بالكامل.</p>
               <ul className="mt-8 space-y-3 text-emerald-50 max-w-md mx-auto">
@@ -1383,22 +1383,22 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         }}>
           <div className="bg-[#101817] border border-emerald-500/20 rounded-2xl p-8 shadow-2xl">
             <div className="text-center mb-8">
-              <div className="inline-block p-4 bg-indigo-500/10 rounded-2xl mb-4">
+              <div className="inline-block p-4 bg-emerald-500/10 rounded-2xl mb-4">
                 <KeyRound className="text-emerald-400" size={32} />
               </div>
               <h2 className="text-2xl font-bold mb-2">استعادة كلمة المرور</h2>
               <p className="text-slate-400 text-sm">سنرسل رابطاً لتعيين كلمة مرور جديدة إلى بريدك الإلكتروني المسجل لهذا الرقم:</p>
-              <div className="mt-2 text-emerald-400 font-bold">{userPhone}</div>
+              <div className="mt-2 text-emerald-400 font-bold">{resetPhone || "لم يتم إدخال الرقم بعد"}</div>
             </div>
 
             {authActionsSuccess ? (
-              <div className="bg-green-900/30 border border-green-700/50 text-lime-300 p-4 rounded-xl space-y-2 mb-6">
+              <div role="status" aria-live="polite" className="bg-emerald-950/60 border border-emerald-500/40 text-lime-200 p-4 rounded-xl space-y-2 mb-6">
                 <div className="flex items-center gap-3 animate-pulse">
                   <CheckCircle size={20} />
                   <span className="text-sm font-bold">تم إرسال رابط إعادة التعيين بنجاح.</span>
                 </div>
                 <p className="text-xs text-slate-300">
-                  تم الإرسال إلى: <span className="text-indigo-300 font-mono" dir="ltr">
+                  تم الإرسال إلى: <span className="text-emerald-300 font-mono" dir="ltr">
                     {sentToEmail.includes('@mystore-auth.app') 
                       ? "⚠️ بريد النظام المؤقت (لن تستلم شيئاً)" 
                       : (sentToEmail.split('@')[0].length > 3 
@@ -1411,8 +1411,23 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               </div>
             ) : (
               <form onSubmit={handleForgotPassword} className="space-y-4">
+                <div>
+                  <label htmlFor="reset-phone" className="text-sm font-bold text-slate-200 mb-2 block">رقم الموبايل أو اسم المستخدم</label>
+                  <input
+                    id="reset-phone"
+                    type="text"
+                    value={resetPhone}
+                    onChange={(e) => setResetPhone(e.target.value)}
+                    autoComplete="username"
+                    aria-describedby="reset-phone-help"
+                    placeholder="أدخل الرقم المستخدم في تسجيل الدخول"
+                    className="w-full bg-[#0d211b]/80 border border-emerald-500/30 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400"
+                    required
+                  />
+                  <p id="reset-phone-help" className="text-xs text-slate-300 mt-2">سنرسل رابط الاستعادة إلى البريد المرتبط بهذا الحساب.</p>
+                </div>
                 {authActionsError && (
-                  <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-xs">
+                  <div role="alert" aria-live="assertive" className="bg-red-950/70 border border-red-400/60 text-red-200 p-3 rounded-lg text-center font-bold text-xs">
                     {authActionsError}
                   </div>
                 )}
@@ -1420,7 +1435,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-emerald-800 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
                 >
                   {isLoading ? <Loader2 className="animate-spin" /> : 'إرسال الرابط'}
                 </button>
@@ -1428,7 +1443,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 <button
                   type="button"
                   onClick={() => setShowResetModal(false)}
-                  className="w-full text-slate-500 hover:text-emerald-300 text-xs font-bold py-2 transition-colors"
+                  className="w-full text-slate-300 hover:text-emerald-200 text-xs font-bold py-2 transition-colors"
                 >
                   إلغاء
                 </button>
@@ -1441,11 +1456,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       {/* --- Auth Modal --- */}
       {showAuthModal && (
         <AuthModal onClose={() => setShowAuthModal(false)}>
-          <div className="bg-slate-900/60 border border-emerald-500/20 rounded-2xl p-8 backdrop-blur-sm">
+          <div className="bg-[#101817]/95 border border-emerald-500/20 rounded-2xl p-8 backdrop-blur-sm shadow-2xl">
             <div className="flex bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg p-1 mb-6">
-                <button onClick={() => setActiveTab('user')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'user' ? 'bg-slate-700/50 text-white shadow-inner' : 'text-slate-400 hover:bg-slate-700/20'}`}><UserIcon size={16}/> المستخدمين</button>
+                <button onClick={() => setActiveTab('user')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'user' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}><UserIcon size={16}/> المستخدمين</button>
                 {showAdminTab && (
-                  <button onClick={() => setActiveTab('admin')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'admin' ? 'bg-slate-700/50 text-white shadow-inner' : 'text-slate-400 hover:bg-slate-700/20'}`}><ShieldAlert size={16}/> المدير</button>
+                  <button onClick={() => setActiveTab('admin')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'admin' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}><ShieldAlert size={16}/> المدير</button>
                 )}
             </div>
             
@@ -1502,18 +1517,18 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 <form onSubmit={handleUserSubmit} className="space-y-4 mt-6">
                   {!isLoginView && (
                     <>
-                      <div className="relative"><UserIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="الاسم الكامل" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
-                      <div className="relative"><Mail size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="email" placeholder="البريد الإلكتروني" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} /></div>
+                      <div className="relative"><UserIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" aria-label="الاسم الكامل" autoComplete="name" placeholder="الاسم الكامل" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
+                      <div className="relative"><Mail size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="email" aria-label="البريد الإلكتروني" autoComplete="email" placeholder="البريد الإلكتروني" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} /></div>
                     </>
                   )}
-                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" placeholder="رقم الموبايل / اسم المستخدم" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} /></div>
-                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" placeholder="كلمة المرور" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} /></div>
+                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" aria-label="رقم الموبايل أو اسم المستخدم" autoComplete="username" placeholder="رقم الموبايل / اسم المستخدم" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} /></div>
+                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" aria-label="كلمة المرور" autoComplete="current-password" placeholder="كلمة المرور" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} /></div>
                   
                   {isLoginView && (
                     <div className="text-left">
                       <button 
                         type="button" 
-                        onClick={() => setShowResetModal(true)}
+                        onClick={() => { setResetPhone(userPhone); setAuthActionsError(null); setShowResetModal(true); }}
                         className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline"
                       >
                         نسيت كلمة المرور؟
@@ -1522,7 +1537,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   )}
 
                   {userError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{userError}</div>}
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-600 to-[#95bf47] hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-800 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                       {isLoading ? <Loader2 className="animate-spin" /> : (isLoginView ? <><LogIn size={18}/> تسجيل الدخول</> : <><UserPlus size={18}/> إنشاء حساب</>)}
                   </button>
                 </form>
@@ -1552,7 +1567,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" required value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
                   <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" required value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
                    {adminError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{adminError}</div>}
-                   <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-700 to-emerald-500 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                   <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-900 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                       {isLoading ? <Loader2 className="animate-spin"/> : <><LogIn size={18}/> الدخول كمدير</>}
                    </button>
                  </form>
