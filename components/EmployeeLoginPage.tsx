@@ -95,24 +95,28 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
   return (
     <div dir="rtl" className="font-cairo bg-[#f7f8f4] min-h-screen flex items-center justify-center p-4 text-slate-900">
       <div className="w-full max-w-md bg-white p-7 sm:p-9 rounded-[2rem] border border-white shadow-[0_24px_70px_rgba(23,60,45,0.12)] transition-all">
+        <div className="mb-7 flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"><Building size={20} /></span>
+          <div><strong className="block text-lg font-black tracking-tight text-slate-950">منصتي</strong><span className="block text-[11px] font-semibold text-slate-500">مساحة فريق المتجر</span></div>
+        </div>
         {activeTab === 'success' ? (
             <div className="animate-in fade-in duration-300 text-center">
                 <div className="w-20 h-20 bg-emerald-50 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-emerald-500/30">
                     <CheckCircle size={40} />
                 </div>
-                <h1 className="text-2xl font-black text-white">تم إرسال طلبك بنجاح!</h1>
-                <p className="text-slate-400 mt-2 mb-6">سيقوم مالك المتجر بمراجعة طلبك. سيتم إشعارك عند الموافقة.</p>
+                <h1 className="text-2xl font-black text-slate-950">تم إرسال طلبك بنجاح!</h1>
+                <p className="text-slate-500 mt-2 mb-6">سيقوم مالك المتجر بمراجعة طلبك. سيتم إشعارك عند الموافقة.</p>
                 <button onClick={() => setActiveTab('login')} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-3 font-bold transition-colors">
                     العودة لصفحة الدخول
                 </button>
             </div>
         ) : (
           <>
-            <div className="flex bg-white border border-slate-200 rounded-lg p-1 mb-8">
-                <button onClick={() => setActiveTab('login')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'login' ? 'bg-emerald-50 text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-emerald-50'}`}>
+            <div className="flex bg-slate-100 border border-slate-100 rounded-2xl p-1.5 mb-8" role="tablist" aria-label="نوع العملية">
+                <button type="button" role="tab" aria-selected={activeTab === 'login'} onClick={() => setActiveTab('login')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
                   <LogIn size={16}/> تسجيل الدخول
                 </button>
-                <button onClick={() => setActiveTab('register')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-emerald-50 text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-emerald-50'}`}>
+                <button type="button" role="tab" aria-selected={activeTab === 'register'} onClick={() => setActiveTab('register')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
                   <UserPlus size={16}/> طلب انضمام
                 </button>
             </div>
@@ -120,8 +124,8 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
             {activeTab === 'login' && (
               <div className="animate-in fade-in duration-300">
                 <div className="text-center mb-8">
-                    <h1 className="text-2xl font-black text-white">تسجيل دخول الموظفين</h1>
-                    <p className="text-slate-400 mt-2">مخصص لموظفي تأكيد الطلبات</p>
+                    <h1 className="text-2xl font-black text-slate-950">تسجيل دخول الموظفين</h1>
+                    <p className="text-slate-500 mt-2">وصول آمن لمهام المتجر والطلبات</p>
                 </div>
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
@@ -144,9 +148,9 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                       onClick={() => {
                         // Redirect to main signup/login page's forgot password flow or implement here
                         // For simplicity, we can redirect to signup which has the modal
-                        window.location.href = '/signup?forgot=true';
+                        window.location.href = '/owner-login?forgot=true';
                       }}
-                      className="text-xs text-emerald-400 hover:underline"
+                      className="text-xs font-bold text-emerald-700 hover:underline"
                     >
                       نسيت كلمة المرور؟
                     </button>
@@ -162,13 +166,13 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
             {activeTab === 'register' && (
               <div className="animate-in fade-in duration-300">
                 <div className="text-center mb-8">
-                    <h1 className="text-2xl font-black text-white">طلب انضمام لمتجر</h1>
-                    <p className="text-slate-400 mt-2">املأ بياناتك وسنرسل طلبك لمالك المتجر.</p>
+                    <h1 className="text-2xl font-black text-slate-950">طلب انضمام لمتجر</h1>
+                    <p className="text-slate-500 mt-2">املأ بياناتك وسنرسل طلبك لمالك المتجر.</p>
                 </div>
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
                    <div><label htmlFor="employee-register-name" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><UserIcon size={16}/> اسمك الكامل</label><input id="employee-register-name" autoComplete="name" type="text" placeholder="اسمك الظاهر للمدير" aria-label="اسمك الكامل" value={regFullName} onChange={e => setRegFullName(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                    <div><label htmlFor="employee-phone" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم هاتفك</label><input id="employee-register-phone" autoComplete="username" type="tel" placeholder="سيستخدم لتسجيل الدخول" aria-label="رقم هاتفك" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input id="employee-register-email" autoComplete="email" type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" aria-label="بريدك الإلكتروني" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
+                   <div><label className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input id="employee-register-email" autoComplete="email" type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" aria-label="بريدك الإلكتروني" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                    <div><label htmlFor="employee-password" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label><input id="employee-register-password" autoComplete="new-password" type="password" placeholder="8 أحرف على الأقل" aria-label="كلمة المرور الجديدة" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                    <div><label htmlFor="employee-store-id" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label><input type="text" placeholder="اطلبه من مالك المتجر" value={regStoreId} onChange={e => setRegStoreId(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                   
