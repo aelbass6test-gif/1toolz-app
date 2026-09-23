@@ -1,3 +1,7 @@
+type Fetcher = {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+};
+
 export interface Env {
   ASSETS: Fetcher;
   APP_ORIGIN?: string;

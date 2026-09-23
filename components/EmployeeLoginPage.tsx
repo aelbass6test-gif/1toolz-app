@@ -93,26 +93,26 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
 
 
   return (
-    <div dir="rtl" className="font-cairo bg-gradient-to-br from-[#071b16] via-[#0b2920] to-[#102b22] min-h-screen flex items-center justify-center p-4 text-white">
-      <div className="w-full max-w-md bg-[#101817]/90 p-8 rounded-2xl border border-emerald-500/20 shadow-xl backdrop-blur-sm transition-all">
+    <div dir="rtl" className="font-cairo bg-[#f7f8f4] min-h-screen flex items-center justify-center p-4 text-slate-900">
+      <div className="w-full max-w-md bg-white p-7 sm:p-9 rounded-[2rem] border border-white shadow-[0_24px_70px_rgba(23,60,45,0.12)] transition-all">
         {activeTab === 'success' ? (
             <div className="animate-in fade-in duration-300 text-center">
-                <div className="w-20 h-20 bg-emerald-500/15 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-emerald-500/30">
+                <div className="w-20 h-20 bg-emerald-50 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-6 border-2 border-emerald-500/30">
                     <CheckCircle size={40} />
                 </div>
                 <h1 className="text-2xl font-black text-white">تم إرسال طلبك بنجاح!</h1>
                 <p className="text-slate-400 mt-2 mb-6">سيقوم مالك المتجر بمراجعة طلبك. سيتم إشعارك عند الموافقة.</p>
-                <button onClick={() => setActiveTab('login')} className="w-full bg-gradient-to-r from-emerald-800 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-colors">
+                <button onClick={() => setActiveTab('login')} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-3 font-bold transition-colors">
                     العودة لصفحة الدخول
                 </button>
             </div>
         ) : (
           <>
-            <div className="flex bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg p-1 mb-8">
-                <button onClick={() => setActiveTab('login')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'login' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}>
+            <div className="flex bg-white border border-slate-200 rounded-lg p-1 mb-8">
+                <button onClick={() => setActiveTab('login')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'login' ? 'bg-emerald-50 text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-emerald-50'}`}>
                   <LogIn size={16}/> تسجيل الدخول
                 </button>
-                <button onClick={() => setActiveTab('register')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}>
+                <button onClick={() => setActiveTab('register')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'register' ? 'bg-emerald-50 text-slate-900 shadow-sm' : 'text-slate-500 hover:bg-emerald-50'}`}>
                   <UserPlus size={16}/> طلب انضمام
                 </button>
             </div>
@@ -125,18 +125,18 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                 </div>
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
-                    <label htmlFor="employee-store-id" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label>
-                    <input id="employee-store-id" autoComplete="organization" type="text" placeholder="store-0" aria-label="كود المتجر" value={loginStoreId} onChange={e => setLoginStoreId(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required />
+                    <label htmlFor="employee-store-id" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label>
+                    <input id="employee-store-id" autoComplete="organization" type="text" placeholder="store-0" aria-label="كود المتجر" value={loginStoreId} onChange={e => setLoginStoreId(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required />
                   </div>
                   <div>
-                    <label htmlFor="employee-phone" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم الهاتف</label>
-                    <input id="employee-phone" autoComplete="username" type="tel" placeholder="010xxxxxxxx" aria-label="رقم الهاتف" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required />
+                    <label htmlFor="employee-phone" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم الهاتف</label>
+                    <input id="employee-phone" autoComplete="username" type="tel" placeholder="010xxxxxxxx" aria-label="رقم الهاتف" value={loginPhone} onChange={e => setLoginPhone(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required />
                   </div>
                   <div>
-                    <label htmlFor="employee-password" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label>
-                    <input id="employee-password" autoComplete="current-password" type="password" placeholder="********" aria-label="كلمة المرور" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required />
+                    <label htmlFor="employee-password" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label>
+                    <input id="employee-password" autoComplete="current-password" type="password" placeholder="********" aria-label="كلمة المرور" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required />
                   </div>
-                  {loginError && <div role="alert" aria-live="assertive" className="bg-red-950/70 border border-red-400/60 text-red-200 p-3 rounded-lg text-center font-bold text-sm">{loginError}</div>}
+                  {loginError && <div role="alert" aria-live="assertive" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg text-center font-bold text-sm">{loginError}</div>}
                   
                   <div className="flex justify-between items-center px-1">
                     <button 
@@ -152,7 +152,7 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                     </button>
                   </div>
 
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-800 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-wait">
+                  <button type="submit" disabled={isLoading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-50 disabled:cursor-wait">
                     {isLoading ? <Loader2 className="animate-spin" /> : <><LogIn size={18}/> تسجيل الدخول</>}
                   </button>
                 </form>
@@ -166,22 +166,22 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                     <p className="text-slate-400 mt-2">املأ بياناتك وسنرسل طلبك لمالك المتجر.</p>
                 </div>
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                   <div><label htmlFor="employee-register-name" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><UserIcon size={16}/> اسمك الكامل</label><input id="employee-register-name" autoComplete="name" type="text" placeholder="اسمك الظاهر للمدير" aria-label="اسمك الكامل" value={regFullName} onChange={e => setRegFullName(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required /></div>
-                   <div><label htmlFor="employee-phone" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم هاتفك</label><input id="employee-register-phone" autoComplete="username" type="tel" placeholder="سيستخدم لتسجيل الدخول" aria-label="رقم هاتفك" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required /></div>
-                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input id="employee-register-email" autoComplete="email" type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" aria-label="بريدك الإلكتروني" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required /></div>
-                   <div><label htmlFor="employee-password" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label><input id="employee-register-password" autoComplete="new-password" type="password" placeholder="8 أحرف على الأقل" aria-label="كلمة المرور الجديدة" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required /></div>
-                   <div><label htmlFor="employee-store-id" className="text-sm font-bold text-slate-200 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label><input type="text" placeholder="اطلبه من مالك المتجر" value={regStoreId} onChange={e => setRegStoreId(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-white placeholder-slate-400" required /></div>
+                   <div><label htmlFor="employee-register-name" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><UserIcon size={16}/> اسمك الكامل</label><input id="employee-register-name" autoComplete="name" type="text" placeholder="اسمك الظاهر للمدير" aria-label="اسمك الكامل" value={regFullName} onChange={e => setRegFullName(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
+                   <div><label htmlFor="employee-phone" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم هاتفك</label><input id="employee-register-phone" autoComplete="username" type="tel" placeholder="سيستخدم لتسجيل الدخول" aria-label="رقم هاتفك" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
+                   <div><label className="text-sm font-bold text-slate-300 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input id="employee-register-email" autoComplete="email" type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" aria-label="بريدك الإلكتروني" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
+                   <div><label htmlFor="employee-password" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label><input id="employee-register-password" autoComplete="new-password" type="password" placeholder="8 أحرف على الأقل" aria-label="كلمة المرور الجديدة" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
+                   <div><label htmlFor="employee-store-id" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label><input type="text" placeholder="اطلبه من مالك المتجر" value={regStoreId} onChange={e => setRegStoreId(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                   
-                  {regError && <div role="alert" aria-live="assertive" className="bg-red-950/70 border border-red-400/60 text-red-200 p-3 rounded-lg text-center font-bold text-sm">{regError}</div>}
+                  {regError && <div role="alert" aria-live="assertive" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg text-center font-bold text-sm">{regError}</div>}
                   
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-800 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
+                  <button type="submit" disabled={isLoading} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
                     {isLoading ? <Loader2 className="animate-spin" /> : <><UserPlus size={18}/> إرسال طلب الانضمام</>}
                   </button>
                 </form>
               </div>
             )}
 
-            <p className="text-center text-xs text-slate-500 hover:underline mt-8 pt-4 border-t border-slate-800">
+            <p className="text-center text-xs text-slate-500 hover:underline mt-8 pt-4 border-t border-slate-100">
                 <Link to="/owner-login">هل أنت مالك المتجر؟</Link>
             </p>
           </>

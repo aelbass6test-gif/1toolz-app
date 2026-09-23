@@ -66,21 +66,21 @@ const OtpVerificationPage: React.FC<OtpVerificationPageProps> = ({ user, onVerif
   };
 
   return (
-    <div dir="rtl" className="font-cairo bg-slate-100 dark:bg-slate-950 min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-lg text-center animate-in fade-in zoom-in-95 duration-300">
-        <div className="mx-auto w-16 h-16 flex items-center justify-center bg-teal-50 dark:bg-teal-900/40 rounded-full border-4 border-white dark:border-slate-800 shadow-md mb-5">
-            <KeyRound className="w-8 h-8 text-teal-500" />
+    <div dir="rtl" className="font-cairo bg-[#f7f8f4] min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white p-7 sm:p-9 rounded-[2rem] border border-white shadow-[0_24px_70px_rgba(23,60,45,0.12)] text-center animate-in fade-in zoom-in-95 duration-300">
+        <div className="mx-auto w-16 h-16 flex items-center justify-center bg-emerald-50 rounded-full border-4 border-white shadow-md mb-5">
+            <KeyRound className="w-8 h-8 text-emerald-600" />
         </div>
         
-        <h1 className="text-2xl font-black text-slate-800 dark:text-white mb-2">التحقق بخطوتين</h1>
-        <p className="text-slate-500 dark:text-slate-400 mb-6">أرسلنا لك رمز تحقق من 6 أرقام عبر البريد الإلكتروني. <br/><span className="text-[10px] text-amber-600 font-bold">(ملاحظة: في بيئة التجربة الحالية، الرمز هو 123456)</span></p>
+        <h1 className="text-2xl font-black text-slate-800 mb-2">التحقق بخطوتين</h1>
+        <p className="text-slate-500 mb-6">أرسلنا لك رمز تحقق من 6 أرقام عبر البريد الإلكتروني.</p>
         
-        <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 mb-6">
+        <div className="flex justify-between items-center bg-slate-50 border border-slate-200 rounded-lg p-3 mb-6">
             <div className="flex items-center gap-2">
                 <Mail size={16} className="text-slate-400" />
-                <span className="font-mono text-sm text-slate-700 dark:text-slate-300">{user.email}</span>
+                <span className="font-mono text-sm text-slate-700">{user.email}</span>
             </div>
-            <button onClick={onCancel} className="text-xs font-bold text-teal-600 hover:underline">تغيير</button>
+            <button onClick={onCancel} className="text-xs font-bold text-emerald-700 hover:underline">تغيير</button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -95,13 +95,13 @@ const OtpVerificationPage: React.FC<OtpVerificationPageProps> = ({ user, onVerif
                     setOtp(value);
                     setInternalError('');
                 }}
-                className={`w-full text-center tracking-[0.5em] text-2xl font-bold bg-slate-50 dark:bg-slate-800 border-2 rounded-lg py-4 outline-none transition-all ${internalError ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-700 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10'}`}
+                className={`w-full text-center tracking-[0.5em] text-2xl font-bold bg-slate-50 border-2 rounded-lg py-4 outline-none transition-all ${internalError ? 'border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10'}`}
                 disabled={isVerifying}
             />
             {internalError && <p className="text-sm text-red-500 mt-2">{internalError}</p>}
             <button
                 type="submit"
-                className="w-full bg-teal-600 text-white font-bold py-3 rounded-lg hover:bg-teal-700 transition-colors duration-300 mt-4 shadow-lg shadow-teal-500/20 disabled:bg-slate-300 dark:disabled:bg-slate-700 disabled:cursor-wait flex items-center justify-center gap-2"
+                className="w-full bg-emerald-600 text-white font-bold py-3 rounded-lg hover:bg-emerald-700 transition-colors duration-300 mt-4 shadow-lg shadow-emerald-500/20 disabled:bg-slate-300  disabled:cursor-wait flex items-center justify-center gap-2"
                 disabled={otp.length !== 6 || isVerifying}
             >
                 {isVerifying && <Loader2 className="animate-spin" size={20}/>}

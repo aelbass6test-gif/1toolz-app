@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Store, Mail, User as UserIcon, ShieldAlert, Phone, KeyRound, LogIn, UserPlus, Loader2, X, BarChart, Settings, Users, ArrowLeft, CheckCircle, Database, AlertCircle, Copy, Check, RefreshCw, Shield } from 'lucide-react';
+import { Store, Mail, User as UserIcon, Phone, KeyRound, LogIn, UserPlus, Loader2, X, ShieldCheck } from 'lucide-react';
 import { User } from '../types';
 import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase, getSupabaseClient } from '../services/databaseService';
 import { auth } from '../services/firebaseClient';
@@ -8,784 +8,28 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'fire
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { motion } from 'framer-motion';
 
-// --- Reusable UI Components ---
-const FeatureCard: React.FC<{ icon: React.ReactElement<{ size?: number, className?: string }>; title: string; description: string; }> = ({ icon, title, description }) => (
-  <div className="bg-[#0d211b]/80 p-6 rounded-2xl border border-emerald-500/20 text-center transition-all hover:-translate-y-2 hover:border-emerald-400/50">
-    <div className="inline-block p-4 bg-slate-700/50 rounded-full mb-4 border border-slate-600">
-        {React.cloneElement(icon, { size: 32, className:"text-emerald-400" })}
-    </div>
-    <h3 className="text-xl font-bold mb-2">{title}</h3>
-    <p className="text-slate-400 text-sm">{description}</p>
-  </div>
-);
-
-const StepCard: React.FC<{ number: string; title: string; description: string; }> = ({ number, title, description }) => (
-  <div className="text-center">
-    <div className="relative inline-block">
-      <div className="w-16 h-16 bg-slate-800/80 border border-emerald-500/20 rounded-full flex items-center justify-center font-black text-3xl text-emerald-400 mb-4">{number}</div>
-    </div>
-    <h3 className="text-2xl font-bold mb-2">{title}</h3>
-    <p className="text-slate-400 max-w-xs mx-auto">{description}</p>
-  </div>
-);
-
-const AuthModal: React.FC<{
-  onClose: () => void;
-  children: React.ReactNode;
-}> = ({ onClose, children }) => (
+const AuthModal: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({ onClose, children }) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#02050c]/85 backdrop-blur-sm"
+    className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-sm"
     onClick={onClose}
   >
     <motion.div
-      initial={{ scale: 0.9, y: 20 }}
+      initial={{ scale: 0.96, y: 12 }}
       animate={{ scale: 1, y: 0 }}
-      exit={{ scale: 0.9, y: 20 }}
+      exit={{ scale: 0.96, y: 12 }}
       className="relative w-full max-w-md"
-      onClick={e => e.stopPropagation()}
+      onClick={event => event.stopPropagation()}
     >
-      <button onClick={onClose} aria-label="إغلاق النافذة" className="absolute -top-3 -right-3 z-10 p-2 bg-emerald-500/15 hover:bg-red-500 rounded-full text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300">
-        <X size={20} />
+      <button type="button" onClick={onClose} aria-label="إغلاق النافذة" className="absolute -left-2 -top-2 z-10 rounded-full bg-white p-2 text-slate-500 shadow-md transition hover:text-slate-900">
+        <X size={18} />
       </button>
       {children}
     </motion.div>
   </motion.div>
 );
-
-
-// --- SQL Schema Script for Custom DB setup ---
-const SQL_SCHEMA_SCRIPT = `-- 1. STORES_DATA (قاعدة بيانات المتاجر)
-CREATE TABLE IF NOT EXISTS stores_data (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    settings JSONB DEFAULT '{}'::jsonb
-);
-
--- 2. USERS (المستخدمون والمدراء)
-CREATE TABLE IF NOT EXISTS users (
-    phone TEXT PRIMARY KEY,
-    full_name TEXT NOT NULL,
-    password TEXT NOT NULL,
-    email TEXT,
-    stores JSONB DEFAULT '[]'::jsonb,
-    sites JSONB DEFAULT '[]'::jsonb,
-    is_admin BOOLEAN DEFAULT false,
-    is_banned BOOLEAN DEFAULT false,
-    join_date TEXT
-);
-
--- 3. PRODUCTS (المنتجات)
-CREATE TABLE IF NOT EXISTS products (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    name TEXT NOT NULL,
-    sku TEXT,
-    price NUMERIC NOT NULL,
-    stock_quantity NUMERIC DEFAULT 0,
-    stockQuantity NUMERIC DEFAULT 0,
-    min_stock_level NUMERIC DEFAULT 0,
-    minStockLevel NUMERIC DEFAULT 0,
-    last_audited JSONB DEFAULT '{}'::jsonb,
-    lastAudited JSONB DEFAULT '{}'::jsonb,
-    details JSONB DEFAULT '{}'::jsonb,
-    expiry_date TEXT,
-    expiryDate TEXT
-);
-
--- 4. ORDERS (الطلبات والأوردرات)
-CREATE TABLE IF NOT EXISTS orders (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    order_number TEXT NOT NULL,
-    orderNumber TEXT,
-    customer_name TEXT NOT NULL,
-    customerName TEXT,
-    status TEXT NOT NULL,
-    date TEXT NOT NULL,
-    total_price NUMERIC NOT NULL,
-    totalPrice NUMERIC,
-    channel TEXT DEFAULT 'online',
-    warehouse_id TEXT,
-    warehouseId TEXT,
-    details JSONB DEFAULT '{}'::jsonb,
-    "advancePayment" NUMERIC DEFAULT 0,
-    "advancePaymentPartnerId" TEXT,
-    "advancePaymentTreasuryId" TEXT,
-    "advancePaymentEmployeeId" TEXT,
-    "advancePaymentRecipientPhone" TEXT,
-    "advancePaymentSenderDetails" TEXT
-);
-
--- 5. TRANSACTIONS (الحركات المالية والمحفظة)
-CREATE TABLE IF NOT EXISTS transactions (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    type TEXT NOT NULL,
-    amount NUMERIC NOT NULL,
-    date TEXT NOT NULL,
-    category TEXT,
-    note TEXT,
-    details JSONB DEFAULT '{}'::jsonb
-);
-
--- 6. SUPPLIERS (الموردين)
-CREATE TABLE IF NOT EXISTS suppliers (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    phone TEXT,
-    address TEXT,
-    notes TEXT
-);
-
--- 7. SUPPLY_ORDERS (أوردرات الإمداد والمخزون)
-CREATE TABLE IF NOT EXISTS supply_orders (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    supplier_id TEXT,
-    total_cost NUMERIC NOT NULL,
-    date TEXT NOT NULL,
-    items JSONB DEFAULT '{}'::jsonb,
-    status TEXT NOT NULL,
-    "distributeExpensesEqually" BOOLEAN DEFAULT false,
-    "recordExpensesFormally" BOOLEAN DEFAULT false
-);
-
--- 8. REVIEWS (مراجعات وآراء التقاطعات)
-CREATE TABLE IF NOT EXISTS reviews (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    product_id TEXT REFERENCES products(id) ON DELETE SET NULL,
-    customer_name TEXT,
-    rating NUMERIC DEFAULT 5,
-    comment TEXT,
-    status TEXT
-);
-
--- 9. ABANDONED_CARTS (السلات المتروكة)
-CREATE TABLE IF NOT EXISTS abandoned_carts (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    customer_name TEXT,
-    customer_phone TEXT,
-    total_value NUMERIC,
-    date TEXT,
-    items JSONB DEFAULT '[]'::jsonb
-);
-
--- 10. ACTIVITY_LOGS (سجل الحركات العام)
-CREATE TABLE IF NOT EXISTS activity_logs (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    "user" TEXT,
-    user_name TEXT,
-    action TEXT NOT NULL,
-    details JSONB,
-    timestamp TEXT,
-    date TEXT
-);
-
--- 11. EMPLOYEES (الموظفون وصلاحياتهم)
-CREATE TABLE IF NOT EXISTS employees (
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    phone TEXT NOT NULL,
-    name TEXT,
-    email TEXT,
-    permissions JSONB DEFAULT '[]'::jsonb,
-    status TEXT NOT NULL,
-    PRIMARY KEY (store_id, phone)
-);
-
--- 12. DISCOUNT_CODES (أكواد الخصم)
-CREATE TABLE IF NOT EXISTS discount_codes (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    code TEXT NOT NULL,
-    discount_type TEXT NOT NULL,
-    value NUMERIC NOT NULL,
-    usage_limit NUMERIC,
-    usage_count NUMERIC DEFAULT 0,
-    expiration_date TEXT,
-    is_active BOOLEAN DEFAULT true
-);
-
--- 13. COLLECTIONS (التصنيفات والجموعات للمنتجات)
-CREATE TABLE IF NOT EXISTS collections (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    description TEXT,
-    image_url TEXT,
-    is_active BOOLEAN DEFAULT true
-);
-
--- 14. CUSTOM_PAGES (الصفحات التعريفية المخصصة)
-CREATE TABLE IF NOT EXISTS custom_pages (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    slug TEXT NOT NULL,
-    content TEXT,
-    is_active BOOLEAN DEFAULT true
-);
-
--- 15. PAYMENT_METHODS (طرق الدفع المفعلة)
-CREATE TABLE IF NOT EXISTS payment_methods (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    logo_url TEXT,
-    is_active BOOLEAN DEFAULT true,
-    details JSONB DEFAULT '{}'::jsonb
-);
-
--- 16. CUSTOMERS (بيانات العملاء وتقييمات الولاء)
-CREATE TABLE IF NOT EXISTS customers (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    phone TEXT NOT NULL,
-    address TEXT,
-    loyalty_points NUMERIC DEFAULT 0,
-    total_spent NUMERIC DEFAULT 0,
-    first_order_date TEXT,
-    last_order_date TEXT,
-    notes TEXT
-);
-
--- 17. GLOBAL_OPTIONS (خيارات الضبط العام للمتجر)
-CREATE TABLE IF NOT EXISTS global_options (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    key TEXT NOT NULL,
-    value TEXT,
-    is_active BOOLEAN DEFAULT true
-);
-
--- 18. SHIPPING_INTEGRATIONS (تكاملات شركات الشحن والدليفري)
-CREATE TABLE IF NOT EXISTS shipping_integrations (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    provider TEXT NOT NULL,
-    api_key TEXT,
-    apiKey TEXT,
-    api_secret TEXT,
-    apiSecret TEXT,
-    account_number TEXT,
-    accountNumber TEXT,
-    is_connected BOOLEAN DEFAULT false,
-    isConnected BOOLEAN DEFAULT false,
-    details JSONB DEFAULT '{}'::jsonb,
-    updated_at TEXT,
-    updatedAt TEXT,
-    created_at TEXT,
-    createdAt TEXT
-);
-
--- 19. DOCUMENTS (الملفات وأرشيف الفواتير الموروثة)
-CREATE TABLE IF NOT EXISTS documents (
-    id TEXT PRIMARY KEY,
-    content JSONB DEFAULT '{}'::jsonb
-);
-
--- 25. WAREHOUSES (المخازن والمستودعات)
-CREATE TABLE IF NOT EXISTS warehouses (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    name TEXT NOT NULL,
-    location TEXT,
-    is_default BOOLEAN DEFAULT false,
-    isDefault BOOLEAN DEFAULT false
-);
-
--- 26. INVENTORY_AUDITS (جلسات جرد المخزون)
-CREATE TABLE IF NOT EXISTS inventory_audits (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    title TEXT NOT NULL,
-    date TEXT NOT NULL,
-    performed_by TEXT,
-    performedBy TEXT,
-    scope TEXT,
-    warehouse_id TEXT,
-    warehouseId TEXT,
-    total_system_qty NUMERIC DEFAULT 0,
-    totalSystemQty NUMERIC DEFAULT 0,
-    total_actual_qty NUMERIC DEFAULT 0,
-    totalActualQty NUMERIC DEFAULT 0,
-    total_variance_qty NUMERIC DEFAULT 0,
-    totalVarianceQty NUMERIC DEFAULT 0,
-    total_variance_value NUMERIC DEFAULT 0,
-    totalVarianceValue NUMERIC DEFAULT 0,
-    total_items_audited NUMERIC DEFAULT 0,
-    totalItemsAudited NUMERIC DEFAULT 0,
-    timestamp BIGINT,
-    discrepancies JSONB DEFAULT '[]'::jsonb,
-    notes TEXT
-);
-
--- 27. STOCK_TRANSFERS (تحويلات المخزون بين المستودعات)
-CREATE TABLE IF NOT EXISTS stock_transfers (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    transfer_number TEXT NOT NULL,
-    transferNumber TEXT,
-    date TEXT NOT NULL,
-    source_warehouse_id TEXT,
-    sourceWarehouseId TEXT,
-    destination_warehouse_id TEXT,
-    destinationWarehouseId TEXT,
-    items JSONB DEFAULT '[]'::jsonb,
-    status TEXT NOT NULL,
-    notes TEXT,
-    performed_by TEXT,
-    performedBy TEXT
-);
-
--- 28. ORDER_RETURNS (مرتجعات طلبات البيع)
-CREATE TABLE IF NOT EXISTS order_returns (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    return_number TEXT NOT NULL,
-    returnNumber TEXT,
-    order_id TEXT,
-    orderId TEXT,
-    order_number TEXT,
-    orderNumber TEXT,
-    date TEXT NOT NULL,
-    items JSONB DEFAULT '[]'::jsonb,
-    total_refund NUMERIC DEFAULT 0,
-    totalRefund NUMERIC DEFAULT 0,
-    reason TEXT,
-    warehouse_id TEXT,
-    warehouseId TEXT,
-    restock_items BOOLEAN DEFAULT true,
-    restockItems BOOLEAN DEFAULT true,
-    status TEXT NOT NULL,
-    performed_by TEXT,
-    performedBy TEXT,
-    notes TEXT
-);
-
--- 29. PURCHASE_RETURNS (مرتجعات طلبات الشراء من الموردين)
-CREATE TABLE IF NOT EXISTS purchase_returns (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    return_number TEXT NOT NULL,
-    returnNumber TEXT,
-    supplier_id TEXT,
-    supplierId TEXT,
-    supplier_name TEXT,
-    supplierName TEXT,
-    date TEXT NOT NULL,
-    items JSONB DEFAULT '[]'::jsonb,
-    total_refund_amount NUMERIC DEFAULT 0,
-    totalRefundAmount NUMERIC DEFAULT 0,
-    warehouse_id TEXT,
-    warehouseId TEXT,
-    status TEXT NOT NULL,
-    notes TEXT,
-    performed_by TEXT,
-    performedBy TEXT
-);
-
--- 30. POS_SALES (مبيعات الكاشير ونقاط البيع)
-CREATE TABLE IF NOT EXISTS pos_sales (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    sale_number TEXT,
-    saleNumber TEXT,
-    date TEXT NOT NULL,
-    items JSONB DEFAULT '[]'::jsonb,
-    total_amount NUMERIC DEFAULT 0,
-    totalAmount NUMERIC DEFAULT 0,
-    payment_method TEXT,
-    paymentMethod TEXT,
-    warehouse_id TEXT,
-    warehouseId TEXT,
-    customer_phone TEXT,
-    customerPhone TEXT,
-    customer_name TEXT,
-    customerName TEXT,
-    customer_address TEXT,
-    customerAddress TEXT,
-    performed_by TEXT,
-    performedBy TEXT,
-    cash_holder_id TEXT,
-    cashHolderId TEXT,
-    cash_holder_name TEXT,
-    cashHolderName TEXT,
-    notes TEXT
-);
-
--- 31. CASH_HOLDERS (عهد الكاشير والمناديب)
-CREATE TABLE IF NOT EXISTS cash_holders (
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    user_id TEXT NOT NULL,
-    userId TEXT,
-    user_name TEXT,
-    userName TEXT,
-    current_balance NUMERIC DEFAULT 0,
-    currentBalance NUMERIC DEFAULT 0,
-    last_updated TEXT,
-    lastUpdated TEXT,
-    PRIMARY KEY (store_id, user_id)
-);
-
--- 32. CASH_HANDOVERS (تسليمات العهد النقدية)
-CREATE TABLE IF NOT EXISTS cash_handovers (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    from_user_id TEXT,
-    fromUserId TEXT,
-    from_user_name TEXT,
-    fromUserName TEXT,
-    to_user_id TEXT,
-    toUserId TEXT,
-    to_user_name TEXT,
-    toUserName TEXT,
-    amount NUMERIC NOT NULL,
-    date TEXT NOT NULL,
-    notes TEXT,
-    status TEXT NOT NULL,
-    is_virtual BOOLEAN DEFAULT FALSE,
-    isVirtual BOOLEAN DEFAULT FALSE,
-    order_number TEXT,
-    orderNumber TEXT
-);
-
--- 33. WHATSAPP_TEMPLATES (قوالب رسائل الواتساب)
-CREATE TABLE IF NOT EXISTS whatsapp_templates (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    label TEXT NOT NULL,
-    text TEXT NOT NULL
-);
-
--- 34. CALL_SCRIPTS (قوالب سيناريو المكالمات)
-CREATE TABLE IF NOT EXISTS call_scripts (
-    id TEXT PRIMARY KEY,
-    store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
-    storeId TEXT,
-    title TEXT NOT NULL,
-    text TEXT NOT NULL
-);
-
--- تعطيل نظام الحماية لتمكين الاتصال المباشر وتسهيل عملية المزامنة
-ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
-
--- 1. جدول الطلبات (orders) - إضافة جميع الأعمدة لضمان عدم اختفاء المنتجات أو البيانات
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "items" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePayment" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentPartnerId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentTreasuryId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentEmployeeId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentRecipientPhone" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentSenderDetails" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "advancePaymentHistory" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "createdBy" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "source" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "vatOnStandardShipping" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customer_phone" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerPhone2" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingCompany" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_company" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingFee" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipping_fee" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFee" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipCompanyFee" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "enableFlexShip" BOOLEAN;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "flexShipFeePaidByCustomer" BOOLEAN;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "channel" TEXT DEFAULT 'online';
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "warehouse_id" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "city" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "governorate" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shippingArea" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paymentStatus" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "discount" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "isInsured" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "includeInspectionFee" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "inspectionFeePaidByCustomer" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "recordedAsDebt" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "deferPaymentToReturn" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnCashToCustomer" BOOLEAN DEFAULT false;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "cashToReturnAmount" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "creditAmount" NUMERIC DEFAULT 0;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalAmountOverride" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "totalAmountOverrideReason" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "orderType" TEXT DEFAULT 'standard';
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "shipmentType" TEXT DEFAULT 'delivery';
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "maintenanceCost" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "maintenanceItemDescription" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "maintenanceItemSerial" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "maintenanceItemValue" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "maintenanceTechnicalReport" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "maintenanceStatus" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "originalOrderId" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "exchangeDifference" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnProductValue" NUMERIC;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "returnTrackingNumber" TEXT;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-
--- 2. جدول المنتجات (products)
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "min_stock_level" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "minStockLevel" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stock_quantity" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockQuantity" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "last_audited" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "lastAudited" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiry_date" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "expiryDate" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "warehouseStock" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitMode" TEXT DEFAULT 'manual';
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "basePrice" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "profitPercentage" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "commissionPercentage" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "stockThreshold" NUMERIC DEFAULT 0;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "sku" TEXT;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-
--- 3. جدول المستخدمين (users)
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "full_name" TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "fullName" TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "is_admin" BOOLEAN DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "is_banned" BOOLEAN DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "isBanned" BOOLEAN DEFAULT false;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "join_date" TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "joinDate" TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "email" TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "stores" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS "sites" JSONB DEFAULT '[]'::jsonb;
-
--- 4. جدول الموظفين (employees)
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "name" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "email" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "permissions" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE employees ADD COLUMN IF NOT EXISTS "status" TEXT;
-
--- 5. جدول أوامر الإمداد (supply_orders)
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "distributeExpensesEqually" BOOLEAN DEFAULT false;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "recordExpensesFormally" BOOLEAN DEFAULT false;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "shippingFeesNote" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "otherFeesNote" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "expensePaidBy" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "supplier_id" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "total_cost" NUMERIC;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "totalCost" NUMERIC;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "status" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "date" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "items" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-
--- 6. جدول العملاء (customers)
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtBalance" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "debtHistory" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyalty_points" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "loyaltyPoints" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "total_spent" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "totalSpent" NUMERIC DEFAULT 0;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "first_order_date" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "firstOrderDate" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "last_order_date" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "lastOrderDate" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "address" TEXT;
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-
--- 7. جدول مبيعات الكاشير (pos_sales)
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cashHolderName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cash_holder_id" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "cash_holder_name" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "sale_number" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "saleNumber" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "total_amount" NUMERIC;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "totalAmount" NUMERIC;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "payment_method" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "paymentMethod" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouse_id" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customer_phone" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerPhone" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customer_name" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerName" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customer_address" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "customerAddress" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performed_by" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-
--- 8. جدول تسليمات العهد (cash_handovers)
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "from_user_id" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "fromUserName" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "from_user_name" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "to_user_id" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "toUserName" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "to_user_name" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "amount" NUMERIC;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "date" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "status" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "isVirtual" BOOLEAN DEFAULT FALSE;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "is_virtual" BOOLEAN DEFAULT FALSE;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE cash_handovers ADD COLUMN IF NOT EXISTS "order_number" TEXT;
-
--- 9. حركات الشركاء والخزائن والشركاء وسجل النشاط
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "notes" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "note" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerName" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_name" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
-ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "capital" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initialCapital" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initial_capital" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
-ALTER TABLE partners ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "user" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "userName" TEXT;
-ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN DEFAULT false;
-ALTER TABLE warehouses ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalSystemQty" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalActualQty" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceQty" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalVarianceValue" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "totalItemsAudited" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "total_items_audited" NUMERIC DEFAULT 0;
-ALTER TABLE inventory_audits ADD COLUMN IF NOT EXISTS "timestamp" BIGINT;
-
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "transferNumber" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "sourceWarehouseId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "destinationWarehouseId" TEXT;
-ALTER TABLE stock_transfers ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "returnNumber" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "orderId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "totalRefund" NUMERIC DEFAULT 0;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "restockItems" BOOLEAN DEFAULT true;
-ALTER TABLE order_returns ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "returnNumber" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "supplierId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "supplierName" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "totalRefundAmount" NUMERIC DEFAULT 0;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "warehouseId" TEXT;
-ALTER TABLE purchase_returns ADD COLUMN IF NOT EXISTS "performedBy" TEXT;
-
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "userId" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "userName" TEXT;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "currentBalance" NUMERIC DEFAULT 0;
-ALTER TABLE cash_holders ADD COLUMN IF NOT EXISTS "lastUpdated" TEXT;
-ALTER TABLE whatsapp_templates ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE call_scripts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE reviews ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE abandoned_carts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE discount_codes ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE collections ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE custom_pages ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE payment_methods ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE global_options ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiKey" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_key TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "apiSecret" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS api_secret TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "accountNumber" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS account_number TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "isConnected" BOOLEAN DEFAULT false;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS is_connected BOOLEAN DEFAULT false;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS provider TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS store_id TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
-ALTER TABLE shipping_integrations ADD COLUMN IF NOT EXISTS "created_at" TEXT;
-ALTER TABLE documents ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS "storeId" TEXT;
-ALTER TABLE users DISABLE ROW LEVEL SECURITY;
-ALTER TABLE products DISABLE ROW LEVEL SECURITY;
-ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE supply_orders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE reviews DISABLE ROW LEVEL SECURITY;
-ALTER TABLE abandoned_carts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE activity_logs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
-ALTER TABLE discount_codes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
-ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
-ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
-ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
-ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partners DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partner_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_audits DISABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_transfers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE order_returns DISABLE ROW LEVEL SECURITY;
-ALTER TABLE purchase_returns DISABLE ROW LEVEL SECURITY;
-ALTER TABLE pos_sales DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cash_holders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cash_handovers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE whatsapp_templates DISABLE ROW LEVEL SECURITY;
-ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
-`;
 
 // --- Main Page Component ---
 interface SignUpPageProps {
@@ -795,11 +39,6 @@ interface SignUpPageProps {
 }
 
 const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUsers }) => {
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'user' | 'admin'>('user');
-  const [showAdminTab, setShowAdminTab] = useState(false);
-  
-  // User form state
   const [isLoginView, setIsLoginView] = useState(true);
   const [fullName, setFullName] = useState('');
   const [userPhone, setUserPhone] = useState('');
@@ -819,11 +58,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     }
   }, []);
 
-  // Admin form state
-  const [adminPhone, setAdminPhone] = useState('');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [adminError, setAdminError] = useState('');
-
   // Use the professional auth actions hook
   const { 
     handleCustomPasswordReset, 
@@ -834,40 +68,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setSuccess: setAuthActionsSuccess
   } = useAuthActions();
 
-  // Custom database state and actions
-  const [hasCustomDb, setHasCustomDb] = useState(
-    typeof window !== 'undefined' ? (!!localStorage.getItem('custom_cloud_url') || !!localStorage.getItem('custom_supabase_url')) : false
-  );
-  const [copiedSql, setCopiedSql] = useState(false);
-  const [showSqlDetails, setShowSqlDetails] = useState(false);
-
-  const handleRestoreDefaultDb = () => {
-    localStorage.removeItem('custom_cloud_url');
-    localStorage.removeItem('custom_cloud_anon_key');
-    localStorage.removeItem('custom_supabase_url');
-    localStorage.removeItem('custom_supabase_anon_key');
-    alert("تمت استعادة قاعدة البيانات الافتراضية بنجاح! سيتم إعادة تشغيل ومزامنة حسابك القديم.");
-    window.location.reload();
-  };
-
-  const handleCopySql = () => {
-    navigator.clipboard.writeText(SQL_SCHEMA_SCRIPT);
-    setCopiedSql(true);
-    setTimeout(() => setCopiedSql(false), 2000);
-  };
-
-  const openAuthModal = (isLogin: boolean) => {
-    setIsLoginView(isLogin);
-    setShowAuthModal(true);
-  };
-  
-  useEffect(() => {
-    if (userPhone === 'ADMINLOGIN') {
-      setShowAdminTab(true);
-      setUserPhone(''); // Clear input after triggering
-    }
-  }, [userPhone]);
-
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserError('');
@@ -876,11 +76,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     const firebaseEmail = `${userPhone.trim()}@mystore-auth.app`;
 
     if (isLoginView) {
-      console.log('[AUTH DEBUG]', {
-        phone: userPhone,
-        firebaseEmail,
-        passwordLength: userPassword?.length
-      });
       try {
         await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
         const foundUser = await getUserByPhone(userPhone.trim());
@@ -901,25 +96,20 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           setIsLoading(false);
           return;
         }
-        console.error('Login error:', err);
         const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
                                        err.code === 'auth/invalid-credential' || 
                                        err?.message?.includes('user-not-found') || 
                                        err?.message?.includes('invalid-credential');
         if (isUserNotFoundOrInvalid) {
-          console.log('[MIGRATION/AUTH] Login failed. Checking Firestore and Supabase for user:', userPhone);
           try {
             // Check in Firestore first
             const firestoreUser = await getUserByPhone(userPhone.trim());
             if (firestoreUser && firestoreUser.password === userPassword) {
-              console.log('[AUTH/RECOVERY] Found user in Firestore with correct password. Healing Firebase Auth...');
               try {
                 await createUserWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                console.log('[AUTH/RECOVERY] Firebase Auth account created on-the-fly successfully.');
                 onPasswordSuccess(firestoreUser, userPassword);
                 return;
               } catch (createErr) {
-                console.error('[AUTH/RECOVERY] Failed to heal Firebase Auth account on-the-fly:', createErr);
               }
             }
 
@@ -927,7 +117,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             
             // 1. Check if they have a CUSTOM email in Supabase (meaning they updated it in settings)
             if (legacyUser && legacyUser.email && legacyUser.email !== `${userPhone.trim()}@mystore-auth.app`) {
-              console.log('[AUTH] Found custom email in Supabase, trying login with:', legacyUser.email);
               try {
                 await signInWithEmailAndPassword(auth, legacyUser.email, userPassword);
                 const foundUser = await getUserByPhone(userPhone.trim());
@@ -936,17 +125,14 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   return;
                 }
               } catch (secondErr: any) {
-                console.log('[AUTH] Custom email login also failed:', secondErr.code);
               }
             }
             
             // 2. Original Migration Logic (Legacy users)
             if (legacyUser) {
-              console.log('[MIGRATION] Legacy user found in Supabase. Checking password...');
               const storedPassword = legacyUser.password;
               if (storedPassword === userPassword) {
                 if (userPassword.length < 6) {
-                  console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy user login:', userPhone);
                   setUserError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
                   setIsLoading(false);
                   return;
@@ -956,14 +142,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 const emailToCreate = legacyUser.email || firebaseEmail;
 
                 try {
-                  console.log('[MIGRATION] Creating Firebase Auth account for legacy user:', userPhone, 'using email:', emailToCreate);
                   await createUserWithEmailAndPassword(auth, emailToCreate, userPassword);
-                  console.log('[MIGRATION] Creating Firestore user doc for legacy user:', userPhone);
                   await createUserDoc(legacyUser);
                   onPasswordSuccess(legacyUser, userPassword);
                 } catch (createErr: any) {
                   if (createErr.code === 'auth/email-already-in-use') {
-                    console.log('[MIGRATION] Firebase Auth account already exists for legacy user, attempting sign-in...');
                     try {
                       // Try signing in with BOTH potential emails
                       try {
@@ -983,29 +166,23 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       onPasswordSuccess(legacyUser, userPassword);
                     } catch (signInErr: any) {
                       if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                        console.warn('[MIGRATION] Existing account found but password mismatch for legacy user:', userPhone);
                         setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
                       } else {
-                        console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
                         setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
                       }
                       setIsLoading(false);
                     }
                   } else {
-                    console.error('[MIGRATION] On-the-fly signup failed for legacy user:', createErr);
                     setUserError('فشل إنشاء حساب المصادقة.');
                     setIsLoading(false);
                   }
                 }
                 return;
               } else {
-                console.log('[MIGRATION] Legacy password mismatch for user:', userPhone);
               }
             } else {
-              console.log('[MIGRATION] Legacy user not found in Supabase for user:', userPhone);
             }
           } catch (migrationErr) {
-            console.error('[MIGRATION] On login legacy check failed:', migrationErr);
           }
         }
         setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
@@ -1028,8 +205,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         // This ensures the security rules can verify phone ownership via the email pattern.
         // The real email will be stored in Firestore and used for recovery/login lookups.
         const emailToUse = firebaseEmail;
-          
-        console.log('[SIGNUP] Creating account with identity email:', emailToUse);
         await createUserWithEmailAndPassword(auth, emailToUse, userPassword);
         
         const newUser: User = { 
@@ -1046,7 +221,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           try {
             await updateUserInSupabase(newUser);
           } catch (e) {
-            console.warn('[SIGNUP] Failed to sync to Supabase (optional):', e);
           }
           
           setUsers(prevUsers => [...prevUsers, newUser]);
@@ -1056,7 +230,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           setIsLoading(false);
         }
       } catch (err: any) {
-        console.error('Signup error:', err);
         if (err.code === 'auth/email-already-in-use') {
            setUserError('هذا الرقم مسجل بالفعل.');
         } else {
@@ -1088,17 +261,14 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       
       if (firestoreUser && firestoreUser.email) {
         userEmailToUse = firestoreUser.email;
-        console.log('[RESET] Found email in Firestore:', userEmailToUse);
       } else {
         // 2. Try Supabase
         const legacyUser = await getUserByPhoneFromSupabase(resetPhone.trim());
         if (legacyUser && legacyUser.email && legacyUser.email.includes('@') && !legacyUser.email.includes('mystore-auth.app')) {
           userEmailToUse = legacyUser.email;
-          console.log('[RESET] Found valid email in Supabase:', userEmailToUse);
         } else {
           // 3. Fallback to generated
           userEmailToUse = `${resetPhone.trim()}@mystore-auth.app`;
-          console.log('[RESET] Using generated email fallback:', userEmailToUse);
         }
       }
       
@@ -1125,122 +295,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         }, 8000);
       }
     } catch (err: any) {
-      console.error('Reset password process error:', err);
       setAuthActionsError('حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.');
     } finally {
       setIsLoading(false);
     }
   };
-
-  const handleAdminSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAdminError('');
-    setIsLoading(true);
-    
-    const firebaseEmail = `${adminPhone.trim()}@mystore-auth.app`;
-
-    console.log('[AUTH DEBUG]', {
-      phone: adminPhone,
-      firebaseEmail,
-      passwordLength: adminPassword?.length
-    });
-
-    try {
-      await signInWithEmailAndPassword(auth, firebaseEmail, adminPassword);
-      const adminUser = await getUserByPhone(adminPhone.trim());
-      if (adminUser && adminUser.isAdmin) {
-        onPasswordSuccess(adminUser, adminPassword);
-      } else {
-        setAdminError('ليس لديك صلاحيات المدير.');
-        setIsLoading(false);
-      }
-    } catch (err: any) {
-      if (err.code === 'auth/network-request-failed') {
-        setAdminError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-        setIsLoading(false);
-        return;
-      }
-      console.error('Admin login error:', err);
-      const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
-                                     err.code === 'auth/invalid-credential' || 
-                                     err?.message?.includes('user-not-found') || 
-                                     err?.message?.includes('invalid-credential');
-      if (isUserNotFoundOrInvalid) {
-        console.log('[MIGRATION] Firebase Auth failed for admin. Checking Firestore and Supabase for phone:', adminPhone);
-        try {
-          // Check in Firestore first
-          const firestoreUser = await getUserByPhone(adminPhone.trim());
-          if (firestoreUser && firestoreUser.isAdmin && firestoreUser.password === adminPassword) {
-            console.log('[AUTH/RECOVERY] Found admin in Firestore with correct password. Healing Firebase Auth...');
-            try {
-              await createUserWithEmailAndPassword(auth, firebaseEmail, adminPassword);
-              console.log('[AUTH/RECOVERY] Admin Firebase Auth account created on-the-fly successfully.');
-              onPasswordSuccess(firestoreUser, adminPassword);
-              return;
-            } catch (createErr) {
-              console.error('[AUTH/RECOVERY] Failed to heal admin Firebase Auth account on-the-fly:', createErr);
-            }
-          }
-
-          const legacyUser = await getUserByPhoneFromSupabase(adminPhone.trim());
-          if (legacyUser && legacyUser.isAdmin) {
-            console.log('[MIGRATION] Legacy admin found in Supabase. Checking password...');
-            const storedPassword = legacyUser.password;
-            if (storedPassword === adminPassword) {
-              if (adminPassword.length < 6) {
-                console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy admin login:', adminPhone);
-                setAdminError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                setIsLoading(false);
-                return;
-              }
-              try {
-                console.log('[MIGRATION] Creating Firebase Auth account for legacy admin:', adminPhone);
-                await createUserWithEmailAndPassword(auth, firebaseEmail, adminPassword);
-                console.log('[MIGRATION] Creating Firestore user doc for legacy admin:', adminPhone);
-                await createUserDoc(legacyUser);
-                onPasswordSuccess(legacyUser, adminPassword);
-              } catch (createErr: any) {
-                if (createErr.code === 'auth/email-already-in-use') {
-                  console.log('[MIGRATION] Firebase Auth account already exists for legacy admin, attempting sign-in...');
-                  try {
-                    await signInWithEmailAndPassword(auth, firebaseEmail, adminPassword);
-                    const existingFsUser = await getUserByPhone(adminPhone.trim());
-                    if (!existingFsUser) {
-                      await createUserDoc(legacyUser);
-                    }
-                    onPasswordSuccess(legacyUser, adminPassword);
-                  } catch (signInErr: any) {
-                    if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                      console.warn('[MIGRATION] Existing account found but password mismatch for legacy admin:', adminPhone);
-                      setAdminError('رقم الهاتف أو كلمة المرور غير صحيحة للمدير.');
-                    } else {
-                      console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
-                      setAdminError('رقم الهاتف أو كلمة المرور غير صحيحة للمدير.');
-                    }
-                    setIsLoading(false);
-                  }
-                } else {
-                  console.error('[MIGRATION] On-the-fly signup failed for legacy admin:', createErr);
-                  setAdminError('فشل إنشاء حساب المصادقة للمدير.');
-                  setIsLoading(false);
-                }
-              }
-              return;
-            } else {
-              console.log('[MIGRATION] Legacy password mismatch for admin:', adminPhone);
-            }
-          } else {
-            console.log('[MIGRATION] Legacy admin user not found in Supabase for admin:', adminPhone);
-          }
-        } catch (migrationErr) {
-          console.error('[MIGRATION] On admin login legacy check failed:', migrationErr);
-        }
-      }
-      setAdminError('بيانات دخول المدير غير صحيحة.');
-      setIsLoading(false);
-    }
-  };
-
   const toggleView = (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     setIsLoginView(!isLoginView);
@@ -1251,331 +310,63 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setUserPassword('');
   };
   
-  const navItemClasses = "font-bold text-slate-300 hover:text-emerald-300 transition-colors";
+  const inputClass = 'w-full rounded-2xl border border-slate-200 bg-white px-11 py-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10';
+  const fieldIconClass = 'pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400';
 
   return (
-    <div dir="rtl" className="font-cairo bg-[#071b16] text-white overflow-x-hidden">
-      
-      {/* --- Header --- */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-[#071b16]/70 backdrop-blur-lg border-b border-emerald-500/15">
-        <div className="container mx-auto px-6 py-4 flex justify-between items-center">
-          <Link to="/" className="font-black text-2xl">منصتي</Link>
-          <nav className="hidden md:flex items-center gap-8">
-            <a href="#features" className={navItemClasses}>الميزات</a>
-            <a href="#pricing" className={navItemClasses}>الأسعار</a>
-          </nav>
-          <div className="flex items-center gap-3">
-            <button onClick={() => openAuthModal(true)} className="font-bold text-sm text-slate-300 hover:text-emerald-300">تسجيل الدخول</button>
-            <button onClick={() => openAuthModal(false)} className="bg-emerald-600 px-5 py-2.5 rounded-lg font-bold text-sm hover:bg-emerald-500 transition-all shadow-lg shadow-emerald-600/20">
-              ابدأ الآن
-            </button>
-          </div>
-        </div>
-      </header>
+    <div dir="rtl" className="min-h-screen bg-[#f7f8f4] text-slate-900 font-cairo">
+      <div className="relative isolate min-h-screen overflow-hidden">
+        <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-emerald-200/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-40 right-1/3 h-96 w-96 rounded-full bg-lime-200/30 blur-3xl" />
 
-      <main>
-        {/* --- Hero Section --- */}
-        <section className="relative pt-40 pb-24 text-center overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-emerald-900/30 to-slate-950 opacity-50"></div>
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[150%] h-[150%] rounded-full bg-[radial-gradient(circle_at_center,_rgba(52,_211,_153,_0.16),_transparent_40%)] -z-10"></div>
-          
-          <div className="container mx-auto px-6 relative z-10">
-            <motion.h1 
-                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-                className="text-4xl md:text-6xl font-black leading-tight"
-            >
-              أنشئ متجرك الإلكتروني الاحترافي في دقائق
-            </motion.h1>
-            <motion.p 
-                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}
-                className="text-lg text-slate-300 max-w-2xl mx-auto mt-6"
-            >
-              منصة متكاملة لإدارة المنتجات، الطلبات، والعملاء بسهولة. ابدأ مجاناً، بدون عمولات على المبيعات.
-            </motion.p>
-            <motion.div 
-                initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.4 }}
-                className="mt-10"
-            >
-              <button onClick={() => openAuthModal(false)} className="bg-emerald-600 px-10 py-4 rounded-xl font-bold text-lg hover:bg-emerald-500 transition-transform hover:scale-105 shadow-2xl shadow-emerald-600/30">
-                أنشئ متجرك مجاناً
-              </button>
-            </motion.div>
-          </div>
-        </section>
+        <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-12">
+          <Link to="/owner-login" className="flex items-center gap-3" aria-label="العودة إلى الصفحة الرئيسية">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"><Store size={21} /></span>
+            <span><strong className="block text-lg font-black tracking-tight">منصتي</strong><span className="block text-[11px] font-semibold text-slate-500">إدارة تجارتك ببساطة</span></span>
+          </Link>
+          <Link to="/employee-login" className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-white hover:text-emerald-700">دخول الموظفين</Link>
+        </header>
 
-        {/* --- Features Section --- */}
-        <section id="features" className="py-24 bg-slate-900">
-          <div className="container mx-auto px-6">
-            <div className="text-center max-w-2xl mx-auto mb-16">
-              <h2 className="text-4xl font-black">كل ما تحتاجه لتبدأ البيع أونلاين</h2>
-              <p className="text-slate-400 mt-4">نقدم لك مجموعة من الأدوات القوية لمساعدتك على النجاح في تجارتك الإلكترونية.</p>
+        <main className="relative z-10 mx-auto grid min-h-[calc(100vh-88px)] max-w-7xl items-center gap-12 px-5 pb-10 pt-6 sm:px-8 lg:grid-cols-[1fr_480px] lg:gap-20 lg:px-12 lg:pt-0">
+          <section className="order-2 max-w-2xl lg:order-1">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1.5 text-xs font-bold text-emerald-700 shadow-sm"><span className="h-2 w-2 rounded-full bg-emerald-500" /> مساحة عمل آمنة لتجارتك</div>
+            <h1 className="max-w-xl text-4xl font-black leading-[1.18] tracking-tight text-slate-950 sm:text-6xl">كل طلباتك، منتجاتك، وأرقامك <span className="text-emerald-600">في مكان واحد.</span></h1>
+            <p className="mt-6 max-w-lg text-base leading-8 text-slate-600 sm:text-lg">ابدأ من لوحة واضحة تساعدك على متابعة البيع والمخزون والعملاء بدون خطوات زائدة أو تشتيت.</p>
+            <div className="mt-9 grid max-w-lg grid-cols-1 gap-3 sm:grid-cols-3">
+              {[
+                ['01', 'لوحة واضحة'],
+                ['02', 'بيانات منظمة'],
+                ['03', 'فريق متصل']
+              ].map(([number, label]) => <div key={number} className="rounded-2xl border border-white bg-white/70 p-4 shadow-sm"><span className="text-xs font-black text-emerald-600">{number}</span><p className="mt-2 text-sm font-bold text-slate-700">{label}</p></div>)}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              <FeatureCard icon={<Store />} title="متجر إلكتروني متكامل" description="واجهة عرض احترافية لمنتجاتك مع تجربة شراء سهلة لعملائك." />
-              <FeatureCard icon={<ShoppingCart />} title="إدارة الطلبات" description="نظام متكامل لتتبع الطلبات من التأكيد وحتى التحصيل." />
-              <FeatureCard icon={<BarChart />} title="تحليلات وتقارير" description="احصل على رؤى دقيقة حول مبيعاتك وأرباحك لاتخاذ قرارات أفضل." />
-              <FeatureCard icon={<Users />} title="إدارة العملاء" description="سجل بيانات عملائك وتاريخ طلباتهم لتحسين علاقتك بهم." />
-              <FeatureCard icon={<Settings />} title="تخصيص كامل" description="تحكم كامل في إعدادات الشحن، الدفع، والسياسات المالية لمتجرك." />
-              <FeatureCard icon={<UserPlus />} title="صلاحيات الموظفين" description="أضف فريق عملك وحدد صلاحيات كل موظف بدقة وأمان." />
-            </div>
-          </div>
-        </section>
+          </section>
 
-        {/* --- How It Works Section --- */}
-        <section className="py-24">
-            <div className="container mx-auto px-6">
-                <div className="text-center max-w-2xl mx-auto mb-16">
-                    <h2 className="text-4xl font-black">ابدأ في 3 خطوات بسيطة</h2>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-16">
-                    <StepCard number="01" title="أنشئ حسابك" description="سجل حسابك المجاني في أقل من دقيقة واحدة." />
-                    <StepCard number="02" title="أضف منتجاتك" description="أضف صور ووصف منتجاتك بسهولة تامة." />
-                    <StepCard number="03" title="ابدأ البيع" description="شارك رابط متجرك مع عملائك وابدأ في استقبال الطلبات." />
-                </div>
-            </div>
-        </section>
-
-        {/* --- Pricing Section --- */}
-        <section id="pricing" className="py-24 bg-slate-900">
-          <div className="container mx-auto px-6">
-            <div className="bg-gradient-to-br from-emerald-800 to-emerald-700 p-10 rounded-3xl text-center max-w-4xl mx-auto shadow-2xl">
-              <h3 className="text-4xl font-black">الخطة المجانية. مدى الحياة.</h3>
-              <p className="text-emerald-100 mt-4 text-lg">نحن نؤمن بدعم المشاريع الناشئة. لهذا، منصتنا مجانية بالكامل.</p>
-              <ul className="mt-8 space-y-3 text-emerald-50 max-w-md mx-auto">
-                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-lime-300"/> عدد لا محدود من المنتجات</li>
-                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-lime-300"/> عدد لا محدود من الطلبات</li>
-                <li className="flex items-center justify-center gap-2 font-bold"><CheckCircle className="text-lime-300"/> 0% عمولة على المبيعات</li>
-              </ul>
-              <button onClick={() => openAuthModal(false)} className="mt-10 bg-white text-emerald-600 px-10 py-4 rounded-xl font-bold text-lg hover:bg-emerald-100 transition-transform hover:scale-105">
-                ابدأ رحلتك الآن
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* --- Final CTA --- */}
-        <section className="py-24 text-center">
-            <div className="container mx-auto px-6">
-                <h2 className="text-4xl font-black">جاهز لبدء مشروعك؟</h2>
-                <p className="text-slate-400 mt-4">انضم لآلاف التجار الذين يستخدمون منصتنا لتحقيق النجاح.</p>
-                <button onClick={() => openAuthModal(false)} className="mt-8 bg-emerald-600 px-8 py-4 rounded-xl font-bold text-lg hover:bg-emerald-500 transition-transform hover:scale-105 shadow-2xl shadow-emerald-600/30 flex items-center gap-3 mx-auto">
-                    <span>أنشئ متجرك مجاناً</span>
-                    <ArrowLeft />
-                </button>
-            </div>
-        </section>
-      </main>
-
-      <footer className="bg-slate-900 border-t border-emerald-500/15 py-8">
-        <div className="container mx-auto px-6 text-center text-slate-500">
-          <p>
-            تم تأسيس وبرمجة المنصة بالكامل بواسطة <span className="font-bold text-slate-400">عبدالرحمن سعيد</span>.
-          </p>
-        </div>
-      </footer>
-
-      {/* --- Password Reset Modal --- */}
-      {showResetModal && (
-        <AuthModal onClose={() => {
-          setShowResetModal(false);
-          setAuthActionsError(null);
-          setAuthActionsSuccess(null);
-        }}>
-          <div className="bg-[#101817] border border-emerald-500/20 rounded-2xl p-8 shadow-2xl">
-            <div className="text-center mb-8">
-              <div className="inline-block p-4 bg-emerald-500/10 rounded-2xl mb-4">
-                <KeyRound className="text-emerald-400" size={32} />
+          <section className="order-1 lg:order-2">
+            <div className="rounded-[2rem] border border-white bg-white/95 p-6 shadow-[0_24px_70px_rgba(23,60,45,0.12)] sm:p-9">
+              <div className="mb-7 flex rounded-2xl bg-slate-100 p-1.5" role="tablist" aria-label="نوع العملية">
+                <button type="button" role="tab" aria-selected={isLoginView} onClick={() => { setIsLoginView(true); setUserError(''); }} className={isLoginView ? 'flex-1 rounded-xl bg-white px-3 py-2.5 text-sm font-black text-slate-900 shadow-sm' : 'flex-1 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-500 transition hover:text-slate-800'}>تسجيل الدخول</button>
+                <button type="button" role="tab" aria-selected={!isLoginView} onClick={() => { setIsLoginView(false); setUserError(''); }} className={!isLoginView ? 'flex-1 rounded-xl bg-white px-3 py-2.5 text-sm font-black text-slate-900 shadow-sm' : 'flex-1 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-500 transition hover:text-slate-800'}>حساب جديد</button>
               </div>
-              <h2 className="text-2xl font-bold mb-2">استعادة كلمة المرور</h2>
-              <p className="text-slate-400 text-sm">سنرسل رابطاً لتعيين كلمة مرور جديدة إلى بريدك الإلكتروني المسجل لهذا الرقم:</p>
-              <div className="mt-2 text-emerald-400 font-bold">{resetPhone || "لم يتم إدخال الرقم بعد"}</div>
-            </div>
-
-            {authActionsSuccess ? (
-              <div role="status" aria-live="polite" className="bg-emerald-950/60 border border-emerald-500/40 text-lime-200 p-4 rounded-xl space-y-2 mb-6">
-                <div className="flex items-center gap-3 animate-pulse">
-                  <CheckCircle size={20} />
-                  <span className="text-sm font-bold">تم إرسال رابط إعادة التعيين بنجاح.</span>
-                </div>
-                <p className="text-xs text-slate-300">
-                  تم الإرسال إلى: <span className="text-emerald-300 font-mono" dir="ltr">
-                    {sentToEmail.includes('@mystore-auth.app') 
-                      ? "⚠️ بريد النظام المؤقت (لن تستلم شيئاً)" 
-                      : (sentToEmail.split('@')[0].length > 3 
-                          ? `${sentToEmail.split('@')[0].substring(0, 3)}***@${sentToEmail.split('@')[1]}`
-                          : sentToEmail)
-                    }
-                  </span>
-                </p>
-                <p className="text-[10px] text-slate-400">يرجى التحقق من بريدك الإلكتروني (بما في ذلك ملفات الـ Spam).</p>
-              </div>
-            ) : (
-              <form onSubmit={handleForgotPassword} className="space-y-4">
-                <div>
-                  <label htmlFor="reset-phone" className="text-sm font-bold text-slate-200 mb-2 block">رقم الموبايل أو اسم المستخدم</label>
-                  <input
-                    id="reset-phone"
-                    type="text"
-                    value={resetPhone}
-                    onChange={(e) => setResetPhone(e.target.value)}
-                    autoComplete="username"
-                    aria-describedby="reset-phone-help"
-                    placeholder="أدخل الرقم المستخدم في تسجيل الدخول"
-                    className="w-full bg-[#0d211b]/80 border border-emerald-500/30 rounded-xl px-4 py-3 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400"
-                    required
-                  />
-                  <p id="reset-phone-help" className="text-xs text-slate-300 mt-2">سنرسل رابط الاستعادة إلى البريد المرتبط بهذا الحساب.</p>
-                </div>
-                {authActionsError && (
-                  <div role="alert" aria-live="assertive" className="bg-red-950/70 border border-red-400/60 text-red-200 p-3 rounded-lg text-center font-bold text-xs">
-                    {authActionsError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="w-full bg-emerald-800 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-                >
-                  {isLoading ? <Loader2 className="animate-spin" /> : 'إرسال الرابط'}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={() => setShowResetModal(false)}
-                  className="w-full text-slate-300 hover:text-emerald-200 text-xs font-bold py-2 transition-colors"
-                >
-                  إلغاء
-                </button>
+              <div className="mb-7"><h2 className="text-2xl font-black text-slate-950">{isLoginView ? 'أهلاً بعودتك' : 'ابدأ حسابك الآن'}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{isLoginView ? 'أدخل بياناتك للوصول إلى مساحة العمل.' : 'أنشئ حسابك وابدأ في إدارة متجرك.'}</p></div>
+              <form onSubmit={handleUserSubmit} className="space-y-4">
+                {!isLoginView && <>
+                  <label className="relative block"><span className="sr-only">الاسم الكامل</span><UserIcon size={17} className={fieldIconClass} /><input type="text" aria-label="الاسم الكامل" autoComplete="name" placeholder="الاسم الكامل" required className={inputClass} value={fullName} onChange={e => setFullName(e.target.value)} /></label>
+                  <label className="relative block"><span className="sr-only">البريد الإلكتروني</span><Mail size={17} className={fieldIconClass} /><input type="email" aria-label="البريد الإلكتروني" autoComplete="email" placeholder="البريد الإلكتروني" required className={inputClass} value={userEmail} onChange={e => setUserEmail(e.target.value)} /></label>
+                </>}
+                <label className="relative block"><span className="sr-only">رقم الموبايل أو اسم المستخدم</span><Phone size={17} className={fieldIconClass} /><input type="text" aria-label="رقم الموبايل أو اسم المستخدم" autoComplete="username" placeholder="رقم الموبايل أو اسم المستخدم" required className={inputClass} value={userPhone} onChange={e => setUserPhone(e.target.value)} /></label>
+                <label className="relative block"><span className="sr-only">كلمة المرور</span><KeyRound size={17} className={fieldIconClass} /><input type="password" aria-label="كلمة المرور" autoComplete={isLoginView ? 'current-password' : 'new-password'} placeholder="كلمة المرور" required className={inputClass} value={userPassword} onChange={e => setUserPassword(e.target.value)} /></label>
+                {isLoginView && <div className="text-left"><button type="button" onClick={() => { setResetPhone(userPhone); setAuthActionsError(null); setShowResetModal(true); }} className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline">نسيت كلمة المرور؟</button></div>}
+                {userError && <div role="alert" aria-live="assertive" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-sm font-bold text-rose-700">{userError}</div>}
+                <button type="submit" disabled={isLoading} className="mt-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-3.5 font-black text-white shadow-lg shadow-emerald-600/20 transition hover:-translate-y-0.5 hover:bg-emerald-700 active:scale-[.98] disabled:cursor-wait disabled:opacity-60">{isLoading ? <Loader2 className="animate-spin" size={19} /> : (isLoginView ? <><LogIn size={18} /> دخول آمن</> : <><UserPlus size={18} /> إنشاء الحساب</>)}</button>
               </form>
-            )}
-          </div>
-        </AuthModal>
-      )}
-
-      {/* --- Auth Modal --- */}
-      {showAuthModal && (
-        <AuthModal onClose={() => setShowAuthModal(false)}>
-          <div className="bg-[#101817]/95 border border-emerald-500/20 rounded-2xl p-8 backdrop-blur-sm shadow-2xl">
-            <div className="flex bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg p-1 mb-6">
-                <button onClick={() => setActiveTab('user')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'user' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}><UserIcon size={16}/> المستخدمين</button>
-                {showAdminTab && (
-                  <button onClick={() => setActiveTab('admin')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-md text-sm font-bold transition-all ${activeTab === 'admin' ? 'bg-emerald-500/15 text-white shadow-inner' : 'text-slate-400 hover:bg-emerald-500/10'}`}><ShieldAlert size={16}/> المدير</button>
-                )}
+              <p className="mt-6 text-center text-sm text-slate-500">{isLoginView ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'} <button type="button" onClick={() => { setIsLoginView(!isLoginView); setUserError(''); }} className="font-black text-emerald-700 hover:underline">{isLoginView ? 'أنشئ حساباً' : 'سجّل الدخول'}</button></p>
+              <div className="mt-7 flex items-center justify-center gap-2 border-t border-slate-100 pt-5 text-xs text-slate-400"><ShieldCheck size={15} className="text-emerald-600" /> حماية الحساب تبدأ بكلمة مرور قوية</div>
             </div>
-            
-            {activeTab === 'user' && (
-              <div className="animate-in fade-in duration-300">
-                <div className="text-center">
-                  <h2 className="text-2xl font-bold">{isLoginView ? 'تسجيل الدخول' : 'إنشاء حساب جديد'}</h2>
-                  <p className="text-slate-400 mt-1">{isLoginView ? 'مرحباً بعودتك! أدخل بياناتك للمتابعة.' : 'ابدأ بإنشاء متجرك الإلكتروني الآن'}</p>
-                </div>
+          </section>
+        </main>
+      </div>
 
-                {hasCustomDb && (
-                  <div className="bg-slate-900 border border-emerald-500/15 rounded-xl p-4 mt-4 text-right space-y-3">
-                    <div className="flex gap-2.5 items-start">
-                      <Database size={18} className="text-emerald-400 mt-0.5 shrink-0" />
-                      <div>
-                        <h3 className="text-xs font-bold text-emerald-300">منبه: السيرفر المخصص مفعل</h3>
-                        <p className="text-slate-400 text-[11px] mt-1 leading-relaxed">
-                          أنت متصل بقاعدة بيانات مخصصة جديدة وفارغة. حساباتك القديمة موجودة على السيرفر الافتراضي الأصلي. يمكنك <strong>إنشاء حساب جديد</strong> لتشغيل السيرفر المخصص، أو الرجوع فوراً للسيرفر الافتراضي لاسترجاع بياناتك.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="pt-1 flex flex-wrap gap-2 text-[11px]">
-                      <button 
-                        type="button" 
-                        onClick={handleCopySql} 
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-950/50 hover:bg-emerald-900/50 text-emerald-300 rounded-lg font-bold border border-emerald-900/50 transition active:scale-95"
-                      >
-                        {copiedSql ? (
-                          <>
-                            <Check className="text-lime-300" size={12} />
-                            <span>تم نسخ كود SQL!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>نسخ كود إنشاء الجداول</span>
-                          </>
-                        )}
-                      </button>
-                      
-                      <button 
-                        type="button" 
-                        onClick={handleRestoreDefaultDb} 
-                        className="flex items-center gap-1 px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/40 text-red-400 rounded-lg font-bold border border-red-950/30 transition active:scale-95"
-                      >
-                        <RefreshCw size={12} />
-                        <span>استعادة السيرفر الافتراضي</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                <form onSubmit={handleUserSubmit} className="space-y-4 mt-6">
-                  {!isLoginView && (
-                    <>
-                      <div className="relative"><UserIcon size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" aria-label="الاسم الكامل" autoComplete="name" placeholder="الاسم الكامل" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
-                      <div className="relative"><Mail size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="email" aria-label="البريد الإلكتروني" autoComplete="email" placeholder="البريد الإلكتروني" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userEmail} onChange={(e) => setUserEmail(e.target.value)} /></div>
-                    </>
-                  )}
-                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" aria-label="رقم الموبايل أو اسم المستخدم" autoComplete="username" placeholder="رقم الموبايل / اسم المستخدم" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPhone} onChange={(e) => setUserPhone(e.target.value)} /></div>
-                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" aria-label="كلمة المرور" autoComplete="current-password" placeholder="كلمة المرور" required className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" value={userPassword} onChange={(e) => setUserPassword(e.target.value)} /></div>
-                  
-                  {isLoginView && (
-                    <div className="text-left">
-                      <button 
-                        type="button" 
-                        onClick={() => { setResetPhone(userPhone); setAuthActionsError(null); setShowResetModal(true); }}
-                        className="text-xs text-emerald-400 hover:text-emerald-300 hover:underline"
-                      >
-                        نسيت كلمة المرور؟
-                      </button>
-                    </div>
-                  )}
-
-                  {userError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{userError}</div>}
-                  <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-800 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
-                      {isLoading ? <Loader2 className="animate-spin" /> : (isLoginView ? <><LogIn size={18}/> تسجيل الدخول</> : <><UserPlus size={18}/> إنشاء حساب</>)}
-                  </button>
-                </form>
-                <p className="text-center text-sm text-slate-400 mt-6">{isLoginView ? 'ليس لديك حساب؟' : 'لديك حساب بالفعل؟'}{' '}<a href="#" onClick={toggleView} className="font-bold text-emerald-400 hover:underline">{isLoginView ? 'أنشئ حساباً' : 'تسجيل الدخول'}</a></p>
-                <div className="mt-4 text-center"><Link to="/employee-login" className="text-sm text-slate-400 hover:text-emerald-400 hover:underline">تسجيل دخول الموظفين</Link></div>
-                <div className="mt-3 text-center border-t border-emerald-500/15 pt-3">
-                  <button 
-                    type="button" 
-                    onClick={() => {
-                      setShowAdminTab(true);
-                      setActiveTab('admin');
-                      setAdminPhone('admin');
-                      setAdminPassword('admin');
-                    }} 
-                    className="text-xs text-slate-400 hover:text-red-400 hover:underline inline-flex items-center gap-1 transition-colors"
-                  >
-                    <Shield size={12} />
-                    <span>هل أنت المدير العام (الادمن)؟ اضغط هنا للدخول المباشر السريع</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            {activeTab === 'admin' && (
-              <div className="animate-in fade-in duration-300">
-                 <div className="text-center"><h2 className="text-2xl font-bold">لوحة تحكم المدير</h2><p className="text-slate-400 mt-1">تسجيل دخول خاص بالإدارة.</p></div>
-                 <form onSubmit={handleAdminSubmit} className="space-y-4 mt-6">
-                  <div className="relative"><Phone size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="text" required value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
-                  <div className="relative"><KeyRound size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"/><input type="password" required value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} className="w-full bg-[#0d211b]/80 border border-emerald-500/20 rounded-lg px-10 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500" /></div>
-                   {adminError && <div className="bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-center font-bold text-sm">{adminError}</div>}
-                   <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-emerald-900 to-emerald-700 hover:opacity-90 text-white rounded-lg py-3 font-bold transition-all flex items-center justify-center gap-2 mt-6 disabled:opacity-50 disabled:cursor-wait">
-                      {isLoading ? <Loader2 className="animate-spin"/> : <><LogIn size={18}/> الدخول كمدير</>}
-                   </button>
-                 </form>
-              </div>
-            )}
-          </div>
-        </AuthModal>
-      )}
+      {showResetModal && <AuthModal onClose={() => { setShowResetModal(false); setAuthActionsError(null); setAuthActionsSuccess(null); }}><div className="rounded-[2rem] border border-slate-200 bg-white p-7 text-slate-900 shadow-2xl"><div className="mb-7 text-center"><div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600"><KeyRound size={26} /></div><h2 className="text-2xl font-black">استعادة كلمة المرور</h2><p className="mt-2 text-sm leading-6 text-slate-500">سنرسل رابطاً لإعادة التعيين إلى البريد المرتبط بحسابك.</p></div>{authActionsSuccess ? <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">تم إرسال رابط إعادة التعيين. افحص بريدك الإلكتروني والرسائل غير المرغوبة.</div> : <form onSubmit={handleForgotPassword} className="space-y-4"><label className="block text-sm font-bold text-slate-700" htmlFor="reset-phone">رقم الموبايل أو اسم المستخدم</label><input id="reset-phone" type="text" value={resetPhone} onChange={e => setResetPhone(e.target.value)} autoComplete="username" placeholder="أدخل بيانات الدخول" className={inputClass} required />{authActionsError && <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-xs font-bold text-rose-700">{authActionsError}</div>}<button type="submit" disabled={isLoading} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-3 font-black text-white disabled:opacity-60">{isLoading ? <Loader2 className="animate-spin" size={18} /> : 'إرسال رابط الاستعادة'}</button></form>}<button type="button" onClick={() => setShowResetModal(false)} className="mt-4 w-full py-2 text-sm font-bold text-slate-500 hover:text-slate-900">إلغاء</button></div></AuthModal>}
     </div>
   );
 };
