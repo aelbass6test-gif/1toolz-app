@@ -3,6 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2026-09-09"
 workers_dev = true
 
+# Serve the Vite build from this Worker. API requests are handled explicitly
+# by src/index.ts and never fall through to the SPA asset fallback.
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+
 # After the first successful deploy, attach the custom domain from
 # Cloudflare Dashboard or uncomment this block if your account supports it.
 # [[routes]]

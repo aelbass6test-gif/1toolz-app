@@ -1,4 +1,5 @@
 export interface Env {
+  ASSETS: Fetcher;
   APP_ORIGIN?: string;
   APP_BACKEND_URL?: string;
   SUPABASE_WHATSAPP_WEBHOOK_URL?: string;
@@ -170,6 +171,19 @@ async function proxyBackendRequest(request: Request, env: Env): Promise<Response
   }
 
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
+}
+
+async function serveAssets(request: Request, env: Env): Promise<Response> {
+  const asset = await env.ASSETS.fetch(request);
+  if (asset.status !== 404) return asset;
+
+  // Client-side routes resolve to the Vite entry point, but API misses remain
+  // JSON responses and never receive index.html.
+  const url = new URL(request.url);
+  if (request.method === "GET" && !url.pathname.startsWith("/api/")) {
+    return env.ASSETS.fetch(new Request(new URL("/index.html", request.url), request));
+  }
+  return asset;
 }
 
 function bostaHeaders(key: string, content = false): Record<string, string> {
@@ -440,9 +454,15 @@ export default {
         return await turbo(request, env);
       }
 
-      // Forward application APIs and SPA assets to the Hono backend while
-      // rewriting backend redirects/cookies back to the public app domain.
-      return await proxyBackendRequest(request, env);
+      // Unknown API routes stay protected behind the API gateway and return
+      // JSON instead of being mistaken for a client-side SPA route.
+      if (url.pathname.startsWith("/api/")) {
+        return json(request, env, { success: false, error: `مسار API غير موجود: ${url.pathname}` }, 404);
+      }
+
+      // Static files and client-side routes are served by the Worker Assets
+      // binding, so the app does not depend on APP_BACKEND_URL.
+      return await serveAssets(request, env);
     } catch (error: any) { 
       return json(request, env, { success: false, error: error?.message || "خطأ داخلي في Worker" }, 500); 
     }
