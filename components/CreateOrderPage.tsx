@@ -225,7 +225,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 .map((item: any) => `${item.name} (كمية: ${item.quantity})`)
                 .join('، ');
             const exchangeDetail = exchangedItemNames ? ` [المرتجع: ${exchangedItemNames}]` : '';
-            orderToAdd.notes = `طلب استبدال للطلب #${orderData.originalOrderId}${exchangeDetail}. تم تطبيق رصيد بقيمة ${creditAmount.toLocaleString()} ج.م.\n${orderToAdd.notes || ''}`.trim();
+            orderToAdd.notes = `طلب استبدال للطلب #${orderData.originalOrderId}${exchangeDetail}. تم تطبيق رصيد بقيمة ${(creditAmount ?? 0).toLocaleString()} ج.م.\n${orderToAdd.notes || ''}`.trim();
             
             // Persist exchange details in database fields
             (orderToAdd as any).creditAmount = creditAmount;
@@ -318,6 +318,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const orderWithId: Order = { 
             ...orderToAdd, 
             id,
+            insuranceFee,
+            insurancePackageId: orderToAdd.insurancePackageId,
+            insurancePackageName: orderToAdd.insurancePackageName,
             date: orderToAdd.date || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             totalPrice: Math.round(finalCollectedTotal),

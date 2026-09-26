@@ -19,6 +19,7 @@ import {
 import * as db from '../services/databaseService';
 import { clearStoreData } from '../services/databaseService';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
+import UserMigrationCenter from './UserMigrationCenter';
 import { 
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as ChartTooltip, 
     Cell, PieChart, Pie, Legend, CartesianGrid 
@@ -199,7 +200,7 @@ const FinancialRequestsTab: React.FC<{
                                         <p className="text-[10px] text-slate-500">{req.ownerName}</p>
                                     </td>
                                     <td className="p-4 font-black text-slate-900 dark:text-white text-sm">
-                                        {req.amount.toLocaleString()} ج.م
+                                        {(req.amount ?? 0).toLocaleString()} ج.م
                                     </td>
                                     <td className="p-4 max-w-xs">
                                         <div className="flex items-center gap-2">
@@ -395,7 +396,7 @@ const UserPermissionsModal: React.FC<{
 };
 
 const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, setAllStoresData, onImpersonate, currentUser, settings, setSettings }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'stores' | 'financial' | 'fee_settings' | 'danger_zone'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'user_migration' | 'stores' | 'financial' | 'fee_settings' | 'danger_zone'>('dashboard');
   const [searchTerm, setSearchTerm] = useState('');
   
   // Custom Platform broad Announcement Types
@@ -815,7 +816,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
     const isDeposit = adjustmentDetails.type === 'deposit';
 
     if (!isDeposit && amountNum > currentBalance) {
-        setAdjustError(`المبلغ المراد خصمه يدوياً أكبر من رصيد محفظة المتجر الحالي وهو (${currentBalance.toLocaleString()} ج.م)`);
+        setAdjustError(`المبلغ المراد خصمه يدوياً أكبر من رصيد محفظة المتجر الحالي وهو (${(currentBalance ?? 0).toLocaleString()} ج.م)`);
         return;
     }
 
@@ -852,7 +853,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
 
         setAdjustingStoreWallet(null);
         setAdjustmentDetails({ amount: '', type: 'deposit', note: '' });
-        alert(`تمت تسوية الحساب اليدوي للمتجر [${adjustingStoreWallet.name}] بنجاح. الرصيد الجديد: ${newBalance.toLocaleString()} ج.م`);
+        alert(`تمت تسوية الحساب اليدوي للمتجر [${adjustingStoreWallet.name}] بنجاح. الرصيد الجديد: ${(newBalance ?? 0).toLocaleString()} ج.م`);
     } catch (err: any) {
         setAdjustError(`خطأ في مزامنة الرصيد مع الباك اند: ${err.message}`);
     }
@@ -897,6 +898,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
       <div className="flex gap-3 mb-8 overflow-x-auto pb-2 scrollbar-none antialiased">
         <TabButton label="نظرة عامة والتحليلات" icon={<LayoutDashboard size={18}/>} active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
         <TabButton label="إدارة المستخدمين" icon={<Users size={18}/>} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
+        <TabButton label="خطة ترحيل المستخدمين الآمنة" icon={<ShieldAlert size={18}/>} active={activeTab === 'user_migration'} onClick={() => setActiveTab('user_migration')} />
         <TabButton label="إدارة المتاجر المفتوحة" icon={<StoreIcon size={18}/>} active={activeTab === 'stores'} onClick={() => setActiveTab('stores')} />
         <TabButton label="التسويات والطلبات المالية" icon={<TrendingUp size={18}/>} active={activeTab === 'financial'} onClick={() => setActiveTab('financial')} badge={pendingRequestsCount} />
         <TabButton label="رسوم المنصة والعمولات" icon={<SettingsIcon size={18}/>} active={activeTab === 'fee_settings'} onClick={() => setActiveTab('fee_settings')} />
@@ -907,6 +909,17 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
       <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-200/60 dark:border-slate-850 min-h-[500px] p-6 lg:p-8">
         
         {/* Tab content router */}
+        {activeTab === 'user_migration' && (
+          <UserMigrationCenter onUserMigrated={async () => {
+            try {
+              const globalData = await db.getGlobalData(true);
+              if (globalData?.users) setUsers(globalData.users);
+            } catch (e) {
+              console.warn('Failed to refresh users:', e);
+            }
+          }} />
+        )}
+
         {activeTab === 'danger_zone' && (
           <DangerZone stores={users.flatMap(u => u.stores || [])} />
         )}
@@ -1067,9 +1080,9 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                 
                 {/* Visual Stats Row */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <StatCard title="مجموع إيرادات المنصة" value={`${stats.totalRevenue.toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp className="text-emerald-500"/>} />
+                    <StatCard title="مجموع إيرادات المنصة" value={`${(stats.totalRevenue ?? 0).toLocaleString('ar-EG')} ج.م`} icon={<TrendingUp className="text-emerald-500"/>} />
                     <StatCard title="متوسط السلة المالية" value={`${stats.averageOrderValue.toFixed(0)} ج.م`} icon={<Activity className="text-purple-500"/>} />
-                    <StatCard title="مجموع ودائع المحفظة الكلي" value={`${stats.totalPlatformWalletsBalance.toLocaleString('ar-EG')} ج.م`} icon={<Wallet className="text-indigo-500"/>} />
+                    <StatCard title="مجموع ودائع المحفظة الكلي" value={`${(stats.totalPlatformWalletsBalance ?? 0).toLocaleString('ar-EG')} ج.م`} icon={<Wallet className="text-indigo-500"/>} />
                     <StatCard title="إجمالي التجار والمستخدمين" value={stats.totalUsers} icon={<Users className="text-blue-500"/>} />
                 </div>
 
@@ -1289,7 +1302,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                         <div className="text-[10px] text-slate-400 mt-0.5">{user.email}</div>
                                     </td>
                                     <td className="p-4 font-mono font-bold text-slate-600 dark:text-slate-300">{user.phone}</td>
-                                    <td className="p-4 font-bold text-emerald-600 dark:text-emerald-400 text-sm">{ltv.toLocaleString('ar-EG')} ج.م</td>
+                                    <td className="p-4 font-bold text-emerald-600 dark:text-emerald-400 text-sm">{(ltv ?? 0).toLocaleString('ar-EG')} ج.م</td>
                                     <td className="p-4 text-center font-black text-slate-700 dark:text-slate-200 text-sm">{user.stores?.length || 0}</td>
                                     <td className="p-4 text-center">
                                         {user.isBanned ? (
@@ -1392,12 +1405,12 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                    </div>
                                    <div className="text-xs">
                                         <span className="block text-slate-400 font-bold mb-1">الإيرادات</span>
-                                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">{totalRevenue.toLocaleString('ar-EG')} ج</span>
+                                        <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">{(totalRevenue ?? 0).toLocaleString('ar-EG')} ج</span>
                                    </div>
                                    <div className="text-xs">
                                         <span className="block text-slate-400 font-bold mb-1">رصيد المحفظة</span>
                                         <span className={`font-black text-sm ${balance >= 0 ? 'text-indigo-600 dark:text-indigo-400' : 'text-red-500'}`}>
-                                            {balance.toLocaleString('ar-EG')} ج
+                                            {(balance ?? 0).toLocaleString('ar-EG')} ج
                                         </span>
                                    </div>
                                 </div>

@@ -375,7 +375,9 @@ export const deleteStoreItem = async (storeId: string, collectionName: string, i
 
         const supabase = getSupabaseClient();
         if (supabase) {
-            await supabase.from(collectionName).delete().or(`id.eq.${docId},id.eq.${rawId}`).catch(() => {});
+            try {
+                await supabase.from(collectionName).delete().or(`id.eq.${docId},id.eq.${rawId}`);
+            } catch (_) {}
         }
 
         if (firebaseDb) {
@@ -414,7 +416,9 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
     try {
         const supabase = getSupabaseClient();
         if (supabase) {
-            await supabase.from('stores_data').upsert({ id: storeId, name: storeName }, { onConflict: 'id' }).catch(() => {});
+            try {
+                await supabase.from('stores_data').upsert({ id: storeId, name: storeName }, { onConflict: 'id' });
+            } catch (_) {}
         }
         return { success: true };
     } catch (err: any) {
@@ -1897,6 +1901,7 @@ export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | 
             console.log(`[SUPABASE] User ${phone} not found in Supabase.`);
             return null;
         }
+        const defaultStoreId = data.default_store_id || data.defaultStoreId || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
         return {
             fullName: data.full_name || '',
             phone: data.phone,
@@ -1906,7 +1911,9 @@ export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | 
             isAdmin: data.is_admin || false,
             isBanned: data.is_banned || false,
             joinDate: data.join_date || '',
-            password: data.password || ''
+            password: data.password || '',
+            defaultStoreId,
+            autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
         };
     } catch (err) {
         console.error('[SUPABASE] Fatal error in getUserByPhoneFromSupabase:', err);
@@ -1927,7 +1934,9 @@ export const updateUserInSupabase = async (user: User): Promise<{ success: boole
             join_date: user.joinDate || new Date().toISOString(),
             stores: user.stores || [],
             sites: user.sites || [],
-            password: user.password
+            password: user.password,
+            default_store_id: user.defaultStoreId || null,
+            auto_launch_default_store: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
         });
 
         const { error } = await supabase.from('users').upsert(payload, { onConflict: 'phone' });
@@ -1949,37 +1958,57 @@ export const updateUserInSupabase = async (user: User): Promise<{ success: boole
     }
 };
 
+let isFsQuotaExceededForUsers = false;
+let fsQuotaExceededTimestamp = 0;
+
 export const getUserByPhone = async (phone: string): Promise<User | null> => {
     try {
-        console.log('[FIRESTORE] Fetching user by phone:', phone);
-        const userRef = doc(firebaseDb, 'users', phone);
-        try {
-            const docSnap = await getDoc(userRef);
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                return {
-                    fullName: data.fullName || '',
-                    phone: docSnap.id,
-                    email: data.email || '',
-                    password: data.password || '',
-                    stores: data.stores || [],
-                    sites: data.sites || [],
-                    isAdmin: data.isAdmin || false,
-                    isBanned: data.isBanned || false,
-                    joinDate: data.joinDate || ''
-                };
+        const cleanPhone = (phone || '').trim();
+        if (!cleanPhone) return null;
+
+        const now = Date.now();
+        // 1. Try Firestore if quota is not flagged
+        if (!isFsQuotaExceededForUsers || (now - fsQuotaExceededTimestamp > 15 * 60 * 1000)) {
+            try {
+                const userRef = doc(firebaseDb, 'users', cleanPhone);
+                const docSnap = await getDoc(userRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    isFsQuotaExceededForUsers = false;
+                    const defaultStoreId = data.defaultStoreId || data.default_store_id || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
+                    return {
+                        fullName: data.fullName || '',
+                        phone: docSnap.id,
+                        email: data.email || '',
+                        password: data.password || '',
+                        stores: data.stores || [],
+                        sites: data.sites || [],
+                        isAdmin: data.isAdmin || false,
+                        isBanned: data.isBanned || false,
+                        joinDate: data.joinDate || '',
+                        defaultStoreId,
+                        autoLaunchDefaultStore: data.autoLaunchDefaultStore !== undefined ? data.autoLaunchDefaultStore : !!defaultStoreId
+                    };
+                }
+            } catch (fsErr: any) {
+                const msg = String(fsErr?.message || fsErr || '');
+                if (msg.includes('quota') || msg.includes('resource-exhausted') || fsErr?.code === 'resource-exhausted') {
+                    isFsQuotaExceededForUsers = true;
+                    fsQuotaExceededTimestamp = now;
+                    // Quiet notice instead of error
+                } else {
+                    console.warn('[DATABASE-SERVICE] Notice in getUserByPhone:', msg);
+                }
             }
-        } catch (fsErr: any) {
-            console.warn('[DATABASE-SERVICE] Firestore fetch in getUserByPhone failed:', fsErr);
         }
 
-        // Try Supabase if not found in Firestore or if Firestore check failed
+        // 2. Try Supabase if not found in Firestore or if Firestore quota exceeded
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                console.log('[SUPABASE] Checking user in legacy Supabase table:', phone);
-                const { data, error } = await supabase.from('users').select('*').eq('phone', phone).maybeSingle();
+                const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
                 if (!error && data) {
+                    const defaultStoreId = data.default_store_id || data.defaultStoreId || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
                     const mappedUser: User = {
                         fullName: data.full_name || '',
                         phone: data.phone,
@@ -1989,18 +2018,30 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
                         isAdmin: data.is_admin || false,
                         isBanned: data.is_banned || false,
                         joinDate: data.join_date || '',
-                        password: data.password || ''
+                        password: data.password || '',
+                        defaultStoreId,
+                        autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
                     };
                     return mappedUser;
                 }
             } catch (sbErr) {
-                console.error('[DATABASE-SERVICE] Supabase fetch in getUserByPhone failed:', sbErr);
+                // Quiet Supabase catch
             }
         }
 
+        // 3. Fallback to local session storage cache
+        try {
+            const cachedUserStr = localStorage.getItem('user_session_v4') || localStorage.getItem('currentUser');
+            if (cachedUserStr) {
+                const cached = JSON.parse(cachedUserStr);
+                if (cached && (cached.phone === cleanPhone || cached.phone === cleanPhone.replace(/^0+/, ''))) {
+                    return cached;
+                }
+            }
+        } catch {}
+
         return null;
     } catch (err) {
-        console.error('[DATABASE-SERVICE] Error in getUserByPhone:', err);
         return null;
     }
 };
@@ -2018,7 +2059,9 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
             isAdmin: user.isAdmin || false,
             isBanned: user.isBanned || false,
             joinDate: user.joinDate || new Date().toISOString(),
-            ownedStoreIds: (user.stores || []).map(s => s.id)
+            ownedStoreIds: (user.stores || []).map(s => s.id),
+            defaultStoreId: user.defaultStoreId || null,
+            autoLaunchDefaultStore: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
         };
         await setDoc(userRef, userPayload, { merge: true });
         console.log('[FIRESTORE] Successfully created user record in Firestore.');
@@ -2034,7 +2077,9 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
                 sites: user.sites || [],
                 is_admin: user.isAdmin || false,
                 is_banned: user.isBanned || false,
-                join_date: user.joinDate || new Date().toISOString()
+                join_date: user.joinDate || new Date().toISOString(),
+                default_store_id: user.defaultStoreId || null,
+                auto_launch_default_store: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
             };
             await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
         }

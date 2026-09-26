@@ -257,7 +257,7 @@ export default function SharedAuditsTab({
 
                 <div class="header">
                     <div class="logo-title">
-                        <h1>{(settings as any).storeName || (settings as any).appName || 'مدير الأوردرات الذكي'}</h1>
+                        <h1>{(settings as any).storeName || (settings as any).appName || 'عبدو ميديا برايم'}</h1>
                         <p>تقرير مراجعة وفحص كميات جرد الموظفين</p>
                     </div>
                     <div class="audit-meta">

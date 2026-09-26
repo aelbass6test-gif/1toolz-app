@@ -113,7 +113,12 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({
       setRequests(data);
       setLoading(false);
     }, (error) => {
-      console.error('Error fetching maintenance requests:', error);
+      const msg = String(error?.message || error);
+      if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
+        console.warn('[Maintenance] Firestore quota reached. Loading from local/cached state.');
+      } else {
+        console.warn('[Maintenance] Requests notice:', msg);
+      }
       setLoading(false);
     });
 

@@ -201,7 +201,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
         />
         <StatCard 
           title="إجمالي المديونيات" 
-          value={`${stats.totalDebt.toLocaleString()} ج.م`} 
+          value={`${(stats.totalDebt ?? 0).toLocaleString()} ج.م`} 
           subtitle={`لدى ${stats.debtCount} عميل`}
           icon={<DollarSign />} 
           color="rose"
@@ -457,14 +457,14 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
                           <td className="px-5 py-4 text-center">
                             <span className="font-black text-amber-600 dark:text-amber-400 text-xs inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 rounded-xl">
                               <Star size={12} className="fill-amber-500 text-amber-500" />
-                              {customer.loyaltyPoints.toLocaleString()}
+                              {(customer.loyaltyPoints ?? 0).toLocaleString()}
                             </span>
                           </td>
 
                           {/* LTV */}
                           <td className="px-5 py-4 text-center">
                             <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                              {customer.totalSpent.toLocaleString()} <span className="text-[10px] text-slate-400">ج.م</span>
+                              {(customer.totalSpent ?? 0).toLocaleString()} <span className="text-[10px] text-slate-400">ج.م</span>
                             </span>
                           </td>
 

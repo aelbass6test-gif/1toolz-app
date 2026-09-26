@@ -2373,7 +2373,7 @@ const SelectiveSyncModal: React.FC<SelectiveSyncModalProps> = ({
                   <p className="text-xs text-slate-500">{product.sku}</p>
                 </div>
                 <div className="text-left">
-                  <p className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">{product.price.toLocaleString()} ج.م</p>
+                  <p className="font-bold text-indigo-600 dark:text-indigo-400 text-sm">{(product.price ?? 0).toLocaleString()} ج.م</p>
                 </div>
               </div>
             ))

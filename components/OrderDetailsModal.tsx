@@ -760,7 +760,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   <div className="absolute top-0 left-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -translate-x-10 -translate-y-10 pointer-events-none"></div>
                   <span className="text-indigo-200 font-black text-xs uppercase tracking-widest block mb-1.5">المطلوب تحصيله عند الاستلام</span>
                   <div className="flex items-baseline justify-end gap-1.5 mb-3">
-                    <span className="text-3xl sm:text-4xl font-black tabular-nums">{totalAmountToCollect.toLocaleString()}</span>
+                    <span className="text-3xl sm:text-4xl font-black tabular-nums">{(totalAmountToCollect ?? 0).toLocaleString()}</span>
                     <span className="text-sm font-bold text-indigo-200">ج.م</span>
                   </div>
                   <div className="pt-3 border-t border-indigo-400/30 flex justify-between items-center text-xs font-bold text-indigo-100">
@@ -783,7 +783,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   </div>
                   <div className="flex items-baseline justify-end gap-1.5 mb-2">
                     <span className={`text-3xl font-black tabular-nums ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                      {profit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      {(profit ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                     </span>
                     <span className="text-xs font-bold opacity-75">ج.م</span>
                   </div>
@@ -817,7 +817,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <span className="text-slate-600 dark:text-slate-400">تطبيق خدمة فليكس شيب</span>
                   </div>
                   <div className="flex justify-between items-center text-xs font-bold py-1 border-t border-slate-200 dark:border-white/5">
-                    <span className="text-slate-800 dark:text-white font-black">{safeProductCost.toLocaleString()} ج.م</span>
+                    <span className="text-slate-800 dark:text-white font-black">{(safeProductCost ?? 0).toLocaleString()} ج.م</span>
                     <span className="text-slate-600 dark:text-slate-400">تكلفة شراء السلع الأصلي</span>
                   </div>
                 </div>
@@ -873,7 +873,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     </span>
                     <div className="flex items-baseline justify-end gap-1.5">
                       <span className={`text-3xl sm:text-4xl font-black tabular-nums ${profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {profit >= 0 ? `+${profit.toLocaleString()}` : `${profit.toLocaleString()}`}
+                        {profit >= 0 ? `+${(profit ?? 0).toLocaleString()}` : `${(profit ?? 0).toLocaleString()}`}
                       </span>
                       <span className="text-xs font-bold text-slate-300">ج.م</span>
                     </div>
@@ -902,15 +902,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-xs">
                     <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                       <span className="text-slate-500 block text-[11px]">التحصيل النقدي عند التسليم:</span>
-                      <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">+{totalAmountToCollect.toLocaleString()} ج.م</span>
+                      <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">+{(totalAmountToCollect ?? 0).toLocaleString()} ج.م</span>
                     </div>
                     <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                       <span className="text-slate-500 block text-[11px]">تكلفة شراء المنتج الجديد:</span>
-                      <span className="font-black text-slate-800 dark:text-slate-200 text-sm">-{safeProductCost.toLocaleString()} ج.م</span>
+                      <span className="font-black text-slate-800 dark:text-slate-200 text-sm">-{(safeProductCost ?? 0).toLocaleString()} ج.م</span>
                     </div>
                     <div className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
                       <span className="text-slate-500 block text-[11px]">مصاريف الشحن لشركة الشحن:</span>
-                      <span className="font-black text-rose-600 dark:text-rose-400 text-sm">-{carrierFees.toLocaleString()} ج.م</span>
+                      <span className="font-black text-rose-600 dark:text-rose-400 text-sm">-{(carrierFees ?? 0).toLocaleString()} ج.م</span>
                     </div>
                   </div>
                 </div>
@@ -938,14 +938,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                       <span className="text-slate-600 dark:text-slate-300">سعر المنتجات المسجل للعميل</span>
                       <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                        +{displayProductPrice.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                        +{(displayProductPrice ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                       <span className="text-slate-600 dark:text-slate-300">رسوم الشحن المقررة على العميل</span>
                       <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                        +{safeShippingFee.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                        +{(safeShippingFee ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                       </span>
                     </div>
 
@@ -953,7 +953,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                         <span className="text-slate-600 dark:text-slate-300">زيادات أو رسوم إضافية على الفاتورة</span>
                         <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                          +{safeAdminFee.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                          +{(safeAdminFee ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                         </span>
                       </div>
                     )}
@@ -962,7 +962,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                         <span className="text-slate-600 dark:text-slate-300">رسوم فتح ومعاينة الشحنة (مدفوعة من العميل)</span>
                         <span className="font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                          +{inspectionAdjustment.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                          +{(inspectionAdjustment ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                         </span>
                       </div>
                     )}
@@ -971,7 +971,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-rose-50/80 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300 rounded-2xl border border-rose-200/50 dark:border-rose-900/30">
                         <span>خصومات ومسماحات ترويجية للعميل (-)</span>
                         <span className="font-black tabular-nums">
-                          -{safeDiscount.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                          -{(safeDiscount ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                         </span>
                       </div>
                     )}
@@ -981,7 +981,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                         <div className="flex justify-between items-center flex-row-reverse text-sm font-bold">
                           <span>{isPosOrder && totalAmountToCollect === 0 ? "مدفوع كاش (مستلم مسبقاً) (-)" : "عربون دفعة مقدمة (مستلم مسبقاً) (-)"}</span>
                           <span className="font-black tabular-nums">
-                            -{safeAdvance.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                            -{(safeAdvance ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                           </span>
                         </div>
                         <div className="flex justify-between items-center flex-row-reverse text-xs font-medium pt-1.5 border-t border-indigo-200/60 dark:border-indigo-900/40 text-indigo-950 dark:text-indigo-200">
@@ -1002,7 +1002,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       {totalAmountToCollect === 0 ? "الأوردر مدفوع بالكامل" : "إجمالي المطلوب تحصيله عند الاستلام:"}
                     </span>
                     <span className="font-black text-emerald-600 dark:text-emerald-400 text-lg tabular-nums">
-                      {totalAmountToCollect.toLocaleString()} <span className="text-xs font-bold">ج.م</span>
+                      {(totalAmountToCollect ?? 0).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
                     </span>
                   </div>
                 </div>
@@ -1026,20 +1026,27 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                       <span className="text-slate-600 dark:text-slate-300">تكلفة شراء السلع الأصلية (رأس المال)</span>
                       <span className="font-black text-rose-500 tabular-nums">
-                        -{safeProductCost.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                        -{(safeProductCost ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                       </span>
                     </div>
 
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                       <span className="text-slate-600 dark:text-slate-300">تكلفة بوليصة الشحن (مستحقات شركة الشحن)</span>
                       <span className="font-black text-rose-500 tabular-nums">
-                        -{standardShippingFee.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                        -{(standardShippingFee ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                       </span>
                     </div>
 
                     {insuranceFee > 0 && (
                       <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
-                        <span className="text-slate-600 dark:text-slate-300">التأمين الإجباري على قيمة الشحنة</span>
+                        <div className="flex items-center gap-1.5 flex-row-reverse">
+                          <span className="text-slate-600 dark:text-slate-300">التأمين على قيمة الشحنة</span>
+                          {(order.insurancePackageName || (order.insurancePackageId && settings.insurancePackages?.find(p => p.id === order.insurancePackageId)?.name)) && (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              {order.insurancePackageName || settings.insurancePackages?.find(p => p.id === order.insurancePackageId)?.name}
+                            </span>
+                          )}
+                        </div>
                         <span className="font-black text-rose-500 tabular-nums">
                           -{insuranceFee.toFixed(2)} <span className="text-xs font-normal">ج.م</span>
                         </span>
@@ -1094,7 +1101,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <ShieldAlert size={20} className="text-amber-600 dark:text-amber-400" />
                   </div>
                   <p className="text-xs font-bold text-slate-700 dark:text-slate-300 leading-relaxed max-w-4xl ml-auto">
-                    تم إلغاء بيع هذه الشحنة بسبب عدم الاستلام أو الارتجاع. تم إعادة السلع الأصلية (بقيمة {safeProductCost.toLocaleString()} ج.م) للمخزون بأمان دون خسارة في رأس المال، وتقتصر الخسارة المحسوبة هنا فقط على مصاريف بوليصة الشحن والمحاولات الضائعة.
+                    تم إلغاء بيع هذه الشحنة بسبب عدم الاستلام أو الارتجاع. تم إعادة السلع الأصلية (بقيمة {(safeProductCost ?? 0).toLocaleString()} ج.م) للمخزون بأمان دون خسارة في رأس المال، وتقتصر الخسارة المحسوبة هنا فقط على مصاريف بوليصة الشحن والمحاولات الضائعة.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-black pt-2">

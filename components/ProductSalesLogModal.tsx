@@ -43,7 +43,7 @@ export const generateProductLogPrintHTML = (
   },
   settings: Settings
 ): string => {
-  const companyName = (settings as any).companyName || settings.companyNames?.[0] || 'مدير الأوردرات الذكي';
+  const companyName = (settings as any).companyName || settings.companyNames?.[0] || 'عبدو ميديا برايم';
   const logoUrl = (settings as any).logoUrl || settings.customization?.logoUrl;
   const printDate = new Date().toLocaleString('ar-EG', {
     year: 'numeric',

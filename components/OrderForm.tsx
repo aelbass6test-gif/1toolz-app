@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -78,9 +78,10 @@ import {
   User,
   OrderStatus,
   PreparationStatus,
-  PaymentStatus
+  PaymentStatus,
+  InsurancePackage
 } from "../types";
-import { EGYPT_GOVERNORATES } from "../constants";
+import { EGYPT_GOVERNORATES, DEFAULT_INSURANCE_PACKAGES } from "../constants";
 import { bostaService, DEFAULT_BOSTA_BUSINESS_LOCATIONS } from "../utils/bostaService";
 import { motion, AnimatePresence } from "framer-motion";
 import { CustomerSelectModal } from "./CustomerSelectModal";
@@ -130,57 +131,69 @@ const OrderFormEditTotalModal: React.FC<{
   const [reason, setReason] = useState(currentReason || "");
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200" dir="rtl">
       <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800"
+        initial={{ scale: 0.95, opacity: 0, y: 15 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl border-2 border-slate-200/80 dark:border-slate-800 relative"
       >
-        <div className="p-8 space-y-6">
-          <div className="flex justify-between items-center">
-            <h3 className="text-xl font-black text-slate-800 dark:text-white">
-              تعديل وإقفال إجمالي المطلوب تحصيله (COD) يدوياً
-            </h3>
+        <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+        
+        <div className="p-6 sm:p-8 space-y-6">
+          <div className="flex justify-between items-center pb-4 border-b border-slate-200/70 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/25">
+                <Calculator size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                  إقفال وتعديل التحصيل يدوياً (COD Override)
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">فرض مبلغ نهائي للمندوب</p>
+              </div>
+            </div>
             <button
               type="button"
               onClick={onClose}
-              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+              className="w-10 h-10 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-center transition-colors text-slate-400 cursor-pointer"
             >
-              <X size={20} className="text-slate-400" />
+              <X size={20} />
             </button>
           </div>
 
-          <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-            سيتم فرض هذا المبلغ كإجمالي مطلوب تحصيله من العميل أو تسليمه للمندوب بدلاً من الحساب التلقائي.
+          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80">
+            💡 سيتم تثبيت هذا المبلغ وإرساله لشركة الشحن كإجمالي مطلوب تحصيله من العميل (COD) بدلاً من الحساب التلقائي، وسيظهر في بوليصة الشحن.
           </p>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block">
-                المبلغ المطلوب تحصيله الجديد
+              <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
+                المبلغ المطلوب تحصيله الجديد *
               </label>
               <div className="relative">
                 <input
                   type="number"
+                  step="0.5"
                   value={amount}
                   onChange={(e) => setAmount(Number(e.target.value))}
-                  className="w-full p-4 bg-slate-50 dark:bg-slate-800 border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-2xl text-2xl font-black text-slate-800 dark:text-white outline-none focus:border-emerald-500 transition-all text-left pr-16"
+                  className="w-full p-4 bg-slate-50/90 dark:bg-slate-800/80 border-2 border-emerald-500/40 dark:border-emerald-500/30 rounded-2xl text-2xl font-black font-mono text-slate-900 dark:text-white outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all text-left pr-16"
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 font-black text-emerald-600 dark:text-emerald-400 text-sm">
                   ج.م
                 </span>
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 dark:text-slate-300 block">
+              <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">
                 سبب التعديل اليدوي / ملاحظة الإقفال
               </label>
               <textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="أدخل سبب التعديل (مثال: اتفاق خاص، خصم إضافي، تقفيل مبلغ خاص...)"
-                className="w-full p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all min-h-[100px] resize-none"
+                placeholder="أدخل سبب التعديل (مثال: خصم تسويقي خاص، تقفيل حساب عميل، اتفاق مسبق...)"
+                className="w-full p-4 bg-slate-50/90 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-slate-200 outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all min-h-[95px] resize-none"
               />
             </div>
           </div>
@@ -189,19 +202,205 @@ const OrderFormEditTotalModal: React.FC<{
             <button
               type="button"
               onClick={() => onApply(amount, reason)}
-              className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-lg shadow-lg shadow-emerald-500/20 transition-all active:scale-[0.98]"
+              className="flex-1 py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-500/25 transition-all active:scale-[0.98] cursor-pointer"
             >
               حفظ التعديل وإقفال المبلغ
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black text-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+              className="px-6 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black text-sm transition-all cursor-pointer"
             >
               إلغاء
             </button>
           </div>
         </div>
+      </motion.div>
+    </div>
+  );
+};
+
+// Modal for Adding Custom/Manual Line Item
+interface AddCustomItemModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onAdd: (item: OrderItem) => void;
+}
+
+const AddCustomItemModal: React.FC<AddCustomItemModalProps> = ({
+  isOpen,
+  onClose,
+  onAdd,
+}) => {
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState<number | "">("");
+  const [cost, setCost] = useState<number | "">("");
+  const [quantity, setQuantity] = useState<number>(1);
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("برجاء إدخال اسم المنتج أو البند المخصص");
+      return;
+    }
+    const itemPrice = typeof price === "number" ? price : parseFloat(String(price)) || 0;
+    const itemCost = typeof cost === "number" ? cost : parseFloat(String(cost)) || 0;
+
+    const newItem: OrderItem = {
+      productId: `custom_${Date.now()}`,
+      name: name.trim(),
+      price: itemPrice,
+      cost: itemCost,
+      quantity: Math.max(1, quantity || 1),
+      weight: 0.5,
+      discountValue: 0,
+      discountType: "amount",
+      variantDescription: notes.trim() ? `بند خاص: ${notes.trim()}` : "بند حر / مخصص",
+    };
+
+    onAdd(newItem);
+    setName("");
+    setPrice("");
+    setCost("");
+    setQuantity(1);
+    setNotes("");
+    setError(null);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200" dir="rtl">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-[32px] border-2 border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden relative"
+      >
+        <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+        <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-500/25">
+                <Plus size={22} />
+              </div>
+              <div>
+                <h3 className="font-black text-lg text-slate-900 dark:text-white">
+                  إضافة بند أو منتج مخصص حر
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">إضافة صنف غير مسجل مسبقاً في كتالوج المنتجات</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-10 h-10 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-2xl flex items-center justify-center transition-colors text-slate-400 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          {error && (
+            <div className="p-3.5 bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-bold text-rose-700 dark:text-rose-300 flex items-center gap-2">
+              <AlertTriangle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
+                اسم الصنف أو الخدمة *
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="مثال: شنطة هدايا خاصة، مصاريف تغليف فاخر، صنف طلب خاص..."
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (error) setError(null);
+                }}
+                className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
+                  سعر البيع (ج.م) *
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="0"
+                  value={price}
+                  onChange={(e) => setPrice(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black font-mono text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-left"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
+                  التكلفة (ج.م)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder="0"
+                  value={cost}
+                  onChange={(e) => setCost(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black font-mono text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-left"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
+                  الكمية
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={quantity}
+                  onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-black font-mono text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-center"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
+                ملاحظات أو مواصفات إضافية للصنف
+              </label>
+              <input
+                type="text"
+                placeholder="مثال: مقاس خاص، كود خارجي، تفاصيل التجهيز..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              className="flex-1 py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl font-black text-xs sm:text-sm shadow-xl shadow-emerald-500/25 transition-all active:scale-[0.98] cursor-pointer"
+            >
+              إدراج الصنف في السلة مباشرة ✓
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-2xl font-black text-xs sm:text-sm transition-all cursor-pointer"
+            >
+              إلغاء
+            </button>
+          </div>
+        </form>
       </motion.div>
     </div>
   );
@@ -269,6 +468,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [isCustomerListOpen, setIsCustomerListOpen] = useState(false);
   const [showFraudModal, setShowFraudModal] = useState(false);
   const [showEditTotalModal, setShowEditTotalModal] = useState(false);
+  const [showAddCustomModal, setShowAddCustomModal] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
 
   // Bosta Estimator states
@@ -1088,6 +1288,45 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     orderData.insurancePackageId,
   ]);
 
+  const availableInsurancePackages: InsurancePackage[] = useMemo(() => {
+    if (settings?.insurancePackages && settings.insurancePackages.length > 0) {
+      return settings.insurancePackages;
+    }
+    return DEFAULT_INSURANCE_PACKAGES;
+  }, [settings?.insurancePackages]);
+
+  const defaultInsuranceRate = useMemo(() => {
+    const company = orderData.shippingCompany;
+    const compFees = settings.companySpecificFees?.[company!];
+    const useCustom = compFees?.useCustomFees ?? false;
+    return useCustom
+      ? (compFees?.insuranceFeePercent ?? 0)
+      : settings.enableInsurance
+        ? settings.insuranceFeePercent
+        : 0;
+  }, [orderData.shippingCompany, settings]);
+
+  const getPackageFeePreview = useCallback((pkg: InsurancePackage) => {
+    if (pkg.type === 'flat') {
+      return pkg.value;
+    }
+    const baseVal = (orderData.insuranceBaseValue && orderData.insuranceBaseValue > 0)
+      ? orderData.insuranceBaseValue
+      : Math.max(0, subtotal - itemDiscounts);
+    let fee = (baseVal * pkg.value) / 100;
+    if (pkg.minAmount !== undefined && fee < pkg.minAmount) fee = pkg.minAmount;
+    if (pkg.maxAmount !== undefined && fee > pkg.maxAmount) fee = pkg.maxAmount;
+    return Math.round(fee * 100) / 100;
+  }, [orderData.insuranceBaseValue, subtotal, itemDiscounts]);
+
+  const defaultGeneralInsuranceCost = useMemo(() => {
+    const baseVal = (orderData.insuranceBaseValue && orderData.insuranceBaseValue > 0)
+      ? orderData.insuranceBaseValue
+      : Math.max(0, subtotal - itemDiscounts);
+    const fee = (baseVal * defaultInsuranceRate) / 100;
+    return Math.round(fee * 100) / 100;
+  }, [orderData.insuranceBaseValue, subtotal, itemDiscounts, defaultInsuranceRate]);
+
   const activeVatAmount = useMemo(() => {
     return calculateBostaVat(orderData as Order, insuranceFee, settings);
   }, [
@@ -1254,22 +1493,22 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const renderStep1_CustomerAndShipment = () => (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
       {/* 1. Customer Details Box */}
-      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-200/80 dark:border-slate-800">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
               1
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">بيانات العميل وعنوان التوصيل</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">ادخل رقم الهاتف وسيقوم النظام بالتعرف التلقائي على العملاء المسجلين</p>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">بيانات العميل وعنوان التوصيل</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">ادخل رقم الهاتف وسيقوم النظام بالتعرف التلقائي الذكي على العملاء المسجلين وسجل طلباتهم</p>
             </div>
           </div>
 
           <button
             type="button"
             onClick={() => setIsCustomerListOpen(true)}
-            className="px-4 py-2.5 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl text-xs flex items-center gap-2 transition-all cursor-pointer border border-indigo-200/60 dark:border-indigo-800"
+            className="px-4 py-2.5 bg-slate-100/90 hover:bg-emerald-50 dark:bg-slate-800/80 dark:hover:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-black rounded-2xl text-xs flex items-center gap-2 transition-all cursor-pointer border border-slate-200 dark:border-emerald-900/60 shadow-xs active:scale-95"
           >
             <Users size={16} />
             <span>اختيار من قائمة العملاء المسجلين</span>
@@ -1305,19 +1544,19 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         {/* Customer Delivery Rate & Fraud Shield Warning */}
         {orderData.customerPhone && orderData.customerPhone.trim().length >= 6 && (
-          <div className="mb-4 space-y-3">
+          <div className="mb-4 space-y-3.5">
             {/* High Risk / Blacklist Shield Alert */}
             {(customerRisk.isBlacklisted || customerRisk.riskLevel === 'high_risk') && (
-              <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500/60 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md animate-pulse">
-                <div className="flex items-start gap-3">
-                  <div className="p-2.5 bg-rose-600 text-white rounded-xl shrink-0 mt-0.5 shadow-sm">
-                    <ShieldAlert size={20} />
+              <div className="p-4 sm:p-5 bg-gradient-to-r from-rose-50 via-rose-100/40 to-rose-50 dark:from-rose-950/50 dark:via-rose-900/30 dark:to-rose-950/50 border-2 border-rose-500/60 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-rose-500/10">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-3 bg-rose-600 text-white rounded-2xl shrink-0 mt-0.5 shadow-md shadow-rose-600/30">
+                    <ShieldAlert size={22} />
                   </div>
                   <div>
                     <div className="text-sm font-black text-rose-900 dark:text-rose-200 flex items-center gap-2 flex-wrap">
                       <span>🚨 درع الحماية: عميل عالي الخطورة / طلب غير مؤكد!</span>
                       {customerRisk.isBlacklisted && (
-                        <span className="px-2 py-0.5 bg-rose-600 text-white rounded-full text-[10px] font-extrabold">
+                        <span className="px-2.5 py-0.5 bg-rose-600 text-white rounded-full text-[10px] font-black tracking-wide shadow-xs">
                           مسجل بالقائمة التحذيرية
                         </span>
                       )}
@@ -1326,7 +1565,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       {customerRisk.recommendation}
                     </p>
                     {customerRisk.reasons.length > 0 && (
-                      <ul className="text-[11px] text-rose-600 dark:text-rose-400 mt-1 list-disc list-inside space-y-0.5">
+                      <ul className="text-[11px] text-rose-600 dark:text-rose-400 mt-1.5 list-disc list-inside space-y-0.5 font-medium">
                         {customerRisk.reasons.map((r, i) => (
                           <li key={i}>{r}</li>
                         ))}
@@ -1342,7 +1581,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         removeBlacklistEntry(orderData.customerPhone || '');
                         audioSynth.playClick();
                       }}
-                      className="px-3 py-1.5 bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 text-xs font-bold rounded-xl cursor-pointer"
+                      className="px-3.5 py-2 bg-white dark:bg-slate-800 text-rose-700 dark:text-rose-300 border-2 border-rose-300 dark:border-rose-700 hover:bg-rose-50 text-xs font-black rounded-xl cursor-pointer shadow-xs active:scale-95 transition-all"
                     >
                       إزالة من التحذير
                     </button>
@@ -1359,7 +1598,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         });
                         audioSynth.playClick();
                       }}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-sm"
+                      className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-black rounded-xl cursor-pointer shadow-md shadow-rose-600/30 active:scale-95 transition-all"
                     >
                       حظر هذا الرقم
                     </button>
@@ -1367,7 +1606,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowFraudModal(true)}
-                    className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl cursor-pointer"
+                    className="px-3.5 py-2 bg-slate-200/90 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-black rounded-xl cursor-pointer transition-all shadow-xs active:scale-95"
                   >
                     إدارة الدرع 🛡️
                   </button>
@@ -1375,7 +1614,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </div>
             )}
 
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center justify-between flex-wrap gap-2.5 p-3.5 bg-slate-50/80 dark:bg-slate-800/50 rounded-2xl border-2 border-slate-200/70 dark:border-slate-700/70">
               <CustomerDeliveryRateBadge
                 phone={orderData.customerPhone}
                 orders={orders}
@@ -1394,9 +1633,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     });
                     audioSynth.playClick();
                   }}
-                  className="text-[11px] font-bold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center gap-1 transition-colors cursor-pointer"
+                  className="text-xs font-black text-slate-600 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center gap-1.5 transition-colors cursor-pointer bg-white dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs"
                 >
-                  <ShieldAlert size={13} />
+                  <ShieldAlert size={14} className="text-rose-500" />
                   <span>إضافة للقائمة التحذيرية</span>
                 </button>
               )}
@@ -1405,29 +1644,36 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5"><PhoneCall size={14} className="text-indigo-500" /> رقم الهاتف الأساسي *</span>
-              <span className="text-[10px] text-slate-400">مطلوب</span>
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <PhoneCall size={14} />
+                </span>
+                <span>رقم الهاتف الأساسي *</span>
+              </span>
+              <span className="text-[10px] font-black px-2 py-0.5 bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 rounded-md">مطلوب</span>
             </label>
-            <input
-              type="tel"
-              required
-              placeholder="01xxxxxxxxx"
-              value={orderData.customerPhone || ""}
-              onChange={(e) => handleFieldChange("customerPhone", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
-            />
+            <div className="relative">
+              <input
+                type="tel"
+                required
+                placeholder="01xxxxxxxxx"
+                value={orderData.customerPhone || ""}
+                onChange={(e) => handleFieldChange("customerPhone", e.target.value)}
+                className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-mono"
+              />
+            </div>
             {/* Live Phone Validator & WhatsApp Auto-format */}
             {orderData.customerPhone && orderData.customerPhone.trim().length >= 3 && (
               <div className="flex items-center justify-between text-[11px] pt-1 flex-wrap gap-1">
                 {phoneValidation.isValid ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold">
+                  <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-200/50 dark:border-emerald-800/50">
                     <CheckCircle2 size={13} />
                     <span>رقم مصري صحيح: {phoneValidation.operator || 'محمول'}</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+                  <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-lg border border-amber-200/50 dark:border-amber-800/50">
                     <AlertCircle size={13} />
                     <span>{phoneValidation.error}</span>
                   </span>
@@ -1440,7 +1686,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       handleFieldChange('customerPhone', phoneValidation.cleanPhone);
                       audioSynth.playClick();
                     }}
-                    className="text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline cursor-pointer"
+                    className="text-emerald-600 dark:text-emerald-400 font-extrabold hover:underline cursor-pointer bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-lg"
                   >
                     تنسيق الرقم ({phoneValidation.cleanPhone})
                   </button>
@@ -1449,35 +1695,44 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             )}
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <PhoneCall size={14} className="text-slate-400" /> رقم هاتف إضافي (اختياري)
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                <PhoneCall size={14} />
+              </span>
+              <span>رقم هاتف إضافي (اختياري)</span>
             </label>
             <input
               type="tel"
               placeholder="رقم بديل للمتابعة..."
               value={orderData.customerPhone2 || ""}
               onChange={(e) => handleFieldChange("customerPhone2", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono"
+              className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-mono"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <UserIcon size={14} className="text-indigo-500" /> اسم العميل بالكامل *
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                <UserIcon size={14} />
+              </span>
+              <span>اسم العميل بالكامل *</span>
             </label>
             <input
               type="text"
               placeholder="مثال: أحمد محمد..."
               value={orderData.customerName || ""}
               onChange={(e) => handleFieldChange("customerName", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+              className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <MapPin size={14} className="text-indigo-500" /> المحافظة *
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                <MapPin size={14} />
+              </span>
+              <span>المحافظة *</span>
             </label>
             <select
               value={orderData.governorate || orderData.shippingArea || ""}
@@ -1487,7 +1742,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 handleFieldChange("shippingArea", val);
                 handleFieldChange("city", "");
               }}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+              className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
             >
               <option value="">-- اختر المحافظة --</option>
               {shippingOptions.map((opt) => (
@@ -1498,9 +1753,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </select>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Building size={14} className="text-indigo-500" /> المدينة / المنطقة *
+          <div className="space-y-2">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                <Building size={14} />
+              </span>
+              <span>المدينة / المنطقة *</span>
             </label>
             {(() => {
               const selectedGov = shippingOptions.find(
@@ -1512,7 +1770,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   <select
                     value={orderData.city || ""}
                     onChange={(e) => handleFieldChange("city", e.target.value)}
-                    className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+                    className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
                   >
                     <option value="">-- اختر المدينة / المنطقة --</option>
                     {citiesList.map((city: any, cIdx: number) => (
@@ -1529,22 +1787,25 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   placeholder="اسم المدينة، الحي، أو المركز..."
                   value={orderData.city || ""}
                   onChange={(e) => handleFieldChange("city", e.target.value)}
-                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                  className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
                 />
               );
             })()}
           </div>
 
-          <div className="space-y-1.5 sm:col-span-2 md:col-span-3">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <MapPin size={14} className="text-indigo-500" /> العنوان بالتفصيل (الشارع والمبنى والدور) *
+          <div className="space-y-2 sm:col-span-2 md:col-span-3">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                <MapPin size={14} />
+              </span>
+              <span>العنوان بالتفصيل (الشارع والمبنى والدور) *</span>
             </label>
             <input
               type="text"
               placeholder="مثال: شارع النهضة، عمارة 15، الدور الثالث، شقة 8، بجوار صيدلية..."
               value={(orderData.customerAddress || "").replace(/,\s*-\s*undefined\s*-?/gi, "").replace(/\bundefined\b/gi, "").trim()}
               onChange={(e) => handleFieldChange("customerAddress", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+              className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
             />
             {/* Live Address Quality Indicator for Carriers */}
             {orderData.customerAddress && orderData.customerAddress.trim().length > 0 && (
@@ -1554,7 +1815,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     <span className="text-slate-500 dark:text-slate-400">جودة العنوان لشركة الشحن:</span>
                     <span className={`px-2 py-0.5 rounded-md font-black ${
                       addressQuality.score === 'excellent' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                      addressQuality.score === 'good' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' :
+                      addressQuality.score === 'good' ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' :
                       addressQuality.score === 'medium' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
                       'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
                     }`}>
@@ -1567,7 +1828,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   <div 
                     className={`h-full transition-all duration-300 ${
                       addressQuality.score === 'excellent' ? 'bg-emerald-500' :
-                      addressQuality.score === 'good' ? 'bg-indigo-500' :
+                      addressQuality.score === 'good' ? 'bg-teal-500' :
                       addressQuality.score === 'medium' ? 'bg-amber-500' :
                       'bg-rose-500'
                     }`}
@@ -1585,33 +1846,33 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
               <div className="space-y-1.5 text-right">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">رقم المبنى</label>
+                <label className="text-[11px] font-black text-slate-600 dark:text-slate-400">رقم المبنى / العمارة</label>
                 <input
                   type="text"
                   placeholder="مثال: 15 أو عمارة 4"
                   value={orderData.buildingNumber || ""}
                   onChange={(e) => handleFieldChange("buildingNumber", e.target.value)}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
                 />
               </div>
               <div className="space-y-1.5 text-right">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">الطابق</label>
+                <label className="text-[11px] font-black text-slate-600 dark:text-slate-400">الطابق / الدور</label>
                 <input
                   type="text"
-                  placeholder="مثال: 3"
+                  placeholder="مثال: 3 أو الأرضي"
                   value={orderData.floorNumber || ""}
                   onChange={(e) => handleFieldChange("floorNumber", e.target.value)}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
                 />
               </div>
               <div className="space-y-1.5 text-right">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">رقم الشقة</label>
+                <label className="text-[11px] font-black text-slate-600 dark:text-slate-400">رقم الشقة</label>
                 <input
                   type="text"
                   placeholder="مثال: 12"
                   value={orderData.apartmentNumber || ""}
                   onChange={(e) => handleFieldChange("apartmentNumber", e.target.value)}
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all"
                 />
               </div>
             </div>
@@ -1645,41 +1906,43 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       </div>
 
       {/* 2. Shipment Type & Merchant Brand Selector Box */}
-      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+        <div className="flex items-center justify-between pb-5 border-b border-slate-200/80 dark:border-slate-800">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
               2
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">نوع العملية والجهة المرسلة</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">اختر العلامة التجارية ونوع الشحنة وتأثيرها على المخزون</p>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">نوع العملية والجهة المرسلة</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">اختر العلامة التجارية ونوع الشحنة وتأثيرها على المخزون وحسابات التوصيل</p>
             </div>
           </div>
         </div>
 
         {/* Merchant Store Brand & Branch */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-gradient-to-r from-slate-50 to-indigo-50/50 dark:from-slate-800/80 dark:to-indigo-950/30 p-4 sm:p-5 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="bg-gradient-to-br from-emerald-50/70 via-teal-50/40 to-slate-50 dark:from-slate-800/80 dark:via-emerald-950/30 dark:to-slate-900 p-5 sm:p-6 rounded-[24px] border-2 border-emerald-100/90 dark:border-emerald-900/50 space-y-4 shadow-xs">
             <div className="flex items-center justify-between">
               <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                <StoreIcon size={16} className="text-indigo-600 dark:text-indigo-400" />
+                <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <StoreIcon size={15} />
+                </span>
                 <span>مرسل من متجر / اسم العرض (Sub-Sender)</span>
               </label>
               {orderData.merchantBrandName ? (
-                <span className="text-[10px] font-black px-2.5 py-0.5 bg-indigo-600 text-white rounded-full">
+                <span className="text-[10px] font-black px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-full shadow-xs">
                   {orderData.merchantBrandName}
                 </span>
               ) : (
-                <span className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                <span className="text-[10px] font-bold px-3 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
                   غير محدد
                 </span>
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">اختر اسم المتجر:</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="space-y-1.5">
+                <span className="text-xs font-black text-slate-700 dark:text-slate-300 block">اختر اسم المتجر:</span>
                 <select
                   value={orderData.merchantBrandName || ""}
                   onChange={(e) => {
@@ -1698,7 +1961,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       bostaBusinessLocationId: bostaLocId
                     }));
                   }}
-                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none cursor-pointer transition-all"
                 >
                   <option value="">-- اختر علامة تجارية --</option>
                   {storeBrandOptions.map((brandName) => (
@@ -1709,42 +1972,47 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block">الراسل الفرعي (اسم العرض):</span>
+              <div className="space-y-1.5">
+                <span className="text-xs font-black text-slate-700 dark:text-slate-300 block">الراسل الفرعي (اسم العرض):</span>
                 <input
                   type="text"
                   placeholder="اسم المتجر في البوليصة"
                   value={orderData.subSenderName || orderData.merchantBrandName || ""}
                   onChange={(e) => handleFieldChange("subSenderName", e.target.value)}
-                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
                 />
               </div>
             </div>
           </div>
 
-          <div className="space-y-1.5 p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5 mb-2">
-              <StoreIcon size={16} className="text-indigo-500" /> فرع المتجر المسؤول
-            </label>
-            <select
-              value={orderData.storeBranchId || ""}
-              onChange={(e) => handleFieldChange("storeBranchId", e.target.value || undefined)}
-              className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-            >
-              <option value="">-- الفرع الرئيسي --</option>
-              {getArray(settings.storeBranches).map((branch: any) => (
-                <option key={branch.id} value={branch.id}>
-                  🏢 {branch.name}
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-2 font-medium">
-              حدد فرع المتجر المسجل عليه الطلب لمتابعة مبيعات الفروع.
+          <div className="space-y-2 p-5 sm:p-6 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700 flex flex-col justify-between shadow-xs">
+            <div>
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                  <StoreIcon size={15} />
+                </span>
+                <span>فرع المتجر المسؤول</span>
+              </label>
+              <select
+                value={orderData.storeBranchId || ""}
+                onChange={(e) => handleFieldChange("storeBranchId", e.target.value || undefined)}
+                className="w-full mt-2.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
+              >
+                <option value="">-- الفرع الرئيسي --</option>
+                {getArray(settings.storeBranches).map((branch: any) => (
+                  <option key={branch.id} value={branch.id}>
+                    🏢 {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 font-medium">
+              حدد فرع المتجر المسجل عليه الطلب لمتابعة مبيعات وأداء الفروع بدقة.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 sm:gap-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 sm:gap-3.5 gap-2.5">
           {[
             { id: "delivery", label: "توصيل مبيعات", icon: <Truck size={18} /> },
             { id: "partial_delivery", label: "توصيل جزئي", icon: <Package size={18} /> },
@@ -1765,13 +2033,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   else if (type.id.startsWith("maintenance")) handleFieldChange("orderType", "maintenance");
                   else handleFieldChange("orderType", "regular");
                 }}
-                className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col items-center justify-center gap-2 font-black text-xs transition-all cursor-pointer ${
+                className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center gap-2.5 font-black text-xs transition-all cursor-pointer active:scale-95 ${
                   isSelected
-                    ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-500/25 scale-[1.02]"
-                    : "bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 hover:border-indigo-400 dark:hover:border-indigo-500"
+                    ? "bg-gradient-to-br from-emerald-500 to-teal-600 border-emerald-500 text-white shadow-xl shadow-emerald-500/25 scale-[1.02]"
+                    : "bg-slate-50/80 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/60 text-slate-700 dark:text-slate-300 hover:border-emerald-400 dark:hover:border-emerald-500 hover:bg-white dark:hover:bg-slate-800"
                 }`}
               >
-                <div className={isSelected ? "text-white" : "text-indigo-600 dark:text-indigo-400"}>
+                <div className={`p-2.5 rounded-xl ${isSelected ? "bg-white/20 text-white" : "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400"}`}>
                   {type.icon}
                 </div>
                 <span className="text-center line-clamp-1">{type.label}</span>
@@ -1781,58 +2049,59 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         </div>
 
         {/* Selected Shipment Guide Box */}
-        <div className={`p-4 sm:p-5 rounded-2xl border ${shipmentGuide.colorClass} flex items-start gap-3.5 transition-all`}>
-          <Info className="shrink-0 mt-0.5 text-current" size={20} />
+        <div className={`p-5 rounded-[24px] border-2 ${shipmentGuide.colorClass} flex items-start gap-3.5 transition-all shadow-xs`}>
+          <Info className="shrink-0 mt-0.5 text-current" size={22} />
           <div className="space-y-1 text-xs">
-            <h4 className="font-black sm:text-sm">{shipmentGuide.title}</h4>
+            <h4 className="font-black text-sm">{shipmentGuide.title}</h4>
             <p className="leading-relaxed opacity-90 font-medium">{shipmentGuide.desc}</p>
           </div>
         </div>
 
         {/* Specialized Fields based on shipment type */}
         {isExchange && (
-          <div className="p-5 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/60 rounded-2xl space-y-4">
-            <h4 className="font-extrabold text-xs text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
-              <ArrowRightLeft size={16} /> بيانات الشحنة المستبدلة
+          <div className="p-6 bg-purple-50/60 dark:bg-purple-950/30 border-2 border-purple-200 dark:border-purple-800/70 rounded-[28px] space-y-4 shadow-xs">
+            <h4 className="font-black text-sm text-purple-900 dark:text-purple-200 flex items-center gap-2">
+              <ArrowRightLeft size={18} className="text-purple-600 dark:text-purple-400" />
+              <span>بيانات الشحنة المستبدلة وحساب الفروق المالية</span>
             </h4>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">رقم الطلب الأصلي المراد استبداله</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">رقم الطلب الأصلي المراد استبداله</label>
                 <input
                   type="text"
                   placeholder="مثال: ORD-1020"
                   value={orderData.originalOrderId || ""}
                   onChange={(e) => handleFieldChange("originalOrderId", e.target.value)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-purple-500"
                 />
               </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">الرصيد الدائن المستحق للعميل مقابل المرتجع (ج.م) *</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">الرصيد الدائن المستحق للعميل مقابل المرتجع (ج.م) *</label>
                 <input
                   type="number"
                   placeholder="0"
                   value={orderData.creditAmount || 0}
                   onChange={(e) => handleFieldChange("creditAmount", parseFloat(e.target.value) || 0)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black text-purple-600 dark:text-purple-400 font-mono"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-purple-300 dark:border-purple-700 rounded-2xl text-xs font-black text-purple-600 dark:text-purple-400 font-mono outline-none focus:border-purple-500"
                 />
-                <p className="text-[10px] text-slate-500 mt-1">
-                  هذا هو المبلغ الذي سيتم خصمه من قيمة الفاتورة الجديدة (قيمة المنتج المستبدل الأصلي).
+                <p className="text-[11px] text-slate-500 font-medium">
+                  هذا هو المبلغ الذي سيتم خصمه تلقائياً من قيمة الفاتورة الجديدة (قيمة المنتج المستبدل الأصلي).
                 </p>
               </div>
             </div>
 
-            <div className="p-3 bg-purple-100/30 dark:bg-purple-950/20 border border-purple-200/50 dark:border-purple-800/40 rounded-xl">
-              <label className="flex items-start gap-2.5 cursor-pointer">
+            <div className="p-4 bg-purple-100/50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl">
+              <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={orderData.customerPaidOriginalShipping ?? true}
                   onChange={(e) => handleFieldChange("customerPaidOriginalShipping", e.target.checked)}
-                  className="mt-0.5 w-4.5 h-4.5 text-purple-600 rounded cursor-pointer focus:ring-purple-500"
+                  className="mt-0.5 w-5 h-5 text-purple-600 rounded cursor-pointer focus:ring-purple-500"
                 />
                 <div>
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">هل دفع العميل مصاريف شحن الطلب الأول؟</span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5 leading-relaxed">
+                  <span className="text-xs font-black text-slate-800 dark:text-slate-200 block">هل دفع العميل مصاريف شحن الطلب الأول؟</span>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block mt-0.5 leading-relaxed font-medium">
                     إذا تم تحديد هذا الخيار، سيتم اعتبار مصاريف شحن الطلب الأول كإيراد للمتجر لكي يعوض تكلفة شحن شركة التوصيل للطلب الأصلي. إذا تم إلغاء التحديد، سيتحمل المتجر خسارة شحن الطلب الأول كاملةً.
                   </span>
                 </div>
@@ -1841,8 +2110,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
             {/* If there are items from original order to select from */}
             {orderData.originalOrderItems && orderData.originalOrderItems.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-purple-100 dark:border-purple-900/40 space-y-3">
-                <label className="text-xs font-extrabold text-slate-800 dark:text-slate-200 block">
+              <div className="mt-4 pt-4 border-t border-purple-200 dark:border-purple-900/60 space-y-3">
+                <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
                   🎯 اختر المنتج/المنتجات المرتجعة من الطلب الأصلي لخصم قيمتها تلقائياً:
                 </label>
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
@@ -1852,10 +2121,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     return (
                       <div 
                         key={idx} 
-                        className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-all ${
+                        className={`p-3.5 rounded-2xl border-2 flex items-center justify-between gap-3 transition-all ${
                           isSelected 
-                            ? "bg-purple-100/40 dark:bg-purple-950/30 border-purple-300 dark:border-purple-800" 
-                            : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                            ? "bg-purple-100/50 dark:bg-purple-950/40 border-purple-400 dark:border-purple-700 shadow-xs" 
+                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -1869,7 +2138,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                               } else {
                                 newExchanged[idx].selected = e.target.checked;
                               }
-                              // Re-calculate the creditAmount!
                               let sumCredit = 0;
                               newExchanged.forEach((exItem) => {
                                 if (exItem && exItem.selected) {
@@ -1879,26 +2147,26 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                               handleFieldChange("exchangedItems", newExchanged);
                               handleFieldChange("creditAmount", sumCredit);
                             }}
-                            className="w-4.5 h-4.5 text-purple-600 rounded cursor-pointer"
+                            className="w-5 h-5 text-purple-600 rounded cursor-pointer"
                           />
                           {item.thumbnail && (
                             <img 
                               src={item.thumbnail} 
                               alt="" 
-                              className="w-8 h-8 rounded-lg object-cover border border-slate-200" 
+                              className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-700" 
                               referrerPolicy="no-referrer"
                             />
                           )}
                           <div>
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">{item.name}</span>
-                            <span className="text-[10px] text-slate-400 block">سعر الوحدة: {item.price} ج.م</span>
+                            <span className="text-xs font-black text-slate-800 dark:text-slate-200 block">{item.name}</span>
+                            <span className="text-[11px] text-slate-400 font-mono block">سعر الوحدة: {item.price} ج.م</span>
                           </div>
                         </div>
                         
                         {/* Exchange Quantity Selector */}
                         {isSelected && (
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-500">الكمية المستبدلة:</span>
+                            <span className="text-[11px] font-black text-slate-500">الكمية المستبدلة:</span>
                             <select
                               value={exchangeQty}
                               onChange={(e) => {
@@ -1909,7 +2177,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                 } else {
                                   newExchanged[idx].quantity = qty;
                                 }
-                                // Re-calculate creditAmount
                                 let sumCredit = 0;
                                 newExchanged.forEach((exItem) => {
                                   if (exItem && exItem.selected) {
@@ -1919,7 +2186,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                 handleFieldChange("exchangedItems", newExchanged);
                                 handleFieldChange("creditAmount", sumCredit);
                               }}
-                              className="p-1 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-bold font-mono cursor-pointer"
+                              className="p-1.5 bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black font-mono cursor-pointer"
                             >
                               {Array.from({ length: item.quantity }, (_, i) => i + 1).map(q => (
                                 <option key={q} value={q}>{q}</option>
@@ -1937,19 +2204,20 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         )}
 
         {isReturn && (
-          <div className="p-5 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/60 rounded-2xl space-y-4">
-            <h4 className="font-extrabold text-xs text-rose-900 dark:text-rose-300 flex items-center gap-1.5">
-              <RefreshCcw size={16} /> إعدادات الإرجاع المالي والمخزني
+          <div className="p-6 bg-rose-50/60 dark:bg-rose-950/30 border-2 border-rose-200 dark:border-rose-800/70 rounded-[28px] space-y-4 shadow-xs">
+            <h4 className="font-black text-sm text-rose-900 dark:text-rose-300 flex items-center gap-2">
+              <RefreshCcw size={18} className="text-rose-600 dark:text-rose-400" />
+              <span>إعدادات الإرجاع المالي والمخزني</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">قيمة المرتجع التقديرية</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">قيمة المرتجع التقديرية (ج.م)</label>
                 <input
                   type="number"
                   placeholder="0"
                   value={orderData.returnProductValue || ""}
                   onChange={(e) => handleFieldChange("returnProductValue", parseFloat(e.target.value) || 0)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white font-mono"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white font-mono outline-none focus:border-rose-500"
                 />
               </div>
               <div className="flex items-center gap-3 pt-6">
@@ -1960,19 +2228,19 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   onChange={(e) => handleFieldChange("returnCashToCustomer", e.target.checked)}
                   className="w-5 h-5 accent-rose-600 rounded cursor-pointer"
                 />
-                <label htmlFor="returnCashCheck" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                <label htmlFor="returnCashCheck" className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-pointer">
                   تسليم نقدية للعميل مع المندوب
                 </label>
               </div>
               {orderData.returnCashToCustomer && (
-                <div>
-                  <label className="text-xs font-bold text-rose-600 dark:text-rose-400 block mb-1">المبلغ المطلوب رده للعميل (ج.م)</label>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black text-rose-600 dark:text-rose-400 block">المبلغ المطلوب رده للعميل (ج.م)</label>
                   <input
                     type="number"
                     placeholder="0"
                     value={orderData.cashToReturnAmount || ""}
                     onChange={(e) => handleFieldChange("cashToReturnAmount", parseFloat(e.target.value) || 0)}
-                    className="w-full p-3 bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-700 rounded-xl text-xs font-black text-rose-600 dark:text-rose-400 font-mono"
+                    className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-rose-300 dark:border-rose-700 rounded-2xl text-xs font-black text-rose-600 dark:text-rose-400 font-mono outline-none focus:border-rose-500"
                   />
                 </div>
               )}
@@ -1981,29 +2249,30 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         )}
 
         {isMaintenance && (
-          <div className="p-5 bg-sky-50/50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/60 rounded-2xl space-y-4">
-            <h4 className="font-extrabold text-xs text-sky-900 dark:text-sky-300 flex items-center gap-1.5">
-              <Wand2 size={16} /> بيانات الصيانة وتكاليف الإصلاح
+          <div className="p-6 bg-sky-50/60 dark:bg-sky-950/30 border-2 border-sky-200 dark:border-sky-800/70 rounded-[28px] space-y-4 shadow-xs">
+            <h4 className="font-black text-sm text-sky-900 dark:text-sky-300 flex items-center gap-2">
+              <Wand2 size={18} className="text-sky-600 dark:text-sky-400" />
+              <span>بيانات الصيانة وتكاليف الإصلاح والتأمين</span>
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">تكلفة الصيانة وقطع الغيار (ج.م)</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">تكلفة الصيانة وقطع الغيار (ج.م)</label>
                 <input
                   type="number"
                   placeholder="0"
                   value={orderData.maintenanceCost || ""}
                   onChange={(e) => handleFieldChange("maintenanceCost", parseFloat(e.target.value) || 0)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white font-mono"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white font-mono outline-none focus:border-sky-500"
                 />
               </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">قيمة الجهاز التقديرية (للتأمين)</label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300 block">قيمة الجهاز التقديرية (للتأمين)</label>
                 <input
                   type="number"
                   placeholder="0"
                   value={orderData.maintenanceItemValue || ""}
                   onChange={(e) => handleFieldChange("maintenanceItemValue", parseFloat(e.target.value) || 0)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white font-mono"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white font-mono outline-none focus:border-sky-500"
                 />
               </div>
               {orderData.shipmentType === "maintenance_pickup" && (
@@ -2014,8 +2283,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     checked={!!orderData.deferPaymentToReturn}
                     onChange={(e) => handleFieldChange("deferPaymentToReturn", e.target.checked)}
                     className="w-5 h-5 accent-sky-600 rounded cursor-pointer"
-                  />
-                  <label htmlFor="deferCheck" className="text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                  >
+                  </input>
+                  <label htmlFor="deferCheck" className="text-xs font-black text-slate-700 dark:text-slate-300 cursor-pointer">
                     تأجيل التحصيل لمرحلة التسليم بعد الصيانة
                   </label>
                 </div>
@@ -2036,23 +2306,26 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     return (
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
         {/* Warehouse & Fulfillment Banner */}
-        <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+          <div className="flex items-center justify-between pb-5 border-b border-slate-200/80 dark:border-slate-800">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
                 3
               </div>
               <div>
-                <h2 className="text-lg font-black text-slate-800 dark:text-white">المستودع وحالة التجهيز</h2>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">اختر المخزن المسؤول عن صرف البضاعة وحالة تجهيز الشحنة</p>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">المستودع وحالة التجهيز</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">اختر المخزن المسؤول عن صرف البضاعة وحالة تجهيز الشحنة والتوجيه الذكي</p>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <StoreIcon size={14} className="text-indigo-500" /> المخزن / المستودع المسؤول *
+            <div className="space-y-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <StoreIcon size={15} />
+                </span>
+                <span>المخزن / المستودع المسؤول *</span>
               </label>
               <select
                 value={orderData.warehouseId || ""}
@@ -2060,7 +2333,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   setIsWarehouseOverridden(true);
                   handleFieldChange("warehouseId", e.target.value || undefined);
                 }}
-                className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+                className="w-full mt-1.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
               >
                 <option value="">-- اختر المخزن / المستودع --</option>
                 {getArray(settings.warehouses).map((w: any) => (
@@ -2071,15 +2344,15 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </select>
 
               {smartWarehouseResult && (
-                <div className={`mt-2 p-3 rounded-xl border text-xs leading-relaxed font-medium transition-all ${
+                <div className={`mt-3 p-4 rounded-2xl border-2 text-xs leading-relaxed font-medium transition-all ${
                   isWarehouseOverridden 
-                    ? "bg-amber-50 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900 text-amber-700 dark:text-amber-400"
+                    ? "bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200"
                     : smartWarehouseResult.hasStock
-                      ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900 text-emerald-700 dark:text-emerald-400"
-                      : "bg-rose-50 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900 text-rose-700 dark:text-rose-400"
+                      ? "bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200"
+                      : "bg-rose-50/90 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200"
                 }`}>
-                  <div className="flex items-center gap-1.5 font-bold mb-1">
-                    {isWarehouseOverridden ? "⚠️ تم تعديل التوجيه يدوياً" : "🤖 نظام التوجيه الذكي للمخزون"}
+                  <div className="flex items-center gap-2 font-black mb-1.5">
+                    <span>{isWarehouseOverridden ? "⚠️ تم تعديل التوجيه يدوياً" : "🤖 نظام التوجيه الذكي للمخزون"}</span>
                     {isWarehouseOverridden && (
                       <button 
                         type="button"
@@ -2089,7 +2362,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                             handleFieldChange("warehouseId", smartWarehouseResult.warehouse.id);
                           }
                         }}
-                        className="mr-auto text-[10px] px-2 py-0.5 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-md hover:bg-amber-100 transition-all text-amber-600 dark:text-amber-400 cursor-pointer"
+                        className="mr-auto text-[10px] px-3 py-1 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all text-amber-800 dark:text-amber-300 font-black cursor-pointer shadow-xs active:scale-95"
                       >
                         إعادة تعيين للتلقائي
                       </button>
@@ -2100,72 +2373,80 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               )}
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Layers size={14} className="text-indigo-500" /> حالة تجهيز الطلب في المخزن
-              </label>
-              <select
-                value={orderData.preparationStatus || "none"}
-                onChange={(e) => handleFieldChange("preparationStatus", e.target.value as PreparationStatus)}
-                className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-              >
-                <option value="none">⏳ قيد الانتظار (لم يبدأ التجهيز)</option>
-                <option value="in_progress">🔄 جاري التجهيز والتغليف</option>
-                <option value="ready">✅ جاهز للتسليم لشركة الشحن</option>
-              </select>
+            <div className="space-y-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between">
+              <div>
+                <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                    <Layers size={15} />
+                  </span>
+                  <span>حالة تجهيز الطلب في المخزن</span>
+                </label>
+                <select
+                  value={orderData.preparationStatus || "none"}
+                  onChange={(e) => handleFieldChange("preparationStatus", e.target.value as PreparationStatus)}
+                  className="w-full mt-2.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
+                >
+                  <option value="none">⏳ قيد الانتظار (لم يبدأ التجهيز)</option>
+                  <option value="in_progress">🔄 جاري التجهيز والتغليف</option>
+                  <option value="ready">✅ جاهز للتسليم لشركة الشحن</option>
+                </select>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                تساعد حالة التجهيز فريق المستودع والتعبئة على معرفة الطلبات الجاهزة للشحن فوراً.
+              </p>
             </div>
           </div>
         </div>
 
         {/* Modern Visual Product Catalog & Picker */}
-        <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
-                <Sparkles size={20} className="text-amber-500" />
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-200/80 dark:border-slate-800">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
+                <Sparkles size={22} />
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-                  كتالوج المنتجات والمخزون (اختيار مع الصور والكميات)
+                <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  كتالوج المنتجات والمخزون
                 </h3>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  ابحث أو تصفح المنتجات واضغط على زر الإضافة لإدراجها في سلة الفاتورة فوراً
+                  ابحث أو تصفح المنتجات واضغط لإدراج الصنف أو المتغير المطلوب في سلة الفاتورة مباشرة
                 </p>
               </div>
             </div>
 
             {/* Search Input */}
-            <div className="relative w-full md:w-72">
-              <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <div className="relative w-full md:w-80">
+              <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="🔍 بحث بالاسم، الكود SKU، أو الوصف..."
+                placeholder="🔍 بحث بالاسم، الكود SKU، أو المتغير..."
                 value={productSearchQuery}
                 onChange={(e) => setProductSearchQuery(e.target.value)}
-                className="w-full pr-10 pl-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all"
+                className="w-full pr-11 pl-10 py-3.5 bg-slate-50/90 dark:bg-slate-800/90 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all shadow-inner"
               />
               {productSearchQuery && (
                 <button
                   type="button"
                   onClick={() => setProductSearchQuery("")}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg cursor-pointer"
                 >
-                  <X size={14} />
+                  <X size={15} />
                 </button>
               )}
             </div>
           </div>
 
-          {/* Quick Filter Tabs & Add External Product */}
+          {/* Quick Filter Tabs */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setProductFilterTab("all")}
-                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 ${
                   productFilterTab === "all"
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 scale-[1.02]"
+                    : "bg-slate-100/90 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 }`}
               >
                 <Package size={14} />
@@ -2174,10 +2455,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               <button
                 type="button"
                 onClick={() => setProductFilterTab("in_stock")}
-                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 ${
                   productFilterTab === "in_stock"
-                    ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                    ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/25 scale-[1.02]"
+                    : "bg-slate-100/90 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 }`}
               >
                 <CheckCircle size={14} />
@@ -2186,10 +2467,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               <button
                 type="button"
                 onClick={() => setProductFilterTab("variants")}
-                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 ${
                   productFilterTab === "variants"
-                    ? "bg-violet-600 text-white shadow-md shadow-violet-500/20"
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                    ? "bg-teal-600 text-white shadow-lg shadow-teal-500/25 scale-[1.02]"
+                    : "bg-slate-100/90 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 }`}
               >
                 <Layers size={14} />
@@ -2198,16 +2479,25 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               <button
                 type="button"
                 onClick={() => setProductFilterTab("low_stock")}
-                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 ${
                   productFilterTab === "low_stock"
-                    ? "bg-amber-600 text-white shadow-md shadow-amber-500/20"
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200"
+                    ? "bg-amber-600 text-white shadow-lg shadow-amber-500/25 scale-[1.02]"
+                    : "bg-slate-100/90 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                 }`}
               >
                 <AlertTriangle size={14} />
                 <span>مخزون منخفض/نفد</span>
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAddCustomModal(true)}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-emerald-500/20 active:scale-95 cursor-pointer"
+            >
+              <Plus size={15} />
+              <span>+ إضافة بند أو صنف يدوي حر</span>
+            </button>
           </div>
 
           {/* Products Grid */}
@@ -2263,22 +2553,22 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 return (
                   <div
                     key={p.id}
-                    className="flex flex-col justify-between p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 hover:border-indigo-400 dark:hover:border-indigo-500 transition-all shadow-xs group"
+                    className="flex flex-col justify-between p-4 sm:p-5 rounded-[24px] bg-slate-50/90 dark:bg-slate-800/60 border-2 border-slate-200/80 dark:border-slate-700/80 hover:border-indigo-400 dark:hover:border-indigo-500 transition-all shadow-xs hover:shadow-md group"
                   >
                     <div>
                       {/* Top Header: Image + Title + Price */}
-                      <div className="flex items-start gap-3 mb-3">
-                        <div className="w-16 h-16 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0 shadow-sm relative">
+                      <div className="flex items-start gap-3.5 mb-3.5">
+                        <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0 shadow-xs relative">
                           {thumbImg ? (
-                            <img src={thumbImg} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                            <img src={thumbImg} alt={p.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
                           ) : (
                             <div className="w-full h-full bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-400">
                               <Package size={26} />
                             </div>
                           )}
                           {isOutOfStock && (
-                            <div className="absolute inset-0 bg-rose-950/60 backdrop-blur-[1px] flex items-center justify-center text-[10px] font-black text-white text-center p-1">
-                              نفد
+                            <div className="absolute inset-0 bg-rose-950/80 backdrop-blur-[2px] flex items-center justify-center text-[10px] font-black text-white text-center p-1">
+                              نفد المخزون
                             </div>
                           )}
                         </div>
@@ -2287,31 +2577,31 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                             {p.name}
                           </h4>
                           {p.sku && (
-                            <span className="text-[10px] text-slate-400 font-mono block truncate">
+                            <span className="text-[10px] text-slate-400 font-mono block truncate mt-0.5">
                               #{p.sku}
                             </span>
                           )}
                           <div className="mt-1 flex items-center justify-between">
                             <span className="text-xs font-black font-mono text-indigo-600 dark:text-indigo-400">
-                              {p.price.toLocaleString("ar-EG")} ج.م
+                              {(p.price ?? 0).toLocaleString("ar-EG")} ج.م
                             </span>
                           </div>
                         </div>
                       </div>
 
                       {/* Stock Badge */}
-                      <div className="mb-3 flex items-center justify-between text-[11px]">
+                      <div className="mb-3.5 flex items-center justify-between text-[11px]">
                         <span className="text-slate-500 font-bold">المخزون المتاح:</span>
                         {isOutOfStock ? (
-                          <span className="px-2 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 font-black text-[10px] flex items-center gap-1 border border-rose-200 dark:border-rose-800">
-                            <AlertTriangle size={11} /> 0 (نفد المخزون)
+                          <span className="px-2.5 py-1 rounded-xl bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 font-black text-[10px] flex items-center gap-1 border border-rose-200 dark:border-rose-800 shadow-2xs">
+                            <AlertTriangle size={11} /> نفد بالمخزن (0)
                           </span>
                         ) : isLowStock ? (
-                          <span className="px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 font-black text-[10px] flex items-center gap-1 border border-amber-200 dark:border-amber-800">
-                            <AlertCircle size={11} /> متاح {stockVal} فقط
+                          <span className="px-2.5 py-1 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 font-black text-[10px] flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-2xs">
+                            <AlertCircle size={11} /> متبقي {stockVal} فقط
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 font-black text-[10px] flex items-center gap-1 border border-emerald-200 dark:border-emerald-800">
+                          <span className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 font-black text-[10px] flex items-center gap-1 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
                             <CheckCircle size={11} /> متاح: {stockVal}
                           </span>
                         )}
@@ -2319,8 +2609,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                       {/* Variants Section if available */}
                       {hasVars && (
-                        <div className="mb-3 space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
-                          <span className="text-[10px] font-extrabold text-slate-500 block">اختر من المتغيرات المتاحة:</span>
+                        <div className="mb-3.5 space-y-2 pt-2.5 border-t border-slate-200/80 dark:border-slate-700/80">
+                          <span className="text-[10px] font-black text-slate-500 block">اختر من المتغيرات:</span>
                           <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
                             {p.variants.map((v) => {
                               const whId = orderData.warehouseId;
@@ -2336,12 +2626,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                                   key={v.id}
                                   type="button"
                                   onClick={() => handleQuickAddProduct(p, v)}
-                                  className={`px-2 py-1 rounded-xl text-[10px] font-black transition-all flex items-center gap-1 border cursor-pointer ${
+                                  className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black transition-all flex items-center gap-1 border-2 cursor-pointer active:scale-95 ${
                                     isAdded
-                                      ? "bg-emerald-600 text-white border-emerald-600 scale-95"
+                                      ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
                                       : varStock <= 0
                                       ? "bg-slate-200 dark:bg-slate-800 text-slate-400 border-slate-300 dark:border-slate-700 opacity-60 hover:opacity-100"
-                                      : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400"
+                                      : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 shadow-2xs"
                                   }`}
                                   title={`إضافة ${varTitle} - السعر: ${v.price || p.price} ج.م [متاح: ${varStock}]`}
                                 >
@@ -2360,23 +2650,23 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       <button
                         type="button"
                         onClick={() => handleQuickAddProduct(p)}
-                        className={`w-full py-2.5 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95 ${
+                        className={`w-full py-3 rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-95 ${
                           recentlyAddedId === p.id
-                            ? "bg-emerald-600 text-white"
+                            ? "bg-emerald-600 text-white shadow-emerald-500/25"
                             : isOutOfStock
                             ? "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700"
-                            : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20"
+                            : "bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-emerald-500/25"
                         }`}
                       >
                         {recentlyAddedId === p.id ? (
                           <>
-                            <CheckCircle size={14} />
-                            <span>تم الإضافة بنجاح ✓</span>
+                            <CheckCircle size={15} />
+                            <span>تم الإضافة للسلة ✓</span>
                           </>
                         ) : (
                           <>
-                            <Plus size={14} />
-                            <span>{isOutOfStock ? "إضافة للأوردر (مخزون 0)" : "إضافة للأوردر"}</span>
+                            <Plus size={15} />
+                            <span>{isOutOfStock ? "إضافة للأوردر (مخزون 0)" : "إضافة إلى السلة"}</span>
                           </>
                         )}
                       </button>
@@ -2389,24 +2679,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         </div>
 
         {/* Basket Items List */}
-        <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-3">
-              <ShoppingBag size={22} className="text-indigo-600 dark:text-indigo-400" />
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200/80 dark:border-slate-800">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-purple-500/25">
+                <ShoppingBag size={22} />
+              </div>
               <div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-white">سلة الطلب والمخزون المدرج ({getArray(orderData.items).length} أصناف)</h3>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">تعديل الكميات، أسعار البيع، أو الخصومات الخاصة على كل صنف</p>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">سلة الطلب والمخزون المدرج ({getArray(orderData.items).length} أصناف)</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">تعديل الكميات، أسعار البيع، أو الخصومات الخاصة على كل صنف ومتابعة هامش الربح</p>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowAddCustomModal(true)}
+              className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-2xl text-xs font-black flex items-center gap-2 transition-all border border-indigo-200 dark:border-indigo-800 shadow-xs cursor-pointer active:scale-95"
+            >
+              <Plus size={15} />
+              <span>إضافة صنف حر / مخصص</span>
+            </button>
           </div>
 
           {getArray(orderData.items).length === 0 ? (
-            <div className="py-12 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl flex flex-col items-center justify-center text-center space-y-3 bg-slate-50/50 dark:bg-slate-800/20">
-              <div className="w-16 h-16 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-500 flex items-center justify-center">
+            <div className="py-14 border-2 border-dashed border-indigo-200/80 dark:border-indigo-900/60 rounded-[28px] flex flex-col items-center justify-center text-center space-y-3.5 bg-gradient-to-b from-indigo-50/30 to-slate-50/50 dark:from-indigo-950/10 dark:to-slate-900/20">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center shadow-xs">
                 <ShoppingBag size={32} />
               </div>
-              <p className="text-sm font-extrabold text-slate-700 dark:text-slate-300">سلة المنتجات فارغة حالياً</p>
-              <p className="text-xs text-slate-400 max-w-sm">استخدم شريط الإضافة السريع باللون الكحلي أعلاه لاختيار المنتجات وإدراجها في الطلب</p>
+              <p className="text-sm font-black text-slate-800 dark:text-slate-200">سلة المنتجات فارغة حالياً</p>
+              <p className="text-xs text-slate-500 max-w-sm font-medium">استخدم كتالوج المنتجات أعلاه للبحث والإضافة السريعة بضغطة زر واحدة</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -2425,35 +2726,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 return (
                   <div
                     key={index}
-                    className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-all hover:border-indigo-400/50"
+                    className="p-5 sm:p-6 rounded-[28px] bg-slate-50/90 dark:bg-slate-800/60 border-2 border-slate-200/80 dark:border-slate-700/80 flex flex-col lg:flex-row lg:items-center justify-between gap-5 transition-all hover:border-indigo-400 dark:hover:border-indigo-500 shadow-xs hover:shadow-md"
                   >
                     {/* Item title & Variant */}
-                    <div className="flex items-center gap-3.5 flex-1 min-w-0">
-                      <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="w-16 h-16 rounded-2xl bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
                         {item.thumbnail ? (
                           <img src={item.thumbnail} alt={item.name} className="w-full h-full object-cover" />
                         ) : (
-                          <Package size={22} className={isExt ? "text-amber-500" : "text-slate-400"} />
+                          <Package size={26} className={isExt ? "text-amber-500" : "text-slate-400"} />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <h4 className="font-black text-sm text-slate-800 dark:text-white truncate">{item.name}</h4>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {isExt && (
-                            <span className="inline-block px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded text-[10px] font-black">
+                            <span className="inline-block px-2.5 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded-lg text-[10px] font-black border border-amber-200 dark:border-amber-800">
                               📦 دروب شيبنج / صنف خارجي (بدون مخزون)
                             </span>
                           )}
                           {item.variantDescription && (
-                            <span className="inline-block px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded text-[10px] font-extrabold">
+                            <span className="inline-block px-2.5 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-black border border-indigo-200 dark:border-indigo-800">
                               {item.variantDescription}
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-1 font-mono flex items-center gap-2">
+                        <div className="text-[11px] text-slate-500 mt-1.5 font-mono flex items-center gap-2 font-medium">
                           <span>الوزن: {item.weight || 0} كجم</span>
                           <span>|</span>
-                          <span className={itemProfit >= 0 ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-rose-600 font-bold"}>
+                          <span className={itemProfit >= 0 ? "text-emerald-600 dark:text-emerald-400 font-black" : "text-rose-600 font-black"}>
                             مكسب الصنف: {Math.round(itemProfit).toLocaleString("ar-EG")} ج.م
                           </span>
                         </div>
@@ -2462,13 +2763,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                     {/* Quantity & Price Controls */}
                     <div className="flex flex-wrap items-center gap-3 sm:gap-4 shrink-0">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-400 block text-center">الكمية</label>
-                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-1">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 block text-center">الكمية</label>
+                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl p-1 shadow-xs">
                           <button
                             type="button"
                             onClick={() => handleItemChange(index, "quantity", Math.max(1, itemQty - 1))}
-                            className="w-7 h-7 bg-slate-100 dark:bg-slate-800 rounded-lg font-black text-xs flex items-center justify-center hover:bg-slate-200"
+                            className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded-xl font-black text-xs flex items-center justify-center hover:bg-slate-200 cursor-pointer active:scale-95"
                           >
                             -
                           </button>
@@ -2482,38 +2783,38 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                           <button
                             type="button"
                             onClick={() => handleItemChange(index, "quantity", itemQty + 1)}
-                            className="w-7 h-7 bg-slate-100 dark:bg-slate-800 rounded-lg font-black text-xs flex items-center justify-center hover:bg-slate-200"
+                            className="w-8 h-8 bg-slate-100 dark:bg-slate-800 rounded-xl font-black text-xs flex items-center justify-center hover:bg-slate-200 cursor-pointer active:scale-95"
                           >
                             +
                           </button>
                         </div>
                       </div>
 
-                      <div className="space-y-1 w-24">
-                        <label className="text-[10px] font-bold text-slate-400 block text-center">سعر البيع (ج.م)</label>
+                      <div className="space-y-1.5 w-24">
+                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 block text-center">سعر البيع (ج.م)</label>
                         <input
                           type="number"
                           step="0.5"
                           value={itemPrice}
                           onChange={(e) => handleItemChange(index, "price", parseFloat(e.target.value) || 0)}
-                          className="w-full p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center font-mono outline-none focus:border-indigo-500"
+                          className="w-full p-2.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-center font-mono outline-none focus:border-indigo-500 shadow-xs"
                         />
                       </div>
 
-                      <div className="space-y-1 w-24">
-                        <label className="text-[10px] font-bold text-amber-600 dark:text-amber-400 block text-center">التكلفة (ج.م)</label>
+                      <div className="space-y-1.5 w-24">
+                        <label className="text-[10px] font-black text-amber-600 dark:text-amber-400 block text-center">التكلفة (ج.م)</label>
                         <input
                           type="number"
                           step="0.5"
                           placeholder="0"
                           value={item.cost !== undefined && item.cost !== null ? item.cost : ""}
                           onChange={(e) => handleItemChange(index, "cost", parseFloat(e.target.value) || 0)}
-                          className="w-full p-2 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-xl text-xs font-bold text-center font-mono outline-none focus:border-amber-500 text-amber-900 dark:text-amber-200"
+                          className="w-full p-2.5 bg-amber-50/70 dark:bg-amber-950/30 border-2 border-amber-200 dark:border-amber-800 rounded-2xl text-xs font-bold text-center font-mono outline-none focus:border-amber-500 text-amber-900 dark:text-amber-200 shadow-xs"
                         />
                       </div>
 
-                      <div className="space-y-1 w-28">
-                        <label className="text-[10px] font-bold text-slate-400 block text-center">خصم الصنف</label>
+                      <div className="space-y-1.5 w-28">
+                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 block text-center">خصم الصنف</label>
                         <div className="flex items-center gap-1">
                           <input
                             type="number"
@@ -2521,12 +2822,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                             placeholder="0"
                             value={item.discountValue || ""}
                             onChange={(e) => handleItemChange(index, "discountValue", parseFloat(e.target.value) || 0)}
-                            className="w-16 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center font-mono outline-none"
+                            className="w-16 p-2.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-center font-mono outline-none shadow-xs"
                           />
                           <select
                             value={item.discountType || "amount"}
                             onChange={(e) => handleItemChange(index, "discountType", e.target.value)}
-                            className="p-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-[10px] font-bold outline-none"
+                            className="p-2 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-[10px] font-bold outline-none cursor-pointer shadow-xs"
                           >
                             <option value="amount">ج.م</option>
                             <option value="percentage">%</option>
@@ -2534,9 +2835,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         </div>
                       </div>
 
-                      <div className="space-y-1 text-center min-w-[80px]">
-                        <label className="text-[10px] font-bold text-slate-400 block">الإجمالي</label>
-                        <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400 block pt-1.5">
+                      <div className="space-y-1.5 text-center min-w-[84px]">
+                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 block">الإجمالي</label>
+                        <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400 block pt-2">
                           {Math.round(itemTotal).toLocaleString("ar-EG")} ج.م
                         </span>
                       </div>
@@ -2545,7 +2846,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         type="button"
                         onClick={() => removeItem(index)}
                         title="حذف الصنف"
-                        className="w-9 h-9 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 rounded-xl flex items-center justify-center transition-all cursor-pointer self-center mt-4 sm:mt-0"
+                        className="w-10 h-10 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 text-rose-600 dark:text-rose-400 rounded-2xl flex items-center justify-center transition-all cursor-pointer self-center mt-4 sm:mt-0 active:scale-90 border-2 border-rose-200 dark:border-rose-800 shadow-xs"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -2561,35 +2862,83 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   };
 
   // Render Step 3: Shipping & Services
-  const renderStep3_ShippingAndServices = () => (
-    <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
-              5
+  const renderStep3_ShippingAndServices = () => {
+    // Current filtered companies based on selected tab
+    const displayedCompanies = 
+      shippingCategoryTab === "api" 
+        ? apiCompanies 
+        : shippingCategoryTab === "local" 
+        ? localCompanies 
+        : activeCompanies;
+
+    const isCurrentCarrierApi = isApiCarrier(orderData.shippingCompany || "");
+    const selectedCarrierName = settings.companyNames?.[orderData.shippingCompany || ""] || orderData.shippingCompany;
+
+    return (
+      <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-7">
+          
+          {/* Top Header & Live Status Strip */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-200/80 dark:border-slate-800">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25 shrink-0">
+                4
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
+                  <span>شركة الشحن والتوصيل</span>
+                  {orderData.shippingCompany && (
+                    <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                      {isCurrentCarrierApi ? "⚡ API مباشر" : "🏠 محلي"}
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                  اختر شركة التوصيل، مصاريف الشحن، الربط البرمجي، وتأمين الشحنات
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">شركة الشحن والتوصيل</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">اختر شركة التوصيل ومصاريف الشحن والخدمات الإضافية</p>
+
+            {/* Quick Live Shipping Indicators */}
+            <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+              <div className="p-2.5 px-3.5 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700/80 flex items-center gap-2 shadow-2xs">
+                <Truck size={14} className="text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  {orderData.shippingCompany ? selectedCarrierName : "لم تحدد شركة شحن"}
+                </span>
+              </div>
+              <div className="p-2.5 px-3.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-1.5 shadow-2xs">
+                <DollarSign size={14} className="text-emerald-600 dark:text-emerald-400" />
+                <span className="text-xs font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                  {orderData.shippingFee !== undefined ? `${orderData.shippingFee} ج.م` : "0 ج.م"}
+                </span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                  {orderData.isManualShippingOverride ? "(يدوي)" : "(تلقائي)"}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div className="space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Truck size={14} className="text-indigo-500" /> شركة الشحن / التوصيل *
-              </label>
-              <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+          {/* Section 1: Carrier Selector (Interactive Visual Cards + Filter Tabs) */}
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  1. اختر شركة الشحن / التوصيل
+                </h3>
+                <span className="text-xs text-slate-400 font-medium">({displayedCompanies.length} شركة متاحة)</span>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs self-start sm:self-auto">
                 <button
                   type="button"
                   onClick={() => setShippingCategoryTab("all")}
-                  className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg transition-all ${
+                  className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
                     shippingCategoryTab === "all"
-                      ? "bg-indigo-600 text-white shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
                 >
                   الكل ({activeCompanies.length})
@@ -2597,416 +2946,808 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 <button
                   type="button"
                   onClick={() => setShippingCategoryTab("api")}
-                  className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg transition-all ${
+                  className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
                     shippingCategoryTab === "api"
-                      ? "bg-indigo-600 text-white shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
                 >
-                  🚀 المربوطة ({apiCompanies.length})
+                  <Zap size={12} className={shippingCategoryTab === "api" ? "text-amber-300" : "text-emerald-500"} />
+                  <span>الربط البرمجي ({apiCompanies.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShippingCategoryTab("local")}
-                  className={`px-2 py-0.5 text-[10px] font-extrabold rounded-lg transition-all ${
+                  className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
                     shippingCategoryTab === "local"
-                      ? "bg-indigo-600 text-white shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                   }`}
                 >
-                  🏠 المحلية ({localCompanies.length})
+                  <span>🏠 المحلية ({localCompanies.length})</span>
                 </button>
               </div>
             </div>
-            <select
-              value={orderData.shippingCompany || ""}
-              onChange={(e) => {
-                const comp = e.target.value;
-                handleFieldChange("shippingCompany", comp);
-                const opts = settings.shippingOptions?.[comp];
-                if (opts && Array.isArray(opts) && opts.length > 0) {
-                  handleFieldChange("shippingOptionId", opts[0].id);
-                }
-              }}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
-            >
-              <option value="">-- اختر شركة الشحن --</option>
-              {(shippingCategoryTab === "all" || shippingCategoryTab === "api") && apiCompanies.length > 0 && (
-                <optgroup label="🚀 شركات الشحن المربوطة برمجياً (API Integration)">
-                  {apiCompanies.map((comp) => (
-                    <option key={comp} value={comp}>
-                      🌐 {settings.companyNames?.[comp] || comp}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {(shippingCategoryTab === "all" || shippingCategoryTab === "local") && localCompanies.length > 0 && (
-                <optgroup label="🏠 شركات الشحن المحلية والخاصة (Internal / Local)">
-                  {localCompanies.map((comp) => (
-                    <option key={comp} value={comp}>
-                      🚚 {settings.companyNames?.[comp] || comp}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
+
+            {/* Visual Interactive Carrier Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {displayedCompanies.map((comp) => {
+                const isSelected = orderData.shippingCompany === comp;
+                const isApi = isApiCarrier(comp);
+                const name = settings.companyNames?.[comp] || comp;
+
+                return (
+                  <button
+                    key={comp}
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("shippingCompany", comp);
+                      const opts = settings.shippingOptions?.[comp];
+                      if (opts && Array.isArray(opts) && opts.length > 0) {
+                        handleFieldChange("shippingOptionId", opts[0].id);
+                      }
+                    }}
+                    className={`p-4 rounded-2xl border-2 text-right transition-all flex flex-col justify-between gap-3 relative group cursor-pointer ${
+                      isSelected
+                        ? "bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border-emerald-500 shadow-md shadow-emerald-500/10 ring-2 ring-emerald-500/20"
+                        : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-white dark:hover:bg-slate-800 shadow-2xs"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
+                        isSelected 
+                          ? "bg-gradient-to-tr from-emerald-600 to-teal-600 text-white shadow-xs" 
+                          : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                      }`}>
+                        {isApi ? <Zap size={16} className={isSelected ? "text-amber-300" : "text-emerald-500"} /> : <Truck size={16} />}
+                      </div>
+
+                      {isSelected ? (
+                        <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                          <Check size={14} />
+                        </span>
+                      ) : (
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border ${
+                          isApi 
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" 
+                            : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                        }`}>
+                          {isApi ? "⚡ API" : "محلي"}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <span className={`text-xs font-black block truncate ${
+                        isSelected ? "text-emerald-950 dark:text-emerald-200" : "text-slate-800 dark:text-slate-200"
+                      }`}>
+                        {name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium block mt-0.5">
+                        {isApi ? "ربط فوري وتوليد تلقائي" : "تسليم محلي عبر المندوب"}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Supplementary Dropdown for Fast Carrier Search / Full List */}
+            <div className="pt-1">
+              <select
+                value={orderData.shippingCompany || ""}
+                onChange={(e) => {
+                  const comp = e.target.value;
+                  handleFieldChange("shippingCompany", comp);
+                  const opts = settings.shippingOptions?.[comp];
+                  if (opts && Array.isArray(opts) && opts.length > 0) {
+                    handleFieldChange("shippingOptionId", opts[0].id);
+                  }
+                }}
+                className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
+              >
+                <option value="">-- أو اختر من القائمة الكاملة لكافة الشركات المتاحة --</option>
+                {apiCompanies.length > 0 && (
+                  <optgroup label="🚀 شركات الشحن المربوطة برمجياً (API Integration)">
+                    {apiCompanies.map((comp) => (
+                      <option key={`dd_${comp}`} value={comp}>
+                        🌐 {settings.companyNames?.[comp] || comp} (ربط API مباشر)
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {localCompanies.length > 0 && (
+                  <optgroup label="🏠 شركات الشحن المحلية والخاصة (Internal / Local)">
+                    {localCompanies.map((comp) => (
+                      <option key={`dd_${comp}`} value={comp}>
+                        🚚 {settings.companyNames?.[comp] || comp} (محلي / يدوي)
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <DollarSign size={14} className="text-amber-500" /> مصاريف الشحن والوزن (ج.م) *
-              </label>
-              <button
-                type="button"
-                onClick={() => handleFieldChange("isManualShippingOverride", !orderData.isManualShippingOverride)}
-                className={`text-[10px] px-2 py-1 rounded-lg font-black transition-all ${
-                  orderData.isManualShippingOverride 
-                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" 
-                    : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
-                } hover:opacity-80 cursor-pointer`}
-              >
-                {orderData.isManualShippingOverride ? "🔄 تفعيل الحساب التلقائي" : "✏️ تعديل سعر الشحن يدوياً"}
-              </button>
-            </div>
-            <div className="relative group">
-              <input
-                type="number"
-                disabled={!orderData.isManualShippingOverride}
-                value={orderData.shippingFee !== undefined ? orderData.shippingFee : 0}
-                onChange={(e) => handleFieldChange("shippingFee", parseFloat(e.target.value) || 0)}
-                className={`w-full p-4 border-2 rounded-2xl text-lg font-black font-mono transition-all ${
-                  orderData.isManualShippingOverride
-                    ? "bg-white dark:bg-slate-900 border-amber-400 text-slate-800 dark:text-white shadow-lg shadow-amber-500/10 ring-4 ring-amber-500/5"
-                    : "bg-slate-100 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 opacity-90 cursor-not-allowed"
-                }`}
-              />
-              {!orderData.isManualShippingOverride && (
-                <div 
-                  className="absolute inset-0 cursor-pointer" 
-                  onClick={() => handleFieldChange("isManualShippingOverride", true)}
-                  title="اضغط لتعديل السعر يدوياً"
-                />
-              )}
-              {orderData.isManualShippingOverride && (
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
-                  <span className="text-[10px] font-black bg-amber-500 text-white px-1.5 py-0.5 rounded uppercase tracking-tighter">Manual</span>
+          {/* Section 2: Financials & Smart Shipping Fee Engine + Customer Delivery Stats */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
+            
+            {/* Left/Middle Column (8 cols): Shipping Cost & Real-Time Estimator */}
+            <div className="lg:col-span-8 p-6 bg-slate-50/90 dark:bg-slate-800/60 rounded-[28px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                    <DollarSign size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-white">
+                      2. مصاريف الشحن والوزن (ج.م) *
+                    </h4>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      تُضاف تلقائياً لإجمالي فاتورة العميل
+                    </p>
+                  </div>
                 </div>
-              )}
-            </div>
-            {orderData.shippingCompany && isApiCarrier(orderData.shippingCompany) && (
-              <div className="mt-3">
+
+                {/* Mode Switch Button */}
                 <button
                   type="button"
-                  onClick={estimateBostaShippingFee}
-                  disabled={isEstimatingBostaFee}
-                  className="w-full flex items-center justify-center gap-2 p-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/40 dark:text-indigo-400 rounded-xl text-xs font-black transition-all border border-indigo-200 dark:border-indigo-800"
+                  onClick={() => handleFieldChange("isManualShippingOverride", !orderData.isManualShippingOverride)}
+                  className={`text-[11px] px-3.5 py-1.5 rounded-xl font-black transition-all cursor-pointer shadow-2xs active:scale-95 flex items-center gap-1.5 ${
+                    orderData.isManualShippingOverride 
+                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-700" 
+                      : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                  }`}
                 >
-                  {isEstimatingBostaFee ? (
-                    <Loader2 size={14} className="animate-spin text-indigo-600 dark:text-indigo-400" />
+                  {orderData.isManualShippingOverride ? (
+                    <>
+                      <Lock size={12} className="text-amber-600" />
+                      <span>سعر مخصص يدوياً (اضغط للعودة للتلقائي)</span>
+                    </>
                   ) : (
-                    "🔌 حساب تسعيرة الشحن الفورية من بوسطة (Bosta Real-Time Estimator)"
+                    <>
+                      <Unlock size={12} className="text-emerald-600" />
+                      <span>حساب تلقائي ذكي (اضغط للتعديل اليدوي)</span>
+                    </>
                   )}
                 </button>
-                {bostaEstimationMessage && (
-                  <p className={`text-[11px] mt-2 font-bold ${bostaEstimationMessage.type === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-500"}`}>
-                    {bostaEstimationMessage.text}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Pickup & Return Locations + Carrier Rates & Customer Delivery Success Rate Banner */}
-        {orderData.shippingCompany && (
-          <div className="p-5 bg-gradient-to-br from-indigo-50/60 via-slate-50 to-blue-50/40 dark:from-indigo-950/30 dark:via-slate-900 dark:to-blue-950/20 rounded-3xl border border-indigo-200/80 dark:border-indigo-800/60 space-y-4 animate-in fade-in duration-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-100 dark:border-indigo-900/50 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
-                  <Truck size={18} />
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
-                    <span>شركة الشحن: {settings.companyNames?.[orderData.shippingCompany] || orderData.shippingCompany}</span>
-                    {isApiCarrier(orderData.shippingCompany) ? (
-                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
-                        <Zap size={12} className="animate-pulse" /> ⚡ متصل برمجياً (API Integration)
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
-                        🏠 شركة شحن محلي
-                      </span>
-                    )}
-                  </h4>
-                  <p className="text-[11px] text-slate-500 font-medium">
-                    يتم احتساب الرسوم والأسعار تلقائياً بناءً على تعريفة وتعليمات {orderData.shippingCompany}.
-                  </p>
-                </div>
               </div>
 
-              {/* Customer Delivery Success Rate Badge */}
-              {customerStats && (
-                <div className={`p-2.5 px-3.5 rounded-2xl border ${customerStats.badgeColor} flex items-center gap-2.5 shadow-2xs`}>
-                  <div className="text-right">
-                    <span className="text-[10px] font-black block opacity-80">نسبة استلام العميل:</span>
-                    <span className="text-xs font-black dir-ltr">
-                      🎯 {customerStats.rate}% ({customerStats.delivered}/{customerStats.total} أوردر)
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-extrabold px-2 py-1 rounded-xl bg-white/60 dark:bg-slate-900/60 border border-current/20">
-                    {customerStats.statusLabel}
+              {/* Input & Quick Chips */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                <div className="sm:col-span-5 relative group">
+                  <input
+                    type="number"
+                    disabled={!orderData.isManualShippingOverride}
+                    value={orderData.shippingFee !== undefined ? orderData.shippingFee : 0}
+                    onChange={(e) => handleFieldChange("shippingFee", parseFloat(e.target.value) || 0)}
+                    className={`w-full p-3.5 border-2 rounded-2xl text-xl font-black font-mono transition-all pl-12 ${
+                      orderData.isManualShippingOverride
+                        ? "bg-white dark:bg-slate-900 border-amber-400 text-slate-900 dark:text-white shadow-md shadow-amber-500/10 ring-4 ring-amber-500/10"
+                        : "bg-slate-100/90 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 opacity-90 cursor-not-allowed"
+                    }`}
+                  />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400 pointer-events-none">
+                    ج.م
                   </span>
+                  {!orderData.isManualShippingOverride && (
+                    <div 
+                      className="absolute inset-0 cursor-pointer" 
+                      onClick={() => handleFieldChange("isManualShippingOverride", true)}
+                      title="اضغط لتعديل السعر يدوياً"
+                    />
+                  )}
+                </div>
+
+                {/* Quick Cost Adjuster Buttons */}
+                <div className="sm:col-span-7 flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("isManualShippingOverride", true);
+                      handleFieldChange("shippingFee", 0);
+                    }}
+                    className="px-3 py-2 rounded-xl text-[11px] font-black bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-all cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    🎁 شحن مجاني (0 ج.م)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("isManualShippingOverride", true);
+                      handleFieldChange("shippingFee", (orderData.shippingFee || 0) + 10);
+                    }}
+                    className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-400 transition-all cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    +10 ج.م
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("isManualShippingOverride", true);
+                      handleFieldChange("shippingFee", (orderData.shippingFee || 0) + 20);
+                    }}
+                    className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-400 transition-all cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    +20 ج.م
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("isManualShippingOverride", false);
+                    }}
+                    className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-teal-700 dark:text-teal-400 hover:border-teal-400 transition-all cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    🔄 إعادة حساب
+                  </button>
+                </div>
+              </div>
+
+              {/* Bosta Live API Estimator */}
+              {orderData.shippingCompany && isApiCarrier(orderData.shippingCompany) && (
+                <div className="pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+                  <button
+                    type="button"
+                    onClick={estimateBostaShippingFee}
+                    disabled={isEstimatingBostaFee}
+                    className="w-full flex items-center justify-center gap-2.5 p-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white rounded-2xl text-xs font-black transition-all shadow-md shadow-emerald-500/20 active:scale-95 cursor-pointer disabled:opacity-50"
+                  >
+                    {isEstimatingBostaFee ? (
+                      <Loader2 size={16} className="animate-spin text-white" />
+                    ) : (
+                      <>
+                        <Zap size={16} className="text-amber-300 animate-pulse" />
+                        <span>حساب تسعيرة الشحن الفورية من خوادم بوسطة (Bosta Real-Time Estimator)</span>
+                      </>
+                    )}
+                  </button>
+                  {bostaEstimationMessage && (
+                    <div className={`p-3 rounded-xl mt-2.5 font-bold text-xs flex items-center gap-2 border ${
+                      bostaEstimationMessage.type === "success" 
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800" 
+                        : "bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
+                    }`}>
+                      <Info size={15} />
+                      <span>{bostaEstimationMessage.text}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Pickup Location & Return Location Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Pickup Location */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <MapPin size={14} className="text-indigo-600 dark:text-indigo-400" /> عنوان / فرع البك اب (Pickup Location)
-                </label>
-                <select
-                  value={orderData.bostaBusinessLocationId || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    handleFieldChange("bostaBusinessLocationId", val || undefined);
-                    if (val) handleFieldChange("warehouseId", val);
-                  }}
-                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                >
-                  <option value="">-- المستودع / الفرع الافتراضي --</option>
-                  {availableBostaLocations && availableBostaLocations.length > 0 && (
-                    <optgroup label="🏢 عناوين وفروع التاجر المسجلة في بوسطة">
-                      {availableBostaLocations.map((loc: any) => (
-                        <option key={loc.id || loc._id} value={loc.id || loc._id}>
-                          🏢 {loc.locationName || loc.name || 'فرع بوسطة'} ({loc.city || 'كفر الشيخ - بلطيم'})
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {getArray(settings?.storeBranches).length > 0 && (
-                    <optgroup label="🏬 فروع المتجر الداخلية">
-                      {getArray(settings.storeBranches).map((branch: any) => (
-                        <option key={branch.id} value={branch.id}>
-                          🏬 {branch.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-                <p className="text-[10px] text-slate-500">المكان أو المستودع الذي سيتوجه إليه المندوب لاستلام الشحنة منه (Pickup).</p>
-              </div>
-
-              {/* Return Location */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <RefreshCcw size={14} className="text-rose-500" /> مكان وعنوان الراجع / الإرجاع (Return Location)
-                </label>
-                <select
-                  value={orderData.bostaReturnLocationId || ""}
-                  onChange={(e) => handleFieldChange("bostaReturnLocationId", e.target.value || undefined)}
-                  className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-rose-500 cursor-pointer"
-                >
-                  <option value="">-- نفس فرع الاستلام (الافتراضي) --</option>
-                  {availableBostaLocations && availableBostaLocations.length > 0 && (
-                    <optgroup label="🏢 عناوين الإرجاع المسجلة في بوسطة">
-                      {availableBostaLocations.map((loc: any) => (
-                        <option key={`ret_${loc.id || loc._id}`} value={loc.id || loc._id}>
-                          ↩️ {loc.locationName || loc.name || 'مقر الراجع'} ({loc.city || 'كفر الشيخ - بلطيم'})
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {getArray(settings?.storeBranches).length > 0 && (
-                    <optgroup label="🏬 فروع المتجر للإرجاع">
-                      {getArray(settings.storeBranches).map((branch: any) => (
-                        <option key={`branch_ret_${branch.id}`} value={branch.id}>
-                          ↩️ {branch.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-                <p className="text-[10px] text-slate-500">المستودع الذي تعود إليه الشحنة تلقائياً في حالة المرتجع أو عدم الاستلام.</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Extra Shipping Services Grid */}
-        <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="font-extrabold text-xs text-slate-800 dark:text-white block">سماحية فتح الشحنة ومعاينتها</span>
-              <span className="text-[11px] text-slate-400 block">يسمح للمندوب بفتح الغلاف للعميل قبل السداد</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={orderData.includeInspectionFee !== false && orderData.allowOpenShipment !== false}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                handleFieldChange("allowOpenShipment", checked);
-                handleFieldChange("includeInspectionFee", checked);
-              }}
-              className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
-            />
-          </div>
-
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="font-extrabold text-xs text-slate-800 dark:text-white block">التأمين على الشحنة ضد التلف</span>
-                <span className="text-[11px] text-slate-400 block">حساب نسبة تأمين لحماية قيمة الطلب</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={orderData.isInsured !== false}
-                onChange={(e) => handleFieldChange("isInsured", e.target.checked)}
-                className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
-              />
-            </div>
-            {orderData.isInsured !== false && (
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-3 animate-in slide-in-from-top-1 duration-200">
-                {settings.insurancePackages && settings.insurancePackages.length > 0 && (
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
-                      باقة التأمين المحددة للطلب
-                    </label>
-                    <select
-                      value={orderData.insurancePackageId || ""}
-                      onChange={(e) => handleFieldChange("insurancePackageId", e.target.value || undefined)}
-                      className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-bold text-[11px] text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                    >
-                      <option value="">-- الشحن العادي (حسب نسبة الشحن الافتراضية) --</option>
-                      {settings.insurancePackages.map((pkg) => (
-                        <option key={pkg.id} value={pkg.id}>
-                          {pkg.name} ({pkg.type === "flat" ? `${pkg.value} ج.م` : `${pkg.value}%`})
-                        </option>
-                      ))}
-                    </select>
+            {/* Right Column (4 cols): Customer Delivery Success Rate & History */}
+            <div className="lg:col-span-4 p-6 bg-gradient-to-br from-slate-50/90 to-teal-50/30 dark:from-slate-800/60 dark:to-teal-950/20 rounded-[28px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                  <div className="p-2 rounded-xl bg-teal-100 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400">
+                    <TrendingUp size={16} />
                   </div>
-                )}
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-white">
+                      مؤشر استلام العميل
+                    </h4>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      بناءً على سجل الهاتف السابق
+                    </p>
+                  </div>
+                </div>
 
-                {(!orderData.insurancePackageId || settings.insurancePackages?.find(p => p.id === orderData.insurancePackageId)?.type === "percent") && (
-                  <div className="space-y-1.5 animate-in fade-in duration-200">
+                {customerStats ? (
+                  <div className="space-y-3 pt-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-[11px] font-extrabold text-slate-600 dark:text-slate-400 block">
-                        قيمة المنتج المعلنة للتأمين (ج.م)
-                      </label>
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-                        الافتراضي: {(subtotal - itemDiscounts).toLocaleString('ar-EG')} ج.م
+                      <span className="text-xs font-bold text-slate-600 dark:text-slate-400">نسبة الاستلام:</span>
+                      <span className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 dir-ltr">
+                        {customerStats.rate}%
                       </span>
                     </div>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={orderData.insuranceBaseValue !== undefined && orderData.insuranceBaseValue !== 0 ? orderData.insuranceBaseValue : ""}
-                        onChange={(e) => handleFieldChange("insuranceBaseValue", parseFloat(e.target.value) || 0)}
-                        placeholder={`يستخدم سعر المنتجات تلقائياً (${(subtotal - itemDiscounts)} ج.م)`}
-                        className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-[11px] font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-left pl-10"
+                    {/* Progress Bar */}
+                    <div className="w-full h-2.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          customerStats.rate >= 80 
+                            ? "bg-emerald-500" 
+                            : customerStats.rate >= 50 
+                            ? "bg-amber-500" 
+                            : "bg-rose-500"
+                        }`}
+                        style={{ width: `${customerStats.rate}%` }}
                       />
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">ج.م</span>
                     </div>
-                    <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 p-2 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 flex items-center gap-1.5 mt-1">
-                      🛡️ يتم إرسال هذا المبلغ كقيمة معلنة للبضاعة (Goods Value) إلى شركة الشحن (مثل بوسطة) لضمان صرف التعويض والتأمين التام.
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-500">
+                      <span>الطلبات المسلمة: {customerStats.delivered}</span>
+                      <span>إجمالي الطلبات: {customerStats.total}</span>
+                    </div>
+                    <div className={`p-2.5 rounded-xl border text-center text-xs font-black ${customerStats.badgeColor}`}>
+                      {customerStats.statusLabel}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-6 text-center space-y-2">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 mx-auto flex items-center justify-center">
+                      <Users size={18} />
+                    </div>
+                    <p className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                      عميل جديد أو لم يتم إدخال الهاتف
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      سيتم احتساب سجل الاستلام فور إدخال رقم الهاتف.
                     </p>
                   </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
 
-          {isFlexShipSupported && (
-            <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/60 flex flex-col gap-3 sm:col-span-2 transition-all">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <span className="font-extrabold text-xs text-indigo-900 dark:text-indigo-200 block">تفعيل خدمة الشحن المرن (FlexShip) 📦</span>
-                  <span className="text-[11px] text-indigo-600 dark:text-indigo-400 block">إرسال مقاسات متعددة واختيار العميل للأنسب وإرجاع الباقي عند التسليم</span>
+          {/* Section 3: Logistics Routing & Pickup/Return Locations */}
+          {orderData.shippingCompany && (
+            <div className="p-6 bg-gradient-to-br from-emerald-50/70 via-slate-50/90 to-teal-50/40 dark:from-emerald-950/30 dark:via-slate-900/70 dark:to-teal-950/20 rounded-[28px] border-2 border-emerald-200/80 dark:border-emerald-800/60 space-y-5 animate-in fade-in duration-200 shadow-sm backdrop-blur-md">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-100 dark:border-emerald-900/50 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-gradient-to-tr from-emerald-600 to-teal-600 text-white rounded-2xl shadow-md shadow-emerald-500/25">
+                    <Truck size={18} />
+                  </div>
+                  <div>
+                    <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                      <span>مسار الشحنة ومراكز اللوجستيات (Logistics Flow)</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                        {selectedCarrierName}
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                      حدد نقطة استلام البك اب للشحنة ومركز الإرجاع في حال تعذر التوصيل
+                    </p>
+                  </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={!!orderData.enableFlexShip}
-                  onChange={(e) => handleFieldChange("enableFlexShip", e.target.checked)}
-                  className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
-                />
               </div>
-              {orderData.enableFlexShip && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-indigo-200/60 dark:border-indigo-800/60 animate-in fade-in duration-200">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-extrabold text-indigo-900 dark:text-indigo-200 block">
-                      رسوم الفليكس على العميل (عند الرفض/الإرجاع ج.م)
-                    </label>
-                    <input
-                      type="number"
-                      value={orderData.flexShipFee !== undefined ? orderData.flexShipFee : (settings.companySpecificFees?.[orderData.shippingCompany!]?.flexShipFee ?? settings.flexShipFee ?? 150)}
-                      onChange={(e) => handleFieldChange("flexShipFee", parseFloat(e.target.value) || 0)}
-                      className="w-full p-2.5 bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 rounded-xl font-mono text-xs font-bold text-indigo-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
+
+              {/* 2 Routing Locations Side-by-Side */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {/* Pickup Location */}
+                <div className="space-y-2 p-4 bg-white/80 dark:bg-slate-900/80 rounded-2xl border-2 border-emerald-100/90 dark:border-slate-700 shadow-xs">
+                  <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <MapPin size={15} className="text-emerald-600 dark:text-emerald-400" />
+                    <span>عنوان / فرع البك اب (Pickup Location)</span>
+                  </label>
+                  <select
+                    value={orderData.bostaBusinessLocationId || ""}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      handleFieldChange("bostaBusinessLocationId", val || undefined);
+                      if (val) handleFieldChange("warehouseId", val);
+                    }}
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 cursor-pointer transition-all"
+                  >
+                    <option value="">-- المستودع / الفرع الافتراضي --</option>
+                    {availableBostaLocations && availableBostaLocations.length > 0 && (
+                      <optgroup label="🏢 عناوين وفروع التاجر المسجلة في بوسطة">
+                        {availableBostaLocations.map((loc: any) => (
+                          <option key={loc.id || loc._id} value={loc.id || loc._id}>
+                            🏢 {loc.locationName || loc.name || 'فرع بوسطة'} ({loc.city || 'كفر الشيخ - بلطيم'})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {getArray(settings?.storeBranches).length > 0 && (
+                      <optgroup label="🏬 فروع المتجر الداخلية">
+                        {getArray(settings.storeBranches).map((branch: any) => (
+                          <option key={branch.id} value={branch.id}>
+                            🏬 {branch.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">المكان أو المستودع الذي سيتوجه إليه المندوب لاستلام الشحنة منه (Pickup).</p>
+                </div>
+
+                {/* Return Location */}
+                <div className="space-y-2 p-4 bg-white/80 dark:bg-slate-900/80 rounded-2xl border-2 border-rose-100/90 dark:border-slate-700 shadow-xs">
+                  <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <RefreshCcw size={15} className="text-rose-500" />
+                    <span>مكان وعنوان الراجع / الإرجاع (Return Location)</span>
+                  </label>
+                  <select
+                    value={orderData.bostaReturnLocationId || ""}
+                    onChange={(e) => handleFieldChange("bostaReturnLocationId", e.target.value || undefined)}
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 cursor-pointer transition-all"
+                  >
+                    <option value="">-- نفس فرع الاستلام (الافتراضي) --</option>
+                    {availableBostaLocations && availableBostaLocations.length > 0 && (
+                      <optgroup label="🏢 عناوين الإرجاع المسجلة في بوسطة">
+                        {availableBostaLocations.map((loc: any) => (
+                          <option key={`ret_${loc.id || loc._id}`} value={loc.id || loc._id}>
+                            ↩️ {loc.locationName || loc.name || 'مقر الراجع'} ({loc.city || 'كفر الشيخ - بلطيم'})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {getArray(settings?.storeBranches).length > 0 && (
+                      <optgroup label="🏬 فروع المتجر للإرجاع">
+                        {getArray(settings.storeBranches).map((branch: any) => (
+                          <option key={`branch_ret_${branch.id}`} value={branch.id}>
+                            ↩️ {branch.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">المستودع الذي تعود إليه الشحنة تلقائياً في حالة المرتجع أو عدم الاستلام.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Section 4: Advanced Services & Shipment Protection Tiles */}
+          <div className="pt-6 border-t border-slate-200/80 dark:border-slate-800 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-teal-500" />
+              <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                3. خدمات الشحن التكميلية وتأمين البضائع
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Inspection Allowed Tile */}
+              <div className={`p-4 sm:p-5 rounded-2xl border-2 transition-all flex flex-col justify-between gap-3 shadow-xs ${
+                orderData.allowOpenShipment !== false
+                  ? "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800"
+                  : "bg-slate-50/80 dark:bg-slate-800/50 border-slate-200 dark:border-slate-750"
+              }`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0">
+                      <Eye size={18} />
+                    </div>
+                    <div>
+                      <span className="font-black text-xs text-slate-900 dark:text-white block">سماحية فتح ومعاينة الشحنة</span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium mt-0.5">
+                        يسمح لمندوب الشحن بفتح الطرد للعميل لفحصه قبل سداد القيمة
+                      </span>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-extrabold text-rose-900 dark:text-rose-200 block">
-                      استقطاع شركة الشحن من الفليكس (ج.م)
-                    </label>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
                     <input
-                      type="number"
-                      value={orderData.flexShipCompanyFee !== undefined ? orderData.flexShipCompanyFee : (settings.companySpecificFees?.[orderData.shippingCompany!]?.flexShipCompanyFee ?? settings.flexShipCompanyFee ?? 10)}
-                      onChange={(e) => handleFieldChange("flexShipCompanyFee", parseFloat(e.target.value) || 0)}
-                      className="w-full p-2.5 bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-700 rounded-xl font-mono text-xs font-bold text-rose-900 dark:text-white outline-none focus:ring-2 focus:ring-rose-500"
+                      type="checkbox"
+                      checked={orderData.includeInspectionFee !== false && orderData.allowOpenShipment !== false}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        handleFieldChange("allowOpenShipment", checked);
+                        handleFieldChange("includeInspectionFee", checked);
+                      }}
+                      className="sr-only peer"
                     />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/60 px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-800 flex items-center justify-between">
+                  <span>{orderData.allowOpenShipment !== false ? "✅ مسموح للمندوب بفتح الشحنة والمعاينة" : "❌ الشحنة مغلقة غير مسموح بالفتح قبل الدفع"}</span>
+                  <span className="text-[10px] text-slate-400 font-medium">معاينة الطلب</span>
+                </div>
+              </div>
+
+              {/* Insurance Tile */}
+              <div className={`p-4 sm:p-5 rounded-2xl border-2 transition-all flex flex-col justify-between gap-3 shadow-xs ${
+                orderData.isInsured !== false
+                  ? "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-300 dark:border-emerald-800"
+                  : "bg-slate-50/80 dark:bg-slate-800/50 border-slate-200 dark:border-slate-750"
+              }`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0">
+                      <ShieldCheck size={18} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-xs text-slate-900 dark:text-white block">التأمين على الشحنة ضد التلف</span>
+                        {orderData.isInsured !== false && (
+                          <span className="text-[10px] font-black font-mono px-2 py-0.5 rounded-lg bg-emerald-600 text-white shadow-2xs">
+                            +{(insuranceFee ?? 0).toLocaleString("ar-EG")} ج.م
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium mt-0.5">
+                        حماية قيمة الطلب بالكامل وصرف التعويض في حال الفقد أو الكسر
+                      </span>
+                    </div>
                   </div>
-                  <div className="sm:col-span-2 pt-1">
-                    <label className="flex items-center gap-2 cursor-pointer bg-indigo-100/60 dark:bg-indigo-900/30 p-2.5 rounded-xl border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={orderData.isInsured !== false}
+                      onChange={(e) => handleFieldChange("isInsured", e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+                <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/60 px-3 py-2 rounded-xl border border-slate-200/70 dark:border-slate-800 flex items-center justify-between">
+                  <span>{orderData.isInsured !== false ? "🛡️ التأمين مفعل على الشحنة" : "⚠️ الشحنة غير مؤمنة ضد التلف أو الفقد"}</span>
+                  {orderData.isInsured !== false && (
+                    <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 truncate max-w-[150px]">
+                      {orderData.insurancePackageName || (orderData.insurancePackageId ? (availableInsurancePackages.find(p => p.id === orderData.insurancePackageId)?.name || "باقة مخصصة") : `النسبة العامة (${defaultInsuranceRate}%)`)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Insurance Packages Configurator (Dedicated Full Width Card) */}
+            {orderData.isInsured !== false && (
+              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-emerald-300/80 dark:border-emerald-800/80 shadow-xs space-y-4 animate-in slide-in-from-top-2 duration-200">
+                {/* Header */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={18} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 dark:text-white">
+                        باقة التأمين المحددة للشحنة
+                      </h4>
+                      <p className="text-[11px] text-slate-400 font-medium">
+                        اختر الباقة المناسبة لطبيعة المنتجات وقيمتها من باقات إعدادات الشحن
+                      </p>
+                    </div>
+                  </div>
+                  <a
+                    href="/shipping"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 bg-emerald-50 hover:bg-emerald-100/80 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800/80 px-3 py-1.5 rounded-xl transition-all"
+                  >
+                    <SettingsIcon size={13} />
+                    إدارة الباقات في الإعدادات
+                  </a>
+                </div>
+
+                {/* Package Cards Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {/* Default company rate card */}
+                  {(() => {
+                    const isSelected = !orderData.insurancePackageId;
+                    return (
+                      <div
+                        onClick={() => {
+                          handleFieldChange("insurancePackageId", undefined);
+                          handleFieldChange("insurancePackageName", undefined);
+                        }}
+                        className={`p-3.5 rounded-xl border-2 text-right transition-all flex flex-col justify-between gap-2.5 cursor-pointer relative ${
+                          isSelected
+                            ? "bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500 shadow-2xs ring-2 ring-emerald-500/15"
+                            : "bg-slate-50/60 dark:bg-slate-850/60 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                isSelected ? "border-emerald-600 bg-emerald-600" : "border-slate-300 dark:border-slate-600"
+                              }`}>
+                                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                              </span>
+                              <span className="font-black text-xs text-slate-800 dark:text-white truncate">
+                                النسبة العامة لشركة الشحن
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700 text-slate-700 dark:text-slate-200 shrink-0">
+                              {defaultInsuranceRate}%
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed pr-6">
+                            النسبة الافتراضية المحددة لشركة الشحن في الإعدادات
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800/80 pr-6">
+                          <span className="text-[10px] font-bold text-slate-400">تكلفة التأمين:</span>
+                          <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
+                            +{(defaultGeneralInsuranceCost ?? 0).toLocaleString("ar-EG")} ج.م
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Registered packages */}
+                  {availableInsurancePackages.map((pkg) => {
+                    const isSelected = orderData.insurancePackageId === pkg.id;
+                    const pkgFee = getPackageFeePreview(pkg);
+                    return (
+                      <div
+                        key={pkg.id}
+                        onClick={() => {
+                          handleFieldChange("insurancePackageId", pkg.id);
+                          handleFieldChange("insurancePackageName", pkg.name);
+                        }}
+                        className={`p-3.5 rounded-xl border-2 text-right transition-all flex flex-col justify-between gap-2.5 cursor-pointer relative ${
+                          isSelected
+                            ? "bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500 shadow-2xs ring-2 ring-emerald-500/15"
+                            : "bg-slate-50/60 dark:bg-slate-850/60 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                isSelected ? "border-emerald-600 bg-emerald-600" : "border-slate-300 dark:border-slate-600"
+                              }`}>
+                                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                              </span>
+                              <span className="font-black text-xs text-slate-800 dark:text-white truncate">
+                                {pkg.name}
+                              </span>
+                            </div>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md shrink-0 ${
+                              pkg.type === "flat"
+                                ? "bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60"
+                                : "bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/60"
+                            }`}>
+                              {pkg.type === "flat" ? `${pkg.value} ج.م مقطوع` : `${pkg.value}%`}
+                            </span>
+                          </div>
+                          {pkg.description && (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium leading-relaxed pr-6 line-clamp-2">
+                              {pkg.description}
+                            </p>
+                          )}
+                          {(pkg.minAmount !== undefined || pkg.maxAmount !== undefined) && (
+                            <div className="pr-6 text-[10px] text-slate-400 font-medium">
+                              {pkg.minAmount !== undefined && `حد أدنى: ${pkg.minAmount} ج.م `}
+                              {pkg.maxAmount !== undefined && `| حد أقصى: ${pkg.maxAmount} ج.م`}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800/80 pr-6">
+                          <span className="text-[10px] font-bold text-slate-400">تكلفة التأمين:</span>
+                          <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
+                            +{(pkgFee ?? 0).toLocaleString("ar-EG")} ج.م
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Declared Value for percent-based packages, or clean notice for flat packages */}
+                {(!orderData.insurancePackageId || availableInsurancePackages.find(p => p.id === orderData.insurancePackageId)?.type === "percent") ? (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-200 block">
+                          قيمة البضاعة المعلنة للتأمين (Goods Value)
+                        </label>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          القيمة الافتراضية المأخوذة من إجمالي المنتجات: {Math.max(0, subtotal - itemDiscounts).toLocaleString("ar-EG")} ج.م
+                        </span>
+                      </div>
+                      <div className="relative w-full sm:w-56">
+                        <input
+                          type="number"
+                          value={orderData.insuranceBaseValue !== undefined && orderData.insuranceBaseValue !== 0 ? orderData.insuranceBaseValue : ""}
+                          onChange={(e) => handleFieldChange("insuranceBaseValue", parseFloat(e.target.value) || 0)}
+                          placeholder={`${Math.max(0, subtotal - itemDiscounts)}`}
+                          className="w-full py-2 px-3 pl-10 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-left"
+                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">ج.م</span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40 flex items-center gap-1.5">
+                      🛡️ يتم إرسال هذا المبلغ كقيمة معلنة للبضاعة لشركة الشحن لضمان صرف التعويض الكامل في حال التلف أو الفقد.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div className="p-3 bg-purple-50/70 dark:bg-purple-950/30 rounded-xl border border-purple-200/80 dark:border-purple-800/50 text-xs font-bold text-purple-800 dark:text-purple-300 flex items-center gap-2">
+                      <span>✨ هذه الباقة بمبلغ مقطوع ثابت ({availableInsurancePackages.find(p => p.id === orderData.insurancePackageId)?.value} ج.م) ولا تتأثر بقيمة البضاعة المعلنة.</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+              {/* FlexShip Tile (if supported) */}
+              {isFlexShipSupported && (
+                <div className="p-5 rounded-2xl bg-teal-50/70 dark:bg-teal-950/25 border-2 border-teal-200/90 dark:border-teal-800/60 flex flex-col gap-3.5 transition-all shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-2xl bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 border border-teal-200 dark:border-teal-800 shadow-2xs">
+                        <ArrowRightLeft size={18} />
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="font-black text-xs text-teal-950 dark:text-teal-200 block">
+                          تفعيل خدمة الشحن المرن (FlexShip) 📦
+                        </span>
+                        <span className="text-[11px] text-teal-700 dark:text-teal-400 block font-medium">
+                          إرسال مقاسات/موديلات متعددة واختيار العميل للأنسب وإرجاع الباقي فوراً مع المندوب
+                        </span>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
                       <input
                         type="checkbox"
-                        checked={!!orderData.flexShipFeePaidByCustomer}
-                        onChange={(e) => handleFieldChange("flexShipFeePaidByCustomer", e.target.checked)}
-                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                        checked={!!orderData.enableFlexShip}
+                        onChange={(e) => handleFieldChange("enableFlexShip", e.target.checked)}
+                        className="sr-only peer"
                       />
-                      <span>تم تحصيل رسوم الفليكس شيب من العميل بالفعل (تُضاف لإجمالي الفاتورة الآن)</span>
+                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-teal-600"></div>
                     </label>
                   </div>
+
+                  {orderData.enableFlexShip && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3.5 border-t border-teal-200/80 dark:border-teal-800/80 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-black text-teal-900 dark:text-teal-200 block">
+                          رسوم الفليكس على العميل (عند الرفض/الإرجاع ج.م)
+                        </label>
+                        <input
+                          type="number"
+                          value={orderData.flexShipFee !== undefined ? orderData.flexShipFee : (settings.companySpecificFees?.[orderData.shippingCompany!]?.flexShipFee ?? settings.flexShipFee ?? 150)}
+                          onChange={(e) => handleFieldChange("flexShipFee", parseFloat(e.target.value) || 0)}
+                          className="w-full p-3 bg-white dark:bg-slate-900 border-2 border-teal-300 dark:border-teal-700 rounded-xl font-mono text-xs font-bold text-teal-950 dark:text-white outline-none focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 shadow-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-black text-rose-900 dark:text-rose-200 block">
+                          استقطاع شركة الشحن من الفليكس (ج.م)
+                        </label>
+                        <input
+                          type="number"
+                          value={orderData.flexShipCompanyFee !== undefined ? orderData.flexShipCompanyFee : (settings.companySpecificFees?.[orderData.shippingCompany!]?.flexShipCompanyFee ?? settings.flexShipCompanyFee ?? 10)}
+                          onChange={(e) => handleFieldChange("flexShipCompanyFee", parseFloat(e.target.value) || 0)}
+                          className="w-full p-3 bg-white dark:bg-slate-900 border-2 border-rose-300 dark:border-rose-700 rounded-xl font-mono text-xs font-bold text-rose-950 dark:text-white outline-none focus:ring-4 focus:ring-rose-500/10 focus:border-rose-500 shadow-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-2 pt-1">
+                        <label className="flex items-center gap-2.5 cursor-pointer bg-white/80 dark:bg-slate-900/80 p-3 rounded-2xl border-2 border-teal-200 dark:border-teal-800 text-xs font-bold text-teal-950 dark:text-teal-200 shadow-xs">
+                          <input
+                            type="checkbox"
+                            checked={!!orderData.flexShipFeePaidByCustomer}
+                            onChange={(e) => handleFieldChange("flexShipFeePaidByCustomer", e.target.checked)}
+                            className="w-4 h-4 accent-teal-600 rounded cursor-pointer"
+                          />
+                          <span>تم تحصيل رسوم الفليكس شيب من العميل بالفعل (تُضاف لإجمالي الفاتورة الآن)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-    </div>
-  );
+      );
+    };
 
   // Render Step 4: Financials & Notes
   const renderStep4_FinancialsAndNotes = () => (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
       {/* Financials & Advance Payment Card */}
-      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
-              6
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+        <div className="flex items-center justify-between pb-5 border-b border-slate-200/80 dark:border-slate-800">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
+              5
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">الخصومات والعربون المسبق</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">خصم إضافي على الفاتورة وتوثيق العربون المدفوع مسبقاً</p>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">الخصومات والعربون المسبق</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">خصم إضافي على الفاتورة وتوثيق العربون المدفوع مسبقاً وتوجيه الخزينة</p>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div className="space-y-1.5">
+          <div className="space-y-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
             <div className="flex justify-between items-center flex-wrap gap-2">
-              <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Percent size={14} className="text-emerald-500" /> خصم إضافي على إجمالي الفاتورة (ج.م)
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <Percent size={15} />
+                </span>
+                <span>خصم إضافي على إجمالي الفاتورة (ج.م)</span>
               </label>
               <button
                 type="button"
                 onClick={() => handleFieldChange("discountAffectsInsurance", orderData.discountAffectsInsurance === false ? true : false)}
-                className={`text-[10px] font-bold px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 cursor-pointer select-none border ${
+                className={`text-[10px] font-black px-2.5 py-1 rounded-xl transition-all flex items-center gap-1 cursor-pointer select-none border shadow-2xs ${
                   orderData.discountAffectsInsurance !== false
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/30 hover:bg-emerald-100/70"
-                    : "bg-rose-50 text-rose-700 border-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/30 hover:bg-rose-100/70"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                    : "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800"
                 }`}
               >
                 {orderData.discountAffectsInsurance !== false ? (
@@ -3027,32 +3768,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               placeholder="0"
               value={orderData.discount || ""}
               onChange={(e) => handleFieldChange("discount", parseFloat(e.target.value) || 0)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+              className="w-full mt-1.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all shadow-xs"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Coins size={14} className="text-amber-500" /> عربون مدفوع مقدماً (Advance Payment)
+          <div className="space-y-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                <Coins size={15} />
+              </span>
+              <span>عربون مدفوع مقدماً (Advance Payment)</span>
             </label>
             <input
               type="number"
               placeholder="0"
               value={orderData.advancePayment || ""}
               onChange={(e) => handleFieldChange("advancePayment", parseFloat(e.target.value) || 0)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-black text-amber-600 dark:text-amber-400 font-mono focus:ring-2 focus:ring-amber-500/20 outline-none transition-all"
+              className="w-full mt-1.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-lg font-black font-mono text-amber-600 dark:text-amber-400 focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 outline-none transition-all shadow-xs"
             />
           </div>
         </div>
 
         {Number(orderData.advancePayment || 0) > 0 && (
-          <div className="p-5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/60 rounded-2xl space-y-4">
-            <h4 className="font-extrabold text-xs text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
-              <Wallet size={16} /> جهة استلام العربون وتفاصيل التحويل
+          <div className="p-6 bg-amber-50/60 dark:bg-amber-950/30 border-2 border-amber-300 dark:border-amber-800/60 rounded-[28px] space-y-4 shadow-sm">
+            <h4 className="font-black text-xs text-amber-950 dark:text-amber-300 flex items-center gap-2">
+              <Wallet size={18} /> جهة استلام العربون وتفاصيل التحويل المالي
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">جهة / حساب استلام العربون</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">جهة / حساب استلام العربون</label>
                 <select
                   value={
                     orderData.advancePaymentTreasuryId
@@ -3092,7 +3836,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                       handleFieldChange("advancePaymentEmployeeId", "");
                     }
                   }}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500"
                 >
                   <option value="">-- اختر جهة الاستلام --</option>
                   {treasuryAccountsList.length > 0 && (
@@ -3122,13 +3866,13 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 </select>
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">رقم المحفظة / المرجع للتحويل</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">رقم المحفظة / المرجع للتحويل</label>
                 <input
                   type="text"
                   placeholder="رقم المحفظة أو مرجع انستاباي..."
                   value={orderData.advancePaymentSenderDetails || ""}
                   onChange={(e) => handleFieldChange("advancePaymentSenderDetails", e.target.value)}
-                  className="w-full p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white"
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500"
                 />
               </div>
             </div>
@@ -3137,23 +3881,26 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       </div>
 
       {/* Staff & Notes Card */}
-      <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-6">
-        <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black">
-              7
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
+        <div className="flex items-center justify-between pb-5 border-b border-slate-200/80 dark:border-slate-800">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
+              6
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-800 dark:text-white">الموظف المسؤول والملاحظات</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">توثيق مندوب المبيعات وملاحظات التوصيل لشركة الشحن</p>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">الموظف المسؤول والملاحظات</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">توثيق مندوب المبيعات وملاحظات التوصيل لشركة الشحن والإدارة</p>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <UserIcon size={14} className="text-indigo-500" /> الموظف / مندوب المبيعات المسؤول
+          <div className="space-y-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                <UserIcon size={15} />
+              </span>
+              <span>الموظف / مندوب المبيعات المسؤول</span>
             </label>
             <select
               value={orderData.assignedEmployeeId || orderData.createdBy || ""}
@@ -3161,7 +3908,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 handleFieldChange("assignedEmployeeId", e.target.value);
                 handleFieldChange("createdBy", e.target.value);
               }}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+              className="w-full mt-1.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
             >
               <option value="">-- الموظف الحالي --</option>
               {availableStaff.map((staff: any) => (
@@ -3172,14 +3919,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </select>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Compass size={14} className="text-indigo-500" /> مصدر الطلب / القناة التسويقية
+          <div className="space-y-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+            <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <span className="p-1.5 rounded-lg bg-teal-100 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400">
+                <Compass size={15} />
+              </span>
+              <span>مصدر الطلب / القناة التسويقية</span>
             </label>
             <select
               value={orderData.source || "facebook"}
               onChange={(e) => handleFieldChange("source", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all cursor-pointer"
+              className="w-full mt-1.5 p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-teal-500/10 focus:border-teal-500 outline-none transition-all cursor-pointer"
             >
               <option value="facebook">📘 فيسبوك (Facebook)</option>
               <option value="instagram">📸 انستجرام (Instagram)</option>
@@ -3191,10 +3941,48 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </select>
           </div>
 
-          <div className="space-y-1.5 sm:col-span-2">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <FileText size={14} className="text-amber-500" /> ملاحظات الشحنة (تطبع على بوليصة الشحن)
-            </label>
+          {/* Shipping Notes for Carrier & Courier */}
+          <div className="space-y-2.5 sm:col-span-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                  <FileText size={15} />
+                </span>
+                <span>ملاحظات الشحنة (تطبع على بوليصة الشحن للمندوب)</span>
+              </label>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                تظهر على البوليصة الورقية للمندوب وشركة الشحن
+              </span>
+            </div>
+
+            {/* Quick helper chips for delivery notes */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] font-black text-slate-400 shrink-0">إدراج سريع:</span>
+              {[
+                "📞 الاتصال قبل الوصول بساعة",
+                "🔍 مسموح المعاينة وفتح الشحنة",
+                "🏢 التسليم للاستقبال / البواب",
+                "⏰ التسليم بعد الساعة 3 عصراً",
+                "⚡ شحنة عاجلة يرجى سرعة التوصيل",
+              ].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => {
+                    const current = orderData.shippingNotes || orderData.deliveryNotes || "";
+                    if (!current.includes(chip)) {
+                      const updated = current ? `${current} - ${chip}` : chip;
+                      handleFieldChange("shippingNotes", updated);
+                      handleFieldChange("deliveryNotes", updated);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400 transition-all cursor-pointer shadow-2xs active:scale-95"
+                >
+                  + {chip}
+                </button>
+              ))}
+            </div>
+
             <textarea
               rows={2}
               placeholder="مثال: الاتصال قبل الوصول بساعة، تسليم للبواب، يحق للعميل المعاينة..."
@@ -3203,20 +3991,56 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 handleFieldChange("shippingNotes", e.target.value);
                 handleFieldChange("deliveryNotes", e.target.value);
               }}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+              className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-amber-500/10 focus:border-amber-500 outline-none transition-all placeholder:text-slate-400"
             />
           </div>
 
-          <div className="space-y-1.5 sm:col-span-2">
-            <label className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <FileText size={14} className="text-slate-400" /> ملاحظات داخلية (للإدارة فقط - لا تظهر للعميل)
-            </label>
+          {/* Internal Staff Notes */}
+          <div className="space-y-2.5 sm:col-span-2 p-5 bg-slate-50/90 dark:bg-slate-800/60 rounded-[24px] border-2 border-slate-200/80 dark:border-slate-700/80 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                  <FileText size={15} />
+                </span>
+                <span>ملاحظات داخلية (للإدارة وفريق العمل فقط - سرية)</span>
+              </label>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                🔒 لا تطبع على البوليصة ولا يراها العميل أو المندوب
+              </span>
+            </div>
+
+            {/* Quick helper tags for internal notes */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] font-black text-slate-400 shrink-0">وسم سريع:</span>
+              {[
+                "⭐ عميل VIP دائم",
+                "📞 تم التأكيد مع العميل هاتفياً",
+                "🎁 مرفق هدية مجانية مع الطلب",
+                "🔄 شحنة استبدال لطلب سابق",
+              ].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => {
+                    const current = orderData.notes || "";
+                    if (!current.includes(chip)) {
+                      const updated = current ? `${current} - ${chip}` : chip;
+                      handleFieldChange("notes", updated);
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all cursor-pointer shadow-2xs active:scale-95"
+                >
+                  + {chip}
+                </button>
+              ))}
+            </div>
+
             <textarea
               rows={2}
-              placeholder="ملاحظات المبيعات الداخلية حول العميل أو الطلب..."
+              placeholder="ملاحظات المبيعات الداخلية حول العميل، سبب الخصم، أو تفاصيل المتابعة..."
               value={orderData.notes || ""}
               onChange={(e) => handleFieldChange("notes", e.target.value)}
-              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+              className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-900 dark:text-white focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all placeholder:text-slate-400"
             />
           </div>
         </div>
@@ -3225,58 +4049,61 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   );
 
   return (
-    <div className="min-h-screen bg-slate-100/70 dark:bg-slate-950 p-3 sm:p-6 md:p-8 transition-colors duration-500" dir="rtl">
+    <div className="min-h-screen bg-gradient-to-b from-slate-100/90 via-slate-50/50 to-slate-100/80 dark:from-slate-950 dark:via-slate-900/50 dark:to-slate-950 p-3.5 sm:p-6 md:p-8 transition-colors duration-500" dir="rtl">
       <form onSubmit={handleValidatedSubmit} className="max-w-7xl mx-auto space-y-6">
         {/* Top Header & Smart Switchers */}
-        <div className="bg-white dark:bg-slate-900 p-5 sm:p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-5 sm:p-7 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+          
           <div className="flex items-center gap-4">
             <button
               type="button"
               onClick={onCancel}
-              className="w-12 h-12 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all shadow-inner border border-slate-200/60 dark:border-slate-700 cursor-pointer"
+              className="w-12 h-12 bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl flex items-center justify-center transition-all shadow-sm border border-slate-200/60 dark:border-slate-700 cursor-pointer active:scale-95"
+              title="رجوع"
             >
-              <ArrowLeft size={22} />
+              <ArrowLeft size={20} />
             </button>
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                   {isEditing ? `✏️ تعديل الطلب رقم #${orderData.orderNumber}` : "✨ إنشاء طلب مبيعات جديد"}
                 </h1>
-                <span className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md flex items-center gap-1">
-                  <Zap size={12} /> الإصدار الاحترافي السريع
+                <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white text-[11px] font-black px-3.5 py-1 rounded-full shadow-md shadow-emerald-500/25 flex items-center gap-1.5">
+                  <Zap size={13} className="text-amber-300" /> الإصدار الاحترافي فائق السرعة
                 </span>
               </div>
               <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 mt-1">
-                واجهة إدخال مبيعات احترافية وخالية من الأخطاء، تدعم الإدخال الإرشادي المتسلسل أو شاشة العمل السريع.
+                واجهة مبيعات ذكية تدعم التعبئة الفورية للعملاء، التسعير التلقائي للشحن، وحسابات الأرباح اللحظية.
               </p>
             </div>
           </div>
 
           {/* UI Mode Toggle */}
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700 shrink-0 self-start md:self-auto">
+          <div className="flex items-center bg-slate-100/90 dark:bg-slate-800/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shrink-0 self-start md:self-auto shadow-inner">
             <button
               type="button"
               onClick={() => setUiMode("wizard")}
-              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
                 uiMode === "wizard"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Compass size={16} />
-              <span>الوضع الإرشادي (خطوات)</span>
+              <span>الوضع الإرشادي (خطوات متسلسلة)</span>
             </button>
             <button
               type="button"
               onClick={() => setUiMode("single")}
-              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
                 uiMode === "single"
-                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Zap size={16} />
-              <span>الوضع السريع (شاشة واحدة)</span>
+              <span>الوضع السريع (شاشة واحدة Pro)</span>
             </button>
           </div>
         </div>
@@ -3286,7 +4113,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-4 bg-rose-600 text-white rounded-2xl shadow-xl flex items-center justify-between gap-4 font-bold text-sm"
+            className="p-4 bg-gradient-to-r from-rose-600 to-rose-700 text-white rounded-2xl shadow-xl shadow-rose-600/20 flex items-center justify-between gap-4 font-bold text-sm border border-rose-500"
           >
             <div className="flex items-center gap-3">
               <AlertTriangle size={24} className="shrink-0 animate-bounce" />
@@ -3295,7 +4122,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <button
               type="button"
               onClick={() => setValidationError(null)}
-              className="p-1 hover:bg-rose-700 rounded-lg transition-all"
+              className="p-1 hover:bg-white/20 rounded-lg transition-all cursor-pointer"
             >
               <X size={18} />
             </button>
@@ -3304,7 +4131,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         {/* Wizard Progress Header (Only when uiMode === 'wizard') */}
         {uiMode === "wizard" && (
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-4 sm:p-6 rounded-[28px] border border-slate-200/80 dark:border-slate-800 shadow-md">
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
               {[
                 { step: 1, label: "1. العميل والعملية", icon: <UserIcon size={18} /> },
@@ -3322,16 +4149,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         setWizardStep(item.step as any);
                       }
                     }}
-                    className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 text-xs font-black transition-all cursor-pointer ${
+                    className={`p-3.5 sm:p-4 rounded-2xl border-2 flex items-center justify-between gap-2 text-xs font-black transition-all cursor-pointer ${
                       isActive
-                        ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/25 scale-[1.02]"
+                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-xl shadow-emerald-500/25 scale-[1.01]"
                         : isCompleted
-                        ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300"
-                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 opacity-75"
+                        ? "bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:border-emerald-400"
+                        : "bg-slate-50/80 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs shrink-0 ${
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${
                         isActive ? "bg-white/20 text-white" : isCompleted ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-700"
                       }`}>
                         {isCompleted ? <Check size={14} /> : item.step}
@@ -3340,7 +4167,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     </div>
                     {item.badge && (
                       <span className={`px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
-                        isActive ? "bg-white text-indigo-700 font-bold" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                        isActive ? "bg-white text-emerald-700 font-bold" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
                       }`}>
                         {item.badge}
                       </span>
@@ -3369,14 +4196,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
 
                 {/* Wizard Navigation Footer */}
-                <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between gap-4">
+                <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-5 sm:p-7 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-lg flex items-center justify-between gap-4">
                   <button
                     type="button"
                     onClick={handlePrevStep}
                     disabled={wizardStep === 1}
-                    className="px-6 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black text-sm rounded-2xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
+                    className="px-6 py-4 bg-slate-100/90 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-black text-sm rounded-2xl transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2.5 cursor-pointer border border-slate-200/60 dark:border-slate-700 active:scale-95"
                   >
-                    <ArrowRightCircle size={18} />
+                    <ArrowRightCircle size={20} />
                     <span>الخطوة السابقة</span>
                   </button>
 
@@ -3384,17 +4211,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     <button
                       type="button"
                       onClick={handleNextStep}
-                      className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-indigo-500/25 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                      className="px-8 py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-sm rounded-2xl shadow-xl shadow-emerald-500/30 transition-all flex items-center gap-2.5 cursor-pointer active:scale-95 border border-emerald-400/30"
                     >
-                      <span>الخطوة التالية</span>
-                      <ArrowLeftCircle size={18} />
+                      <span>الانتقال للخطوة التالية</span>
+                      <ArrowLeftCircle size={20} />
                     </button>
                   ) : (
                     <button
                       type="submit"
-                      className="px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-sm rounded-2xl shadow-xl shadow-emerald-500/25 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
+                      className="px-9 py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-sm rounded-2xl shadow-xl shadow-emerald-500/30 transition-all flex items-center gap-2.5 cursor-pointer active:scale-95 border border-emerald-400/30"
                     >
-                      <Save size={18} />
+                      <Save size={20} />
                       <span>{isEditing ? "حفظ التعديلات الآن" : "🎉 إتمام وحفظ الطلب الآن"}</span>
                     </button>
                   )}
@@ -3413,28 +4240,34 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
           {/* Right/Sticky Column: Live Invoice Summary (4 of 12 cols) */}
           <div className="xl:col-span-4 sticky top-6 space-y-6">
-            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-6 sm:p-8 rounded-3xl border border-slate-800 text-white shadow-2xl space-y-6">
-              <div className="flex items-center justify-between pb-4 border-b border-white/10">
-                <div className="flex items-center gap-2.5">
-                  <Calculator size={22} className="text-emerald-400" />
-                  <h3 className="font-black text-lg text-white">ملخص الفاتورة التفاعلي</h3>
+            <div className="bg-white dark:bg-slate-900 p-6 sm:p-7 rounded-[28px] border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-sm space-y-6 relative overflow-hidden backdrop-blur-xl">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-2xs">
+                    <Calculator size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white">ملخص الفاتورة التفاعلي</h3>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">حسابات دقيقة ومباشرة لحظة بلحظة</p>
+                  </div>
                 </div>
-                <span className="text-[11px] font-mono font-bold bg-white/10 px-2.5 py-1 rounded-full text-indigo-300">
-                  تحديث لحظي
+                <span className="text-[10px] font-mono font-black bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  مباشر
                 </span>
               </div>
 
               {/* Financial Breakdown List */}
-              <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-white/5">
+              <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-slate-100 dark:divide-slate-800/80">
                 <div className="flex justify-between items-center pt-2">
-                  <span className="text-slate-300">إجمالي المنتجات ({getArray(orderData.items).length} أصناف):</span>
-                  <span className="font-mono font-black text-white text-base">
-                    {subtotal.toLocaleString("ar-EG")} ج.م
+                  <span className="text-slate-600 dark:text-slate-400">إجمالي المنتجات ({getArray(orderData.items).length} أصناف):</span>
+                  <span className="font-mono font-black text-slate-900 dark:text-white text-base">
+                    {(subtotal ?? 0).toLocaleString("ar-EG")} ج.م
                   </span>
                 </div>
 
                 {itemDiscounts > 0 && (
-                  <div className="flex justify-between items-center pt-2.5 text-emerald-400">
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
                     <span>خصومات مباشرة على الأصناف:</span>
                     <span className="font-mono font-black">
                       -{Math.round(itemDiscounts).toLocaleString("ar-EG")} ج.م
@@ -3443,7 +4276,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
 
                 {isMaintenance && (
-                  <div className="flex justify-between items-center pt-2.5 text-sky-400">
+                  <div className="flex justify-between items-center pt-2.5 text-sky-600 dark:text-sky-400">
                     <span>تكلفة الصيانة وقطع الغيار:</span>
                     <span className="font-mono font-black">
                       {Number(orderData.maintenanceCost || 0).toLocaleString("ar-EG")} ج.م
@@ -3452,34 +4285,34 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
 
                 <div className="flex justify-between items-center pt-2.5">
-                  <span className="text-slate-300">مصاريف الشحن والتوصيل:</span>
-                  <span className="font-mono text-amber-400 font-black text-base">
+                  <span className="text-slate-600 dark:text-slate-400">مصاريف الشحن والتوصيل:</span>
+                  <span className="font-mono text-slate-900 dark:text-white font-black text-base">
                     +{Number(orderData.shippingFee || 0).toLocaleString("ar-EG")} ج.م
                   </span>
                 </div>
 
                 {(orderData.includeInspectionFee !== false && orderData.allowOpenShipment !== false) && inspectionFee > 0 && (
                   <div className="flex justify-between items-center pt-2.5">
-                    <span className="text-slate-300">رسوم المعاينة وفتح الشحنة:</span>
-                    <span className="font-mono text-teal-400">
-                      +{inspectionFee.toLocaleString("ar-EG")} ج.م
+                    <span className="text-slate-600 dark:text-slate-400">رسوم المعاينة وفتح الشحنة:</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(inspectionFee ?? 0).toLocaleString("ar-EG")} ج.م
                     </span>
                   </div>
                 )}
 
                 {orderData.isInsured !== false && insuranceFee > 0 && (
                   <div className="flex justify-between items-center pt-2.5">
-                    <span className="text-slate-300">رسوم التأمين على الشحنة:</span>
-                    <span className="font-mono text-purple-400">
-                      +{insuranceFee.toLocaleString("ar-EG")} ج.م
+                    <span className="text-slate-600 dark:text-slate-400">رسوم التأمين على الشحنة:</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(insuranceFee ?? 0).toLocaleString("ar-EG")} ج.م
                     </span>
                   </div>
                 )}
 
                 {isFlexShipSupported && orderData.enableFlexShip && (
                   <div className="flex justify-between items-center pt-2.5">
-                    <span className="text-slate-300">رسوم الشحن المرن (FlexShip):</span>
-                    <span className="font-mono text-indigo-400">
+                    <span className="text-slate-600 dark:text-slate-400">رسوم الشحن المرن (FlexShip):</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
                       +{Number(orderData.flexShipFee || 150).toLocaleString("ar-EG")} ج.م
                     </span>
                   </div>
@@ -3487,15 +4320,15 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                 {activeVatAmount > 0 && (
                   <div className="flex justify-between items-center pt-2.5">
-                    <span className="text-slate-300">ضريبة القيمة المضافة (VAT 14%):</span>
-                    <span className="font-mono text-sky-400">
-                      +{activeVatAmount.toLocaleString("ar-EG")} ج.م
+                    <span className="text-slate-600 dark:text-slate-400">ضريبة القيمة المضافة (VAT 14%):</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(activeVatAmount ?? 0).toLocaleString("ar-EG")} ج.م
                     </span>
                   </div>
                 )}
 
                 {Number(orderData.discount || 0) > 0 && (
-                  <div className="flex justify-between items-center pt-2.5 text-emerald-400">
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
                     <span>خصم إضافي على الفاتورة:</span>
                     <span className="font-mono font-black text-base">
                       -{Number(orderData.discount).toLocaleString("ar-EG")} ج.م
@@ -3504,7 +4337,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
 
                 {Number(orderData.advancePayment || 0) > 0 && (
-                  <div className="flex justify-between items-center pt-2.5 text-emerald-400">
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
                     <span>عربون مدفوع مقدماً (Advance):</span>
                     <span className="font-mono font-black text-base">
                       -{Number(orderData.advancePayment).toLocaleString("ar-EG")} ج.م
@@ -3513,7 +4346,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
 
                 {Number(creditAmount) > 0 && (
-                  <div className="flex justify-between items-center pt-2.5 text-emerald-400">
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
                     <span>رصيد دائن مخصوم للعميل:</span>
                     <span className="font-mono font-black">
                       -{Number(creditAmount).toLocaleString("ar-EG")} ج.م
@@ -3522,7 +4355,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
 
                 {orderData.returnCashToCustomer && Number(orderData.cashToReturnAmount || 0) > 0 && (
-                  <div className="flex justify-between items-center pt-2.5 text-rose-400">
+                  <div className="flex justify-between items-center pt-2.5 text-rose-600 dark:text-rose-400">
                     <span>نقدية مستردة للعميل مع المندوب:</span>
                     <span className="font-mono font-black">
                       -{Number(orderData.cashToReturnAmount).toLocaleString("ar-EG")} ج.م
@@ -3532,30 +4365,30 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </div>
 
               {/* Grand Total COD Banner */}
-              <div className="p-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 space-y-1.5 mt-4">
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/20 space-y-2.5 mt-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-black text-xs uppercase tracking-wider opacity-90">
+                  <span className="font-black text-xs uppercase tracking-wider text-indigo-100">
                     المبلغ المطلوب تحصيله (COD):
                   </span>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-black text-2xl tracking-tight">
-                      {finalAmount.toLocaleString("ar-EG")} <span className="text-sm font-bold">ج.م</span>
+                    <span className="font-mono font-black text-2xl tracking-tight text-white">
+                      {(finalAmount ?? 0).toLocaleString("ar-EG")} <span className="text-sm font-bold">ج.م</span>
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowEditTotalModal(true)}
-                      className="p-2 bg-white/20 hover:bg-white/30 text-white rounded-xl shadow-sm transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer active:scale-95"
+                      className="p-2 px-2.5 bg-white/15 hover:bg-white/25 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer active:scale-95 border border-white/20"
                       title="تعديل وتقفيل المبلغ المطلوب تحصيله يدوياً"
                     >
-                      <Edit3 size={15} />
+                      <Edit3 size={14} />
                       <span>تعديل يدوي</span>
                     </button>
                   </div>
                 </div>
                 {orderData.totalAmountOverride !== undefined && orderData.totalAmountOverride !== null && String(orderData.totalAmountOverride).trim() !== "" && (
-                  <div className="flex items-center justify-between bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-400/30 mt-2">
+                  <div className="flex items-center justify-between bg-indigo-950/60 p-2.5 rounded-xl border border-indigo-400/40 mt-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-emerald-100">
+                      <span className="text-[11px] font-bold text-indigo-100">
                         ⚠️ تم فرض المبلغ يدوياً: {Number(orderData.totalAmountOverride).toLocaleString("ar-EG")} ج.م ({orderData.totalAmountOverrideReason || "بدون سبب"})
                       </span>
                     </div>
@@ -3565,9 +4398,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         handleFieldChange("totalAmountOverride", undefined);
                         handleFieldChange("totalAmountOverrideReason", undefined);
                       }}
-                      className="text-[10px] bg-rose-500/80 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
+                      className="text-[10px] bg-rose-500/90 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
                     >
-                      إلغاء التعديل والعودة للتلقائي
+                      إلغاء التعديل
                     </button>
                   </div>
                 )}
@@ -3577,16 +4410,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               <div className="space-y-3 pt-2">
                 <button
                   type="submit"
-                  className="w-full py-4 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-600 hover:from-indigo-600 hover:to-purple-600 text-white font-black rounded-2xl shadow-xl shadow-indigo-500/25 hover:shadow-indigo-500/40 transition-all flex items-center justify-center gap-3 text-base active:scale-[0.99] cursor-pointer"
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-600/25 hover:shadow-indigo-600/40 transition-all flex items-center justify-center gap-3 text-base active:scale-[0.98] cursor-pointer"
                 >
                   <Save size={20} />
-                  <span>{isEditing ? "حفظ التعديلات على الطلب" : "🚀 إتمام وحفظ الطلب الآن"}</span>
+                  <span>{isEditing ? "حفظ التعديلات على الطلب" : "إتمام وحفظ الطلب الآن"}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="w-full py-3 bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white font-bold rounded-2xl transition-all text-xs text-center block cursor-pointer"
+                  className="w-full py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 font-bold rounded-2xl transition-all text-xs text-center block cursor-pointer border border-slate-200/60 dark:border-slate-700/60"
                 >
                   إلغاء والعودة للقائمة الرئيسية
                 </button>
@@ -3622,6 +4455,14 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           }}
         />
       )}
+
+      <AddCustomItemModal
+        isOpen={showAddCustomModal}
+        onClose={() => setShowAddCustomModal(false)}
+        onAdd={(item) => {
+          handleFieldChange("items", [...getArray(orderData.items), item]);
+        }}
+      />
     </div>
   );
 };

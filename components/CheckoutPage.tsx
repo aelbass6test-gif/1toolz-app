@@ -86,7 +86,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
       discount = (sub * code.value) / 100;
     }
     setDiscountAmount(discount);
-    setCouponMessage(`تم تطبيق خصم بقيمة ${discount.toLocaleString()} ج.م`);
+    setCouponMessage(`تم تطبيق خصم بقيمة ${(discount ?? 0).toLocaleString()} ج.م`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -338,7 +338,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                         </div>
                         <div className="text-right">
                           <p className="font-black text-sm text-slate-800 mb-1 line-clamp-1">{item.name}</p>
-                          <p className="text-[10px] text-slate-400 font-bold">السعر للقطعة: {item.price.toLocaleString()} ج.م</p>
+                          <p className="text-[10px] text-slate-400 font-bold">السعر للقطعة: {(item.price ?? 0).toLocaleString()} ج.م</p>
                         </div>
                       </div>
                       <p className="font-black text-sm text-slate-900">{(item.price * item.quantity).toLocaleString()} <span className="text-[10px] text-slate-400 mr-1">ج.م</span></p>
@@ -364,18 +364,18 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                 <div className="space-y-5 mt-10 p-8 bg-slate-50 rounded-[2.5rem] border border-slate-200">
                   <div className="flex justify-between items-center text-sm font-bold text-slate-500">
                     <span>المجموع الفرعي</span>
-                    <span className="font-black text-slate-900">{subtotal.toLocaleString()} ج.م</span>
+                    <span className="font-black text-slate-900">{(subtotal ?? 0).toLocaleString()} ج.م</span>
                   </div>
                   <div className="flex justify-between items-center text-sm font-bold text-slate-500">
                     <span>رسوم الشحن والتوصيل</span>
                     <span className="font-black text-slate-900">
-                      {shippingFee > 0 ? `${shippingFee.toLocaleString()} ج.م` : shippingArea ? '0 ج.م (مجاناً)' : 'يحدد لاحقاً'}
+                      {shippingFee > 0 ? `${(shippingFee ?? 0).toLocaleString()} ج.م` : shippingArea ? '0 ج.م (مجاناً)' : 'يحدد لاحقاً'}
                     </span>
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between items-center text-sm font-black text-emerald-500">
                       <span>خصم الكوبون</span>
-                      <span>-{discountAmount.toLocaleString()} ج.م</span>
+                      <span>-{(discountAmount ?? 0).toLocaleString()} ج.م</span>
                     </div>
                   )}
                   <div className="h-px bg-slate-200 my-2" />
@@ -383,7 +383,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                     <span className="text-xl font-black text-slate-900">الإجمالي</span>
                     <div className="text-right">
                       <span className="text-3xl font-black text-indigo-600">
-                        {total.toLocaleString()}
+                        {(total ?? 0).toLocaleString()}
                       </span>
                       <span className="text-xs font-black text-indigo-400 mr-2 uppercase italic">ج.م</span>
                     </div>

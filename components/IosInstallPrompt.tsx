@@ -28,7 +28,7 @@ const IosInstallPrompt: React.FC<IosInstallPromptProps> = ({ onClose }) => {
             </div>
 
             <h2 className="text-2xl font-black text-slate-800 dark:text-white">تثبيت التطبيق على آيفون</h2>
-            <p className="text-slate-500 dark:text-slate-400">تصفح أسرع وتنبيهات مباشرة عن طريق إضافة مدير الأوردرات لشاشتك الرئيسية</p>
+            <p className="text-slate-500 dark:text-slate-400">تصفح أسرع وتنبيهات مباشرة عن طريق إضافة تطبيق عبدو ميديا برايم لشاشتك الرئيسية</p>
 
             <div className="w-full bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-6 space-y-6">
               <div className="flex items-center gap-4 text-right">

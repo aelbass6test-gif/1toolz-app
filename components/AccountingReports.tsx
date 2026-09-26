@@ -576,7 +576,7 @@ const BalanceSheet = ({ orders, settings, wallet }: Omit<Props, 'activeStore'>) 
             
             <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
                 <span className="text-xs font-bold text-slate-500 flex items-center justify-center gap-2">
-                    <FileText size={14} /> المعادلة المحاسبية: الأصول ({stats.totalAssets.toLocaleString('ar-EG')}) = الخصوم ({stats.accountPayables.toLocaleString('ar-EG')}) + حقوق الملكية ({stats.totalEquity.toLocaleString('ar-EG')})
+                    <FileText size={14} /> المعادلة المحاسبية: الأصول ({(stats.totalAssets ?? 0).toLocaleString('ar-EG')}) = الخصوم ({(stats.accountPayables ?? 0).toLocaleString('ar-EG')}) + حقوق الملكية ({(stats.totalEquity ?? 0).toLocaleString('ar-EG')})
                 </span>
             </div>
         </div>
@@ -758,7 +758,7 @@ const ReceivablesAging = ({ orders }: { orders: Order[] }) => {
                         
                         <div className="pt-4 border-t mt-4 flex justify-between items-center bg-slate-50 dark:bg-slate-800/30 p-4 rounded-2xl">
                             <span className="font-black text-slate-700 dark:text-slate-300">الإجمالي المعلق</span>
-                            <span className="text-xl font-black text-purple-600">{stats.total.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="text-xl font-black text-purple-600">{(stats.total ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                     </div>
                 </div>
@@ -771,7 +771,7 @@ const ReceivablesAging = ({ orders }: { orders: Order[] }) => {
                         {Object.entries(stats.byCompany).sort((a,b) => b[1] - a[1]).map(([comp, amt]) => (
                              <div key={comp} className="flex justify-between items-center p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                                 <span className="font-bold text-slate-600 dark:text-slate-400">{comp}</span>
-                                <span className="font-black text-slate-800 dark:text-slate-200">{amt.toLocaleString('ar-EG')} ج.م</span>
+                                <span className="font-black text-slate-800 dark:text-slate-200">{(amt ?? 0).toLocaleString('ar-EG')} ج.م</span>
                              </div>
                         ))}
                         {Object.keys(stats.byCompany).length === 0 && (
@@ -804,7 +804,7 @@ const AgingProgressBar = ({ label, value, total, color }: { label: string; value
         <div className="space-y-1.5 font-sans">
             <div className="flex justify-between text-xs font-bold">
                 <span className="text-slate-500">{label}</span>
-                <span className={textColors[color]}>{value.toLocaleString('ar-EG')} ج.م</span>
+                <span className={textColors[color]}>{(value ?? 0).toLocaleString('ar-EG')} ج.م</span>
             </div>
             <div className="h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                 <motion.div 
@@ -839,8 +839,8 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
         if (!simHolder || simAmount <= 0 || !setSettings) return;
         
         const confirmMsg = simType === 'deposit'
-            ? `هل أنت متأكد من تنفيذ توريد مبلغ ${simAmount.toLocaleString()} ج.م من عهدة ${simHolder.name} يدوياً للخزينة؟ (سيؤدي ذلك لتحديث رصيد العهدة فقط)`
-            : `هل أنت متأكد من تحويل مبلغ ${simAmount.toLocaleString()} ج.م من عهدة ${simHolder.name} لسحوبات شخصية؟ (سيتم خصمه نهائياً من رصيد الشريك الجاري وتصفير عهدته الموازية)`;
+            ? `هل أنت متأكد من تنفيذ توريد مبلغ ${(simAmount ?? 0).toLocaleString()} ج.م من عهدة ${simHolder.name} يدوياً للخزينة؟ (سيؤدي ذلك لتحديث رصيد العهدة فقط)`
+            : `هل أنت متأكد من تحويل مبلغ ${(simAmount ?? 0).toLocaleString()} ج.م من عهدة ${simHolder.name} لسحوبات شخصية؟ (سيتم خصمه نهائياً من رصيد الشريك الجاري وتصفير عهدته الموازية)`;
 
         const ok = await inAppConfirm(confirmMsg, {
             title: 'تأكيد التسوية المالية للعهدة',
@@ -867,7 +867,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                     toUserName: 'تصفية عهدة (توريد يدوي للخزينة)',
                     amount: simAmount,
                     date: dateStr,
-                    notes: `تصفية يدوية للعهدة بقيمة ${simAmount.toLocaleString()} ج.م تم توريدها يدوياً للخزينة (تسوية مباشرة)`,
+                    notes: `تصفية يدوية للعهدة بقيمة ${(simAmount ?? 0).toLocaleString()} ج.م تم توريدها يدوياً للخزينة (تسوية مباشرة)`,
                     status: 'completed'
                 };
                 newSettings.cashHandovers = [handoverData, ...(newSettings.cashHandovers || [])];
@@ -912,7 +912,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                     toUserName: 'تسوية رصيد (خصم من الشريك)',
                     amount: simAmount,
                     date: dateStr,
-                    notes: `تصفية العهدة المعلقة بقيمة ${simAmount.toLocaleString()} ج.م وتحويلها لمسحوبات من رصيد الشريك (تصفية نهائية)`,
+                    notes: `تصفية العهدة المعلقة بقيمة ${(simAmount ?? 0).toLocaleString()} ج.م وتحويلها لمسحوبات من رصيد الشريك (تصفية نهائية)`,
                     status: 'completed'
                 };
                 newSettings.cashHandovers = [handoverData, ...(newSettings.cashHandovers || [])];
@@ -934,7 +934,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                     id: `log-${Date.now()}`,
                     user: 'الادارة',
                     action: simType === 'deposit' ? 'تصفية عهدة يدوية' : 'تحويل عهدة لمسحوبات',
-                    details: `تمت معالجة عهدة ${simHolder.name} بقيمة ${simAmount.toLocaleString()} ج.م عبر ${simType === 'deposit' ? 'توريد يدوي' : 'تحويل لمسحوبات'}.`,
+                    details: `تمت معالجة عهدة ${simHolder.name} بقيمة ${(simAmount ?? 0).toLocaleString()} ج.م عبر ${simType === 'deposit' ? 'توريد يدوي' : 'تحويل لمسحوبات'}.`,
                     date: new Date().toLocaleString('ar-EG'),
                     timestamp: Date.now()
                 },
@@ -1231,7 +1231,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
                     <div style="padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fafafa; text-align: center;">
                         <div style="font-size: 13px; color: #64748b; font-weight: 600;">إجمالي العُهد المستحقة</div>
-                        <div style="font-size: 26px; font-weight: 900; color: #4f46e5; margin-top: 5px;">${total.toLocaleString()} ج.م</div>
+                        <div style="font-size: 26px; font-weight: 900; color: #4f46e5; margin-top: 5px;">${(total ?? 0).toLocaleString()} ج.م</div>
                     </div>
                     <div style="padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fafafa; text-align: center;">
                         <div style="font-size: 13px; color: #64748b; font-weight: 600;">عدد أصحاب العُهد النشطة</div>
@@ -1262,7 +1262,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                                         ${h.type === 'partner' ? 'شريك ومستلم' : h.type === 'employee' ? 'موظف مبيعات' : 'حساب عهدة'}
                                     </span>
                                 </td>
-                                <td style="padding: 12px; font-weight: 800; color: ${h.balance > 15000 ? '#b91c1c' : '#0f172a'}; font-size: 13px;">${h.balance.toLocaleString()} ج.م</td>
+                                <td style="padding: 12px; font-weight: 800; color: ${h.balance > 15000 ? '#b91c1c' : '#0f172a'}; font-size: 13px;">${(h.balance ?? 0).toLocaleString()} ج.م</td>
                                 <td style="padding: 12px; text-align: center; color: #64748b;">${new Date(h.date).toLocaleDateString('ar-EG')}</td>
                             </tr>
                         `).join('')}
@@ -1329,7 +1329,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                                {/* Balance */}
                                <div className="mt-4 flex items-baseline gap-1.5">
                                    <span className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">
-                                       {h.balance.toLocaleString()}
+                                       {(h.balance ?? 0).toLocaleString()}
                                    </span>
                                    <span className="text-xs font-extrabold text-slate-400">ج.م</span>
                                </div>
@@ -1422,7 +1422,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                             >
                                 <option value="" disabled>-- اختر الحساب --</option>
                                 {holders.map(h => (
-                                    <option key={h.id} value={h.id}>{h.name} (الرصيد الحالي: {h.balance.toLocaleString()} ج.م)</option>
+                                    <option key={h.id} value={h.id}>{h.name} (الرصيد الحالي: {(h.balance ?? 0).toLocaleString()} ج.م)</option>
                                 ))}
                             </select>
                         </div>
@@ -1431,7 +1431,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                         <div className="space-y-2">
                             <div className="flex justify-between items-center">
                                 <label className="text-[11px] font-black text-slate-500 dark:text-slate-400">مبلغ التسوية المُراد:</label>
-                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{simAmount.toLocaleString()} ج.م</span>
+                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 tabular-nums">{(simAmount ?? 0).toLocaleString()} ج.م</span>
                             </div>
                             <input 
                                 type="range" 
@@ -1532,11 +1532,11 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                                         <p className="text-[11px] text-slate-400 leading-relaxed">
                                             {simType === 'deposit' ? (
                                                 <>
-                                                    عند توريد مبلغ <span className="text-emerald-400 font-extrabold">{simAmount.toLocaleString()} ج.م</span> يدوياً للخزينة، فإن هذا الإجراء <strong className="text-emerald-400">لا يُنقص قرشاً واحداً</strong> من رأس مال الشريك {simHolder.name.split(' ')[0]} أو حصته. يتم فقط استلام الكاش وحذف العهدة عنه، ليعود المال لخزينة الشركة الرئيسية لتعزيز دورتها التشغيلية.
+                                                    عند توريد مبلغ <span className="text-emerald-400 font-extrabold">{(simAmount ?? 0).toLocaleString()} ج.م</span> يدوياً للخزينة، فإن هذا الإجراء <strong className="text-emerald-400">لا يُنقص قرشاً واحداً</strong> من رأس مال الشريك {simHolder.name.split(' ')[0]} أو حصته. يتم فقط استلام الكاش وحذف العهدة عنه، ليعود المال لخزينة الشركة الرئيسية لتعزيز دورتها التشغيلية.
                                                 </>
                                             ) : (
                                                 <>
-                                                    عند تحويل مبلغ <span className="text-indigo-400 font-extrabold">{simAmount.toLocaleString()} ج.م</span> لسحوبات شخصية، يتم <strong className="text-rose-400">اقتطاعه نهائياً</strong> من حصة الشريك {simHolder.name.split(' ')[0]} في الأرباح أو مستحقات رأس المال. هنا فقط تتحول العُهدة المؤقتة إلى سحوبات شخصية حقيقية مطروحة من رأس المال والمركز المالي الخاص به.
+                                                    عند تحويل مبلغ <span className="text-indigo-400 font-extrabold">{(simAmount ?? 0).toLocaleString()} ج.م</span> لسحوبات شخصية، يتم <strong className="text-rose-400">اقتطاعه نهائياً</strong> من حصة الشريك {simHolder.name.split(' ')[0]} في الأرباح أو مستحقات رأس المال. هنا فقط تتحول العُهدة المؤقتة إلى سحوبات شخصية حقيقية مطروحة من رأس المال والمركز المالي الخاص به.
                                                 </>
                                             )}
                                         </p>
@@ -1592,7 +1592,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                           <h3 className="text-lg font-black text-slate-800 dark:text-white leading-tight">سجل حركات العُهدة: {selectedHolder.name}</h3>
                           <div className="flex items-center gap-2 mt-1">
                             <span className="text-[10px] font-bold text-slate-400">الرصيد المعلق حالياً:</span>
-                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{selectedHolder.balance.toLocaleString()} ج.م</span>
+                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">{(selectedHolder.balance ?? 0).toLocaleString()} ج.م</span>
                           </div>
                         </div>
                       </div>
@@ -1655,7 +1655,7 @@ export const CustodyLedger = ({ settings, treasury, orders = [], setSettings }: 
                                     <div className={`text-sm font-black ${
                                       isAdvance ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
                                     }`}>
-                                      +{movement.amount.toLocaleString()} ج.م
+                                      +{(movement.amount ?? 0).toLocaleString()} ج.م
                                     </div>
                                     <div className="text-[9px] font-black text-slate-400 mt-0.5">
                                       {isAdvance ? 'عربون طلب شحن' : 'تحصيل مبيعات كاشير'}
@@ -1777,7 +1777,7 @@ const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
                     <WalletIcon size={20} className="text-emerald-500" />
                     <div>
                         <p className="text-[10px] text-emerald-600/70 font-bold uppercase tracking-wider">رصيد الصندوق المتاح</p>
-                        <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 leading-none">{wallet.balance.toLocaleString('ar-EG')} ج.م</p>
+                        <p className="text-2xl font-black text-emerald-700 dark:text-emerald-400 leading-none">{(wallet.balance ?? 0).toLocaleString('ar-EG')} ج.م</p>
                     </div>
                 </div>
              </div>
@@ -1818,11 +1818,11 @@ const WalletLedger = ({ wallet }: { wallet: Wallet }) => {
                                     </td>
                                     <td className="px-6 py-4 text-center whitespace-nowrap">
                                         <span className={`font-black text-sm tabular-nums ${tx.type === 'إيداع' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                                            {tx.type === 'إيداع' ? '+' : '-'}{tx.amount.toLocaleString()} ج.م
+                                            {tx.type === 'إيداع' ? '+' : '-'}{(tx.amount ?? 0).toLocaleString()} ج.م
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 text-center font-mono text-xs font-black text-slate-500 tabular-nums">
-                                        {tx.runningBalance.toLocaleString()}
+                                        {(tx.runningBalance ?? 0).toLocaleString()}
                                     </td>
                                     <td className="px-6 py-4 text-center whitespace-nowrap">
                                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black ${
@@ -1928,11 +1928,11 @@ const ProductProfitability = ({ orders, settings }: { orders: Order[], settings:
                                         <div className="font-bold text-slate-800 dark:text-slate-200">{p.name}</div>
                                     </td>
                                     <td className="px-4 py-4 text-center font-bold text-slate-600">{p.quantity}</td>
-                                    <td className="px-4 py-4 text-center font-mono text-xs">{p.revenue.toLocaleString('ar-EG')}</td>
-                                    <td className="px-4 py-4 text-center font-mono text-xs text-slate-400">{p.cost.toLocaleString('ar-EG')}</td>
+                                    <td className="px-4 py-4 text-center font-mono text-xs">{(p.revenue ?? 0).toLocaleString('ar-EG')}</td>
+                                    <td className="px-4 py-4 text-center font-mono text-xs text-slate-400">{(p.cost ?? 0).toLocaleString('ar-EG')}</td>
                                     <td className="px-4 py-4 text-center">
                                         <span className={`font-black text-xs ${profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {profit.toLocaleString('ar-EG')} ج.م
+                                            {(profit ?? 0).toLocaleString('ar-EG')} ج.م
                                         </span>
                                     </td>
                                     <td className="px-4 py-4 text-center">
@@ -1998,7 +1998,7 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
                         <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
                             <div>
                                 <span className="text-[10px] font-black text-slate-400 uppercase">الرصيد المتاح</span>
-                                <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">{p.currentBalance.toLocaleString()} ج.م</div>
+                                <div className="text-xl font-black text-indigo-600 dark:text-indigo-400">{(p.currentBalance ?? 0).toLocaleString()} ج.م</div>
                             </div>
                             <button className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl text-slate-400 hover:text-indigo-600 transition-colors">
                                 <ArrowUpRight size={20} />
@@ -2042,7 +2042,7 @@ const PartnerEquity = ({ settings, wallet, setSettings, setWallet, orders }: { s
                                              t.type === 'internal_transfer_out' ? 'تحويل صادر' : 'معاملة أخرى'}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3 font-black">{t.amount.toLocaleString()} ج.م</td>
+                                    <td className="px-4 py-3 font-black">{(t.amount ?? 0).toLocaleString()} ج.م</td>
                                     <td className="px-4 py-3 text-slate-500">{t.note}</td>
                                 </tr>
                             ))}
@@ -2079,7 +2079,7 @@ const MarketingROI = ({ orders, wallet }: { orders: Order[], wallet: Wallet }) =
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                  <div className="bg-white dark:bg-slate-900 border-2 border-indigo-500/20 p-5 rounded-2xl">
                      <p className="text-[10px] font-black text-slate-400 uppercase mb-1">إجمالي الصرف التسويقي</p>
-                     <p className="text-2xl font-black text-indigo-600">{stats.totalAdSpend.toLocaleString()} ج.م</p>
+                     <p className="text-2xl font-black text-indigo-600">{(stats.totalAdSpend ?? 0).toLocaleString()} ج.م</p>
                  </div>
                  <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/20 p-5 rounded-2xl">
                      <p className="text-[10px] font-black text-slate-400 uppercase mb-1">العائد على الإعلان (ROAS)</p>
@@ -2124,7 +2124,7 @@ const MarketingROI = ({ orders, wallet }: { orders: Order[], wallet: Wallet }) =
                                       <p className="text-xs font-bold text-slate-800 dark:text-white">{t.note}</p>
                                       <p className="text-[10px] text-slate-400">{new Date(t.date).toLocaleDateString('ar-EG')}</p>
                                   </div>
-                                  <span className="font-black text-rose-500 text-sm">-{t.amount.toLocaleString('ar-EG')} ج.م</span>
+                                  <span className="font-black text-rose-500 text-sm">-{(t.amount ?? 0).toLocaleString('ar-EG')} ج.م</span>
                               </div>
                           ))}
                           {stats.sampleAdExpenses.length === 0 && (
@@ -2218,7 +2218,7 @@ const InventoryVelocity = ({ orders, settings }: { orders: Order[], settings: Se
                  </div>
                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm">
                      <p className="text-xs text-slate-400 font-bold mb-1">تكلفة البضاعة المباعة (COGS)</p>
-                     <p className="text-2xl font-black text-teal-500">{stats.totalCOGS.toLocaleString('ar-EG')} <span className="text-xs">ج.م</span></p>
+                     <p className="text-2xl font-black text-teal-500">{(stats.totalCOGS ?? 0).toLocaleString('ar-EG')} <span className="text-xs">ج.م</span></p>
                  </div>
                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl shadow-sm">
                      <p className="text-xs text-slate-400 font-bold mb-1">معدل دوران المخزون (Turns)</p>
@@ -2572,14 +2572,14 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     <div className="absolute top-0 left-0 w-64 h-64 bg-white/5 rounded-full -translate-x-16 -translate-y-16" />
                     <div>
                         <span className="text-sm font-bold bg-white/20 px-3.5 py-1 rounded-full text-white/90">إجمالي ملاءة النشاط ورأس المال الحالي (معايا كام؟)</span>
-                        <h2 className="text-4xl lg:text-5xl font-black mt-4 leading-none">{stats.totalActivityNetWorth.toLocaleString('ar-EG')} <span className="text-lg">ج.م</span></h2>
+                        <h2 className="text-4xl lg:text-5xl font-black mt-4 leading-none">{(stats.totalActivityNetWorth ?? 0).toLocaleString('ar-EG')} <span className="text-lg">ج.م</span></h2>
                         <p className="text-xs text-purple-100 mt-3 leading-relaxed font-medium">
                             هذه هي القيمة الفعلية الكلية لمشروعك الآن (السيولة الكاش + بضاعة المخازن بالتكلفة + الأموال المعلقة لدى الشحن - مديونيات الموردين).
                         </p>
                     </div>
                     
                     <div className="mt-4 pt-4 border-t border-white/10 text-[11px] text-purple-100/90 font-mono">
-                        المعادلة: السيولة ({stats.totalCashLiquidity.toLocaleString('ar-EG')}) + المخزون ({stats.inventoryValue.toLocaleString('ar-EG')}) + معلقات الشحن ({stats.receivablesPending.toLocaleString('ar-EG')}) - ديون الموردين ({stats.supplierPayables.toLocaleString('ar-EG')})
+                        المعادلة: السيولة ({(stats.totalCashLiquidity ?? 0).toLocaleString('ar-EG')}) + المخزون ({(stats.inventoryValue ?? 0).toLocaleString('ar-EG')}) + معلقات الشحن ({(stats.receivablesPending ?? 0).toLocaleString('ar-EG')}) - ديون الموردين ({(stats.supplierPayables ?? 0).toLocaleString('ar-EG')})
                     </div>
                 </div>
 
@@ -2591,7 +2591,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <WalletIcon size={20} />
                             </div>
                         </div>
-                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mt-4">{stats.totalCashLiquidity.toLocaleString('ar-EG')} <span className="text-sm">ج.م</span></h3>
+                        <h3 className="text-3xl font-black text-slate-800 dark:text-white mt-4">{(stats.totalCashLiquidity ?? 0).toLocaleString('ar-EG')} <span className="text-sm">ج.م</span></h3>
                         <p className="text-xs text-slate-450 dark:text-slate-400 mt-2">
                             النقدية الجاهزة حالياً للاستخدام في جميع الخزائن ومحفظة التوريد والعهد.
                         </p>
@@ -2599,15 +2599,15 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     <div className="pt-4 border-t border-slate-200 dark:border-slate-800 grid grid-cols-3 gap-2 text-center text-[10px]">
                         <div>
                             <span className="text-slate-400 block font-medium">المحفظة العامة</span>
-                            <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{stats.mainWalletBalance.toLocaleString('ar-EG')}</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{(stats.mainWalletBalance ?? 0).toLocaleString('ar-EG')}</span>
                         </div>
                         <div>
                             <span className="text-slate-400 block font-medium">محفظة التوريد</span>
-                            <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{stats.supplyWalletBalance.toLocaleString('ar-EG')}</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{(stats.supplyWalletBalance ?? 0).toLocaleString('ar-EG')}</span>
                         </div>
                         <div>
                             <span className="text-slate-400 block font-medium">حسابات وبنوك</span>
-                            <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{stats.treasuryAccountsBalance.toLocaleString('ar-EG')}</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 block mt-1">{(stats.treasuryAccountsBalance ?? 0).toLocaleString('ar-EG')}</span>
                         </div>
                     </div>
                 </div>
@@ -2649,7 +2649,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     <div className="p-6 space-y-4">
                         <div className="flex justify-between items-center text-sm">
                             <span className="text-slate-500">قيمة الستوك الحالي بالتكلفة</span>
-                            <span className="font-bold text-slate-800 dark:text-slate-200">{stats.inventoryValue.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">{(stats.inventoryValue ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                         <p className="text-[10px] text-slate-450 dark:text-slate-400 leading-relaxed border-t pt-3">
                             يمثل رأس مال بضائعك المتواجدة حالياً على الرفوف والتي لم تُبع بعد. عند الشراء يزداد هذا البند ويقل الكاش، وعند البيع يقل هذا البند ويزداد الكاش.
@@ -2672,16 +2672,16 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 flex items-center gap-1">
                                     <Truck size={13} /> طلبات الشحن ({stats.shipCompletedCount})
                                 </span>
-                                <span className="text-xs font-black text-indigo-800 dark:text-indigo-300">{stats.shipProductRevenueRecovered.toLocaleString('ar-EG')} ج.م</span>
+                                <span className="text-xs font-black text-indigo-800 dark:text-indigo-300">{(stats.shipProductRevenueRecovered ?? 0).toLocaleString('ar-EG')} ج.م</span>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-200 dark:border-slate-800">
                                 <div>
                                     <span className="text-slate-450 block">التكلفة (COGS):</span>
-                                    <span className="font-bold text-slate-700 dark:text-slate-300">{stats.shipCOGSOfSoldGoods.toLocaleString('ar-EG')}</span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-300">{(stats.shipCOGSOfSoldGoods ?? 0).toLocaleString('ar-EG')}</span>
                                 </div>
                                 <div>
                                     <span className="text-emerald-600 block">صافي الربح:</span>
-                                    <span className="font-bold text-emerald-600">+{stats.shipNetProfitOfSoldGoods.toLocaleString('ar-EG')}</span>
+                                    <span className="font-bold text-emerald-600">+{(stats.shipNetProfitOfSoldGoods ?? 0).toLocaleString('ar-EG')}</span>
                                 </div>
                             </div>
                         </div>
@@ -2692,23 +2692,23 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <span className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1">
                                     <ShoppingCart size={13} /> نقاط البيع POS ({stats.posCompletedCount})
                                 </span>
-                                <span className="text-xs font-black text-amber-800 dark:text-amber-300">{stats.posProductRevenueRecovered.toLocaleString('ar-EG')} ج.م</span>
+                                <span className="text-xs font-black text-amber-800 dark:text-amber-300">{(stats.posProductRevenueRecovered ?? 0).toLocaleString('ar-EG')} ج.م</span>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-slate-200 dark:border-slate-800">
                                 <div>
                                     <span className="text-slate-450 block">التكلفة (COGS):</span>
-                                    <span className="font-bold text-slate-700 dark:text-slate-300">{stats.posCOGSOfSoldGoods.toLocaleString('ar-EG')}</span>
+                                    <span className="font-bold text-slate-700 dark:text-slate-300">{(stats.posCOGSOfSoldGoods ?? 0).toLocaleString('ar-EG')}</span>
                                 </div>
                                 <div>
                                     <span className="text-emerald-600 block">صافي الربح:</span>
-                                    <span className="font-bold text-emerald-600">+{stats.posNetProfitOfSoldGoods.toLocaleString('ar-EG')}</span>
+                                    <span className="font-bold text-emerald-600">+{(stats.posNetProfitOfSoldGoods ?? 0).toLocaleString('ar-EG')}</span>
                                 </div>
                             </div>
                         </div>
 
                         <div className="flex justify-between items-center text-xs font-bold border-t pt-2 text-slate-800 dark:text-slate-200">
                             <span>إجمالي المسترد (تكلفة + ربح)</span>
-                            <span className="font-black text-emerald-600">{stats.totalProductRevenueRecovered.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="font-black text-emerald-600">{(stats.totalProductRevenueRecovered ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                     </div>
                 </div>
@@ -2724,11 +2724,11 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     <div className="p-6 space-y-3">
                         <div className="flex justify-between items-center text-xs">
                             <span className="text-slate-500">مشتريات بضائع جديدة (تخزين)</span>
-                            <span className="font-bold text-slate-700 dark:text-slate-300">-{stats.totalStockPurchases.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-300">-{(stats.totalStockPurchases ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                         <div className="flex justify-between items-center text-xs text-rose-600">
                             <span className="font-bold">المصروفات الإدارية والتشغيلية</span>
-                            <span className="font-bold">-{stats.totalAdminExpenses.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="font-bold">-{(stats.totalAdminExpenses ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                         <div className="flex justify-between items-center text-xs text-slate-550 border-t pt-2.5">
                             <span>إجمالي المصروفات والمشتريات</span>
@@ -2751,7 +2751,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     <div className="p-6 space-y-4">
                         <div className="flex justify-between items-center text-sm">
                             <span className="text-slate-500">مستحقات معلقة للاستلام</span>
-                            <span className="font-bold text-slate-800 dark:text-slate-200">{stats.receivablesPending.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">{(stats.receivablesPending ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                         <p className="text-[10px] text-slate-450 dark:text-slate-400 leading-relaxed border-t pt-3">
                             هذه المبالغ تقع ضمن ثروة مشروعك ورأس مالك الفعلي ولكنها مؤجلة الكاش حالياً لحين إيداع شركات الشحن للمبالغ المحصلة في حساباتك.
@@ -2770,7 +2770,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                     <div className="p-6 space-y-4">
                         <div className="flex justify-between items-center text-sm text-rose-600">
                             <span>إجمالي مستحقات الموردين الآجلة</span>
-                            <span className="font-bold">-{stats.supplierPayables.toLocaleString('ar-EG')} ج.م</span>
+                            <span className="font-bold">-{(stats.supplierPayables ?? 0).toLocaleString('ar-EG')} ج.م</span>
                         </div>
                         <p className="text-[10px] text-slate-450 dark:text-slate-400 leading-relaxed border-t pt-3">
                             المبالغ المعلقة التي قمت بشراء ستوك بضاعة بها بالآجل، ويجب تسديدها للموردين مستقبلاً من سيولتك النقدية.
@@ -2874,7 +2874,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex justify-between">
                                         <span>تكلفة الطلبات (COGS)</span>
-                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {shipCompletedCOGS.toLocaleString('ar-EG')} ج.م</span>
+                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {(shipCompletedCOGS ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                     </label>
                                     <div className="relative">
                                         <input
@@ -2892,7 +2892,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex justify-between">
                                         <span>صافي الربح</span>
-                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {shipCompletedProfit.toLocaleString('ar-EG')} ج.م</span>
+                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {(shipCompletedProfit ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                     </label>
                                     <div className="relative">
                                         <input
@@ -2910,7 +2910,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex justify-between">
                                         <span>الشحن المحصل من العملاء</span>
-                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {shipCollectedShippingFee.toLocaleString('ar-EG')} ج.م</span>
+                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {(shipCollectedShippingFee ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                     </label>
                                     <div className="relative">
                                         <input
@@ -2928,7 +2928,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <div className="space-y-1.5">
                                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex justify-between">
                                         <span>فرق التقفيل اليدوي ف المحفظة</span>
-                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {shipManualAdjustments.toLocaleString('ar-EG')} ج.م</span>
+                                        <span className="text-[10px] text-emerald-600 font-bold">تلقائي: {(shipManualAdjustments ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                     </label>
                                     <div className="relative">
                                         <input
@@ -2998,7 +2998,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                         <div className="space-y-1.5">
                             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex justify-between">
                                 <span>مصاريف الشحن للطلبات (ناجحة)</span>
-                                <span className="text-[10px] text-rose-600 font-bold">تلقائي: {computedShippingExpenses.toLocaleString('ar-EG')} ج.م</span>
+                                <span className="text-[10px] text-rose-600 font-bold">تلقائي: {(computedShippingExpenses ?? 0).toLocaleString('ar-EG')} ج.م</span>
                             </label>
                             <div className="relative">
                                 <input
@@ -3016,7 +3016,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                         <div className="space-y-1.5">
                             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex justify-between">
                                 <span>خسائر الشحن للأوردرات المرتجعة</span>
-                                <span className="text-[10px] text-rose-600 font-bold">تلقائي: {computedShippingLosses.toLocaleString('ar-EG')} ج.م</span>
+                                <span className="text-[10px] text-rose-600 font-bold">تلقائي: {(computedShippingLosses ?? 0).toLocaleString('ar-EG')} ج.م</span>
                             </label>
                             <div className="relative">
                                 <input
@@ -3067,7 +3067,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                             {settings.enableHiddenWalletAmount && settings.hiddenWalletAmount ? (
                                 <div className="mb-2">
                                     <span className="text-[10px] text-rose-500 font-bold bg-rose-50 dark:bg-rose-950/20 px-2 py-0.5 rounded-lg">
-                                        نشط حالياً: {settings.hiddenWalletAmount.toLocaleString('ar-EG')} ج.م
+                                        نشط حالياً: {(settings.hiddenWalletAmount ?? 0).toLocaleString('ar-EG')} ج.م
                                     </span>
                                 </div>
                             ) : null}
@@ -3104,7 +3104,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                             <div className="py-4 border-y border-emerald-100 dark:border-emerald-900/50">
                                 <span className="text-xs text-slate-500 block">صافي رصيدك المتاح للسحب الآن</span>
                                 <div className="text-4xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                                    {netWithdrawable.toLocaleString('ar-EG')} <span className="text-sm font-bold">ج.م</span>
+                                    {(netWithdrawable ?? 0).toLocaleString('ar-EG')} <span className="text-sm font-bold">ج.م</span>
                                 </div>
                             </div>
 
@@ -3115,16 +3115,16 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                     </span>
                                     <span className="font-bold text-slate-800 dark:text-white">
                                         {calcMode === 'deposits' 
-                                            ? totalDeposits.toLocaleString('ar-EG') 
+                                            ?(totalDeposits ?? 0).toLocaleString('ar-EG') 
                                             : calcMode === 'sales_withdrawal'
-                                                ? totalSalesCollection.toLocaleString('ar-EG')
+                                                ?(totalSalesCollection ?? 0).toLocaleString('ar-EG')
                                                 : (totalSalesCollection + totalDeposits).toLocaleString('ar-EG')
                                         } ج.م
                                     </span>
                                 </div>
                                 <div>
                                     <span className="text-slate-500 block">إجمالي الخصومات والمصاريف:</span>
-                                    <span className="font-bold text-rose-600">-{totalDeductions.toLocaleString('ar-EG')} ج.م</span>
+                                    <span className="font-bold text-rose-600">-{(totalDeductions ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                 </div>
                             </div>
                         </div>
@@ -3138,65 +3138,65 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 {calcMode === 'sales_plus_deposits' ? (
                                     <>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">مستحقات المبيعات المحصلة:</strong> تتكون من تكلفة البضاعة المباعة <span className="font-bold text-slate-800 dark:text-slate-200">{activeCOGS.toLocaleString('ar-EG')} ج.م</span> + صافي الأرباح <span className="font-bold text-slate-800 dark:text-slate-200">{activeProfit.toLocaleString('ar-EG')} ج.م</span> + الشحن المحصل <span className="font-bold text-slate-800 dark:text-slate-200">{activeCollectedShipping.toLocaleString('ar-EG')} ج.م</span> + فرق التقفيل اليدوي في المحفظة <span className="font-bold text-slate-800 dark:text-slate-200">{activeManualAdjustments.toLocaleString('ar-EG')} ج.م</span>. (المجموع = <span className="font-bold text-indigo-600">{totalSalesCollection.toLocaleString('ar-EG')} ج.م</span>).
+                                            <strong className="text-slate-800 dark:text-white">مستحقات المبيعات المحصلة:</strong> تتكون من تكلفة البضاعة المباعة <span className="font-bold text-slate-800 dark:text-slate-200">{(activeCOGS ?? 0).toLocaleString('ar-EG')} ج.م</span> + صافي الأرباح <span className="font-bold text-slate-800 dark:text-slate-200">{(activeProfit ?? 0).toLocaleString('ar-EG')} ج.م</span> + الشحن المحصل <span className="font-bold text-slate-800 dark:text-slate-200">{(activeCollectedShipping ?? 0).toLocaleString('ar-EG')} ج.م</span> + فرق التقفيل اليدوي في المحفظة <span className="font-bold text-slate-800 dark:text-slate-200">{(activeManualAdjustments ?? 0).toLocaleString('ar-EG')} ج.م</span>. (المجموع = <span className="font-bold text-indigo-600">{(totalSalesCollection ?? 0).toLocaleString('ar-EG')} ج.م</span>).
                                         </li>
                                         <li>
                                             <strong className="text-slate-800 dark:text-white">إيداعات الشحن والشركاء:</strong> قمت بإيداع <span className="font-bold text-slate-800 dark:text-slate-200">{(calcShippingDeposit + calcPartnerDeposit).toLocaleString('ar-EG')} ج.م</span> في المحفظة كأرصدة إضافية.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">إجمالي الخصومات والمصاريف:</strong> تحتجز شركة الشحن رسوم التوصيل الناجح <span className="font-bold text-rose-500">{activeShippingExpenses.toLocaleString('ar-EG')} ج.م</span> وتخصم رسوم المرتجعات الفاشلة <span className="font-bold text-rose-500">{activeShippingLosses.toLocaleString('ar-EG')} ج.م</span> + مصاريف أخرى بقيمة <span className="font-bold text-rose-500">{calcOtherExpenses.toLocaleString('ar-EG')} ج.م</span> (المجموع = <span className="font-bold text-rose-600">-{totalDeductions.toLocaleString('ar-EG')} ج.م</span>).
+                                            <strong className="text-slate-800 dark:text-white">إجمالي الخصومات والمصاريف:</strong> تحتجز شركة الشحن رسوم التوصيل الناجح <span className="font-bold text-rose-500">{(activeShippingExpenses ?? 0).toLocaleString('ar-EG')} ج.م</span> وتخصم رسوم المرتجعات الفاشلة <span className="font-bold text-rose-500">{(activeShippingLosses ?? 0).toLocaleString('ar-EG')} ج.م</span> + مصاريف أخرى بقيمة <span className="font-bold text-rose-500">{(calcOtherExpenses ?? 0).toLocaleString('ar-EG')} ج.م</span> (المجموع = <span className="font-bold text-rose-600">-{(totalDeductions ?? 0).toLocaleString('ar-EG')} ج.م</span>).
                                         </li>
                                         <li>
                                             <strong className="text-slate-800 dark:text-white">الباقي من رصيد الإيداعات:</strong> المتبقي من إيداعك بعد المصاريف والخسائر هو <span className="font-bold text-emerald-600">{(totalDeposits - totalDeductions).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li className="font-bold text-slate-800 dark:text-white bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-150 dark:border-emerald-900/30">
-                                            💡 المعادلة (طلبك): [ {totalSalesCollection.toLocaleString('ar-EG')} (المبيعات المحصلة) ] + [ { (totalDeposits - totalDeductions).toLocaleString('ar-EG') } (باقي رصيد إيداعات الشحن والشركاء بعد خصم المصاريف والخسائر) ] = <span className="text-emerald-600 font-black">{netWithdrawable.toLocaleString('ar-EG')} ج.م</span> وهو الصافي الكلي الآمن القابل للسحب.
+                                            💡 المعادلة (طلبك): [ {(totalSalesCollection ?? 0).toLocaleString('ar-EG')} (المبيعات المحصلة) ] + [ { (totalDeposits - totalDeductions).toLocaleString('ar-EG') } (باقي رصيد إيداعات الشحن والشركاء بعد خصم المصاريف والخسائر) ] = <span className="text-emerald-600 font-black">{(netWithdrawable ?? 0).toLocaleString('ar-EG')} ج.م</span> وهو الصافي الكلي الآمن القابل للسحب.
                                         </li>
                                     </>
                                 ) : calcMode === 'sales_withdrawal' ? (
                                     <>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">إجمالي مستحقاتك الكلية:</strong> تتكون من تكلفة البضاعة المباعة <span className="font-bold text-slate-800 dark:text-slate-200">{activeCOGS.toLocaleString('ar-EG')} ج.م</span> + صافي أرباحك <span className="font-bold text-slate-800 dark:text-slate-200">{activeProfit.toLocaleString('ar-EG')} ج.م</span> + قيمة مصاريف الشحن المحصلة من العملاء <span className="font-bold text-slate-800 dark:text-slate-200">{activeCollectedShipping.toLocaleString('ar-EG')} ج.م</span> + فرق التقفيل اليدوي في المحفظة <span className="font-bold text-slate-800 dark:text-slate-200">{activeManualAdjustments.toLocaleString('ar-EG')} ج.م</span>. المجموع الكلي المستحق لك هو <span className="font-bold text-indigo-600">{totalSalesCollection.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">إجمالي مستحقاتك الكلية:</strong> تتكون من تكلفة البضاعة المباعة <span className="font-bold text-slate-800 dark:text-slate-200">{(activeCOGS ?? 0).toLocaleString('ar-EG')} ج.م</span> + صافي أرباحك <span className="font-bold text-slate-800 dark:text-slate-200">{(activeProfit ?? 0).toLocaleString('ar-EG')} ج.م</span> + قيمة مصاريف الشحن المحصلة من العملاء <span className="font-bold text-slate-800 dark:text-slate-200">{(activeCollectedShipping ?? 0).toLocaleString('ar-EG')} ج.م</span> + فرق التقفيل اليدوي في المحفظة <span className="font-bold text-slate-800 dark:text-slate-200">{(activeManualAdjustments ?? 0).toLocaleString('ar-EG')} ج.م</span>. المجموع الكلي المستحق لك هو <span className="font-bold text-indigo-600">{(totalSalesCollection ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">خصم مصاريف الشحن الفعلي:</strong> شركة الشحن تحتجز رسوم الشحن (التوصيل) الفعلي للأوردرات الناجحة وقيمتها <span className="font-bold text-rose-500">{activeShippingExpenses.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">خصم مصاريف الشحن الفعلي:</strong> شركة الشحن تحتجز رسوم الشحن (التوصيل) الفعلي للأوردرات الناجحة وقيمتها <span className="font-bold text-rose-500">{(activeShippingExpenses ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">خصم خسائر شحن المرتجعات:</strong> عند إرجاع الطلبات الفاشلة، تخصم شركة الشحن رسوم شحن المرتجع ولا يتم تحصيل شيء من العميل، مما يعتبر خسارة صافية قدرها <span className="font-bold text-rose-500">{activeShippingLosses.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">خصم خسائر شحن المرتجعات:</strong> عند إرجاع الطلبات الفاشلة، تخصم شركة الشحن رسوم شحن المرتجع ولا يتم تحصيل شيء من العميل، مما يعتبر خسارة صافية قدرها <span className="font-bold text-rose-500">{(activeShippingLosses ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li className="font-bold text-slate-800 dark:text-white bg-indigo-50/50 dark:bg-indigo-950/20 p-2.5 rounded-xl border border-indigo-100/40 dark:border-indigo-900/20">
-                                            💡 المعادلة: [ {totalSalesCollection.toLocaleString('ar-EG')} (مستحقاتك) ] - [ {activeShippingExpenses.toLocaleString('ar-EG')} (الشحن الناجح) + {activeShippingLosses.toLocaleString('ar-EG')} (خسائر المرتجعات) + {calcOtherExpenses.toLocaleString('ar-EG')} (أي مصروفات أخرى) ] = <span className="text-emerald-600 font-black">{netWithdrawable.toLocaleString('ar-EG')} ج.م</span> وهو صافي المبلغ المتبقي والقابل للسحب بأمان من حسابك لدى شركة الشحن.
+                                            💡 المعادلة: [ {(totalSalesCollection ?? 0).toLocaleString('ar-EG')} (مستحقاتك) ] - [ {(activeShippingExpenses ?? 0).toLocaleString('ar-EG')} (الشحن الناجح) + {(activeShippingLosses ?? 0).toLocaleString('ar-EG')} (خسائر المرتجعات) + {(calcOtherExpenses ?? 0).toLocaleString('ar-EG')} (أي مصروفات أخرى) ] = <span className="text-emerald-600 font-black">{(netWithdrawable ?? 0).toLocaleString('ar-EG')} ج.م</span> وهو صافي المبلغ المتبقي والقابل للسحب بأمان من حسابك لدى شركة الشحن.
                                         </li>
                                     </>
                                 ) : calcMode === 'simple_net' ? (
                                     <>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">مستحقات المبيعات المباشرة:</strong> تتكون من تكلفة البضاعة <span className="font-bold text-slate-800 dark:text-slate-200">{activeCOGS.toLocaleString('ar-EG')} ج.م</span> + صافي أرباحك <span className="font-bold text-slate-800 dark:text-slate-200">{activeProfit.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">مستحقات المبيعات المباشرة:</strong> تتكون من تكلفة البضاعة <span className="font-bold text-slate-800 dark:text-slate-200">{(activeCOGS ?? 0).toLocaleString('ar-EG')} ج.م</span> + صافي أرباحك <span className="font-bold text-slate-800 dark:text-slate-200">{(activeProfit ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">إيداعات الشحن والشركاء:</strong> المبالغ المودعة مسبقاً في المحفظة وقدرها <span className="font-bold text-indigo-600">{totalDeposits.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">إيداعات الشحن والشركاء:</strong> المبالغ المودعة مسبقاً في المحفظة وقدرها <span className="font-bold text-indigo-600">{(totalDeposits ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">خصم خسائر المرتجعات (فقط):</strong> يتم خصم خسائر شحن الأوردرات المرتجعة الفاشلة من المجموع <span className="font-bold text-rose-500">{activeShippingLosses.toLocaleString('ar-EG')} ج.م</span>. 
+                                            <strong className="text-slate-800 dark:text-white">خصم خسائر المرتجعات (فقط):</strong> يتم خصم خسائر شحن الأوردرات المرتجعة الفاشلة من المجموع <span className="font-bold text-rose-500">{(activeShippingLosses ?? 0).toLocaleString('ar-EG')} ج.م</span>. 
                                             <br/><span className="text-[10px] text-slate-500">ملاحظة: هذا النمط يستبعد الشحن المحصل والشحن المدفوع والتسويات الأخرى باعتبارهم متطابقين تقريباً.</span>
                                         </li>
                                         <li className="font-bold text-slate-800 dark:text-white bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 rounded-xl border border-emerald-100/40 dark:border-emerald-900/20">
-                                            💡 المعادلة (حسب طلبك): [ {activeCOGS.toLocaleString('ar-EG')} (تكلفة) ] + [ {activeProfit.toLocaleString('ar-EG')} (ربح) ] + [ {totalDeposits.toLocaleString('ar-EG')} (إيداعات) ] - [ {activeShippingLosses.toLocaleString('ar-EG')} (خسائر مرتجعات) ] = <span className="text-emerald-600 font-black">{netWithdrawable.toLocaleString('ar-EG')} ج.م</span>.
+                                            💡 المعادلة (حسب طلبك): [ {(activeCOGS ?? 0).toLocaleString('ar-EG')} (تكلفة) ] + [ {(activeProfit ?? 0).toLocaleString('ar-EG')} (ربح) ] + [ {(totalDeposits ?? 0).toLocaleString('ar-EG')} (إيداعات) ] - [ {(activeShippingLosses ?? 0).toLocaleString('ar-EG')} (خسائر مرتجعات) ] = <span className="text-emerald-600 font-black">{(netWithdrawable ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                     </>
                                 ) : (
                                     <>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">الإيداعات (السيولة المتاحة أصلاً):</strong> قمت بإيداع <span className="font-bold text-slate-800 dark:text-slate-200">{calcShippingDeposit.toLocaleString('ar-EG')} ج.م</span> (وهو مبلغ 1500 + 115 شحن البص) بالإضافة إلى <span className="font-bold text-slate-800 dark:text-slate-200">{calcPartnerDeposit.toLocaleString('ar-EG')} ج.م</span> للشريك زهرة والبص في المحفظة، مما يجعل مجموع كاش الإيداع الكلي بالمحفظة هو <span className="font-bold text-indigo-600">{totalDeposits.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">الإيداعات (السيولة المتاحة أصلاً):</strong> قمت بإيداع <span className="font-bold text-slate-800 dark:text-slate-200">{(calcShippingDeposit ?? 0).toLocaleString('ar-EG')} ج.م</span> (وهو مبلغ 1500 + 115 شحن البص) بالإضافة إلى <span className="font-bold text-slate-800 dark:text-slate-200">{(calcPartnerDeposit ?? 0).toLocaleString('ar-EG')} ج.م</span> للشريك زهرة والبص في المحفظة، مما يجعل مجموع كاش الإيداع الكلي بالمحفظة هو <span className="font-bold text-indigo-600">{(totalDeposits ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">مصاريف الشحن الفعلي:</strong> شركة الشحن تخصم رسوم الشحن (التوصيل) للطلبات التي تم تسليمها بنجاح للعملاء. في هذه الفترة بلغت <span className="font-bold text-rose-500">{activeShippingExpenses.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">مصاريف الشحن الفعلي:</strong> شركة الشحن تخصم رسوم الشحن (التوصيل) للطلبات التي تم تسليمها بنجاح للعملاء. في هذه الفترة بلغت <span className="font-bold text-rose-500">{(activeShippingExpenses ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li>
-                                            <strong className="text-slate-800 dark:text-white">خسائر المرتجعات (خسائر شحن فاشل):</strong> عندما يفشل أوردر ويرجع بالكامل، فإن شركة الشحن تخصم قيمة شحن المرتجع ولا يتم تحصيل أي مبيعات من العميل، مما يعتبر خسارة صافية من محفظتك. في هذه الفترة بلغت خسائر المرتجعات <span className="font-bold text-rose-500">{activeShippingLosses.toLocaleString('ar-EG')} ج.م</span>.
+                                            <strong className="text-slate-800 dark:text-white">خسائر المرتجعات (خسائر شحن فاشل):</strong> عندما يفشل أوردر ويرجع بالكامل، فإن شركة الشحن تخصم قيمة شحن المرتجع ولا يتم تحصيل أي مبيعات من العميل، مما يعتبر خسارة صافية من محفظتك. في هذه الفترة بلغت خسائر المرتجعات <span className="font-bold text-rose-500">{(activeShippingLosses ?? 0).toLocaleString('ar-EG')} ج.م</span>.
                                         </li>
                                         <li className="font-bold text-slate-800 dark:text-white bg-indigo-50/50 dark:bg-indigo-950/20 p-2.5 rounded-xl border border-indigo-100/40 dark:border-indigo-900/20">
-                                            💡 المعادلة: [ {totalDeposits.toLocaleString('ar-EG')} (المودع) ] - [ {activeShippingExpenses.toLocaleString('ar-EG')} (الشحن الناجح) + {activeShippingLosses.toLocaleString('ar-EG')} (خسائر المرتجعات) + {calcOtherExpenses.toLocaleString('ar-EG')} (مصاريف أخرى) ] = <span className="text-emerald-600 font-black">{netWithdrawable.toLocaleString('ar-EG')} ج.م</span> وهو المبلغ الصافي المتبقي القابل للسحب.
+                                            💡 المعادلة: [ {(totalDeposits ?? 0).toLocaleString('ar-EG')} (المودع) ] - [ {(activeShippingExpenses ?? 0).toLocaleString('ar-EG')} (الشحن الناجح) + {(activeShippingLosses ?? 0).toLocaleString('ar-EG')} (خسائر المرتجعات) + {(calcOtherExpenses ?? 0).toLocaleString('ar-EG')} (مصاريف أخرى) ] = <span className="text-emerald-600 font-black">{(netWithdrawable ?? 0).toLocaleString('ar-EG')} ج.م</span> وهو المبلغ الصافي المتبقي القابل للسحب.
                                         </li>
                                     </>
                                 )}
@@ -3211,12 +3211,12 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                 <div className="flex items-center gap-4 text-sm">
                                     <div>
                                         <span className="block text-xs text-slate-500 mb-0.5">الرصيد الفعلي (الآن)</span>
-                                        <span className="font-black text-slate-800 dark:text-white text-lg">{stats.mainWalletBalance.toLocaleString('ar-EG')} ج.م</span>
+                                        <span className="font-black text-slate-800 dark:text-white text-lg">{(stats.mainWalletBalance ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                     </div>
                                     <div className="text-slate-300 dark:text-slate-700 font-light text-2xl">-</div>
                                     <div>
                                         <span className="block text-xs text-slate-500 mb-0.5">الرصيد المحسوب (أعلاه)</span>
-                                        <span className="font-black text-slate-800 dark:text-white text-lg">{netWithdrawable.toLocaleString('ar-EG')} ج.م</span>
+                                        <span className="font-black text-slate-800 dark:text-white text-lg">{(netWithdrawable ?? 0).toLocaleString('ar-EG')} ج.م</span>
                                     </div>
                                 </div>
                                 <div className="text-left bg-white dark:bg-slate-800 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm min-w-[120px]">
@@ -3319,7 +3319,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                                 </td>
                                                 <td className="p-3 font-mono font-bold text-slate-700 dark:text-slate-300">{(netRevenue).toLocaleString('ar-EG')} ج.م</td>
                                                 <td className="p-3 font-mono text-slate-600 dark:text-slate-400">{(orderCogs).toLocaleString('ar-EG')} ج.م</td>
-                                                <td className="p-3 font-mono font-bold text-emerald-600">+{profit.toLocaleString('ar-EG')} ج.م</td>
+                                                <td className="p-3 font-mono font-bold text-emerald-600">+{(profit ?? 0).toLocaleString('ar-EG')} ج.م</td>
                                                 <td className="p-3 font-mono font-bold text-indigo-600 bg-indigo-50/30 dark:bg-indigo-950/20 rounded">{(totalRecovered).toLocaleString('ar-EG')} ج.م</td>
                                             </tr>
                                         );
@@ -3373,7 +3373,7 @@ const WealthReconciliation = ({ orders, settings, wallet, treasury, setSettings,
                                                 </td>
                                                 <td className="p-3 font-mono font-bold text-slate-700 dark:text-slate-300">{(netRevenue).toLocaleString('ar-EG')} ج.م</td>
                                                 <td className="p-3 font-mono text-slate-600 dark:text-slate-400">{(orderCogs).toLocaleString('ar-EG')} ج.م</td>
-                                                <td className="p-3 font-mono font-bold text-emerald-600">+{profit.toLocaleString('ar-EG')} ج.م</td>
+                                                <td className="p-3 font-mono font-bold text-emerald-600">+{(profit ?? 0).toLocaleString('ar-EG')} ج.م</td>
                                                 <td className="p-3 font-mono font-bold text-amber-600 bg-amber-50/30 dark:bg-amber-950/20 rounded">{(totalRecovered).toLocaleString('ar-EG')} ج.م</td>
                                             </tr>
                                         );

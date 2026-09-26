@@ -574,9 +574,9 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
             </div>
           </div>
           <div className="flex items-center gap-1.5 mt-2 text-[10px] font-medium text-slate-400">
-            <span>منها تأمين: {stats.totalInsuranceFees.toLocaleString()} ج.م</span>
+            <span>منها تأمين: {(stats.totalInsuranceFees ?? 0).toLocaleString()} ج.م</span>
             <span>•</span>
-            <span>رسوم COD: {stats.totalCodFees.toLocaleString()} ج.م</span>
+            <span>رسوم COD: {(stats.totalCodFees ?? 0).toLocaleString()} ج.م</span>
           </div>
         </div>
 
@@ -592,7 +592,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
             </div>
           </div>
           <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-medium leading-relaxed">
-            مؤشر ربحية السلع المسلّمة مقابل تكلفة شرائها الأصلية ({stats.totalCOGS.toLocaleString()} ج.م)
+            مؤشر ربحية السلع المسلّمة مقابل تكلفة شرائها الأصلية ({(stats.totalCOGS ?? 0).toLocaleString()} ج.م)
           </p>
         </div>
       </div>
@@ -679,7 +679,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                         {comp}
                       </span>
                       <span className="font-bold text-slate-500">
-                        {compCollected.toLocaleString()} ج.م ({pct.toFixed(0)}%)
+                        {(compCollected ?? 0).toLocaleString()} ج.م ({pct.toFixed(0)}%)
                       </span>
                     </div>
                     <div className="w-full h-2 bg-slate-50 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -791,7 +791,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                         <div className="flex flex-col items-end gap-1 justify-end">
                           <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
                             <span className="text-sm font-black text-slate-900 dark:text-white tabular-nums">
-                              {collectionAmount.toLocaleString()}
+                              {(collectionAmount ?? 0).toLocaleString()}
                             </span>
                             <span className="text-xs text-slate-400 font-bold mr-1">ج.م</span>
                           </div>
@@ -800,13 +800,13 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                               <div className="flex items-center gap-1">
                                 <span className="font-bold text-[9px]">المطلوب:</span>
                                 <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
-                                  {defaultCollectionAmount.toLocaleString()} ج.م
+                                  {(defaultCollectionAmount ?? 0).toLocaleString()} ج.م
                                 </span>
                               </div>
                               <div className="flex items-center gap-1">
                                 <span className="font-bold text-[9px]">الفعلي:</span>
                                 <span className="font-extrabold text-slate-700 dark:text-slate-305">
-                                  {collectionAmount.toLocaleString()} ج.م
+                                  {(collectionAmount ?? 0).toLocaleString()} ج.م
                                 </span>
                               </div>
                             </div>
@@ -817,7 +817,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                         {(order.productCost || 0).toLocaleString()} ج.م
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-bold text-slate-700 dark:text-slate-300">{directFees.toLocaleString()} ج.م</div>
+                        <div className="font-bold text-slate-700 dark:text-slate-300">{(directFees ?? 0).toLocaleString()} ج.م</div>
                         <div className="text-[9px] text-slate-400 mt-0.5 flex gap-1.5">
                           {cod > 0 && <span>COD: {cod}ج</span>}
                           {insuranceFee > 0 && <span>تأمين/ضريبة: { (insuranceFee + bostaVat).toFixed(0) }ج</span>}
@@ -838,7 +838,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                       <td className="px-6 py-4 text-center">
                         <div className="inline-flex flex-col items-center">
                           <span className={`text-sm font-extrabold ${netProfit >= 0 ? 'text-blue-600 dark:text-blue-400' : 'text-rose-505 dark:text-rose-400'}`}>
-                            {netProfit.toLocaleString()} ج.م
+                            {(netProfit ?? 0).toLocaleString()} ج.م
                           </span>
                           <span className={`text-[9px] px-1.5 py-0.2 rounded mt-1 font-black ${netProfit >= 0 ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/10' : 'bg-red-50 text-red-600'}`}>
                             {order.productCost > 0 ? `${((netProfit / order.productCost) * 100).toFixed(0)}% عائد` : 'هبة'}
@@ -940,7 +940,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                                {(item.price * item.quantity).toLocaleString()} ج.م
                              </div>
                              <div className="text-[9px] text-emerald-500 font-bold">
-                               هامش: {itemContribution > 0 ? `+${itemContribution.toLocaleString()}ج (${marginPct.toFixed(0)}%)` : 'لا يوجد'}
+                               هامش: {itemContribution > 0 ? `+${(itemContribution ?? 0).toLocaleString()}ج (${marginPct.toFixed(0)}%)` : 'لا يوجد'}
                              </div>
                            </div>
                          </div>
@@ -966,22 +966,22 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                      
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                        <span>قيمة المنتجات:</span>
-                       <span>+{selectedBreakdown.productPrice.toLocaleString()} ج.م</span>
+                       <span>+{(selectedBreakdown.productPrice ?? 0).toLocaleString()} ج.م</span>
                      </div>
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                        <span>مصاريف الشحن:</span>
-                       <span>+{selectedBreakdown.shippingFee.toLocaleString()} ج.م</span>
+                       <span>+{(selectedBreakdown.shippingFee ?? 0).toLocaleString()} ج.م</span>
                      </div>
                      {selectedBreakdown.extraAdjustment > 0 && (
                        <div className="flex justify-between text-xs font-bold text-emerald-500">
                          <span>تعديل إيجابي يدوي:</span>
-                         <span>+{selectedBreakdown.extraAdjustment.toLocaleString()} ج.م</span>
+                         <span>+{(selectedBreakdown.extraAdjustment ?? 0).toLocaleString()} ج.م</span>
                        </div>
                      )}
                      <div className="border-t border-emerald-200/50 dark:border-emerald-900/30 my-2"></div>
                      <div className="flex justify-between text-xs font-black text-emerald-600 dark:text-emerald-400">
                        <span>التحصيل الكلي:</span>
-                       <span>{selectedBreakdown.totalAmount.toLocaleString()} ج.م</span>
+                       <span>{(selectedBreakdown.totalAmount ?? 0).toLocaleString()} ج.م</span>
                      </div>
                    </div>
 
@@ -991,26 +991,26 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                      
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                        <span>تكلفة المشتريات (COGS):</span>
-                       <span className="text-rose-500">-{selectedBreakdown.productCost.toLocaleString()} ج.م</span>
+                       <span className="text-rose-500">-{(selectedBreakdown.productCost ?? 0).toLocaleString()} ج.م</span>
                      </div>
                      {selectedBreakdown.discount > 0 && (
                        <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                          <span>خصم العميل:</span>
-                         <span className="text-rose-505">-{selectedBreakdown.discount.toLocaleString()} ج.م</span>
+                         <span className="text-rose-505">-{(selectedBreakdown.discount ?? 0).toLocaleString()} ج.م</span>
                        </div>
                      )}
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                        <span>تأمين الشحنة {selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? "والضريبة (+ ضريبة الشحن 14%)" : "والضريبة"}:</span>
-                       <span className="text-rose-500">-{selectedBreakdown.insuranceOnlyFee !== undefined && selectedBreakdown.insuranceOnlyFee > 0 ? `${selectedBreakdown.insuranceOnlyFee.toLocaleString()} ج.م${selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? ` + ${selectedBreakdown.bostaVat.toLocaleString()} ج.م ضريبة 14%` : ''}` : selectedBreakdown.insuranceFee.toLocaleString() + ' ج.م'}</span>
+                       <span className="text-rose-500">-{selectedBreakdown.insuranceOnlyFee !== undefined && selectedBreakdown.insuranceOnlyFee > 0 ? `${(selectedBreakdown.insuranceOnlyFee ?? 0).toLocaleString()} ج.م${selectedBreakdown.bostaVat && selectedBreakdown.bostaVat > 0 ? ` + ${(selectedBreakdown.bostaVat ?? 0).toLocaleString()} ج.م ضريبة 14%` : ''}` :(selectedBreakdown.insuranceFee ?? 0).toLocaleString() + ' ج.م'}</span>
                      </div>
                      <div className="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-350">
                        <span>رسوم COD:</span>
-                       <span className="text-rose-500">-{selectedBreakdown.codFee.toLocaleString()} ج.م</span>
+                       <span className="text-rose-500">-{(selectedBreakdown.codFee ?? 0).toLocaleString()} ج.م</span>
                      </div>
                      {selectedBreakdown.extraAdjustment < 0 && (
                        <div className="flex justify-between text-xs font-bold text-rose-500">
                          <span>تعديل تنازلي يدوي:</span>
-                         <span>{selectedBreakdown.extraAdjustment.toLocaleString()} ج.م</span>
+                         <span>{(selectedBreakdown.extraAdjustment ?? 0).toLocaleString()} ج.م</span>
                        </div>
                      )}
                      {selectedBreakdown.inspectionCost > 0 && (
@@ -1039,7 +1039,7 @@ const CollectionsReportPage: React.FC<CollectionsReportPageProps> = ({ orders, s
                <div className="bg-indigo-650 text-white px-6 py-3 rounded-2xl flex items-center gap-6 shadow-lg shadow-indigo-600/15">
                   <div className="text-right">
                     <span className="text-[10px] uppercase font-black tracking-widest text-indigo-200 block">صافي الربح الصافي (Net)</span>
-                    <span className="text-2xl font-black">{selectedBreakdown.net.toLocaleString()} ج.م</span>
+                    <span className="text-2xl font-black">{(selectedBreakdown.net ?? 0).toLocaleString()} ج.م</span>
                   </div>
                </div>
             </div>

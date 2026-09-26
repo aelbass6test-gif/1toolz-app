@@ -290,9 +290,9 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
           <td><b>${o.customerName}</b><br/><span style="font-size: 10px; color: #64748b;">${o.customerPhone}</span></td>
           <td>${o.shippingCompany || 'غير محدد'}</td>
           <td>${o.status === 'فشل_التوصيل' ? 'فشل توصيل' : o.status === 'تمت_الاعادة_لشركة_الشحن' ? 'تمت الإعادة' : o.status}</td>
-          <td style="text-align: center; color: #dc2626; font-weight: bold;">${shippingCost.toLocaleString()} ج.م</td>
+          <td style="text-align: center; color: #dc2626; font-weight: bold;">${(shippingCost ?? 0).toLocaleString()} ج.م</td>
           <td style="text-align: center; ${compStatusClass}">${compStatusLabel}</td>
-          <td style="text-align: center; color: #059669; font-weight: bold;">${compAmount > 0 ? `${compAmount.toLocaleString()} ج.م` : '-'}</td>
+          <td style="text-align: center; color: #059669; font-weight: bold;">${compAmount > 0 ? `${(compAmount ?? 0).toLocaleString()} ج.م` : '-'}</td>
           <td style="font-size: 11px;">${accName}</td>
           <td style="font-size: 11px;"><b>${courier}</b><br/>${notes}</td>
         </tr>
@@ -352,11 +352,11 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
           </div>
           <div class="kpi-card">
             <div class="kpi-title">إجمالي التعويضات المحصلة</div>
-            <div class="kpi-value" style="color: #059669;">${stats.totalCompensatedAmount.toLocaleString()} ج.م</div>
+            <div class="kpi-value" style="color: #059669;">${(stats.totalCompensatedAmount ?? 0).toLocaleString()} ج.م</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-title">صافي خسارة الشحن الفعلي</div>
-            <div class="kpi-value" style="color: #dc2626;">${stats.netLoss.toLocaleString()} ج.م</div>
+            <div class="kpi-value" style="color: #dc2626;">${(stats.netLoss ?? 0).toLocaleString()} ج.م</div>
           </div>
         </div>
 
@@ -707,7 +707,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
             <span className="text-xs text-slate-400">طلب مرتجع</span>
           </div>
           <div className="mt-2 text-[10px] text-red-600 font-bold bg-red-50 dark:bg-red-950/20 px-2 py-1 rounded-lg inline-block">
-            إجمالي تكلفة الشحن المفقودة: {stats.totalShippingLoss.toLocaleString()} ج.م
+            إجمالي تكلفة الشحن المفقودة: {(stats.totalShippingLoss ?? 0).toLocaleString()} ج.م
           </div>
         </div>
 
@@ -724,7 +724,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
             <span className="text-xs text-slate-400">طلب قيد المراجعة</span>
           </div>
           <div className="mt-2 text-[10px] text-amber-600 font-bold bg-amber-50 dark:bg-amber-950/20 px-2 py-1 rounded-lg inline-block">
-            القيمة المتوقعة: {stats.totalPendingAmount.toLocaleString()} ج.م
+            القيمة المتوقعة: {(stats.totalPendingAmount ?? 0).toLocaleString()} ج.م
           </div>
         </div>
 
@@ -737,7 +737,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
             </div>
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-emerald-600">+{stats.totalCompensatedAmount.toLocaleString()}</span>
+            <span className="text-2xl font-black text-emerald-600">+{(stats.totalCompensatedAmount ?? 0).toLocaleString()}</span>
             <span className="text-xs text-emerald-500 font-bold">ج.م</span>
           </div>
           <div className="mt-2 text-[10px] text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/20 px-2 py-1 rounded-lg inline-block">
@@ -758,7 +758,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
             <span className="text-xs text-slate-400">نسبة نجاح المطالبة</span>
           </div>
           <div className="mt-2 text-[10px] text-slate-600 dark:text-slate-400 font-bold bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg inline-block">
-            صافي خسارة الشحن الفعلي: {stats.netLoss.toLocaleString()} ج.م
+            صافي خسارة الشحن الفعلي: {(stats.netLoss ?? 0).toLocaleString()} ج.م
           </div>
         </div>
       </div>

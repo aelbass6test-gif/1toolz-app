@@ -142,7 +142,12 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
                 await batch.commit().catch(err => console.warn('Failed to mark read:', err));
             }
         }, (error) => {
-            console.error('Error in chat message subscription:', error);
+            const msg = String(error?.message || error);
+            if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
+                console.warn('[FloatingChat] Firestore quota reached. Working offline/cached.');
+            } else {
+                console.warn('[FloatingChat] Chat message subscription notice:', msg);
+            }
         });
 
         return () => {

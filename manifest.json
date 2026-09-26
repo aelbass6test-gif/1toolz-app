@@ -1,8 +1,8 @@
 {
-  "name": "1Toolz",
-  "short_name": "1Toolz",
+  "name": "عبدو ميديا برايم | AbdoMedia Prime",
+  "short_name": "AbdoMedia Prime",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
-  "theme_color": "#000000"
+  "theme_color": "#1e293b"
 }

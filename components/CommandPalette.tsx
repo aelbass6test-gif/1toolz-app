@@ -356,7 +356,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
           </div>
           <div className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-black">
             <Command size={12} />
-            <span>منظومة عبدو ميديا السريعة</span>
+            <span>عبدو ميديا برايم | AbdoMedia Prime</span>
           </div>
         </div>
 

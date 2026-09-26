@@ -157,7 +157,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 { to: `${storePrefix}/settings/developer`, label: 'إعدادات المطورين والربط التقني', icon: <Code size={18} />, badge: { text: "Dev 🛠️", color: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/10 text-[9px]" } },
                 { to: `${storePrefix}/api-docs`, label: 'وثائق المطورين API Docs', icon: <FileText size={18} /> },
                 { to: `${storePrefix}/maintenance`, label: 'صيانة وفحص سلامة البيانات', icon: <Wrench size={18} /> },
-                { to: `${storePrefix}/manage-stores`, label: 'إدارة المتاجر والمواقع', icon: <LayoutGrid size={18} /> },
+                { to: `/select-store`, label: 'إدارة واختيار المتاجر والمشاريع', icon: <LayoutGrid size={18} /> },
                 { to: `${storePrefix}/account-settings`, label: 'إعدادات حساب المالك', icon: <UserCog size={18} /> },
                 { to: '/admin', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={18} /> },
             ]
@@ -499,8 +499,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Brand Credit Signature */}
             <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60 text-center text-[10px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-0.5">
-                <span className="font-black text-slate-700 dark:text-slate-300">عبدو ميديا لإدارة الأعمال © 2026</span>
-                <span className="text-[9px] text-slate-400 dark:text-slate-500">منظومة التشغيل الاحترافية السحابية</span>
+                <span className="font-black text-slate-700 dark:text-slate-300">عبدو ميديا برايم | AbdoMedia Prime © 2026</span>
+                <span className="text-[9px] text-slate-400 dark:text-slate-500">منظومة التجارة والتسويق الرقمي المتكاملة</span>
             </div>
         </div>
     );

@@ -1820,7 +1820,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
                     </div>
                     <div>
                       <h5 className="font-bold text-slate-900 dark:text-white text-xs">تفعيل نظام إرسال الرسائل الآلي</h5>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">السماح لمدير الأوردرات بإرسال رسائل التأكيد والواتساب تلقائياً.</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">السماح للنظام بإرسال رسائل التأكيد والواتساب تلقائياً للعملاء.</p>
                     </div>
                   </div>
                   <input 

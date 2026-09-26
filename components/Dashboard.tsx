@@ -154,29 +154,56 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   const [showDetailedFinancials, setShowDetailedFinancials] = useState(false);
   const [isEditingLayout, setIsEditingLayout] = useState(false);
 
+  const DEFAULT_DASHBOARD_WIDGETS: DashboardWidget[] = [
+    { id: 'suggestions', title: 'اقتراحات ذكية', visible: true, type: 'full' },
+    { id: 'kpis', title: 'مؤشرات الأداء', visible: true, type: 'full' },
+    { id: 'finance_history', title: 'سجل التداولات', visible: true, type: 'full' },
+    { id: 'team_performance', title: 'أداء الفريق', visible: true, type: 'full' },
+    { id: 'inventory_alerts', title: 'تنبيهات المخزون', visible: true, type: 'half' },
+    { id: 'top_products', title: 'الأكثر مبيعاً', visible: true, type: 'half' },
+    { id: 'supplier_debt', title: 'ديون الموردين', visible: true, type: 'full' },
+    { id: 'distributed_custody', title: 'العهد النقدية', visible: true, type: 'full' },
+  ];
+
   const [widgets, setWidgets] = useState<DashboardWidget[]>(() => {
     const saved = localStorage.getItem('dashboard_layout');
     if (saved) {
-      // Basic migration/check if stored widgets match current schema
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {}
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const loaded: DashboardWidget[] = [];
+          const seen = new Set<string>();
+          for (const item of parsed) {
+            const def = DEFAULT_DASHBOARD_WIDGETS.find(w => w.id === item?.id);
+            if (def) {
+              loaded.push({ ...def, visible: item.visible !== false });
+              seen.add(def.id);
+            }
+          }
+          for (const def of DEFAULT_DASHBOARD_WIDGETS) {
+            if (!seen.has(def.id)) {
+              loaded.push({ ...def, visible: true });
+            }
+          }
+          if (loaded.length > 0) return loaded;
+        }
+      } catch (e) {
+        console.warn('Failed to parse dashboard layout from localStorage:', e);
+      }
     }
-    return [
-      { id: 'suggestions', title: 'اقتراحات ذكية', icon: <Lightbulb size={16}/>, visible: true, type: 'full', component: null },
-      { id: 'kpis', title: 'مؤشرات الأداء', icon: <TrendingUp size={16}/>, visible: true, type: 'full', component: null },
-      { id: 'finance_history', title: 'سجل التداولات', icon: <ChartIcon size={16}/>, visible: true, type: 'full', component: null },
-      { id: 'team_performance', title: 'أداء الفريق', icon: <Users2 size={16}/>, visible: true, type: 'full', component: null },
-      { id: 'inventory_alerts', title: 'تنبيهات المخزون', icon: <AlertTriangle size={16}/>, visible: true, type: 'half', component: null },
-      { id: 'top_products', title: 'الأكثر مبيعاً', icon: <Sparkles size={16}/>, visible: true, type: 'half', component: null },
-      { id: 'supplier_debt', title: 'ديون الموردين', icon: <Layers size={16}/>, visible: true, type: 'full', component: null },
-      { id: 'distributed_custody', title: 'العهد النقدية', icon: <Users2 size={16}/>, visible: true, type: 'full', component: null },
-    ];
+    return DEFAULT_DASHBOARD_WIDGETS;
   });
 
   useEffect(() => {
-    localStorage.setItem('dashboard_layout', JSON.stringify(widgets));
+    try {
+      const serializableLayout = widgets.map(w => ({
+        id: w.id,
+        visible: Boolean(w.visible)
+      }));
+      localStorage.setItem('dashboard_layout', JSON.stringify(serializableLayout));
+    } catch (e) {
+      console.warn('Failed to persist dashboard layout to localStorage:', e);
+    }
   }, [widgets]);
 
   const handleToggleWidget = (id: string) => {
@@ -226,7 +253,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           </div>
           <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
           <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-            <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString()}</span>
+            <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.aov ?? 0).toLocaleString()}</span>
           </div>
         </div>
         <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-cyan-500/40 transition-all text-right font-sans">
@@ -362,13 +389,13 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       case 'supplier_debt': return (
         <div className="glass-card p-8 rounded-3xl h-full">
            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">ديون الموردين</h3>
-           <p className="text-2xl font-black text-rose-600">{stats.supplierDebt.toLocaleString()} ج.م</p>
+           <p className="text-2xl font-black text-rose-600">{(stats.supplierDebt ?? 0).toLocaleString()} ج.م</p>
         </div>
       );
       case 'distributed_custody': return (
         <div className="glass-card p-8 rounded-3xl h-full">
            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-4">العهد النقدية الموزعة</h3>
-           <p className="text-2xl font-black">{stats.totalCustodyBalance.toLocaleString()} ج.م</p>
+           <p className="text-2xl font-black">{(stats.totalCustodyBalance ?? 0).toLocaleString()} ج.م</p>
         </div>
       );
       default: return null;
@@ -470,13 +497,13 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
     (wallet?.withdrawRequests || []).forEach(r => {
       let body = '';
       if (r.status === 'pending') {
-        body = `طلب سحب بقيمة ${r.amount.toLocaleString()} ج.م ينتظر معالجة الإدارة الأولى.`;
+        body = `طلب سحب بقيمة ${(r.amount ?? 0).toLocaleString()} ج.م ينتظر معالجة الإدارة الأولى.`;
       } else if (r.status === 'processing') {
-        body = `طلب السحب بقيمة ${r.amount.toLocaleString()} ج.م جاري تحويله وتدقيقه الآن.`;
+        body = `طلب السحب بقيمة ${(r.amount ?? 0).toLocaleString()} ج.م جاري تحويله وتدقيقه الآن.`;
       } else if (r.status === 'accepted') {
-        body = `تمت الموافقة على طلب سحب بقيمة ${r.amount.toLocaleString()} ج.م عبر ${r.method === 'bank' ? 'البنك' : 'محفظة الهاتف'}.`;
+        body = `تمت الموافقة على طلب سحب بقيمة ${(r.amount ?? 0).toLocaleString()} ج.م عبر ${r.method === 'bank' ? 'البنك' : 'محفظة الهاتف'}.`;
       } else if (r.status === 'rejected') {
-        body = `تم رفض طلب سحب بقيمة ${r.amount.toLocaleString()} ج.م. أعيد المبلغ بالكامل لمحفظتكم لعدم مطابقة الشروط.`;
+        body = `تم رفض طلب سحب بقيمة ${(r.amount ?? 0).toLocaleString()} ج.م. أعيد المبلغ بالكامل لمحفظتكم لعدم مطابقة الشروط.`;
       }
 
       list.push({
@@ -496,7 +523,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   t.type === 'إيداع' ? 'حركة توريد / تحصيل' : 'حركة سحب / مصروف';
       
       let body = '';
-      const amountStr = t.amount.toLocaleString();
+      const amountStr =(t.amount ?? 0).toLocaleString();
 
       if (t.category === 'wallet_charge') {
         if (t.status === 'pending') {
@@ -1270,7 +1297,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.aov.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.aov ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
               <span className="text-xs font-black text-slate-400">ج.م / طلب</span>
             </div>
             <p className="text-[9px] text-slate-400 font-bold mt-3.5">
@@ -1342,7 +1369,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs font-black">مبيعات الكاشير الآجلة (Receivables)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.posReceivables.toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.posReceivables ?? 0).toLocaleString()}</span>
               <span className="text-xs font-bold text-slate-400">ج.م مُعلق</span>
             </div>
             <p className="text-[10px] text-slate-400 font-bold mt-3">
@@ -1363,7 +1390,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </div>
             <p className="text-slate-500 dark:text-slate-400 text-xs font-black">إجمالي المبالغ بعهدة الموظفين (In Custody)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.totalCustodyBalance.toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.totalCustodyBalance ?? 0).toLocaleString()}</span>
               <span className="text-xs font-bold text-slate-400">ج.م نقدية</span>
             </div>
             <p className="text-[10px] text-slate-400 font-bold mt-3">
@@ -1510,12 +1537,12 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <DollarSign size={16} className="text-primary" />
                   <span>صافي الأرباح (Net Profit)</span>
                 </p>
-                <h4 className={`text-2xl sm:text-3xl font-black tabular-nums ${stats.net >= 0 ? 'text-primary' : 'text-rose-500'}`}>
-                  {stats.net.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                <h4 className={`text-2xl sm:text-3xl font-black tabular-nums ${(stats.net ?? 0) >= 0 ? 'text-primary' : 'text-rose-500'}`}>
+                  {(stats.net ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${stats.revenueGrowth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                    {stats.revenueGrowth >= 0 ? '+' : ''}{stats.revenueGrowth.toFixed(1)}%
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${(stats.revenueGrowth ?? 0) >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                    {(stats.revenueGrowth ?? 0) >= 0 ? '+' : ''}{(stats.revenueGrowth ?? 0).toFixed(1)}%
                   </span>
                   <p className="text-[10px] text-slate-400 font-bold">نمو المبيعات</p>
                 </div>
@@ -1528,7 +1555,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>مجمل الربح (Gross Profit)</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                  {stats.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {(stats.grossProfit ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">الأرباح قبل خصم المصاريف التشغيلية</p>
               </div>
@@ -1574,7 +1601,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                 </div>
                 {showInventoryValue ? (
                   <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                    {stats.inventoryValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                    {(stats.inventoryValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                   </h4>
                 ) : (
                   <h4 className="text-2xl sm:text-3xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
@@ -1591,7 +1618,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                   <span>صافي الربح / طلب</span>
                 </p>
                 <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                  {stats.avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                  {(stats.avgProfitPerOrder ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
                 </h4>
                 <p className="text-[10px] text-slate-400 font-bold">متوسط الربح الصافي المحقق من كل طلب ناجح</p>
               </div>
@@ -1606,27 +1633,27 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                <div className="pt-8 mt-8 border-t border-slate-200 dark:border-slate-800/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">رأس المال العامل</p>
-                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.workingCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{(stats.workingCapital ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">إجمالي الاستثمارات</p>
-                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCapital.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{(stats.totalCapital ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">تكلفة البضاعة COGS</p>
-                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{stats.totalCOGS.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
+                    <h5 className="text-sm font-black text-slate-800 dark:text-white">{(stats.totalCOGS ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">مصاريف التشغيل</p>
-                    <h5 className="text-sm font-black text-rose-500">{stats.adminExpenses.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
+                    <h5 className="text-sm font-black text-rose-500">{(stats.adminExpenses ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">ديون الموردين</p>
-                    <h5 className="text-sm font-black text-rose-600">{stats.supplierDebt.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
+                    <h5 className="text-sm font-black text-rose-600">{(stats.supplierDebt ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">صافي السيولة المتاحة</p>
-                    <h5 className="text-sm font-black text-emerald-500">{stats.netAvailableLiquidity.toLocaleString()} ج.م</h5>
+                    <h5 className="text-sm font-black text-emerald-500">{(stats.netAvailableLiquidity ?? 0).toLocaleString()} ج.م</h5>
                   </div>
                   <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <p className="text-[10px] font-black text-slate-400 mb-1">معدل الارتجاع (Return)</p>
@@ -1682,11 +1709,11 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           <div className="space-y-4 pt-6 relative z-10 font-sans">
              <div className="flex justify-between items-center text-xs font-black">
                 <span className="text-slate-500">إجمالي الإيرادات:</span>
-                <span className="text-slate-800 dark:text-white">{stats.totalRevenue.toLocaleString()} ج.م</span>
+                <span className="text-slate-800 dark:text-white">{(stats.totalRevenue ?? 0).toLocaleString()} ج.م</span>
              </div>
              <div className="flex justify-between items-center text-xs font-black">
                 <span className="text-slate-500">صافي المبيعات (نقد):</span>
-                <span className="text-emerald-500">+{stats.actualCollection.toLocaleString()} ج.م</span>
+                <span className="text-emerald-500">+{(stats.actualCollection ?? 0).toLocaleString()} ج.م</span>
              </div>
              <div className="h-px bg-slate-100 dark:bg-slate-800 my-2" />
              <div className="flex justify-between items-center text-xs font-black">
@@ -1831,7 +1858,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                     </div>
                   </div>
                   <div className="text-left font-black text-emerald-600 text-sm">
-                    {customer.totalSpend.toLocaleString()} <span className="text-[9px]">ج.م</span>
+                    {(customer.totalSpend ?? 0).toLocaleString()} <span className="text-[9px]">ج.م</span>
                   </div>
                 </div>
               ))}
@@ -1870,7 +1897,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                      </div>
                      <div className="text-left">
                         <p className="text-[10px] font-bold text-slate-400 uppercase">إيراد</p>
-                        <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums">{product.revenue.toLocaleString()} <span className="text-[9px]">ج.م</span></p>
+                        <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums">{(product.revenue ?? 0).toLocaleString()} <span className="text-[9px]">ج.م</span></p>
                      </div>
                   </div>
                 </div>
@@ -1932,15 +1959,15 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             <div className="space-y-4">
               <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
                 <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-1">السيولة النقدية (كاش ومحافظ)</p>
-                <p className="text-xl font-black text-emerald-700 dark:text-emerald-300">{(stats.safeBalance + stats.digitalWalletBalance).toLocaleString()} <span className="text-xs">ج.م</span></p>
+                <p className="text-xl font-black text-emerald-700 dark:text-emerald-300">{((stats.safeBalance || 0) + (stats.digitalWalletBalance || 0)).toLocaleString()} <span className="text-xs">ج.م</span></p>
               </div>
               <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40">
                 <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase mb-1">الأرصدة البنكية</p>
-                <p className="text-xl font-black text-blue-700 dark:text-blue-300">{stats.bankBalance.toLocaleString()} <span className="text-xs">ج.م</span></p>
+                <p className="text-xl font-black text-blue-700 dark:text-blue-300">{(stats.bankBalance ?? 0).toLocaleString()} <span className="text-xs">ج.م</span></p>
               </div>
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800/80">
                 <p className="text-[10px] font-black text-slate-500 uppercase mb-1">المجموع الكلي بالحسابات</p>
-                <p className="text-xl font-black text-slate-800 dark:text-white">{stats.treasuryTotal.toLocaleString()} <span className="text-xs">ج.م</span></p>
+                <p className="text-xl font-black text-slate-800 dark:text-white">{(stats.treasuryTotal ?? 0).toLocaleString()} <span className="text-xs">ج.م</span></p>
               </div>
               <Link to={`${activeStore ? `/store/${activeStore.id}` : ''}/treasury`} className="block text-center text-xs font-black text-primary hover:underline pt-2">عرض كافة الخزائن</Link>
             </div>
@@ -1982,7 +2009,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
                       <span className="text-xs font-bold text-slate-500">{item.name}</span>
                     </div>
-                    <p className="text-xl font-black text-slate-800 dark:text-white">{item.value.toLocaleString()} ج.م</p>
+                    <p className="text-xl font-black text-slate-800 dark:text-white">{(item.value ?? 0).toLocaleString()} ج.م</p>
                     <p className="text-[10px] text-slate-400 font-bold">
                       {item.name.includes('POS') ? `${stats.posSalesCount} فاتورة` : `${stats.websiteSalesCount} طلب`}
                     </p>
@@ -2074,7 +2101,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
                                 {statusText}
                               </span>
                               <span className="text-[11px] font-black text-slate-900 dark:text-slate-100 tabular-nums">
-                                {n.amount.toLocaleString()} ج.م
+                                {(n.amount ?? 0).toLocaleString()} ج.م
                               </span>
                             </div>
                           </div>
@@ -2296,7 +2323,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             </h3>
             <div className="text-right">
                 <span className="text-xs font-bold text-slate-400">إجمالي المديونية</span>
-                <p className="text-lg font-black text-rose-600">-{stats.supplierDebt.toLocaleString()} ج.م</p>
+                <p className="text-lg font-black text-rose-600">-{(stats.supplierDebt ?? 0).toLocaleString()} ج.م</p>
             </div>
           </div>
           
@@ -2338,7 +2365,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
               <Users2 className="text-orange-500" size={24} />
               تفاصيل العهد النقدية الموزعة (الموظفين)
             </h3>
-            <span className="text-xs font-bold text-slate-400">إجمالي العهد: {stats.totalCustodyBalance.toLocaleString()} ج.م</span>
+            <span className="text-xs font-bold text-slate-400">إجمالي العهد: {(stats.totalCustodyBalance ?? 0).toLocaleString()} ج.م</span>
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

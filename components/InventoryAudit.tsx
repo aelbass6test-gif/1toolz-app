@@ -414,7 +414,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                     id: `log-${Date.now()}`,
                     user: currentUser?.fullName || 'التاجر',
                     action: 'اعتماد جرد خارجي',
-                    details: `تم اعتماد ومطابقة جرد الموظف الميداني للرابط "${session.title}" وحصر ${discrepancies.length} فوارق بتسوية مالية ${totalVarianceValue.toLocaleString()} ج.م`,
+                    details: `تم اعتماد ومطابقة جرد الموظف الميداني للرابط "${session.title}" وحصر ${discrepancies.length} فوارق بتسوية مالية ${(totalVarianceValue ?? 0).toLocaleString()} ج.م`,
                     date: new Date().toLocaleDateString('ar-EG'),
                     timestamp: Date.now()
                 },
@@ -477,7 +477,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                         id: `log-partner-${Date.now()}`,
                         user: currentUser?.fullName || 'التاجر',
                         action: 'خصم مسحوبات شريك من الجرد',
-                        details: `تم ترحيل مسحوبات/فارق الجرد بقيمة ${calcPartnerVal.toLocaleString()} ج.م على حساب الشريك "${targetPartnerName}" بنجاح.`,
+                        details: `تم ترحيل مسحوبات/فارق الجرد بقيمة ${(calcPartnerVal ?? 0).toLocaleString()} ج.م على حساب الشريك "${targetPartnerName}" بنجاح.`,
                         date: new Date().toLocaleDateString('ar-EG'),
                         timestamp: Date.now()
                     });
@@ -532,7 +532,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                         id: `log-emp-${Date.now()}`,
                         user: currentUser?.fullName || 'التاجر',
                         action: 'تحميل عجز جرد على موظف',
-                        details: `تم تحميل عجز الجرد بقيمة ${calcEmployeeVal.toLocaleString()} ج.م كخصم/عهدة على الموظف "${targetEmpName}" بنجاح.`,
+                        details: `تم تحميل عجز الجرد بقيمة ${(calcEmployeeVal ?? 0).toLocaleString()} ج.م كخصم/عهدة على الموظف "${targetEmpName}" بنجاح.`,
                         date: new Date().toLocaleDateString('ar-EG'),
                         timestamp: Date.now()
                     });
@@ -543,9 +543,9 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
             let logNotes = `تم اعتماد وتسوية جرد خارجي ومطابقته للسيستم الكلي.`;
             if (settlementDetails) {
                 const parts = [];
-                if (settlementDetails.calcPartnerVal > 0) parts.push(`مسحوبات الشريك (${settlementDetails.selectedPartnerName}): ${settlementDetails.calcPartnerVal.toLocaleString()} ج.م`);
-                if (settlementDetails.calcEmployeeVal > 0) parts.push(`عهدة الموظف (${settlementDetails.employeeResponsibleName}): ${settlementDetails.calcEmployeeVal.toLocaleString()} ج.م`);
-                if (settlementDetails.calcCompanyExpense > 0) parts.push(`مصاريف الشركة: ${settlementDetails.calcCompanyExpense.toLocaleString()} ج.م`);
+                if (settlementDetails.calcPartnerVal > 0) parts.push(`مسحوبات الشريك (${settlementDetails.selectedPartnerName}): ${(settlementDetails.calcPartnerVal ?? 0).toLocaleString()} ج.م`);
+                if (settlementDetails.calcEmployeeVal > 0) parts.push(`عهدة الموظف (${settlementDetails.employeeResponsibleName}): ${(settlementDetails.calcEmployeeVal ?? 0).toLocaleString()} ج.م`);
+                if (settlementDetails.calcCompanyExpense > 0) parts.push(`مصاريف الشركة: ${(settlementDetails.calcCompanyExpense ?? 0).toLocaleString()} ج.م`);
                 if (parts.length > 0) logNotes += ` | التوزيع المحاسبي: ${parts.join(' | ')}`;
             }
 
@@ -747,9 +747,9 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                     <td style="padding: 10px; text-align: center; font-family:sans-serif; font-weight: bold; color: ${d.variance < 0 ? '#dc2626' : '#16a34a'}">
                         ${d.variance > 0 ? '+' : ''}${d.variance}
                     </td>
-                    <td style="padding: 10px; text-align: center; font-family:sans-serif;">${d.costPrice.toLocaleString()} ج.م</td>
+                    <td style="padding: 10px; text-align: center; font-family:sans-serif;">${(d.costPrice ?? 0).toLocaleString()} ج.م</td>
                     <td style="padding: 10px; text-align: left; font-family:sans-serif; font-weight: bold; color: ${d.varianceValue < 0 ? '#dc2626' : '#16a34a'}">
-                        ${d.varianceValue > 0 ? '+' : ''}${d.varianceValue.toLocaleString()} ج.م
+                        ${d.varianceValue > 0 ? '+' : ''}${(d.varianceValue ?? 0).toLocaleString()} ج.م
                     </td>
                 </tr>
             `;
@@ -819,7 +819,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                         <tr style="font-size: 13px; font-weight: 900; background: #e0e7ff; color: #312e81;">
                             <td style="padding: 12px;">الأثر المالي الصافي للتسوية:</td>
                             <td style="padding: 12px; text-align: left; font-family: sans-serif;">
-                                ${session.totalVarianceValue >= 0 ? '+' : ''}${session.totalVarianceValue.toLocaleString()} ج.م
+                                ${session.totalVarianceValue >= 0 ? '+' : ''}${(session.totalVarianceValue ?? 0).toLocaleString()} ج.م
                             </td>
                         </tr>
                     </table>
@@ -1034,7 +1034,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                                 <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-850">
                                     <span className="text-[9px] text-slate-400 font-black block">الأثر المالي المتراكم للتسوية</span>
                                     <h5 className={`text-sm font-black font-sans ${selectedPastSession.totalVarianceValue >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {selectedPastSession.totalVarianceValue >= 0 ? '+' : ''}{selectedPastSession.totalVarianceValue.toLocaleString()} ج.م
+                                        {selectedPastSession.totalVarianceValue >= 0 ? '+' : ''}{(selectedPastSession.totalVarianceValue ?? 0).toLocaleString()} ج.م
                                     </h5>
                                 </div>
                             </div>
@@ -1075,7 +1075,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                                                                 </span>
                                                             </td>
                                                             <td className="px-4 py-2.5 text-center">
-                                                                <span className="block font-sans font-bold text-slate-700 dark:text-slate-300">{d.varianceValue.toLocaleString()} ج.م</span>
+                                                                <span className="block font-sans font-bold text-slate-700 dark:text-slate-300">{(d.varianceValue ?? 0).toLocaleString()} ج.م</span>
                                                                 <span className="text-[8px] text-slate-400 font-bold">({d.method})</span>
                                                             </td>
                                                         </tr>

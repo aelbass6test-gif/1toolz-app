@@ -87,7 +87,12 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
         }
       }
     }, (error) => {
-      console.error('Error listening to chat messages:', error);
+      const msg = String(error?.message || error);
+      if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
+        console.warn('[TeamChat] Firestore quota reached. Working offline/cached.');
+      } else {
+        console.warn('[TeamChat] Chat subscription notice:', msg);
+      }
       setLoading(false);
     });
 

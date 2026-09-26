@@ -21,8 +21,8 @@ import {
 export interface DashboardWidget {
   id: string;
   title: string;
-  icon: React.ReactNode;
-  component: React.ReactNode;
+  icon?: React.ReactNode;
+  component?: React.ReactNode;
   visible: boolean;
   type: 'full' | 'half';
 }

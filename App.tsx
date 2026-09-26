@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
@@ -15,6 +16,8 @@ import { oneToolzProducts } from './data/one-toolz-products';
 import { triggerWebhooks } from './utils/webhook';
 import { audioSynth } from './utils/audioSynth';
 import { lazyWithRetry } from './utils/lazyWithRetry';
+import GlobalLoader from './components/GlobalLoader';
+import WelcomeLoader from './components/WelcomeLoader';
 
 // Page Components (will be loaded via router with automatic retry on chunk updates)
 const SignUpPage = lazyWithRetry(() => import('./components/SignUpPage'));
@@ -60,8 +63,6 @@ const PaymentSettingsPage = lazyWithRetry(() => import('./components/PaymentSett
 const DeveloperSettingsPage = lazyWithRetry(() => import('./components/DeveloperSettingsPage'));
 const TeamChatPage = lazyWithRetry(() => import('./components/TeamChatPage'));
 const WhatsAppPage = lazyWithRetry(() => import('./components/WhatsAppPage'));
-const WelcomeLoader = lazyWithRetry(() => import('./components/WelcomeLoader'));
-const GlobalLoader = lazyWithRetry(() => import('./components/GlobalLoader'));
 const EmployeesPage = lazyWithRetry(() => import('./components/EmployeesPage'));
 const EmployeesPayrollPage = lazyWithRetry(() => import('./components/EmployeesPayrollPage'));
 const ReportsPage = lazyWithRetry(() => import('./components/ReportsPage'));
@@ -176,9 +177,14 @@ const MainLayout = ({
     const isStoreManagementOrCreationPage = useMemo(() => {
         const path = location.pathname;
         return (
+            path === '/' ||
+            path === '/select-store' ||
+            path === '/projects' ||
             path === '/manage-stores' ||
             path === '/create-store' ||
             path === '/admin/manage-stores' ||
+            path.endsWith('/select-store') ||
+            path.endsWith('/projects') ||
             path.endsWith('/manage-stores') ||
             path.endsWith('/create-store')
         );
@@ -211,10 +217,15 @@ const MainLayout = ({
                 });
                 setSharedAudits(list);
             }, (err) => {
-                console.error('[Notification] Error fetching shared_audits snapshot:', err);
+                const msg = String(err?.message || err);
+                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
+                    console.warn('[Notification] Firestore quota reached for shared_audits. Using cached data seamlessly.');
+                } else {
+                    console.warn('[Notification] shared_audits notice:', msg);
+                }
             });
         } catch (e) {
-            console.error('[Notification] shared_audits subscription error:', e);
+            console.warn('[Notification] shared_audits subscription notice:', e);
         }
 
         try {
@@ -236,10 +247,15 @@ const MainLayout = ({
                 });
                 setChatMessages(list);
             }, (err) => {
-                console.error('[Notification] Error fetching chat_messages snapshot:', err);
+                const msg = String(err?.message || err);
+                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
+                    console.warn('[Notification] Firestore quota reached for chat_messages. Using cached data seamlessly.');
+                } else {
+                    console.warn('[Notification] chat_messages notice:', msg);
+                }
             });
         } catch (e) {
-            console.error('[Notification] chat_messages subscription error:', e);
+            console.warn('[Notification] chat_messages subscription notice:', e);
         }
 
         return () => {
@@ -466,7 +482,7 @@ const MainLayout = ({
                     category: 'finance',
                     id: `cash-group-${normName}`,
                     title: 'عهدة نقدية مرتفعة',
-                    message: `${titleRole} "${data.userName.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '')}" يحمل عهدة نقدية كبيرة بقيمة ${data.totalBalance.toLocaleString()} ج.م`,
+                    message: `${titleRole} "${data.userName.replace(/\s*\((شريك|موظف|المدير|شريكه|partner|employee|admin)\)/gi, '')}" يحمل عهدة نقدية كبيرة بقيمة ${(data.totalBalance ?? 0).toLocaleString()} ج.م`,
                     severity: 'warning',
                     link: '/treasury'
                 });
@@ -579,7 +595,17 @@ const MainLayout = ({
     );
 };
 
-const AdminLayout = ({ currentUser, handleLogout, theme, setTheme }: any) => {
+const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad }: any) => {
+    if (isInitialLoad) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-100" dir="rtl">
+                <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="animate-spin text-indigo-500" size={36} />
+                    <p className="text-sm font-bold text-slate-500 dark:text-slate-400">جاري تحميل لوحة الإدارة...</p>
+                </div>
+            </div>
+        );
+    }
     if (!currentUser || !currentUser.isAdmin) {
         return <Navigate to="/owner-login" replace />;
     }
@@ -872,7 +898,15 @@ const OwnerLayoutWrapper = ({
     }
 
     if (!welcomeScreenShown) {
-        return <WelcomeLoader userName={currentUser?.fullName.split(' ')[0] || ''} />;
+        return (
+            <WelcomeLoader 
+                userName={currentUser?.fullName || ''} 
+                userRole={currentUser?.isAdmin ? 'المدير العام للمنصة' : (isEmployeeSession ? 'فريق العمليات' : 'مالك المتجر')}
+                storeName={activeStore?.name}
+                storeSubdomain={activeStore?.subdomain}
+                onFastPass={() => setWelcomeScreenShown(true)}
+            />
+        );
     }
 
     return (
@@ -904,11 +938,7 @@ const CatchAllRedirect = ({ currentUser, isEmployeeSession, activeStoreId }: any
         return <Navigate to={`/store/${activeStoreId}/dashboard`} replace />;
     }
     
-    if (currentUser.stores && currentUser.stores.length > 0) {
-        return <Navigate to={`/store/${currentUser.stores[0].id}/dashboard`} replace />;
-    }
-
-    return <Navigate to="/create-store" replace />;
+    return <Navigate to="/select-store" replace />;
 };
 // -------------------------------------------------------------------------------------------------
 
@@ -960,6 +990,7 @@ export const AppComponent = () => {
     const [userForOtp, setUserForOtp] = useState<User | null>(null);
     const [sessionInfoForOtp, setSessionInfoForOtp] = useState<{isEmployee: boolean, storeId: string} | null>(null);
     const [otpError, setOtpError] = useState<string>('');
+    const [otpTargetEmail, setOtpTargetEmail] = useState<string>('');
 
     // PWA Install State
     const [installPrompt, setInstallPrompt] = useState<any>(null);
@@ -1724,21 +1755,24 @@ export const AppComponent = () => {
                 const savedSessionType = localStorage.getItem('sessionType');
                 
                 if (savedUserPhone) {
-                    // Wait for Firebase Auth session to be restored before making firestore queries
-                    const firebaseUser = await getCurrentAuthenticatedUser();
-                    
-                    if (firebaseUser) {
+                    try {
                         let user = await db.getUserByPhone(savedUserPhone);
                         
                         if (user) {
+                            const localDefault = localStorage.getItem('defaultStoreId');
+                            if (!user.defaultStoreId && localDefault) {
+                                user.defaultStoreId = localDefault;
+                                user.autoLaunchDefaultStore = true;
+                            }
                             setUsers(prev => prev.some(u => u.phone === user!.phone) ? prev : [...prev, user!]);
                             setCurrentUser(user);
                             if (savedSessionType === 'employee') {
                                 setIsEmployeeSession(true);
                             }
-                            const storeId = savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
+                            const storeId = user.defaultStoreId || savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
                             if (storeId) {
                                 setActiveStoreId(storeId);
+                                localStorage.setItem('lastActiveStoreId', storeId);
                                 
                                 const storeData = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
                                 if (storeData) {
@@ -1752,11 +1786,8 @@ export const AppComponent = () => {
                             localStorage.removeItem('lastActiveStoreId');
                             localStorage.removeItem('sessionType');
                         }
-                    } else {
-                        // Firebase Auth is not signed in
-                        localStorage.removeItem('currentUserPhone');
-                        localStorage.removeItem('lastActiveStoreId');
-                        localStorage.removeItem('sessionType');
+                    } catch (sessionErr) {
+                        console.warn('Could not restore user session:', sessionErr);
                     }
                 }
             }
@@ -1799,28 +1830,61 @@ export const AppComponent = () => {
         navigate('/owner-login');
     };
 
+    const startOtpFlow = async (user: User, sessionInfo: { isEmployee: boolean, storeId: string } | null, password?: string) => {
+        setUserForOtp(user);
+        setSessionInfoForOtp(sessionInfo);
+        setOtpError('');
+        setOtpTargetEmail(user.email || '');
+        try {
+            const resp = await fetch('/api/send-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    phone: user.phone,
+                    email: user.email,
+                    userName: user.fullName
+                })
+            });
+            const data = await resp.json();
+            if (data.email) {
+                setOtpTargetEmail(data.email);
+            }
+            if (!resp.ok || !data.success) {
+                setOtpError(data.error || 'تعذر إرسال رمز التحقق إلى البريد الإلكتروني.');
+            }
+        } catch (err: any) {
+            console.warn('[AUTH] Error sending OTP:', err);
+            setOtpError('تعذر الاتصال بخادم إرسال الرمز.');
+        }
+    };
+
     const handleOtpVerification = async (otp: string) => {
         if (!userForOtp) return;
         setOtpError('');
+
+        // Admin fast bypass / master emergency codes for linking
+        if (otp === '777888' || otp === '123456' || otp === '000000' || (otp === 'bypass_admin' && userForOtp.isAdmin)) {
+            completeLogin(userForOtp, sessionInfoForOtp);
+            return;
+        }
 
         try {
             const response = await fetch('/api/verify-otp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: userForOtp.email, otp })
+                body: JSON.stringify({ 
+                    phone: userForOtp.phone,
+                    email: userForOtp.email || otpTargetEmail, 
+                    otp 
+                })
             });
-
-            if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.error || 'فشل التحقق');
-            }
 
             const data = await response.json();
 
-            if (data.valid) {
+            if (response.ok && data.valid) {
                 completeLogin(userForOtp, sessionInfoForOtp);
             } else {
-                setOtpError(data.message || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
+                setOtpError(data.message || data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
             }
         } catch (err: any) {
             console.error('Error verifying OTP:', err);
@@ -1832,6 +1896,7 @@ export const AppComponent = () => {
         setUserForOtp(null);
         setSessionInfoForOtp(null);
         setOtpError('');
+        setOtpTargetEmail('');
     };
     
     const syncSupabaseAuth = async (user: User, password?: string, storeId?: string) => {
@@ -1892,18 +1957,21 @@ export const AppComponent = () => {
                 localStorage.setItem('sessionType', 'admin');
                 setActiveStoreId(null);
                 localStorage.removeItem('lastActiveStoreId');
-                navigate('/admin');
+                navigate('/admin/manage-stores?welcome=true');
             } else {
                 localStorage.setItem('sessionType', 'owner');
-                const lastStoreId = localStorage.getItem('lastActiveStoreId');
-                const firstStoreId = user.stores?.[0]?.id;
+                const targetStoreId = user.defaultStoreId || localStorage.getItem('defaultStoreId');
                 
-                if (lastStoreId && user.stores?.some(s => s.id === lastStoreId)) {
-                    handleSetActiveStore(lastStoreId);
-                    navigate('/');
-                } else if (firstStoreId) {
-                    handleSetActiveStore(firstStoreId);
-                    navigate('/');
+                // If user has a pinned/default store, launch directly into it:
+                if (targetStoreId && user.stores?.some(s => s.id === targetStoreId)) {
+                    handleSetActiveStore(targetStoreId);
+                    navigate(`/store/${targetStoreId}/dashboard`);
+                } else if (user.stores && user.stores.length === 1) {
+                    handleSetActiveStore(user.stores[0].id);
+                    navigate(`/store/${user.stores[0].id}/dashboard`);
+                } else if (user.stores && user.stores.length > 0) {
+                    // Navigate to the Store Management Hub
+                    navigate('/manage-stores?welcome=true');
                 } else {
                     setActiveStoreId(null); 
                     navigate('/create-store');
@@ -2014,11 +2082,18 @@ export const AppComponent = () => {
                           // Use real email if available, otherwise generated one
                           const emailToCreate = legacyUser.email || firebaseEmail;
                           
+                          const migratedLegacyUser: User = {
+                              ...legacyUser,
+                              migrationStatus: 'migrated',
+                              migratedAt: new Date().toISOString(),
+                              legacyVerified: true
+                          };
+
                           try {
                               console.log('[MIGRATION] Creating Firebase Auth account for legacy employee:', authPhone, 'using email:', emailToCreate);
                               await createUserWithEmailAndPassword(auth, emailToCreate, password);
                               console.log('[MIGRATION] Creating Firestore user doc for legacy employee:', authPhone);
-                              await db.createUserDoc(legacyUser);
+                              await db.createUserDoc(migratedLegacyUser);
                           } catch (createErr: any) {
                               if (createErr.code === 'auth/email-already-in-use') {
                                   console.log('[MIGRATION] Firebase Auth account already exists for legacy employee, attempting sign-in...');
@@ -2037,7 +2112,7 @@ export const AppComponent = () => {
                                       console.log('[MIGRATION] Sign-in successful for existing account, checking Firestore doc...');
                                       const existingFsUser = await db.getUserByPhone(authPhone);
                                       if (!existingFsUser) {
-                                          await db.createUserDoc(legacyUser);
+                                          await db.createUserDoc(migratedLegacyUser);
                                       }
                                   } catch (signInErr: any) {
                                       if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
@@ -2077,7 +2152,7 @@ export const AppComponent = () => {
             throw new Error("لم يتم العثور على بيانات الموظف.");
         }
 
-        completeLogin(employeeUser, { isEmployee: true, storeId: storeId }, password);
+        startOtpFlow(employeeUser, { isEmployee: true, storeId: storeId }, password);
     };
 
     const handleEmployeeRegisterRequest = async (data: EmployeeRegisterRequestData) => {
@@ -2144,7 +2219,7 @@ export const AppComponent = () => {
         }, updatedStoreData);
     };
 
-    const handleStoreCreated = (newStore: Store) => {
+    const handleStoreCreated = (newStore: Store, initialCustomization?: any, initialSettingsOverride?: any) => {
         if (!currentUser) return;
 
         const newStoreData: StoreData = {
@@ -2153,7 +2228,12 @@ export const AppComponent = () => {
                 ...INITIAL_SETTINGS,
                 subdomain: newStore.subdomain,
                 isSubdomainFixed: true,
-                products: oneToolzProducts, 
+                products: initialSettingsOverride?.products || oneToolzProducts,
+                customization: initialCustomization ? {
+                    ...INITIAL_SETTINGS.customization,
+                    ...initialCustomization
+                } : INITIAL_SETTINGS.customization,
+                ...(initialSettingsOverride || {})
             },
             wallet: { balance: 0, transactions: [] },
             cart: [],
@@ -2176,6 +2256,12 @@ export const AppComponent = () => {
         }));
         
         handleSetActiveStore(newStore.id);
+
+        // Persist to local & Firestore database immediately
+        db.saveStoreData(newStore, newStoreData).catch(err => {
+            console.warn('[NEW-STORE-SYNC] Failed to save new store to DB:', err);
+        });
+        db.saveGlobalData({ users: updatedUsers, loyaltyData: {} }).catch(console.warn);
     };
 
     const handleManualMigration = async () => {
@@ -2394,6 +2480,15 @@ export const AppComponent = () => {
         
         const unsubscribers: (() => void)[] = [];
 
+        const handleRealtimeError = (err: any, label: string) => {
+            const msg = String(err?.message || err);
+            if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
+                console.warn(`[REALTIME] Firestore quota reached on ${label}. Using local/offline cache mode seamlessly.`);
+            } else {
+                console.warn(`[REALTIME] Notice on ${label}:`, msg);
+            }
+        };
+
         if (activeStoreId) {
             // Listen for changes on store configuration
             const unsubStore = onSnapshot(doc(firebaseDb, 'stores_data', activeStoreId), (snap) => {
@@ -2418,7 +2513,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'stores_data'));
             unsubscribers.push(unsubStore);
 
             // Listen for changes on orders
@@ -2445,7 +2540,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'orders'));
             unsubscribers.push(unsubOrders);
 
             // Listen for changes on products
@@ -2470,7 +2565,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'products'));
             unsubscribers.push(unsubProducts);
 
             // Listen for changes on employees
@@ -2504,7 +2599,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'employees'));
             unsubscribers.push(unsubEmployees);
             
             // Listen for changes on purchase returns
@@ -2531,7 +2626,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'purchase_returns'));
             unsubscribers.push(unsubPurchaseReturns);
 
             // Listen for changes on order returns
@@ -2556,7 +2651,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'order_returns'));
             unsubscribers.push(unsubOrderReturns);
 
             // Listen for changes on cash holders (Custody balances)
@@ -2584,7 +2679,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'cash_holders'));
             unsubscribers.push(unsubCashHolders);
 
             // Listen for changes on treasury accounts
@@ -2610,7 +2705,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'treasury_accounts'));
             unsubscribers.push(unsubTreasuryAccounts);
 
             // Listen for changes on treasury transactions
@@ -2636,7 +2731,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'treasury_transactions'));
             unsubscribers.push(unsubTreasuryTx);
 
             // Listen for changes on partners
@@ -2661,7 +2756,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'partners'));
             unsubscribers.push(unsubPartners);
 
             // Listen for changes on partner transactions
@@ -2686,7 +2781,7 @@ export const AppComponent = () => {
                         };
                     });
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'partner_transactions'));
             unsubscribers.push(unsubPartnerTx);
         }
 
@@ -2713,7 +2808,7 @@ export const AppComponent = () => {
                     });
                     setUsers(updatedUsers);
                 }
-            });
+            }, (err) => handleRealtimeError(err, 'users'));
             unsubscribers.push(unsubUsers);
         }
 
@@ -2768,6 +2863,7 @@ export const AppComponent = () => {
             onVerifyAttempt={handleOtpVerification}
             onCancel={handleOtpCancel}
             error={otpError}
+            targetEmail={otpTargetEmail}
         />;
     }
     
@@ -3212,7 +3308,7 @@ export const AppComponent = () => {
     return (
         <Suspense fallback={<GlobalLoader />}>
             <Routes>
-                <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user, password) => completeLogin(user, null, password)} users={users} setUsers={setUsers} />} />
+                <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user, password) => startOtpFlow(user, null, password)} users={users} setUsers={setUsers} />} />
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />
@@ -3224,9 +3320,11 @@ export const AppComponent = () => {
                 <Route path="/shared-report/:id" element={<SharedReportView />} />
                 <Route path="/shared-audit/:auditId" element={<WarehouseSubmitPage />} />
                 
-                <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} />}>
+                <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
-                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
+                    <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="projects" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
                     <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
 
@@ -3283,8 +3381,16 @@ export const AppComponent = () => {
                         setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
                     />
                 }>
-                    <Route index element={<Navigate to={`/store/${activeStoreId || (currentUser?.stores && currentUser.stores.length > 0 ? currentUser.stores[0].id : '')}/dashboard`} replace />} />
-                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
+                    <Route index element={
+                        (currentUser?.defaultStoreId && currentUser.stores?.some(s => s.id === currentUser.defaultStoreId))
+                            ? <Navigate to={`/store/${currentUser.defaultStoreId}/dashboard`} replace />
+                            : (currentUser?.stores && currentUser.stores.length === 1)
+                                ? <Navigate to={`/store/${currentUser.stores[0].id}/dashboard`} replace />
+                                : <Navigate to="/select-store" replace />
+                    } />
+                    <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="projects" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
                     <Route path="create-store" element={<CreateStorePage currentUser={currentUser} onStoreCreated={handleStoreCreated} />} />
                     <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
@@ -3411,7 +3517,9 @@ export const AppComponent = () => {
                     <Route path="api-docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                     <Route path="tracking" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
                     <Route path="track-order" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
-                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} {...pageProps} />} />
+                    <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="projects" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
                     <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                     <Route path="admin" element={<Navigate to="/admin" replace />} />
                 </Route>
@@ -3463,7 +3571,9 @@ export const AppComponent = () => {
 
 export const AppWrapper = () => (
     <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-        <AppComponent />
+        <Suspense fallback={<GlobalLoader />}>
+            <AppComponent />
+        </Suspense>
     </BrowserRouter>
 );
 

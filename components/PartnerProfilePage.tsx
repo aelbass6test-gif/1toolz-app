@@ -858,7 +858,7 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
             <p>الشريك: ${partner.name} | نسبة الأرباح الشاملة: ${partner.profitRatio}%</p>
           </div>
           <div style="text-align: left;">
-            <p style="margin: 0; font-weight: 950; color: #1e293b; font-size: 16px;">النظام المالي الموحد</p>
+            <p style="margin: 0; font-weight: 950; color: #1e293b; font-size: 16px;">عبدو ميديا برايم | AbdoMedia Prime</p>
             <p style="margin: 5px 0 0 0; color: #64748b; font-size: 12px;">تاريخ استخراج المستند: ${new Date().toLocaleDateString('ar-EG')} ${new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
           </div>
         </div>

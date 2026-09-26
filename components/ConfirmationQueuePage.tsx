@@ -250,7 +250,7 @@ const CustomerHistory = ({ allOrders, customerPhone, currentOrderId }: { allOrde
                      </div>
                      <div className="bg-white dark:bg-slate-700/50 p-2 rounded">
                          <p className="text-xs text-slate-500">إجمالي ما أنفقه</p>
-                         <p className="font-black text-lg text-slate-800 dark:text-white">{history.totalSpent.toLocaleString()}</p>
+                         <p className="font-black text-lg text-slate-800 dark:text-white">{(history.totalSpent ?? 0).toLocaleString()}</p>
                      </div>
                  </div>
             </div>
@@ -2330,7 +2330,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                 <p className="text-xs text-slate-500">{item.variantDescription || ''}</p>
                                                             </div>
                                                             <div className="text-right">
-                                                                <p className="font-bold text-sm text-slate-700 dark:text-slate-300">{item.quantity} x {item.price.toLocaleString()} ج.م</p>
+                                                                <p className="font-bold text-sm text-slate-700 dark:text-slate-300">{item.quantity} x {(item.price ?? 0).toLocaleString()} ج.م</p>
                                                                 <p className="font-black text-xs text-indigo-600 dark:text-indigo-400">{(item.quantity * item.price).toLocaleString()} ج.م</p>
                                                             </div>
                                                         </div>
@@ -2400,16 +2400,16 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                     <div className="space-y-2 text-sm">
                                         <div className="flex justify-between items-center">
                                             <span className="text-slate-500 dark:text-slate-400">إجمالي المنتجات</span>
-                                            <span className="font-bold text-slate-800 dark:text-white">{productsTotal.toLocaleString()} ج.م</span>
+                                            <span className="font-bold text-slate-800 dark:text-white">{(productsTotal ?? 0).toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-slate-500 dark:text-slate-400">مصاريف الشحن</span>
-                                            <span className="font-bold text-slate-800 dark:text-white">{activeOrder.shippingFee.toLocaleString()} ج.م</span>
+                                            <span className="font-bold text-slate-800 dark:text-white">{(activeOrder.shippingFee ?? 0).toLocaleString()} ج.م</span>
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-slate-500 dark:text-slate-400">رسوم المعاينة</span>
                                             <div className="flex items-center gap-3">
-                                                <span className="font-bold text-slate-800 dark:text-white">{inspectionFeeValue.toLocaleString()} ج.م</span>
+                                                <span className="font-bold text-slate-800 dark:text-white">{(inspectionFeeValue ?? 0).toLocaleString()} ج.م</span>
                                                 <button
                                                     onClick={() => updateActiveOrderField('includeInspectionFee', !activeOrder.includeInspectionFee)}
                                                     className={`px-3 py-1 text-xs font-bold rounded-full transition-colors ${activeOrder.includeInspectionFee ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50'}`}
@@ -2430,7 +2430,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                 <input type="number" value={editedDiscount} onChange={e => setEditedDiscount(e.target.value === '' ? '' : Number(e.target.value))} className="w-full p-2 bg-slate-100 dark:bg-slate-700 rounded-md text-sm font-bold" min="0"/>
                                             }
                                             displayComponent={
-                                                <span className="font-bold text-red-500">-{activeOrder.discount ? activeOrder.discount.toLocaleString() : 0} ج.م</span>
+                                                <span className="font-bold text-red-500">-{activeOrder.discount ?(activeOrder.discount ?? 0).toLocaleString() : 0} ج.م</span>
                                             }
                                         />
                                         
@@ -2462,7 +2462,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                         </button>
                                                     )}
                                                 </div>
-                                                <span className="font-black text-emerald-600 dark:text-emerald-400">-{safeAdvance.toLocaleString()} ج.م</span>
+                                                <span className="font-black text-emerald-600 dark:text-emerald-400">-{(safeAdvance ?? 0).toLocaleString()} ج.م</span>
                                             </div>
                                             <div className="flex justify-between items-center text-[11px] font-bold text-emerald-800 dark:text-emerald-300 border-t border-emerald-100 dark:border-emerald-900/30 pt-1.5 mt-0.5">
                                                 <span className="flex items-center gap-1"><Wallet size={12} /> العهدة / مكان الاحتفاظ بالعربون:</span>
@@ -2479,7 +2479,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                     {activeOrder.advancePaymentHistory.slice(-3).reverse().map(log => (
                                                         <div key={log.id} className="text-[10px] flex flex-col gap-0.5 border-b border-slate-200 dark:border-slate-800 pb-1.5 last:border-0 last:pb-0">
                                                             <div className="flex justify-between items-center">
-                                                                <span className="font-black text-slate-700 dark:text-slate-300">{log.amount.toLocaleString()} ج.م</span>
+                                                                <span className="font-black text-slate-700 dark:text-slate-300">{(log.amount ?? 0).toLocaleString()} ج.م</span>
                                                                 <span className="text-[8px] text-slate-400">{new Date(log.timestamp).toLocaleDateString('ar-EG')}</span>
                                                             </div>
                                                             <p className="text-slate-500 font-bold leading-tight">{log.reason}</p>
@@ -2495,14 +2495,14 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                         {safeCredit > 0 && (
                                             <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
                                                 <span>خصم رصيد (مستبدل)</span>
-                                                <span className="font-bold">-{safeCredit.toLocaleString()} ج.م</span>
+                                                <span className="font-bold">-{(safeCredit ?? 0).toLocaleString()} ج.م</span>
                                             </div>
                                         )}
 
                                         {safeReturnCash > 0 && (
                                             <div className="flex justify-between items-center text-red-500">
                                                 <span>إرجاع كاش للعميل</span>
-                                                <span className="font-bold">-{safeReturnCash.toLocaleString()} ج.م</span>
+                                                <span className="font-bold">-{(safeReturnCash ?? 0).toLocaleString()} ج.م</span>
                                             </div>
                                         )}
 
@@ -2510,7 +2510,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                         <div className="flex justify-between items-center font-black text-lg">
                                             <span className="text-slate-800 dark:text-white">الإجمالي المطلوب:</span>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-indigo-600 dark:text-indigo-400">{totalAmount.toLocaleString()} ج.م</span>
+                                                <span className="text-indigo-600 dark:text-indigo-400">{(totalAmount ?? 0).toLocaleString()} ج.م</span>
                                                 <button 
                                                     onClick={() => {
                                                         const currentOverride = activeOrder.totalAmountOverride !== undefined && activeOrder.totalAmountOverride !== null
@@ -2612,7 +2612,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                     )}
                                                     <div className="flex-1 min-w-0">
                                                         <p className="font-bold text-sm text-slate-800 dark:text-white truncate">{product.name}</p>
-                                                        <p className="text-xs text-indigo-600 dark:text-indigo-400 font-black">{product.price.toLocaleString()} ج.م</p>
+                                                        <p className="text-xs text-indigo-600 dark:text-indigo-400 font-black">{(product.price ?? 0).toLocaleString()} ج.م</p>
                                                     </div>
                                                 </div>
                                             ))}

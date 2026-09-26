@@ -331,14 +331,14 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
       staffAdvances: [...(prev.staffAdvances || []), newAdvance]
     }));
     setShowAddAdvanceModal(false);
-    showToast(`تم تسجيل صرف سلفة بقيمة ${advance.amount.toLocaleString()} ج.م للموظف ${advance.staffName}`);
+    showToast(`تم تسجيل صرف سلفة بقيمة ${(advance.amount ?? 0).toLocaleString()} ج.م للموظف ${advance.staffName}`);
   };
 
   const handleDeductAdvance = async (id: string) => {
     const adv = settings.staffAdvances?.find(a => a.id === id);
     if (!adv) return;
 
-    const ok = await inAppConfirm(`هل تريد تسوية هذه السلفة وخصم مبلغ (${adv.amount.toLocaleString()} ج.م) من راتب الموظف للشهر الحالي؟`, {
+    const ok = await inAppConfirm(`هل تريد تسوية هذه السلفة وخصم مبلغ (${(adv.amount ?? 0).toLocaleString()} ج.م) من راتب الموظف للشهر الحالي؟`, {
       title: 'تسوية وخصم سلفة الموظف',
       type: 'warning',
       confirmText: 'نعم، تسوية وخصم السلفة',
@@ -465,14 +465,14 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
 
     setShowPaymentModal(false);
     setSelectedStaff(null);
-    showToast(`تم تسجيل ${payment.type === 'salary' ? 'صرف راتب' : payment.type === 'incentive' ? 'صرف حافز' : 'خصم'} بقيمة ${payment.amount.toLocaleString()} ج.م للموظف ${staff.name}`);
+    showToast(`تم تسجيل ${payment.type === 'salary' ? 'صرف راتب' : payment.type === 'incentive' ? 'صرف حافز' : 'خصم'} بقيمة ${(payment.amount ?? 0).toLocaleString()} ج.م للموظف ${staff.name}`);
   };
 
   const handleDeleteTransaction = async (tx: PayrollTransaction) => {
     const sourceName = tx.treasuryAccountId ? 'الخزينة المختارة' : 'المحفظة العامة';
     const msg = tx.type === 'deduction'
       ? `هل أنت متأكد من حذف سجل الخصم للموظف ${tx.staffName}؟`
-      : `هل أنت متأكد من حذف هذه العملية؟\nسيتم استرداد مبلغ (${tx.amount.toLocaleString()} ج.م) وإعادته تلقائياً إلى رصيد [ ${sourceName} ].`;
+      : `هل أنت متأكد من حذف هذه العملية؟\nسيتم استرداد مبلغ (${(tx.amount ?? 0).toLocaleString()} ج.م) وإعادته تلقائياً إلى رصيد [ ${sourceName} ].`;
 
     const ok = await inAppConfirm(msg, {
       title: 'حذف سجل المعاملة المالية',
@@ -491,7 +491,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
         payrollTransactions: (prev.payrollTransactions || []).filter(t => t.id !== tx.id)
       }));
 
-      showToast(`✅ تم حذف السجل بنجاح وإعادة المبلغ (${tx.amount.toLocaleString()} ج.م) إلى مكانه.`, 'success');
+      showToast(`✅ تم حذف السجل بنجاح وإعادة المبلغ (${(tx.amount ?? 0).toLocaleString()} ج.م) إلى مكانه.`, 'success');
     }
   };
 
@@ -825,28 +825,28 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                       <div className="space-y-2.5 bg-slate-50/80 dark:bg-slate-800/80 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-slate-500 font-bold">الراتب الأساسي:</span>
-                          <span className="font-black text-slate-900 dark:text-white">{summary.base.toLocaleString()} ج.م</span>
+                          <span className="font-black text-slate-900 dark:text-white">{(summary.base ?? 0).toLocaleString()} ج.م</span>
                         </div>
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-emerald-600 font-bold flex items-center gap-1"><TrendingUp size={13} /> الحوافز (+):</span>
-                          <span className="font-bold text-emerald-600">{summary.incentives.toLocaleString()} ج.م</span>
+                          <span className="font-bold text-emerald-600">{(summary.incentives ?? 0).toLocaleString()} ج.م</span>
                         </div>
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-rose-600 font-bold flex items-center gap-1"><TrendingDown size={13} /> الخصومات (-):</span>
-                          <span className="font-bold text-rose-600">{summary.deductions.toLocaleString()} ج.م</span>
+                          <span className="font-bold text-rose-600">{(summary.deductions ?? 0).toLocaleString()} ج.م</span>
                         </div>
                         <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex justify-between items-center text-xs font-black">
                           <span className="text-indigo-600 dark:text-indigo-400">صافي المستحق للشهر:</span>
-                          <span className="text-sm text-indigo-600 dark:text-indigo-400">{summary.netPayable.toLocaleString()} ج.م</span>
+                          <span className="text-sm text-indigo-600 dark:text-indigo-400">{(summary.netPayable ?? 0).toLocaleString()} ج.م</span>
                         </div>
                       </div>
 
                       {/* Progress bar of disbursement */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-[11px] font-bold">
-                          <span className="text-slate-500">تم صرف: {summary.paidSalaries.toLocaleString()} ج.م</span>
+                          <span className="text-slate-500">تم صرف: {(summary.paidSalaries ?? 0).toLocaleString()} ج.م</span>
                           <span className={summary.remaining === 0 ? "text-emerald-600 font-black" : "text-amber-600"}>
-                            {summary.remaining === 0 ? "✅ تم الصرف بالكامل" : `متبقي: ${summary.remaining.toLocaleString()} ج.م`}
+                            {summary.remaining === 0 ? "✅ تم الصرف بالكامل" : `متبقي: ${(summary.remaining ?? 0).toLocaleString()} ج.م`}
                           </span>
                         </div>
                         <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -909,15 +909,15 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                             </div>
                           </td>
                           <td className="px-6 py-4 font-bold text-slate-600 dark:text-slate-300">{staff.position}</td>
-                          <td className="px-6 py-4 font-black text-slate-800 dark:text-white">{summary.base.toLocaleString()} ج.م</td>
-                          <td className="px-6 py-4 font-bold text-emerald-600">{summary.incentives.toLocaleString()} ج.م</td>
-                          <td className="px-6 py-4 font-bold text-rose-600">{summary.deductions.toLocaleString()} ج.م</td>
-                          <td className="px-6 py-4 font-black text-indigo-600">{summary.paidSalaries.toLocaleString()} ج.م</td>
+                          <td className="px-6 py-4 font-black text-slate-800 dark:text-white">{(summary.base ?? 0).toLocaleString()} ج.م</td>
+                          <td className="px-6 py-4 font-bold text-emerald-600">{(summary.incentives ?? 0).toLocaleString()} ج.م</td>
+                          <td className="px-6 py-4 font-bold text-rose-600">{(summary.deductions ?? 0).toLocaleString()} ج.م</td>
+                          <td className="px-6 py-4 font-black text-indigo-600">{(summary.paidSalaries ?? 0).toLocaleString()} ج.م</td>
                           <td className="px-6 py-4">
                             <span className={`px-2.5 py-1 rounded-lg text-xs font-black ${
                               summary.remaining === 0 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
                             }`}>
-                              {summary.remaining === 0 ? 'خالص' : `${summary.remaining.toLocaleString()} ج.م`}
+                              {summary.remaining === 0 ? 'خالص' : `${(summary.remaining ?? 0).toLocaleString()} ج.م`}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-left">
@@ -1186,7 +1186,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                     (settings.staffAdvances || []).map(a => (
                       <tr key={a.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20">
                         <td className="p-4 font-bold text-slate-900 dark:text-white">{a.staffName}</td>
-                        <td className="p-4 font-mono font-black text-indigo-600 dark:text-indigo-400">{a.amount.toLocaleString()} ج.م</td>
+                        <td className="p-4 font-mono font-black text-indigo-600 dark:text-indigo-400">{(a.amount ?? 0).toLocaleString()} ج.م</td>
                         <td className="p-4 font-mono text-xs">{a.date}</td>
                         <td className="p-4 text-xs text-slate-500">{a.note || '-'}</td>
                         <td className="p-4">
@@ -1393,7 +1393,7 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                         </td>
                         <td className="px-6 py-4">
                           <div className={`font-black text-base ${tx.type === 'deduction' ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
-                            {tx.type === 'deduction' ? '-' : ''}{tx.amount.toLocaleString()} <span className="text-xs font-normal">ج.م</span>
+                            {tx.type === 'deduction' ? '-' : ''}{(tx.amount ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-xs font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 pt-5">
@@ -1475,12 +1475,12 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
                     <tr key={staff.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                       <td className="p-3 font-bold text-slate-900 dark:text-white">{staff.name}</td>
                       <td className="p-3 text-xs text-slate-500">{staff.position}</td>
-                      <td className="p-3 font-mono">{s.base.toLocaleString()}</td>
-                      <td className="p-3 font-mono text-emerald-600">+{s.incentives.toLocaleString()}</td>
-                      <td className="p-3 font-mono text-rose-600">-{s.deductions.toLocaleString()}</td>
-                      <td className="p-3 font-black font-mono bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300">{s.netPayable.toLocaleString()}</td>
-                      <td className="p-3 font-mono font-bold">{s.paidSalaries.toLocaleString()}</td>
-                      <td className="p-3 font-mono font-bold text-amber-600">{s.remaining.toLocaleString()}</td>
+                      <td className="p-3 font-mono">{(s.base ?? 0).toLocaleString()}</td>
+                      <td className="p-3 font-mono text-emerald-600">+{(s.incentives ?? 0).toLocaleString()}</td>
+                      <td className="p-3 font-mono text-rose-600">-{(s.deductions ?? 0).toLocaleString()}</td>
+                      <td className="p-3 font-black font-mono bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300">{(s.netPayable ?? 0).toLocaleString()}</td>
+                      <td className="p-3 font-mono font-bold">{(s.paidSalaries ?? 0).toLocaleString()}</td>
+                      <td className="p-3 font-mono font-bold text-amber-600">{(s.remaining ?? 0).toLocaleString()}</td>
                       <td className="p-3">
                         <span className={`text-[10px] font-black px-2.5 py-1 rounded-md ${
                           s.remaining === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
@@ -1580,7 +1580,7 @@ const StatCard: React.FC<{ title: string; value: number; icon: React.ReactNode; 
       </div>
       <div>
         <h3 className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">{title}</h3>
-        <p className="text-2xl font-black">{value.toLocaleString()} <span className="text-xs">ج.م</span></p>
+        <p className="text-2xl font-black">{(value ?? 0).toLocaleString()} <span className="text-xs">ج.م</span></p>
       </div>
     </div>
   );
@@ -1780,7 +1780,7 @@ const PaymentModal: React.FC<{ staff: StaffMember; treasury?: Treasury; onClose:
                 className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-3 px-4 outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold"
               >
                 {treasury?.accounts.map(acc => (
-                  <option key={acc.id} value={acc.id}>{acc.name} ({acc.balance.toLocaleString()} ج.م)</option>
+                  <option key={acc.id} value={acc.id}>{acc.name} ({(acc.balance ?? 0).toLocaleString()} ج.م)</option>
                 ))}
               </select>
             </div>
@@ -1933,7 +1933,7 @@ const EditPaymentModal: React.FC<{ tx: PayrollTransaction; treasury?: Treasury; 
                 className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-3 px-4 outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
               >
                 {treasury?.accounts.map(acc => (
-                  <option key={acc.id} value={acc.id}>{acc.name} ({acc.balance.toLocaleString()} ج.م)</option>
+                  <option key={acc.id} value={acc.id}>{acc.name} ({(acc.balance ?? 0).toLocaleString()} ج.م)</option>
                 ))}
               </select>
             </div>
@@ -2055,30 +2055,30 @@ const PayslipModal: React.FC<{ staff: StaffMember; summary: any; month: string; 
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                 <tr>
                   <td className="p-3 font-bold text-slate-800 dark:text-white">الراتب الأساسي للشهر</td>
-                  <td className="p-3 text-left font-mono font-bold text-slate-800 dark:text-white">{summary.base.toLocaleString()} ج.م</td>
+                  <td className="p-3 text-left font-mono font-bold text-slate-800 dark:text-white">{(summary.base ?? 0).toLocaleString()} ج.م</td>
                 </tr>
                 <tr>
                   <td className="p-3 text-emerald-600 font-bold">إجمالي الحوافز والمكافآت (+)</td>
-                  <td className="p-3 text-left font-mono font-bold text-emerald-600">+{summary.incentives.toLocaleString()} ج.م</td>
+                  <td className="p-3 text-left font-mono font-bold text-emerald-600">+{(summary.incentives ?? 0).toLocaleString()} ج.م</td>
                 </tr>
                 <tr>
                   <td className="p-3 text-rose-600 font-bold">إجمالي الخصومات والجزاءات (-)</td>
-                  <td className="p-3 text-left font-mono font-bold text-rose-600">-{summary.deductions.toLocaleString()} ج.م</td>
+                  <td className="p-3 text-left font-mono font-bold text-rose-600">-{(summary.deductions ?? 0).toLocaleString()} ج.م</td>
                 </tr>
                 <tr className="bg-indigo-50/50 dark:bg-indigo-950/20 font-black text-sm">
                   <td className="p-3 text-indigo-700 dark:text-indigo-300">صافي المستحق الكلي</td>
-                  <td className="p-3 text-left font-mono text-indigo-700 dark:text-indigo-300">{summary.netPayable.toLocaleString()} ج.م</td>
+                  <td className="p-3 text-left font-mono text-indigo-700 dark:text-indigo-300">{(summary.netPayable ?? 0).toLocaleString()} ج.م</td>
                 </tr>
                 <tr>
                   <td className="p-3 text-slate-600 dark:text-slate-400 font-bold">ما تم صرفه بالفعل هذا الشهر</td>
-                  <td className="p-3 text-left font-mono font-bold text-slate-800 dark:text-white">{summary.paidSalaries.toLocaleString()} ج.م</td>
+                  <td className="p-3 text-left font-mono font-bold text-slate-800 dark:text-white">{(summary.paidSalaries ?? 0).toLocaleString()} ج.م</td>
                 </tr>
               </tbody>
               <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-black text-sm border-t-2 border-slate-200 dark:border-slate-700">
                 <tr>
                   <td className="p-3 text-slate-900 dark:text-white">الرصيد المتبقي للصرف</td>
                   <td className={`p-3 text-left font-mono ${summary.remaining === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {summary.remaining === 0 ? '✅ خالص بالكامل' : `${summary.remaining.toLocaleString()} ج.م`}
+                    {summary.remaining === 0 ? '✅ خالص بالكامل' : `${(summary.remaining ?? 0).toLocaleString()} ج.م`}
                   </td>
                 </tr>
               </tfoot>
@@ -2100,7 +2100,7 @@ const PayslipModal: React.FC<{ staff: StaffMember; summary: any; month: string; 
                       </span>
                       <span className="text-slate-600 dark:text-slate-300">{t.note || 'بدون ملاحظات'}</span>
                     </div>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">{t.amount.toLocaleString()} ج.م</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">{(t.amount ?? 0).toLocaleString()} ج.م</span>
                   </div>
                 ))}
               </div>

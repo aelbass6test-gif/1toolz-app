@@ -205,7 +205,7 @@ export default function ExcelReconciliationPage({ allStoresData, updateStoreData
         } else {
           // Amount mismatch
           matchType = 'amount_mismatch';
-          notes = `اختلاف قيمة: المتجر (${orderPrice.toLocaleString()}) ج.م | الشيت (${excelAmountRaw.toLocaleString()}) ج.م`;
+          notes = `اختلاف قيمة: المتجر (${(orderPrice ?? 0).toLocaleString()}) ج.م | الشيت (${(excelAmountRaw ?? 0).toLocaleString()}) ج.م`;
         }
       } else {
         matchType = 'not_found';
@@ -495,8 +495,8 @@ export default function ExcelReconciliationPage({ allStoresData, updateStoreData
             <div className="bg-blue-50/40 dark:bg-blue-950/10 border border-blue-200/50 p-5 rounded-3xl relative overflow-hidden">
               <div className="space-y-1">
                 <h5 className="text-xs font-bold text-blue-600">إجمالي المبالغ المحصلة بالشيت</h5>
-                <p className="text-2xl font-black text-blue-600">{stats.totalExcelAmount.toLocaleString()} <span className="text-xs">ج.م</span></p>
-                <p className="text-[9px] text-slate-400 font-bold">مقارنة بـ {stats.totalStoreAmount.toLocaleString()} ج.م في النظام</p>
+                <p className="text-2xl font-black text-blue-600">{(stats.totalExcelAmount ?? 0).toLocaleString()} <span className="text-xs">ج.م</span></p>
+                <p className="text-[9px] text-slate-400 font-bold">مقارنة بـ {(stats.totalStoreAmount ?? 0).toLocaleString()} ج.م في النظام</p>
               </div>
             </div>
           </div>
@@ -575,7 +575,7 @@ export default function ExcelReconciliationPage({ allStoresData, updateStoreData
                           {item.trackingOrId}
                         </td>
                         <td className="py-3.5 px-4 font-black">
-                          {item.excelAmount.toLocaleString()} ج.م
+                          {(item.excelAmount ?? 0).toLocaleString()} ج.م
                         </td>
                         <td className="py-3.5 px-4 text-slate-500 font-bold">
                           {item.excelStatus || 'غير محدد'}

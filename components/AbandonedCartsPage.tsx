@@ -43,7 +43,7 @@ const AbandonedCartsPage: React.FC<AbandonedCartsPageProps> = ({ settings, setSe
                     </div>
                     <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400 mb-4">
                         <span className="flex items-center gap-1"><Clock size={14}/> {new Date(cart.date).toLocaleDateString('ar-EG')}</span>
-                        <span className="flex items-center gap-1 font-bold text-emerald-600"><DollarSign size={14}/> {cart.totalValue.toLocaleString()} ج.م</span>
+                        <span className="flex items-center gap-1 font-bold text-emerald-600"><DollarSign size={14}/> {(cart.totalValue ?? 0).toLocaleString()} ج.م</span>
                     </div>
                     <div className="space-y-1">
                         {cart.items.map((item, idx) => (

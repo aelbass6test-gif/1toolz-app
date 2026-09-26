@@ -36,6 +36,7 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regStoreId, setRegStoreId] = useState('');
   const [regError, setRegError] = useState('');
 
@@ -74,7 +75,15 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
     setRegError('');
     setIsLoading(true);
     try {
-        if (regPassword.length < 8) { throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل.'); }
+        if (!regFullName.trim() || !regPhone.trim() || !regEmail.trim() || !regPassword.trim() || !regConfirmPassword.trim() || !regStoreId.trim()) {
+            throw new Error('يرجى ملء كافة الحقول المطلوبة بما في ذلك تأكيد كلمة المرور.');
+        }
+        if (regPassword !== regConfirmPassword) {
+            throw new Error('كلمة المرور وتأكيد كلمة المرور غير متطابقين.');
+        }
+        if (regPassword.length < 8) { 
+            throw new Error('كلمة المرور يجب أن تكون 8 أحرف على الأقل.'); 
+        }
         
         await onRegisterRequest({
             fullName: regFullName,
@@ -97,7 +106,7 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
       <div className="w-full max-w-md bg-white p-7 sm:p-9 rounded-[2rem] border border-white shadow-[0_24px_70px_rgba(23,60,45,0.12)] transition-all">
         <div className="mb-7 flex items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"><Building size={20} /></span>
-          <div><strong className="block text-lg font-black tracking-tight text-slate-950">منصتي</strong><span className="block text-[11px] font-semibold text-slate-500">مساحة فريق المتجر</span></div>
+          <div><strong className="block text-lg font-black tracking-tight text-slate-950">عبدو ميديا برايم</strong><span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • مساحة فريق العمل</span></div>
         </div>
         {activeTab === 'success' ? (
             <div className="animate-in fade-in duration-300 text-center">
@@ -174,6 +183,16 @@ const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({ onLoginAttempt, o
                    <div><label htmlFor="employee-phone" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Phone size={16}/> رقم هاتفك</label><input id="employee-register-phone" autoComplete="username" type="tel" placeholder="سيستخدم لتسجيل الدخول" aria-label="رقم هاتفك" value={regPhone} onChange={e => setRegPhone(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                    <div><label className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Mail size={16}/> بريدك الإلكتروني</label><input id="employee-register-email" autoComplete="email" type="email" placeholder="لاسترجاع كلمة المرور وتفعيل الحساب" aria-label="بريدك الإلكتروني" value={regEmail} onChange={e => setRegEmail(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                    <div><label htmlFor="employee-password" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><KeyRound size={16}/> كلمة المرور</label><input id="employee-register-password" autoComplete="new-password" type="password" placeholder="8 أحرف على الأقل" aria-label="كلمة المرور الجديدة" value={regPassword} onChange={e => setRegPassword(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
+                   <div>
+                     <label htmlFor="employee-confirm-password" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><KeyRound size={16}/> تأكيد كلمة المرور</label>
+                     <input id="employee-confirm-password" autoComplete="new-password" type="password" placeholder="أعد إدخال كلمة المرور" aria-label="تأكيد كلمة المرور" value={regConfirmPassword} onChange={e => setRegConfirmPassword(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required />
+                     {regPassword && regConfirmPassword && regPassword === regConfirmPassword && (
+                       <p className="text-[11px] font-bold text-emerald-600 mt-1">✓ كلمتا المرور متطابقتان</p>
+                     )}
+                     {regPassword && regConfirmPassword && regPassword !== regConfirmPassword && (
+                       <p className="text-[11px] font-bold text-rose-500 mt-1">✕ كلمتا المرور غير متطابقتين</p>
+                     )}
+                   </div>
                    <div><label htmlFor="employee-store-id" className="text-sm font-bold text-slate-700 mb-2 block flex items-center gap-2"><Building size={16}/> كود المتجر</label><input type="text" placeholder="اطلبه من مالك المتجر" value={regStoreId} onChange={e => setRegStoreId(e.target.value)} className="w-full bg-white border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-900 placeholder-slate-400" required /></div>
                   
                   {regError && <div role="alert" aria-live="assertive" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-lg text-center font-bold text-sm">{regError}</div>}

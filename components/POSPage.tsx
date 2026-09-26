@@ -2001,7 +2001,7 @@ const POSSalesLog: React.FC<POSSalesLogProps> = ({ sales, settings, updateSettin
         </table>
         
         <div style="margin-top: 50px; border-top: 1px dashed #e2e8f0; padding-top: 20px; font-size: 10px; color: #94a3b8; text-align: center;">
-          هذا المستند يعتبر تقرير داخلي ولا يعتد به كفاتورة ضريبية • تم الاستخراج بنجاح بواسطة النظام الذكي
+          هذا المستند يعتبر تقرير داخلي ولا يعتد به كفاتورة ضريبية • تم الاستخراج بنجاح بواسطة عبدو ميديا برايم | AbdoMedia Prime
         </div>
       </div>
     `;

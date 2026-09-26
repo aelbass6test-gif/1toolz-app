@@ -1,5 +1,5 @@
 
-import { Settings, PERMISSIONS, StoreCustomization, ShippingOption } from './types';
+import { Settings, PERMISSIONS, StoreCustomization, ShippingOption, InsurancePackage } from './types';
 
 const INITIAL_CUSTOMIZATION: StoreCustomization = {
   logoUrl: '',
@@ -318,10 +318,39 @@ export const DEFAULT_CALL_SCRIPTS = [
     { id: 'inspection', title: 'طلب المعاينة', text: 'بالتأكيد، يمكنك فتح الطرد ومعاينة المنتج مع المندوب قبل دفع أي مليم.' },
 ];
 
+export const DEFAULT_INSURANCE_PACKAGES: InsurancePackage[] = [
+  {
+    id: 'pkg_standard',
+    name: 'باقة التأمين الأساسية (1%)',
+    type: 'percent',
+    value: 1,
+    minAmount: 5,
+    maxAmount: 50,
+    description: 'تأمين بنسبة 1% من قيمة الطلب لتغطية مخاطر النقل الأساسية والتلف الجزئي',
+  },
+  {
+    id: 'pkg_silver',
+    name: 'باقة الحماية الفضية (2%)',
+    type: 'percent',
+    value: 2,
+    minAmount: 10,
+    maxAmount: 100,
+    description: 'حماية متقدمة وتغطية موسعة بنسبة 2% ضد الفقد والكسر مع تسريع إجراءات التعويض',
+  },
+  {
+    id: 'pkg_gold_flat',
+    name: 'باقة VIP التأمين الشامل (25 ج.م)',
+    type: 'flat',
+    value: 25,
+    description: 'مبلغ مقطوع ثابت 25 ج.م تعويض فوري وشامل للبضائع الحساسة أو القيمة بدون نسب',
+  },
+];
+
 export const INITIAL_SETTINGS: Settings = {
   enableGlobalFinancials: false, 
   insuranceFeePercent: 1, 
   enableInsurance: true,
+  insurancePackages: DEFAULT_INSURANCE_PACKAGES,
   inspectionFee: 7,
   enableInspection: true,
   returnShippingFee: 35,

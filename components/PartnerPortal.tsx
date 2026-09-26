@@ -1061,7 +1061,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
             </div>
             <div>
               <p className="text-xs font-black text-amber-800 dark:text-amber-300">
-                لديك عهدة نقدية تشغيلية جارية بقيمة: <strong className="text-sm font-black underline">{partnerData.custodyAmt.toLocaleString()} ج.م</strong>
+                لديك عهدة نقدية تشغيلية جارية بقيمة: <strong className="text-sm font-black underline">{(partnerData.custodyAmt ?? 0).toLocaleString()} ج.م</strong>
               </p>
               <p className="text-[10px] text-amber-700/80 dark:text-amber-400 font-bold">هذه العهدة مخصصة لشراء مخزون أو سداد مصروفات ومطابقتها مع الإدارة.</p>
             </div>
@@ -1209,7 +1209,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                       </span>
                     </td>
                     <td className={`py-3 px-4 font-black text-sm ${isIncome ? 'text-emerald-600' : isCustody ? 'text-amber-600' : 'text-rose-600'}`}>
-                      {isIncome ? '+' : isCustody ? '' : '-'}{t.amount.toLocaleString()} ج.م
+                      {isIncome ? '+' : isCustody ? '' : '-'}{(t.amount ?? 0).toLocaleString()} ج.م
                     </td>
                     <td className="py-3 px-4 text-slate-600 dark:text-slate-300 font-bold">
                       {t.note || (t as any).notes || 'لا توجد ملاحظات'}

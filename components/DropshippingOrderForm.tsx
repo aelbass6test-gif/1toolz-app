@@ -555,33 +555,33 @@ export const DropshippingOrderForm: React.FC<DropshippingOrderFormProps> = ({
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 pt-2">
                     <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 text-center">
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold block mb-1">شحن أساسي</span>
-                      <span className="font-mono text-sm font-extrabold text-slate-800 dark:text-slate-200">{actualShippingCost.toLocaleString("ar-EG")} ج.م</span>
+                      <span className="font-mono text-sm font-extrabold text-slate-800 dark:text-slate-200">{(actualShippingCost ?? 0).toLocaleString("ar-EG")} ج.م</span>
                     </div>
                     
                     <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 text-center">
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold block mb-1">رسوم المعاينة</span>
-                      <span className={`font-mono text-sm font-extrabold ${inspectionFee > 0 ? "text-purple-600 dark:text-purple-400" : "text-slate-400"}`}>{inspectionFee > 0 ? `+${inspectionFee.toLocaleString("ar-EG")}` : "0"} ج.م</span>
+                      <span className={`font-mono text-sm font-extrabold ${inspectionFee > 0 ? "text-purple-600 dark:text-purple-400" : "text-slate-400"}`}>{inspectionFee > 0 ? `+${(inspectionFee ?? 0).toLocaleString("ar-EG")}` : "0"} ج.م</span>
                     </div>
 
                     <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 text-center">
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold block mb-1">رسوم التأمين</span>
-                      <span className={`font-mono text-sm font-extrabold ${insuranceFee > 0 ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"}`}>{insuranceFee > 0 ? `+${insuranceFee.toLocaleString("ar-EG")}` : "0"} ج.m</span>
+                      <span className={`font-mono text-sm font-extrabold ${insuranceFee > 0 ? "text-indigo-600 dark:text-indigo-400" : "text-slate-400"}`}>{insuranceFee > 0 ? `+${(insuranceFee ?? 0).toLocaleString("ar-EG")}` : "0"} ج.m</span>
                     </div>
 
                     <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 text-center">
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold block mb-1">الضريبة (VAT)</span>
-                      <span className={`font-mono text-sm font-extrabold ${bostaVat > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400"}`}>{bostaVat > 0 ? `+${bostaVat.toLocaleString("ar-EG")}` : "0"} ج.م</span>
+                      <span className={`font-mono text-sm font-extrabold ${bostaVat > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-400"}`}>{bostaVat > 0 ? `+${(bostaVat ?? 0).toLocaleString("ar-EG")}` : "0"} ج.م</span>
                     </div>
 
                     <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-800 text-center">
                       <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold block mb-1">رسوم الدفع (COD)</span>
-                      <span className={`font-mono text-sm font-extrabold ${codFee > 0 ? "text-orange-600 dark:text-orange-400" : "text-slate-400"}`}>{codFee > 0 ? `+${codFee.toLocaleString("ar-EG")}` : "0"} ج.م</span>
+                      <span className={`font-mono text-sm font-extrabold ${codFee > 0 ? "text-orange-600 dark:text-orange-400" : "text-slate-400"}`}>{codFee > 0 ? `+${(codFee ?? 0).toLocaleString("ar-EG")}` : "0"} ج.م</span>
                     </div>
                   </div>
 
                   <div className="pt-3 border-t border-dashed border-slate-200 dark:border-slate-750 flex justify-between items-center px-2">
                     <span className="text-xs font-black text-slate-600 dark:text-slate-400">إجمالي مصروفات الشحن المستقطعة:</span>
-                    <span className="font-mono text-base font-black text-slate-900 dark:text-white bg-slate-200/40 dark:bg-slate-800 px-3.5 py-1 rounded-xl">{actualTotalFees.toLocaleString("ar-EG")} ج.م</span>
+                    <span className="font-mono text-base font-black text-slate-900 dark:text-white bg-slate-200/40 dark:bg-slate-800 px-3.5 py-1 rounded-xl">{(actualTotalFees ?? 0).toLocaleString("ar-EG")} ج.م</span>
                   </div>
                 </div>
 

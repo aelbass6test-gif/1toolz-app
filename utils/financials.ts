@@ -1,5 +1,5 @@
 import { Order, Settings, Wallet, Treasury, SupplyOrder } from '../types';
-import { EGYPT_GOVERNORATES, generateTurboShippingOptions } from '../constants';
+import { EGYPT_GOVERNORATES, generateTurboShippingOptions, DEFAULT_INSURANCE_PACKAGES } from '../constants';
 
 export const isBosta = (companyName: string): boolean => {
     if (!companyName) return false;
@@ -240,7 +240,10 @@ export const calculateInsuranceFee = (order: Order, insuranceRate: number, setti
     const useCustom = compFees?.useCustomFees ?? false;
     
     // Check if a custom insurance package is selected
-    const selectedPkg = order.insurancePackageId && settings?.insurancePackages?.find(p => p.id === order.insurancePackageId);
+    const packages = (settings?.insurancePackages && settings.insurancePackages.length > 0)
+        ? settings.insurancePackages
+        : DEFAULT_INSURANCE_PACKAGES;
+    const selectedPkg = order.insurancePackageId && packages.find(p => p.id === order.insurancePackageId);
     
     let result = 0;
     

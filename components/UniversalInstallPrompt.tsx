@@ -66,7 +66,7 @@ const UniversalInstallPrompt: React.FC<UniversalInstallPromptProps> = ({
             </div>
             
             <div className="flex-1 space-y-1">
-              <h3 className="font-bold text-slate-800 dark:text-white">تثبيت مدير الأوردرات الذكي</h3>
+              <h3 className="font-bold text-slate-800 dark:text-white">تثبيت تطبيق عبدو ميديا برايم | AbdoMedia Prime</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 {isIos 
                   ? 'يمكنك إضافة التطبيق للشاشة الرئيسية للوصول إليه بسرعة كالبرامج المستقلة. سيتم حفظ بياناتك محلياً على هذا الهاتف.'

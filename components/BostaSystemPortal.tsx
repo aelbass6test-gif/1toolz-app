@@ -1879,7 +1879,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                 <div className="text-right">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">رصيد المحفظة</p>
                   <p className={`text-sm font-black tabular-nums ${walletStats.liveBalance === 0 ? 'text-red-500' : 'text-slate-800 dark:text-white'}`}>
-                    {walletStats.liveBalance.toLocaleString('ar-EG')} <span className="text-[10px] font-bold">ج.م</span>
+                    {(walletStats.liveBalance ?? 0).toLocaleString('ar-EG')} <span className="text-[10px] font-bold">ج.م</span>
                   </p>
                 </div>
               </div>
@@ -3288,7 +3288,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-black text-slate-800 dark:text-white">{acc.name}</p>
-                          <p className="text-[10px] font-bold text-slate-500">الرصيد المتاح: {acc.balance.toLocaleString('ar-EG')} ج.م</p>
+                          <p className="text-[10px] font-bold text-slate-500">الرصيد المتاح: {(acc.balance ?? 0).toLocaleString('ar-EG')} ج.م</p>
                         </div>
                       </div>
                       {selectedPackagingPaymentId === acc.id && <Check size={16} className="text-indigo-600" />}
@@ -3311,7 +3311,7 @@ export default function BostaSystemPortal({ onBack, treasury, setTreasury, walle
                         <div className="text-right">
                           <p className="text-sm font-black text-slate-800 dark:text-white">محفظة المتجر</p>
                           <p className={`text-[10px] font-bold ${(walletStats.liveBalance === 0) ? 'text-red-500' : 'text-slate-500'}`}>
-                            الرصيد المتاح: {walletStats.liveBalance.toLocaleString('ar-EG')} ج.م
+                            الرصيد المتاح: {(walletStats.liveBalance ?? 0).toLocaleString('ar-EG')} ج.م
                             {(walletStats.liveBalance === 0) && ' (لا يوجد رصيد كافٍ)'}
                           </p>
                         </div>

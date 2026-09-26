@@ -9,10 +9,12 @@ import { audioSynth } from '../utils/audioSynth';
 import { CommandPalette } from './CommandPalette';
 
 const PATH_TITLES: { [key: string]: string } = {
-    '/': 'الرئيسية',
+    '/select-store': 'تغيير وإدارة المتاجر',
     '/manage-stores': 'تغيير وإدارة المتاجر',
+    '/projects': 'تغيير وإدارة المتاجر',
     '/create-store': 'إنشاء متجر جديد',
     '/admin/manage-stores': 'تغيير وإدارة المتاجر',
+    '/': 'تغيير وإدارة المتاجر',
     '/confirmation-queue': 'تأكيد الطلبات',
     '/orders': 'الطلبات',
     '/abandoned-carts': 'السلات المتروكة',
@@ -214,9 +216,14 @@ const Header: React.FC<HeaderProps> = ({
     const isStoreManagementOrCreationPage = useMemo(() => {
         const path = location.pathname;
         return (
+            path === '/' ||
+            path === '/select-store' ||
+            path === '/projects' ||
             path === '/manage-stores' ||
             path === '/create-store' ||
             path === '/admin/manage-stores' ||
+            path.endsWith('/select-store') ||
+            path.endsWith('/projects') ||
             path.endsWith('/manage-stores') ||
             path.endsWith('/create-store')
         );
@@ -226,7 +233,7 @@ const Header: React.FC<HeaderProps> = ({
         if (currentUser?.isAdmin) {
             navigate('/admin/manage-stores');
         } else {
-            navigate('/manage-stores');
+            navigate('/select-store');
         }
     };
 
@@ -656,15 +663,15 @@ const Header: React.FC<HeaderProps> = ({
                 )}
                 
                 <div className="relative" ref={userMenuRef}>
-                    <button onClick={() => setIsUserMenuOpen(prev => !prev)} className="flex items-center gap-3 p-1 pr-3 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
-                        <div className="hidden md:block text-right">
-                            <div className="font-bold text-sm text-slate-800 dark:text-white leading-none mb-1">{currentUser?.fullName}</div>
-                            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">{currentUser?.isAdmin ? 'مدير النظام' : 'صاحب المتجر'}</div>
-                        </div>
-                        <div className="w-10 h-10 rounded-xl font-bold flex items-center justify-center text-sm bg-primary text-white shadow-lg shadow-primary/20">
+                    <button onClick={() => setIsUserMenuOpen(prev => !prev)} className="flex items-center gap-2.5 p-1.5 pr-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer">
+                        <ChevronDown size={14} className={`text-slate-400 transition-transform duration-300 ${isUserMenuOpen ? 'rotate-180' : ''}`} />
+                        <div className="w-10 h-10 rounded-full font-black flex items-center justify-center text-sm bg-emerald-600 text-white shadow-xs">
                             {currentUser ? getUserInitials(currentUser.fullName) : '..'}
                         </div>
-                        <ChevronDown size={14} className={`hidden md:block text-slate-400 transition-transform duration-300 ${isUserMenuOpen && 'rotate-180'}`} />
+                        <div className="hidden sm:block text-right">
+                            <div className="font-black text-sm text-slate-900 dark:text-white leading-tight">{currentUser?.fullName}</div>
+                            <div className="text-[11px] font-bold text-slate-400">{currentUser?.isAdmin ? 'مدير النظام' : 'صاحب المتجر'}</div>
+                        </div>
                     </button>
                     {isUserMenuOpen && (
                         <div className="absolute left-0 top-14 w-64 glass rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 animate-in fade-in zoom-in-95 duration-200 p-2 z-50">

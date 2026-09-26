@@ -221,7 +221,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     setDialog({
       isOpen: true,
       title: 'تأكيد إلغاء وحذف العملية',
-      message: `هل أنت متأكد من حذف عملية التسليم المالي بقيمة ${handoverToDelete.amount.toLocaleString()} ج.م؟ سيتم إلغاء الأثر وإعادة الأرصدة لوضعها السابق تلقائياً.`,
+      message: `هل أنت متأكد من حذف عملية التسليم المالي بقيمة ${(handoverToDelete.amount ?? 0).toLocaleString()} ج.م؟ سيتم إلغاء الأثر وإعادة الأرصدة لوضعها السابق تلقائياً.`,
       isWarning: true,
       onConfirm: () => {
         const amount = Number(handoverToDelete.amount);
@@ -682,7 +682,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
             </div>
             <div className="mt-3 flex items-baseline gap-2">
               <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-                {totalCustodyBalance.toLocaleString('ar-EG')}
+                {(totalCustodyBalance ?? 0).toLocaleString('ar-EG')}
               </span>
               <span className="text-xs font-bold text-slate-400">ج.م</span>
             </div>
@@ -848,7 +848,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide block mb-0.5">الرصيد الجاري بالعهدة</span>
                           <div className="flex items-baseline gap-1.5">
                             <span className={`text-xl font-extrabold tabular-nums tracking-tight ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                              {holder.currentBalance.toLocaleString('ar-EG')}
+                              {(holder.currentBalance ?? 0).toLocaleString('ar-EG')}
                             </span>
                             <span className="text-[10px] font-bold text-slate-450">ج.م</span>
                           </div>
@@ -972,7 +972,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
                       <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
                         <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40 px-3.5 py-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 font-black text-sm tabular-nums flex items-baseline gap-1">
-                          {h.amount.toLocaleString('ar-EG')}
+                          {(h.amount ?? 0).toLocaleString('ar-EG')}
                           <span className="text-[10px] font-bold">ج.م</span>
                         </div>
 
@@ -1118,7 +1118,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                         <option value="">-- اختر خزينة الإيداع المالي --</option>
                         {(treasury?.accounts || []).map((acc: any) => (
                           <option key={'treasury_acc_' + acc.id} value={acc.id}>
-                            {acc.name} (رصيد جاري: {acc.balance.toLocaleString()} ج.م)
+                            {acc.name} (رصيد جاري: {(acc.balance ?? 0).toLocaleString()} ج.م)
                           </option>
                         ))}
                       </>
@@ -1246,7 +1246,7 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                     onClick={() => setTreasuryAmount(selectedHolderForTreasury.currentBalance)}
                     className="text-[11px] text-indigo-600 dark:text-indigo-400 font-extrabold hover:underline cursor-pointer"
                   >
-                    تصفية كامل العهدة ({selectedHolderForTreasury.currentBalance.toLocaleString()} ج.م)
+                    تصفية كامل العهدة ({(selectedHolderForTreasury.currentBalance ?? 0).toLocaleString()} ج.م)
                   </button>
                 </div>
                 <div className="relative">

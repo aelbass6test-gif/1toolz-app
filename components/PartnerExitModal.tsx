@@ -167,7 +167,7 @@ export const PartnerExitModal: React.FC<PartnerExitModalProps> = ({
 
   // Official Document Printing Function
   const handlePrintOfficialExitReport = () => {
-    const storeName = (settings as any).storeName || 'مدير الأوردرات الذكي';
+    const storeName = (settings as any).storeName || 'عبدو ميديا برايم';
     const todayStr = new Date().toLocaleDateString('ar-EG', {
       weekday: 'long',
       year: 'numeric',

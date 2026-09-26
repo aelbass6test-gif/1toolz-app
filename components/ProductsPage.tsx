@@ -1174,7 +1174,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             
             <div class="footer">
                 <button onclick="window.print()" style="padding: 12px 24px; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; margin-bottom: 20px;">🖨️ طباعة التقرير</button>
-                <p>تم استخراج هذا التقرير من نظام إدارة المخزون.</p>
+                <p>تم استخراج هذا التقرير من منظومة عبدو ميديا برايم | AbdoMedia Prime</p>
             </div>
             
             <script>

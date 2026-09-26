@@ -224,6 +224,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
 
             const updatedOrder: Order = {
                 ...editingOrder,
+                insuranceFee,
                 items,
                 productPrice: totalProductPrice,
                 productCost: totalProductCost,

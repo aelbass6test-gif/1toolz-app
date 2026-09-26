@@ -1626,6 +1626,7 @@ export interface Order {
   isManualShippingOverride?: boolean;
   insuranceBaseValue?: number;
   insurancePackageId?: string;
+  insurancePackageName?: string;
 }
 
 export interface TreasuryAccount {
@@ -1696,6 +1697,9 @@ export interface Store {
   customDomain?: string;
   subdomain?: string;
   creationDate: string;
+  templateId?: string;
+  description?: string;
+  phone?: string;
 }
 
 export interface Site {
@@ -1718,6 +1722,11 @@ export interface User {
   joinDate?: string;
   permissions?: Permission[];
   ownedStoreIds?: string[];
+  defaultStoreId?: string;
+  autoLaunchDefaultStore?: boolean;
+  migrationStatus?: 'legacy' | 'migrated' | 'verified';
+  migratedAt?: string;
+  legacyVerified?: boolean;
 }
 
 export interface Invitation {

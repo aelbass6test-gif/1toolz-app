@@ -613,7 +613,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         });
       }
 
-      showToast(`تم خصم ${numAmount.toLocaleString()} ج.م من ${accName} بنجاح`);
+      showToast(`تم خصم ${(numAmount ?? 0).toLocaleString()} ج.م من ${accName} بنجاح`);
     }
 
     setShowAddModal(false);
@@ -742,7 +742,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           <div className="text-left text-xs font-bold text-slate-500 space-y-1">
             <div>تاريخ التقرير: {new Date().toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
             <div>تاريخ الاستخراج: {new Date().toLocaleTimeString('ar-EG')}</div>
-            <div className="text-slate-900 font-extrabold pt-2">إجمالي المصروفات في الفترة: {stats.total.toLocaleString()} ج.م</div>
+            <div className="text-slate-900 font-extrabold pt-2">إجمالي المصروفات في الفترة: {(stats.total ?? 0).toLocaleString()} ج.م</div>
           </div>
         </div>
 
@@ -753,7 +753,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 {treasury?.accounts.map(acc => (
                   <div key={acc.id} className="flex justify-between text-xs">
                     <span className="text-slate-600">{acc.name} ({acc.type === 'bank' ? 'بنك' : acc.type === 'wallet' ? 'محفظة' : 'خزينة'}):</span>
-                    <span className="font-bold text-slate-900">{acc.balance.toLocaleString()} ج.م</span>
+                    <span className="font-bold text-slate-900">{(acc.balance ?? 0).toLocaleString()} ج.م</span>
                   </div>
                 ))}
                 <div className="flex justify-between text-xs border-t border-slate-200 pt-1 font-black">
@@ -768,12 +768,12 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 {partnerBreakdowns.map(({ partner, totalPaid, count, percentage }) => (
                   <div key={partner.id} className="flex justify-between text-xs">
                     <span className="text-slate-600">{partner.name} ({percentage}%):</span>
-                    <span className="font-bold text-amber-700">{totalPaid.toLocaleString()} ج.م</span>
+                    <span className="font-bold text-amber-700">{(totalPaid ?? 0).toLocaleString()} ج.م</span>
                   </div>
                 ))}
                 <div className="flex justify-between text-xs border-t border-slate-200 pt-1 font-black">
                   <span>إجمالي ما سدده الشركاء:</span>
-                  <span>{stats.partnerTotal.toLocaleString()} ج.م</span>
+                  <span>{(stats.partnerTotal ?? 0).toLocaleString()} ج.م</span>
                 </div>
              </div>
            </div>
@@ -882,12 +882,12 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           </div>
           <div>
             <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              {stats.total.toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span>
+              {(stats.total ?? 0).toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span>
             </div>
             <div className="flex items-center gap-2 mt-3 text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 rounded-xl w-max">
               <span>{stats.count} عملية مسجلة</span>
               <span>•</span>
-              <span className="text-rose-600 dark:text-rose-400">متوسط {stats.avgExpense.toLocaleString()} ج.م</span>
+              <span className="text-rose-600 dark:text-rose-400">متوسط {(stats.avgExpense ?? 0).toLocaleString()} ج.م</span>
             </div>
           </div>
         </div>
@@ -923,7 +923,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           </div>
           <div>
             <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              {stats.partnerTotal.toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span>
+              {(stats.partnerTotal ?? 0).toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span>
             </div>
             <div className="flex items-center gap-1.5 mt-3 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-3 py-1.5 rounded-xl w-max">
               <span>{((stats.partnerTotal / (stats.total || 1)) * 100).toFixed(0)}% من إجمالي المصاريف</span>
@@ -942,7 +942,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           </div>
           <div>
             <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight tabular-nums">
-              {stats.treasuryTotal.toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span>
+              {(stats.treasuryTotal ?? 0).toLocaleString()} <span className="text-sm font-bold text-slate-400">ج.م</span>
             </div>
             <div className="flex items-center gap-1.5 mt-3 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl w-max">
               <ShieldCheck size={13} />
@@ -975,7 +975,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                           <Cell key={`cell-${index}`} fill={entry.color} stroke={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: 'bold', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.2)' }} formatter={(val: number) => [`${val.toLocaleString()} ج.م`, 'المبلغ']} />
+                      <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: 'bold', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.2)' }} formatter={(val: number) => [`${(val ?? 0).toLocaleString()} ج.م`, 'المبلغ']} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -995,7 +995,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                         </div>
                         <div className="flex items-center gap-3 font-mono">
                           <span className="text-slate-400 font-bold">{percentage}%</span>
-                          <span className="font-black text-slate-900 dark:text-white">{cat.value.toLocaleString()} ج.م</span>
+                          <span className="font-black text-slate-900 dark:text-white">{(cat.value ?? 0).toLocaleString()} ج.م</span>
                         </div>
                       </div>
                     );
@@ -1032,7 +1032,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   <CartesianGrid strokeDasharray="3 3" stroke="#94a3b8" opacity={0.15} vertical={false} />
                   <XAxis dataKey="name" stroke="#64748b" fontSize={11} fontWeight={700} tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" />
                   <YAxis stroke="#64748b" fontSize={11} fontWeight={700} tickLine={false} axisLine={false} tickFormatter={(val) => `${val >= 1000 ? (val / 1000) + 'k' : val}`} />
-                  <Tooltip cursor={{ fill: 'rgba(244, 63, 94, 0.05)' }} contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: 'bold', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.2)' }} formatter={(val: number) => [`${val.toLocaleString()} ج.م`, 'إجمالي المصروف']} />
+                  <Tooltip cursor={{ fill: 'rgba(244, 63, 94, 0.05)' }} contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#0f172a', color: '#fff', fontSize: '12px', fontWeight: 'bold', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.2)' }} formatter={(val: number) => [`${(val ?? 0).toLocaleString()} ج.م`, 'إجمالي المصروف']} />
                   <Bar dataKey="value" radius={[10, 10, 0, 0]} maxBarSize={45}>
                     {stats.categoryTotals.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
@@ -1070,7 +1070,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
               </div>
             </div>
             <div className="text-xs font-bold text-slate-500">
-              إجمالي ما سدده الشركاء: <span className="font-black text-amber-600 dark:text-amber-400 font-mono text-sm">{stats.partnerTotal.toLocaleString()} ج.م</span>
+              إجمالي ما سدده الشركاء: <span className="font-black text-amber-600 dark:text-amber-400 font-mono text-sm">{(stats.partnerTotal ?? 0).toLocaleString()} ج.م</span>
             </div>
           </div>
 
@@ -1110,7 +1110,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <div>
                       <div className="text-[10px] font-bold text-slate-400">إجمالي ما صرفه:</div>
                       <div className="text-lg font-black text-slate-900 dark:text-white font-mono tracking-tight">
-                        {totalPaid.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span>
+                        {(totalPaid ?? 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span>
                       </div>
                     </div>
                     <button
@@ -1167,7 +1167,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 <div>
                   <div className="text-[10px] font-bold text-slate-400">إجمالي صرف الخزائن:</div>
                   <div className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
-                    {stats.treasuryTotal.toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span>
+                    {(stats.treasuryTotal ?? 0).toLocaleString()} <span className="text-xs font-normal text-slate-400">ج.م</span>
                   </div>
                 </div>
                 <button
@@ -1245,7 +1245,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 <optgroup label="💼 الحسابات المالية النشطة (خزائن/محافظ)">
                   {treasury?.accounts.map(acc => (
                     <option key={acc.id} value={acc.id}>
-                      {acc.type === 'bank' ? '🏦' : acc.type === 'wallet' ? '📱' : acc.type === 'safe' ? '💵' : '🤝'} {acc.name} ({acc.balance.toLocaleString()} ج.م)
+                      {acc.type === 'bank' ? '🏦' : acc.type === 'wallet' ? '📱' : acc.type === 'safe' ? '💵' : '🤝'} {acc.name} ({(acc.balance ?? 0).toLocaleString()} ج.م)
                     </option>
                   ))}
                 </optgroup>
@@ -1433,7 +1433,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                       </td>
                       <td className="px-6 py-4.5 text-center">
                         <span className="font-black text-base text-rose-600 dark:text-rose-400 tabular-nums bg-rose-50 dark:bg-rose-950/40 px-3 py-1.5 rounded-xl border border-rose-200/50 dark:border-rose-900/40 inline-block">
-                          -{exp.amount.toLocaleString()} ج.م
+                          -{(exp.amount ?? 0).toLocaleString()} ج.م
                         </span>
                       </td>
                       <td className="px-6 py-4.5 text-center print:hidden">
@@ -1479,7 +1479,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                         {catInfo?.label || 'مصروف عام'}
                       </span>
                       <span className="text-lg font-black text-rose-600 dark:text-rose-400 tabular-nums font-mono">
-                        -{exp.amount.toLocaleString()} ج.م
+                        -{(exp.amount ?? 0).toLocaleString()} ج.م
                       </span>
                     </div>
                     
@@ -1613,10 +1613,10 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                       className="w-full appearance-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 pl-4 pr-10 font-bold text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500/40 transition-all cursor-pointer"
                     >
                       <option value="" disabled>-- اختر الخزينة أو البنك أو المحفظة --</option>
-                      <option value="main_wallet">💳 المحفظة العامة (رصيد المحفظة: {liveBalance.toLocaleString()} ج.م)</option>
+                      <option value="main_wallet">💳 المحفظة العامة (رصيد المحفظة: {(liveBalance ?? 0).toLocaleString()} ج.م)</option>
                       {treasury?.accounts.map(acc => (
                         <option key={acc.id} value={acc.id}>
-                          {acc.type === 'bank' ? '🏦 بنك:' : acc.type === 'wallet' ? '📱 محفظة:' : '💵 خزينة:'} {acc.name} - (الرصيد: {acc.balance.toLocaleString()} ج.م)
+                          {acc.type === 'bank' ? '🏦 بنك:' : acc.type === 'wallet' ? '📱 محفظة:' : '💵 خزينة:'} {acc.name} - (الرصيد: {(acc.balance ?? 0).toLocaleString()} ج.م)
                         </option>
                       ))}
                     </select>
@@ -1840,7 +1840,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                     <option value="" disabled>-- اختر الحساب --</option>
                     {treasury?.accounts.map(acc => (
                       <option key={acc.id} value={acc.id}>
-                        {acc.name} ({acc.balance.toLocaleString()} ج.م)
+                        {acc.name} ({(acc.balance ?? 0).toLocaleString()} ج.م)
                       </option>
                     ))}
                   </select>

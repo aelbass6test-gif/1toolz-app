@@ -49,68 +49,73 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
         : Math.max(0, Math.round(total));
     
     return (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl p-8 text-center animate-in zoom-in duration-300 border border-slate-200 dark:border-slate-800">
-                <div className="w-20 h-20 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-5 border-4 border-white dark:border-slate-800 shadow-sm">
-                    <CheckCircle size={40} />
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] shadow-2xl p-7 text-center animate-in zoom-in-95 duration-300 border border-slate-200/80 dark:border-slate-800 relative overflow-hidden">
+                <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600" />
+                
+                <div className="w-20 h-20 bg-gradient-to-tr from-emerald-100 to-teal-100 dark:from-emerald-950/60 dark:to-teal-950/40 text-emerald-600 dark:text-emerald-400 rounded-3xl flex items-center justify-center mx-auto mb-4 border border-emerald-200/60 dark:border-emerald-800/60 shadow-lg shadow-emerald-500/10">
+                    <CheckCircle size={42} className="animate-bounce" />
                 </div>
-                <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-3">تم إنشاء الطلب بنجاح!</h2>
-                <p className="text-slate-500 dark:text-slate-400 mb-4">ملخص الطلب المالي للعميل <span className="font-bold text-slate-700 dark:text-slate-200">{order.customerName}</span></p>
+                <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">تم إنشاء الطلب بنجاح!</h2>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-5">
+                    ملخص الطلب المالي للعميل <span className="font-black text-slate-800 dark:text-slate-100">{order.customerName}</span>
+                </p>
 
                 {order.merchantBrandName?.trim() && (
-                    <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl text-right flex items-center justify-between">
+                    <div className="mb-4 p-3.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-right flex items-center justify-between">
                         <div>
-                            <span className="text-[10px] font-bold text-amber-800 dark:text-amber-400 block">شحن لحساب براند خارجي (White Label):</span>
-                            <span className="text-xs font-black text-amber-900 dark:text-amber-200">{order.merchantBrandName} {order.merchantBrandPhone ? `(${order.merchantBrandPhone})` : ''}</span>
+                            <span className="text-[10px] font-extrabold text-amber-800 dark:text-amber-400 block">شحن لحساب براند خارجي (White Label):</span>
+                            <span className="text-xs font-black text-amber-950 dark:text-amber-200">{order.merchantBrandName} {order.merchantBrandPhone ? `(${order.merchantBrandPhone})` : ''}</span>
                         </div>
-                        <span className="px-2 py-1 bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100 rounded-lg text-[10px] font-black">
+                        <span className="px-2.5 py-1 bg-amber-200/80 dark:bg-amber-800 text-amber-900 dark:text-amber-100 rounded-xl text-[10px] font-black">
                             الراسل المطبوع
                         </span>
                     </div>
                 )}
-                <div className="space-y-3 text-right bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700">
-                    <div className="flex justify-between items-center text-sm">
-                        <span className="font-bold text-slate-500">إجمالي المنتجات:</span>
-                        <span className="font-black text-slate-700 dark:text-slate-200">{order.productPrice.toLocaleString()} ج.م</span>
+                
+                <div className="space-y-3 text-right bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 divide-y divide-slate-200/60 dark:divide-slate-700/60 text-xs sm:text-sm">
+                    <div className="flex justify-between items-center pb-2">
+                        <span className="font-bold text-slate-500 dark:text-slate-400">إجمالي المنتجات:</span>
+                        <span className="font-black text-slate-800 dark:text-slate-100 font-mono">{(order.productPrice ?? 0).toLocaleString()} ج.م</span>
                     </div>
-                    <div className="flex justify-between items-center text-sm">
-                        <div className="flex items-center gap-1">
-                            <span className="font-bold text-slate-500">مصاريف الشحن:</span>
+                    <div className="flex justify-between items-center pt-2.5">
+                        <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-500 dark:text-slate-400">مصاريف الشحن والتوصيل:</span>
                             {(order.weight || 0) > 0 && (
-                                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">(الوزن: {order.weight.toFixed(2)} كجم)</span>
+                                <span className="text-[10px] text-slate-400 font-mono">(الوزن: {order.weight.toFixed(2)} كجم)</span>
                             )}
                         </div>
-                        <span className="font-black text-slate-700 dark:text-slate-200">{order.shippingFee.toLocaleString()} ج.م</span>
+                        <span className="font-black text-slate-800 dark:text-slate-100 font-mono">{(order.shippingFee ?? 0).toLocaleString()} ج.م</span>
                     </div>
                     {inspectionFee > 0 && (
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="font-bold text-slate-500">رسوم المعاينة:</span>
-                            <span className="font-black text-slate-700 dark:text-slate-200">{inspectionFee.toLocaleString()} ج.م</span>
+                        <div className="flex justify-between items-center pt-2.5">
+                            <span className="font-bold text-slate-500 dark:text-slate-400">رسوم المعاينة:</span>
+                            <span className="font-black text-slate-800 dark:text-slate-100 font-mono">{(inspectionFee ?? 0).toLocaleString()} ج.م</span>
                         </div>
                     )}
                     {insuranceFee > 0 && (
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="font-bold text-slate-500">رسوم التأمين ({insuranceRate}%):</span>
-                            <span className="font-black text-slate-700 dark:text-slate-200">{insuranceFee.toLocaleString()} ج.م</span>
+                        <div className="flex justify-between items-center pt-2.5">
+                            <span className="font-bold text-slate-500 dark:text-slate-400">رسوم التأمين ({insuranceRate}%):</span>
+                            <span className="font-black text-slate-800 dark:text-slate-100 font-mono">{(insuranceFee ?? 0).toLocaleString()} ج.م</span>
                         </div>
                     )}
                     {vatAmount > 0 && (
-                        <div className="flex justify-between items-center text-sm">
-                            <span className="font-bold text-slate-500">ضريبة القيمة المضافة ({Math.round(vatRate * 100)}%):</span>
-                            <span className="font-black text-slate-700 dark:text-slate-200">{vatAmount.toLocaleString()} ج.م</span>
+                        <div className="flex justify-between items-center pt-2.5 text-blue-600 dark:text-blue-400">
+                            <span className="font-bold">ضريبة القيمة المضافة ({Math.round(vatRate * 100)}%):</span>
+                            <span className="font-black font-mono">{(vatAmount ?? 0).toLocaleString()} ج.م</span>
                         </div>
                     )}
                     {(order as any).creditAmount > 0 && (
-                        <div className="flex justify-between items-center text-sm text-amber-600">
-                             <span className="font-bold">رصيد مستخدم:</span>
-                             <span className="font-black">-{Number((order as any).creditAmount).toLocaleString()} ج.م</span>
+                        <div className="flex justify-between items-center pt-2.5 text-amber-600 dark:text-amber-400">
+                             <span className="font-bold">رصيد مستخدم مخصوم:</span>
+                             <span className="font-black font-mono">-{Number((order as any).creditAmount).toLocaleString()} ج.م</span>
                         </div>
                     )}
                     {safeAdvance > 0 && (
-                        <div className="flex flex-col gap-1 py-1.5 px-2 bg-teal-50 dark:bg-teal-950/20 rounded-xl my-1 border border-teal-100 dark:border-teal-900/30">
-                            <div className="flex justify-between items-center text-sm text-teal-700 dark:text-teal-300">
+                        <div className="flex flex-col gap-1 py-2 px-3 bg-teal-50 dark:bg-teal-950/30 rounded-xl my-1 border border-teal-200/60 dark:border-teal-800/40">
+                            <div className="flex justify-between items-center text-teal-800 dark:text-teal-300">
                                 <span className="font-bold">العربون المقدم المدفوع:</span>
-                                <span className="font-black">-{safeAdvance.toLocaleString()} ج.م</span>
+                                <span className="font-black font-mono">-{(safeAdvance ?? 0).toLocaleString()} ج.م</span>
                             </div>
                             <div className="flex justify-between items-center text-xs text-teal-600 dark:text-teal-400 border-t border-teal-200/50 dark:border-teal-800/40 pt-1">
                                 <span>العهدة / جهة الاستلام:</span>
@@ -119,34 +124,34 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                         </div>
                     )}
                     {order.discount > 0 && (
-                        <div className="flex justify-between items-center text-sm text-red-500">
-                            <span className="font-bold">الخصم:</span>
-                            <span className="font-black">-{order.discount.toLocaleString()} ج.م</span>
+                        <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
+                            <span className="font-bold">الخصم الممنوح:</span>
+                            <span className="font-black font-mono">-{(order.discount ?? 0).toLocaleString()} ج.م</span>
                         </div>
                     )}
-                    <div className="border-t border-slate-200 dark:border-slate-700 my-2"></div>
-                    <div className="flex justify-between items-center text-xl">
-                        <span className="font-black text-indigo-600 dark:text-indigo-400">الإجمالي المطلوب تحصيله:</span>
-                        <span className="font-black text-indigo-600 dark:text-indigo-400">{finalTotal.toLocaleString()} ج.م</span>
+                    <div className="flex justify-between items-center pt-3 text-base sm:text-lg">
+                        <span className="font-black text-indigo-600 dark:text-indigo-400">المطلوب تحصيله (COD):</span>
+                        <span className="font-black text-indigo-600 dark:text-indigo-400 font-mono text-xl sm:text-2xl">{(finalTotal ?? 0).toLocaleString()} ج.م</span>
                     </div>
                     {order.totalAmountOverride !== undefined && order.totalAmountOverrideReason && (
-                        <div className="mt-3 text-right">
+                        <div className="mt-3 text-right pt-2">
                             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase tracking-wider mb-1">سبب تعديل الإجمالي</span>
-                            <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 italic">
+                            <p className="text-xs text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 italic">
                                 "{order.totalAmountOverrideReason}"
                             </p>
                         </div>
                     )}
                 </div>
-                <div className="flex flex-col gap-3 mt-8">
+
+                <div className="flex flex-col gap-2.5 mt-6">
                     <button 
                         onClick={() => {
                             const html = generateInvoiceHTML(order, settings, storeName);
                             printHTMLDirectly(html);
                         }}
-                        className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-3"
+                        className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-2xl font-black transition-all shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2.5 cursor-pointer text-sm active:scale-95"
                     >
-                        <Printer size={20} />
+                        <Printer size={18} />
                         <span>طباعة الفاتورة</span>
                     </button>
                     <button 
@@ -154,16 +159,16 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                             const html = generateShippingLabelHTML(order, storeName, settings);
                             printHTMLDirectly(html);
                         }}
-                        className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-all flex items-center justify-center gap-3"
+                        className="w-full py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center gap-2.5 cursor-pointer text-sm"
                     >
-                        <FileDown size={20} />
+                        <FileDown size={18} />
                         <span>طباعة بوليصة الشحن</span>
                     </button>
                     <button 
                         onClick={onClose} 
-                        className="w-full py-3 text-slate-400 dark:text-slate-500 font-bold hover:text-slate-600 dark:hover:text-slate-300 transition-all mt-2"
+                        className="w-full py-2.5 text-slate-500 dark:text-slate-400 font-extrabold hover:text-slate-800 dark:hover:text-white transition-all text-xs cursor-pointer"
                     >
-                        إغلاق الملخص
+                        إغلاق ومتابعة الطلبات
                     </button>
                 </div>
             </div>

@@ -214,30 +214,32 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
   };
 
   return (
-    <div className={`p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-800 text-right space-y-3 ${className}`} dir="rtl">
+    <div className={`p-4 sm:p-5 bg-gradient-to-br from-slate-50/90 via-indigo-50/20 to-slate-50/90 dark:from-slate-800/80 dark:via-indigo-950/20 dark:to-slate-800/80 rounded-2xl border-2 border-slate-200/80 dark:border-slate-700/80 text-right space-y-3.5 shadow-xs ${className}`} dir="rtl">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-black text-xs">
-          <MapPin size={16} />
-          <span>مُطابق العناوين والحي السكني المعتمد لدى بوسطة</span>
+        <div className="flex items-center gap-2.5 text-indigo-600 dark:text-indigo-400 font-black text-xs">
+          <div className="w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+            <MapPin size={15} />
+          </div>
+          <span>مُطابق الأحياء السكنية المعتمد لشركات الشحن (Bosta District Matcher)</span>
         </div>
-        {isLoading && <RefreshCw size={12} className="animate-spin text-slate-400" />}
+        {isLoading && <RefreshCw size={13} className="animate-spin text-slate-400" />}
       </div>
 
       <div className="relative">
-        <Search size={14} className="absolute right-3 top-3 text-slate-400" />
+        <Search size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
         <input 
           type="text" 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="ابحث عن اسم المنطقة، الحي، أو المحافظة..." 
-          className="w-full pr-9 pl-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-1 focus:ring-indigo-500 font-bold dark:text-white"
+          placeholder="ابحث عن اسم الحي، المنطقة، أو التجمع..." 
+          className="w-full pr-10 pl-3 py-2.5 text-xs bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 font-bold dark:text-white transition-all"
         />
       </div>
 
       {/* Suggested verified districts */}
-      <div className="max-h-40 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+      <div className="max-h-44 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
         {filteredDistricts.length === 0 ? (
-          <p className="text-[11px] text-slate-400 text-center py-2">لا توجد مناطق مطابقة للبحث</p>
+          <p className="text-xs text-slate-400 text-center py-3 font-medium">لا توجد أحياء مطابقة للبحث</p>
         ) : (
           filteredDistricts.map((dist: any, idx) => {
             const isSelected = activeDistrictId === (dist._id || dist.districtId);
@@ -249,15 +251,15 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
                 key={dist._id || idx}
                 type="button"
                 onClick={() => handleSelectDistrict(dist)}
-                className={`w-full text-right p-2 text-xs rounded-xl transition-all flex items-center justify-between ${
+                className={`w-full text-right p-2.5 text-xs rounded-xl transition-all flex items-center justify-between cursor-pointer ${
                   isSelected 
-                    ? 'bg-indigo-600 text-white font-black' 
-                    : 'bg-white dark:bg-slate-800/80 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-750'
+                    ? 'bg-indigo-600 text-white font-black shadow-md shadow-indigo-600/25' 
+                    : 'bg-white dark:bg-slate-900/80 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/80'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <span className="font-bold">{mainLabel}</span>
-                  {subLabel && subLabel !== mainLabel && <span className="text-[10px] opacity-75 font-normal">({subLabel})</span>}
+                  {subLabel && subLabel !== mainLabel && <span className="text-[10px] opacity-75 font-mono">({subLabel})</span>}
                 </div>
                 {isSelected && <Check size={14} />}
               </button>
@@ -267,9 +269,9 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
       </div>
 
       {activeDistrictId && (
-        <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-xl flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
-          <CheckCircle2 size={16} />
-          <span>تم تعيين وتوثيق معرف الحي بوسطة (District ID) بنجاح.</span>
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-xl flex items-center gap-2 text-emerald-800 dark:text-emerald-300 text-xs font-black shadow-2xs">
+          <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span>تم توثيق الحي السكني المعتمد لدى بوسطة بنجاح للتوصيل الفوري الدقيق.</span>
         </div>
       )}
     </div>

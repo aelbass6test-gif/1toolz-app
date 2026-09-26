@@ -70,7 +70,12 @@ const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({ currentUser, onLogout, 
             });
             setOnlineUsers(usersMap);
         }, (error) => {
-            console.error('Error listening to presence snapshot:', error);
+            const msg = String(error?.message || error);
+            if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
+                console.warn('[EmployeeLayout] Firestore quota reached for presence. Using local state.');
+            } else {
+                console.warn('[EmployeeLayout] Presence notice:', msg);
+            }
         });
 
         return () => {

@@ -5,7 +5,7 @@ import SaveBar from './SaveBar';
 import BostaSystemPortal from './BostaSystemPortal';
 import TurboSystemPortal from './TurboSystemPortal';
 import { motion } from 'framer-motion';
-import { generateEgyptShippingOptions, generateBostaShippingOptions, EGYPT_GOVERNORATES } from '../constants';
+import { generateEgyptShippingOptions, generateBostaShippingOptions, EGYPT_GOVERNORATES, DEFAULT_INSURANCE_PACKAGES } from '../constants';
 import { isBosta } from '../utils/financials';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 
@@ -1410,17 +1410,34 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
     }));
   };
 
+  const handleRestoreDefaults = () => {
+    setSettings((prev) => ({
+      ...prev,
+      insurancePackages: DEFAULT_INSURANCE_PACKAGES,
+    }));
+  };
+
   return (
     <SectionCard
       title="إدارة باقات التأمين"
       icon={<ShieldCheck size={22} className="text-blue-600 dark:text-blue-400" />}
       action={
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-blue-700 active:scale-95 transition-all"
-        >
-          <Plus size={16} /> إضافة باقة تأمين
-        </button>
+        <div className="flex items-center gap-2">
+          {packages.length === 0 && (
+            <button
+              onClick={handleRestoreDefaults}
+              className="flex items-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-lg font-bold transition-all cursor-pointer"
+            >
+              <RefreshCcw size={14} /> استعادة الباقات المقترحة
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-blue-700 active:scale-95 transition-all cursor-pointer"
+          >
+            <Plus size={16} /> إضافة باقة تأمين
+          </button>
+        </div>
       }
     >
       <div className="space-y-4">
@@ -1428,7 +1445,13 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
           <div className="text-center py-8 text-slate-400 dark:text-slate-500">
             <ShieldCheck size={40} className="mx-auto mb-2 opacity-40 text-blue-500" />
             <p className="font-bold">لا توجد باقات تأمين مضافة حالياً.</p>
-            <p className="text-xs mt-1">سيتم استخدام نسبة التأمين العامة للشركات بشكل افتراضي.</p>
+            <p className="text-xs mt-1 mb-4">سيتم استخدام نسبة التأمين العامة للشركات بشكل افتراضي.</p>
+            <button
+              onClick={handleRestoreDefaults}
+              className="inline-flex items-center gap-2 text-xs bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 px-4 py-2.5 rounded-xl font-bold transition-all cursor-pointer shadow-2xs"
+            >
+              <RefreshCcw size={14} /> إضافة الباقات القياسية المقترحة
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

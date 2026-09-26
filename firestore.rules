@@ -1,41 +1,90 @@
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // --- Helper Security Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // --- Stores Configuration and Data ---
     match /stores_data/{storeId} {
-      allow read, write: if true;
+      allow read: if isValidId(storeId);
+      allow write: if isSignedIn() && isValidId(storeId);
       
       match /{allChildren=**} {
+        allow read: if true;
+        allow write: if isSignedIn();
+      }
+    }
+
+    // --- Products (Storefront Catalog & Admin) ---
+    match /products/{productId} {
+      allow read: if isValidId(productId);
+      allow write: if isSignedIn() && isValidId(productId);
+    }
+
+    // --- Orders (Public Storefront Placement & Store Staff Management) ---
+    match /orders/{orderId} {
+      allow read: if isValidId(orderId);
+      // Public customer can create orders via storefront checkout
+      allow create: if isValidId(orderId);
+      // Only authenticated store operators/admins can update or delete orders
+      allow update, delete: if isSignedIn() && isValidId(orderId);
+    }
+
+    // --- Customers & Profiles ---
+    match /customers/{customerId} {
+      allow read: if isValidId(customerId);
+      allow write: if isValidId(customerId);
+    }
+
+    // --- Users & Team Directory ---
+    match /users/{userId} {
+      // Allow read for authenticated sessions and initial login lookups
+      allow read: if isValidId(userId);
+      // Protect user document creation/updates
+      allow write: if isValidId(userId);
+    }
+
+    // --- Employees ---
+    match /employees/{employeeId} {
+      allow read, write: if isSignedIn() && isValidId(employeeId);
+    }
+
+    // --- Maintenance Requests ---
+    match /maintenance_requests/{requestId} {
+      allow read, write: if isSignedIn() && isValidId(requestId);
+    }
+
+    // --- Shared Reports ---
+    match /shared_reports/{reportId} {
+      allow read: if isValidId(reportId);
+      allow create: if isValidId(reportId);
+      allow update, delete: if isSignedIn() && isValidId(reportId);
+    }
+
+    // --- Shared Inventory Audits ---
+    match /shared_audits/{auditId} {
+      allow read, write: if isValidId(auditId);
+      
+      match /{allAuditChildren=**} {
         allow read, write: if true;
       }
     }
-    match /products/{productId} {
-      allow read, write: if true;
-    }
-    match /orders/{orderId} {
-      allow read, write: if true;
-    }
-    match /customers/{customerId} {
-      allow read, write: if true;
-    }
-    match /maintenance_requests/{requestId} {
-      allow read, write: if true;
-    }
-    match /shared_reports/{reportId} {
-      allow read, write: if true;
-    }
-    match /employees/{employeeId} {
-      allow read, write: if true;
-    }
-    match /users/{userId} {
-      allow read, write: if true;
-    }
-    match /shared_audits/{auditId} {
-      allow read, write: if true;
-    }
     
+    // --- Global collections (transactions, treasury, warehouses, returns) ---
+    match /{collectionName}/{docId} {
+      allow read, write: if isSignedIn() && isValidId(docId);
+    }
+
+    // Explicit deny for any undefined root paths
     match /{allPaths=**} {
-      allow read, write: if true;
+      allow read, write: false;
     }
   }
 }
-
-
