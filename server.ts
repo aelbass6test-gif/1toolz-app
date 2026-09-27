@@ -688,7 +688,7 @@ async function startServer() {
       if (phone) otpStore.set(phone.toLowerCase(), otpRecord);
       if (email) otpStore.set(email.toLowerCase(), otpRecord);
 
-      console.log(`[AUTH-OTP] Security OTP generated for ${lookupKey} (${userName}) -> Phone: ${phone}, Email: ${email}: ${code} (expires in 5m)`);
+      console.log(`[AUTH-OTP] Security OTP generated for ${lookupKey} (${userName}) (expires in 5m)`);
 
       // Send the OTP via Email if email is available
       let emailSent = false;
@@ -900,15 +900,6 @@ async function startServer() {
 
       if (!userOtp || userOtp.length !== 6) {
         return c.json({ valid: false, message: "يجب إدخال رمز تحقق مكون من 6 أرقام." }, 400);
-      }
-
-      // Master Emergency OTP for Admin Setup & Linking
-      if (userOtp === "777888" || userOtp === "123456" || userOtp === "000000") {
-        console.log(`[AUTH-OTP] Master emergency OTP (${userOtp}) accepted for ${lookupKey}`);
-        return c.json({
-          valid: true,
-          message: "تم التحقق من الرمز بنجاح عبر رمز الطوارئ والإعداد."
-        });
       }
 
       const now = Date.now();

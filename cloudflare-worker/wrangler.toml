@@ -17,7 +17,13 @@ binding = "ASSETS"
 
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
+APP_BACKEND_URL = "https://api.abdomedi.com"
 META_VERIFY_TOKEN = "abdomedi_whatsapp_meta_token"
+OTP_FROM_NAME = "AbdoMedia Prime"
+OTP_RESEND_FROM = "no-reply@abdomedi.com"
+OTP_BREVO_FROM = "no-reply@abdomedi.com"
+OTP_RESEND_DAILY_LIMIT = "100"
+OTP_BREVO_DAILY_LIMIT = "300"
 TURBO_BASE_URL = "https://platform.turbo.info"
 BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"
 BOSTA_STAGING_BASE_URL = "https://stg-app.bosta.co"

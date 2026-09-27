@@ -1,3 +1,5 @@
+import { handleOtpRequest } from "./otp";
+
 type Fetcher = {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 };
@@ -6,6 +8,15 @@ export interface Env {
   ASSETS: Fetcher;
   APP_ORIGIN?: string;
   APP_BACKEND_URL?: string;
+  OTP_DB?: any;
+  OTP_HASH_SECRET?: string;
+  RESEND_API_KEY?: string;
+  BREVO_API_KEY?: string;
+  OTP_RESEND_FROM?: string;
+  OTP_BREVO_FROM?: string;
+  OTP_FROM_NAME?: string;
+  OTP_RESEND_DAILY_LIMIT?: string;
+  OTP_BREVO_DAILY_LIMIT?: string;
   SUPABASE_WHATSAPP_WEBHOOK_URL?: string;
   META_VERIFY_TOKEN?: string;
   BOSTA_API_KEY?: string;
@@ -443,6 +454,12 @@ export default {
     }
 
     try { 
+      if (url.pathname === "/api/send-otp" || url.pathname === "/api/verify-otp") {
+        return env.OTP_DB
+          ? await handleOtpRequest(request, env, json)
+          : await proxyBackendRequest(request, env);
+      }
+
       // Meta WhatsApp Webhook Route
       if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/api/webhooks/whatsapp" || url.pathname === "/webhook/whatsapp" || url.pathname === "/wa-webhook-direct") {
         return await handleWhatsAppWebhook(request, env, ctx);

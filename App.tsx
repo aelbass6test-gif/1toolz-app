@@ -1862,12 +1862,6 @@ export const AppComponent = () => {
         if (!userForOtp) return;
         setOtpError('');
 
-        // Admin fast bypass / master emergency codes for linking
-        if (otp === '777888' || otp === '123456' || otp === '000000' || (otp === 'bypass_admin' && userForOtp.isAdmin)) {
-            completeLogin(userForOtp, sessionInfoForOtp);
-            return;
-        }
-
         try {
             const response = await fetch('/api/verify-otp', {
                 method: 'POST',
