@@ -19,6 +19,8 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 import GlobalLoader from './components/GlobalLoader';
 import WelcomeLoader from './components/WelcomeLoader';
 
+const AUTH_OTP_API_BASE = (import.meta.env.VITE_AUTH_API_URL || 'https://api.abdomedi.com').replace(/\/$/, '');
+
 // Page Components (will be loaded via router with automatic retry on chunk updates)
 const SignUpPage = lazyWithRetry(() => import('./components/SignUpPage'));
 const EmployeeLoginPage = lazyWithRetry(() => import('./components/EmployeeLoginPage'));
@@ -1836,7 +1838,7 @@ export const AppComponent = () => {
         setOtpError('');
         setOtpTargetEmail(user.email || '');
         try {
-            const resp = await fetch('/api/send-otp', {
+            const resp = await fetch(`${AUTH_OTP_API_BASE}/api/send-otp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1863,7 +1865,7 @@ export const AppComponent = () => {
         setOtpError('');
 
         try {
-            const response = await fetch('/api/verify-otp', {
+            const response = await fetch(`${AUTH_OTP_API_BASE}/api/verify-otp`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 

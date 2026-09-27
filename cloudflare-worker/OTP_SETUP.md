@@ -1,6 +1,6 @@
 # Cloudflare OTP setup
 
-This Worker handles login OTP requests at `POST /api/send-otp` and `POST /api/verify-otp`. The app Worker proxies those paths to the API Worker. OTP records are stored in D1 as keyed HMAC hashes and expire after five minutes.
+This Worker handles login OTP requests at `POST /api/send-otp` and `POST /api/verify-otp`. The browser calls the API hostname directly (configurable with `VITE_AUTH_API_URL`, defaulting to `https://api.abdomedi.com`). The app Worker can also proxy these paths for same-origin installations. OTP records are stored in D1 as keyed HMAC hashes and expire after five minutes.
 
 ## Production prerequisites
 
