@@ -2,11 +2,22 @@ name = "abdomedi-carrier-api"
 main = "cloudflare-worker/dist/index.js"
 compatibility_date = "2024-03-20"
 
+[[d1_databases]]
+binding = "OTP_DB"
+database_name = "abdomedi-otp"
+database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
+migrations_dir = "cloudflare-worker/migrations"
+
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
 BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"
 BOSTA_STAGING_BASE_URL = "https://stg-app.bosta.co"
 META_VERIFY_TOKEN = "abdomedi_whatsapp_meta_token"
+OTP_FROM_NAME = "AbdoMedia Prime"
+OTP_RESEND_FROM = "no-reply@abdomedi.com"
+OTP_BREVO_FROM = "no-reply@abdomedi.com"
+OTP_RESEND_DAILY_LIMIT = "100"
+OTP_BREVO_DAILY_LIMIT = "300"
 TURBO_BASE_URL = "https://platform.turbo.info"
 CLOUDFLARE_ZONE_ID = "b548bd3bc36d71d87cddfa846c54c23e"
 
