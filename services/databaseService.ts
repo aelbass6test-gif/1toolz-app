@@ -54,6 +54,7 @@ const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 
 // --- Supabase Custom Connection ---
 let supabaseSingleton: any = null;
+const syncFingerprints = new Map<string, string>();
 
 export const syncSupabaseCredentials = (storeId: string, settings: any) => {
     if (typeof window === 'undefined') return;
@@ -548,14 +549,14 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     orderReturns: orderReturns.length > 0 ? orderReturns : (storeSettings.orderReturns || []),
                     purchaseReturns: purchaseReturns.length > 0 ? purchaseReturns : (storeSettings.purchaseReturns || []),
                     posSales: posSales.length > 0 ? posSales : (storeSettings.posSales || []),
-                    cashHolders: (cashHolders || []).map((ch: any) => ({
+                    cashHolders: (cashHolders.length > 0 ? cashHolders : (storeSettings.cashHolders || local?.settings?.cashHolders || [])).map((ch: any) => ({
                         ...ch,
                         userId: ch.userId || ch.user_id || ch.id || '',
                         userName: ch.userName || ch.user_name || '',
                         currentBalance: Number(ch.currentBalance ?? ch.current_balance ?? 0),
                         lastUpdated: ch.lastUpdated || ch.last_updated || new Date().toISOString()
                     })),
-                    cashHandovers: (cashHandovers || []).map((ch: any) => ({
+                    cashHandovers: (cashHandovers.length > 0 ? cashHandovers : (storeSettings.cashHandovers || local?.settings?.cashHandovers || [])).map((ch: any) => ({
                         ...ch,
                         fromUserId: ch.fromUserId || ch.from_user_id || '',
                         fromUserName: ch.fromUserName || ch.from_user_name || '',
@@ -652,8 +653,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             // SAFEGUARD: If Supabase returns nothing but we have local data, 
             // it means we probably haven't synced UP yet. 
             // Only perform this fallback if we ARE NOT forcing a pull from remote.
-            const hasCloudData = (products && products.length > 0) || (orders && orders.length > 0) || (customers && customers.length > 0);
-            if (!hasCloudData && !forceRemote && local && (local.orders?.length > 0 || local.settings?.products?.length > 0)) {
+            const hasCloudData = (products && products.length > 0) || (orders && orders.length > 0) || (customers && customers.length > 0) || (cashHolders && cashHolders.length > 0) || (cashHandovers && cashHandovers.length > 0);
+            if (!hasCloudData && !forceRemote && local && (local.orders?.length > 0 || local.settings?.products?.length > 0 || local.settings?.cashHolders?.length > 0 || local.settings?.cashHandovers?.length > 0)) {
                 console.log('[SUPABASE] Cloud empty but local has data. Using local to prevent wipe.');
                 return local;
             }
@@ -821,6 +822,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
             const syncTable = async (table: string, rawItems: any[], omitFields: string[] = []) => {
                 const items = Array.isArray(rawItems) ? rawItems : [];
+                const fingerprintKey = `${store.id}:${table}`;
+                const fingerprint = JSON.stringify(items);
+                if (syncFingerprints.get(fingerprintKey) === fingerprint) return;
                 // 1. Handle Deletions (Relational Sync)
                 try {
                     const idField = table === 'employees' ? 'phone' : (table === 'cash_holders' ? 'user_id' : 'id');
@@ -1349,6 +1353,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         throw upsertErr;
                     }
                 }
+                if (upsertSuccess) syncFingerprints.set(fingerprintKey, fingerprint);
             };
 
             // Parallel sync with individual error handling to ensure one table error (like missing column) 
@@ -1405,8 +1410,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const isNetworkError = syncErrors.every(e => e?.message?.includes('Failed to fetch') || e?.name === 'TypeError');
                 
                 if (isNetworkError) {
-                    console.warn('[SUPABASE-SYNC] Supabase is offline or unreachable. Falling back to local & cloud backup.');
-                    // Don't terminate - continue to Firestore / local backup
+                    console.warn('[SUPABASE-SYNC] Supabase is offline or unreachable. Keeping the write local; Firebase fallback is disabled while Supabase is active.');
+                    return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا ولن يتم إرسالها إلى مصدر آخر.' };
                 } else {
                     return { 
                         success: false, 
@@ -1425,7 +1430,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         } catch (e: any) {
             const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
             if (isNet) {
-                console.warn('[SUPABASE-SYNC] Supabase unreachable on save, proceeding to fallback:', e?.message || e);
+                console.warn('[SUPABASE-SYNC] Supabase unreachable on save. Firebase fallback is disabled while Supabase is active:', e?.message || e);
+                return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا.' };
             } else {
                 console.error('Supabase save failed', e);
                 return { success: false, error: e.message };
@@ -2089,4 +2095,3 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
         return false;
     }
 };
-

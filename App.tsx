@@ -2394,7 +2394,6 @@ export const AppComponent = () => {
                     if (isSavingRef.current || isDirtyRef.current) return;
                     console.log('[REALTIME] WhatsApp message received:', payload.new?.id);
                     notifyWhatsAppMessage(payload.new);
-                    void refreshStoreData(activeStoreId);
                 })
                 .subscribe((status: string) => console.log(`[REALTIME] WhatsApp messages channel status: ${status}`));
 
@@ -2459,10 +2458,82 @@ export const AppComponent = () => {
                     console.log(`[REALTIME] Supabase orders channel status: ${status}`);
                 });
 
+            // Custody and treasury must follow the same Supabase source as orders.
+            // Refresh the normalized store snapshot after any financial change so
+            // holders, handovers, and treasury balances cannot drift between tabs.
+            const financeChannel = supabase
+                .channel(`finance-realtime-${activeStoreId}`);
+            let financeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+            let financeRefreshInFlight = false;
+            const refreshFinanceOnly = () => {
+                if (financeRefreshTimer) clearTimeout(financeRefreshTimer);
+                financeRefreshTimer = setTimeout(async () => {
+                    if (financeRefreshInFlight) return;
+                    financeRefreshInFlight = true;
+                    try {
+                        const [holdersResult, handoversResult, accountsResult, treasuryTxResult] = await Promise.all([
+                            supabase.from('cash_holders').select('*').eq('store_id', activeStoreId),
+                            supabase.from('cash_handovers').select('*').eq('store_id', activeStoreId),
+                            supabase.from('treasury_accounts').select('*').eq('store_id', activeStoreId),
+                            supabase.from('treasury_transactions').select('*').eq('store_id', activeStoreId)
+                        ]);
+                        if (holdersResult.error || handoversResult.error || accountsResult.error || treasuryTxResult.error) return;
+                        const cashHolders = (holdersResult.data || []).map((h: any) => ({
+                            ...h,
+                            userId: h.userId || h.user_id || '',
+                            userName: h.userName || h.user_name || '',
+                            currentBalance: Number(h.currentBalance ?? h.current_balance ?? 0),
+                            lastUpdated: h.lastUpdated || h.last_updated || ''
+                        }));
+                        const cashHandovers = (handoversResult.data || []).map((h: any) => ({
+                            ...h,
+                            fromUserId: h.fromUserId || h.from_user_id || '',
+                            fromUserName: h.fromUserName || h.from_user_name || '',
+                            toUserId: h.toUserId || h.to_user_id || '',
+                            toUserName: h.toUserName || h.to_user_name || '',
+                            amount: Number(h.amount ?? 0),
+                            orderNumber: h.orderNumber || h.order_number || '',
+                            isVirtual: Boolean(h.isVirtual ?? h.is_virtual ?? false)
+                        }));
+                        const treasury = {
+                            accounts: (accountsResult.data || []).map((a: any) => ({ ...a, balance: Number(a.balance ?? 0), accountNumber: a.accountNumber || a.account_number || '', beneficiaryName: a.beneficiaryName || a.beneficiary_name || '', bankName: a.bankName || a.bank_name || '', walletNumber: a.walletNumber || a.wallet_number || '', walletName: a.walletName || a.wallet_name || '' })),
+                            transactions: (treasuryTxResult.data || []).map((tx: any) => ({ ...tx, fromAccountId: tx.fromAccountId || tx.from_account_id || '', toAccountId: tx.toAccountId || tx.to_account_id || '', amount: Number(tx.amount ?? 0) }))
+                        };
+                        isRefreshing.current = true;
+                        setAllStoresData(prev => {
+                            const store = prev[activeStoreId];
+                            if (!store) return prev;
+                            return { ...prev, [activeStoreId]: { ...store, settings: { ...store.settings, cashHolders, cashHandovers }, treasury } };
+                        });
+                    } finally {
+                        financeRefreshInFlight = false;
+                        financeRefreshTimer = null;
+                    }
+                }, 500);
+            };
+            ['cash_holders', 'cash_handovers', 'treasury_accounts', 'treasury_transactions'].forEach((table) => {
+                financeChannel.on('postgres_changes', {
+                    event: '*',
+                    schema: 'public',
+                    table,
+                    filter: `store_id=eq.${activeStoreId}`
+                }, (payload: any) => {
+                    if (isSavingRef.current || isDirtyRef.current) return;
+                    const changedId = payload.new?.id || payload.old?.id || payload.new?.user_id || payload.old?.user_id;
+                    console.log(`[REALTIME] Supabase ${table} change received: ${payload.eventType}`, changedId || 'unknown');
+                    refreshFinanceOnly();
+                });
+            });
+            financeChannel.subscribe((status: string) => {
+                console.log(`[REALTIME] Supabase finance channel status: ${status}`);
+            });
+
             return () => {
                 console.log('[REALTIME] Removing Supabase orders subscription.');
                 void supabase.removeChannel(channel);
                 void supabase.removeChannel(messagesChannel);
+                void supabase.removeChannel(financeChannel);
+                if (financeRefreshTimer) clearTimeout(financeRefreshTimer);
             };
         }
 

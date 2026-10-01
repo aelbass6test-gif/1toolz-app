@@ -1,5 +1,6 @@
 import { Order, Settings, Wallet, Treasury, SupplyOrder } from '../types';
 import { EGYPT_GOVERNORATES, generateTurboShippingOptions, DEFAULT_INSURANCE_PACKAGES } from '../constants';
+import { getVirtualCustodyEntryId, hasMatchingCustodySource } from './custodyLedger';
 
 export const isBosta = (companyName: string): boolean => {
     if (!companyName) return false;
@@ -1233,12 +1234,12 @@ export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, tre
 
       const orderNumStr = String(o.orderNumber || o.id || '').trim();
 
-      // Check if this advance payment or POS collection is ALREADY in cashHandovers
-      const existsInHandovers = existingHandovers.some((h: any) => {
-        const notes = String(h.notes || '');
-        const matchesNum = orderNumStr && notes.includes(orderNumStr);
-        const matchesType = (advance > 0 && (notes.includes('عربون') || notes.includes('دفع مقدم'))) || (isCollectedPos && (notes.includes('كاشير') || notes.includes('POS')));
-        return matchesNum && matchesType;
+      // Check by stable source (order id first, order number as legacy fallback)
+      // rather than matching arbitrary text fragments in the notes.
+      const existsInHandovers = hasMatchingCustodySource(existingHandovers, {
+        orderId: o.id,
+        orderNumber: orderNumStr,
+        kind: advance > 0 ? 'advance' : 'pos_collection'
       });
 
       if (!existsInHandovers) {
@@ -1250,7 +1251,7 @@ export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, tre
                    o.cashHolderId || `custody_${recipientName}`;
 
         virtualHandovers.push({
-          id: `virtual-adv-${o.id || orderNumStr}`,
+          id: getVirtualCustodyEntryId(o.id, orderNumStr),
           fromUserId: 'customer',
           fromUserName: o.customerName || 'العميل',
           toUserId: toId,
@@ -1269,5 +1270,3 @@ export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, tre
 
   return virtualHandovers;
 };
-
-

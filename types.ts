@@ -1085,6 +1085,7 @@ export interface CashHandover {
   status: 'completed' | 'cancelled';
   type?: string;
   orderId?: string; // Explicitly link handover to an order
+  details?: Record<string, any>;
 }
 
 export interface POSSaleItem {

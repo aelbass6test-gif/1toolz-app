@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { Settings, CashHolder, CashHandover, Treasury, TreasuryTransaction } from '../types';
 import { getVirtualOrderHandovers } from '../utils/financials';
+import { createCustodyLedgerDetails, getCustodyLedgerDetails } from '../utils/custodyLedger';
 
 interface CashManagementProps {
   settings: Settings;
@@ -214,9 +215,26 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     return holders.reduce((sum, h) => sum + (h.currentBalance || 0), 0);
   }, [holders]);
 
+  const custodyReconciliation = useMemo(() => {
+    const activeEntries = handovers.filter(h => h.status !== 'cancelled' && !h.isVirtual);
+    const documentedEntries = activeEntries.map(h => getCustodyLedgerDetails(h)).filter(Boolean) as any[];
+    const movement = documentedEntries.reduce((sum, details) => {
+      return sum + (details.balances || []).reduce((entrySum: number, balance: any) => {
+        if (balance.direction === 'in') return entrySum + Number(balance.after || 0) - Number(balance.before || 0);
+        if (balance.direction === 'out' || balance.direction === 'settlement') return entrySum - (Number(balance.before || 0) - Number(balance.after || 0));
+        return entrySum;
+      }, 0);
+    }, 0);
+    return { documented: documentedEntries.length, unknown: activeEntries.length - documentedEntries.length, movement };
+  }, [handovers]);
+
   const handleDeleteHandover = (handoverId: string) => {
     const handoverToDelete = handovers.find(h => h.id === handoverId);
     if (!handoverToDelete) return;
+    if (handoverToDelete.isVirtual) {
+      return setDialog({ isOpen: true, title: 'حركة تلقائية', message: 'لا يمكن إلغاء حركة عهدة تلقائية مرتبطة بطلب من شاشة العهد. يتم التحكم فيها من مصدر الطلب.', onConfirm: () => setDialog(null) });
+    }
+    if (handoverToDelete.status === 'cancelled') return;
 
     setDialog({
       isOpen: true,
@@ -289,7 +307,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
         updateSettings({
           ...settings,
           cashHolders: updatedHolders,
-          cashHandovers: (settings.cashHandovers || []).filter(h => h.id !== handoverId),
+          cashHandovers: (settings.cashHandovers || []).map(h => h.id === handoverId ? {
+            ...h,
+            status: 'cancelled' as const,
+            details: {
+              ...(h.details || {}),
+              cancelledAt: new Date().toISOString(),
+              cancelledByUserId: currentUser?.id || currentUser?.phone || 'admin',
+              cancelledByUserName: currentUser?.fullName || 'المدير'
+            }
+          } : h),
           activityLogs: [
             {
               id: `log-${Date.now()}`,
@@ -332,6 +359,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     const fromUserId = newHandover.fromUserId || currentUser?.id || 'admin';
     const fromUser = allPossibleHolders.find(h => h.id === fromUserId);
     const fromUserName = fromUser?.name || currentUser?.fullName || 'المدير';
+    const sourceBeforeBalance = Number((settings.cashHolders || []).find(h => normalizeName(h.userName) === normalizeName(fromUserName))?.currentBalance || 0);
+    const destinationBeforeBalance = handoverType === 'holder'
+      ? Number((settings.cashHolders || []).find(h => normalizeName(h.userName) === normalizeName(allPossibleHolders.find(h => h.id === newHandover.toUserId)?.name || ''))?.currentBalance || 0)
+      : undefined;
 
     const handoverId = `HND-${Date.now()}`;
     let toUserName = '';
@@ -350,16 +381,31 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       }
     }
 
+    const handoverDate = new Date().toISOString();
+    const destinationId = handoverType === 'treasury' ? `treasury_${newHandover.toUserId}` : handoverType === 'supply_wallet' ? 'supply_wallet' : newHandover.toUserId;
     const handoverData: CashHandover = {
       id: handoverId,
       fromUserId,
       fromUserName,
-      toUserId: handoverType === 'treasury' ? `treasury_${newHandover.toUserId}` : handoverType === 'supply_wallet' ? 'supply_wallet' : newHandover.toUserId,
+      toUserId: destinationId,
       toUserName,
       amount,
-      date: new Date().toISOString(),
+      date: handoverDate,
       notes: newHandover.notes,
-      status: 'completed'
+      status: 'completed',
+      details: createCustodyLedgerDetails({
+        sourceType: handoverType === 'holder' ? 'manual_holder_transfer' : `manual_${handoverType}`,
+        sourceId: handoverId,
+        performedByUserId: currentUser?.id || currentUser?.phone || 'admin',
+        performedByUserName: currentUser?.fullName || fromUserName,
+        destinationType: handoverType,
+        balanceBefore: sourceBeforeBalance,
+        balanceAfter: sourceBeforeBalance - amount,
+        balances: [
+          { holderId: fromUserId, holderName: fromUserName, before: sourceBeforeBalance, after: sourceBeforeBalance - amount, direction: 'out' },
+          ...(handoverType === 'holder' ? [{ holderId: destinationId, holderName: toUserName, before: destinationBeforeBalance || 0, after: (destinationBeforeBalance || 0) + amount, direction: 'in' as const }] : [])
+        ]
+      })
     };
 
     // Update balances
@@ -483,6 +529,9 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
     }
 
     const handoverId = `HND-TR-${Date.now()}`;
+    const handoverDate = new Date().toISOString();
+    const sourceBeforeBalance = Number((settings.cashHolders || []).find(h => normalizeName(h.userName) === normalizeName(selectedHolderForTreasury.userName))?.currentBalance || selectedHolderForTreasury.currentBalance || 0);
+    const sourceAfterBalance = sourceBeforeBalance - amount;
     const handoverData: CashHandover = {
       id: handoverId,
       fromUserId: selectedHolderForTreasury.userId,
@@ -490,9 +539,19 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       toUserId: isSupplyWallet ? 'supply_wallet' : isMainWallet ? 'main_wallet' : `treasury_${selectedTreasuryAccountId}`,
       toUserName,
       amount,
-      date: new Date().toISOString(),
+      date: handoverDate,
       notes: treasuryNotes ? `توريد مالي لمستودع التوريد: ${treasuryNotes}` : `تسليم مالي وتوريد عهدة للخزينة/المحفظة (${toUserName})`,
-      status: 'completed'
+      status: 'completed',
+      details: createCustodyLedgerDetails({
+        sourceType: 'treasury_deposit',
+        sourceId: handoverId,
+        performedByUserId: currentUser?.id || currentUser?.phone || 'admin',
+        performedByUserName: currentUser?.fullName || 'المدير',
+        destinationType: isSupplyWallet ? 'supply_wallet' : isMainWallet ? 'main_wallet' : 'treasury',
+        balanceBefore: sourceBeforeBalance,
+        balanceAfter: sourceAfterBalance,
+        balances: [{ holderId: selectedHolderForTreasury.userId, holderName: selectedHolderForTreasury.userName, before: sourceBeforeBalance, after: sourceAfterBalance, direction: 'settlement' }]
+      })
     };
 
     // Update Cash Holders balances
@@ -741,6 +800,23 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
 
       </div>
 
+      <div className="bg-slate-50 dark:bg-slate-950/60 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+            <ShieldAlert className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-xs font-black text-slate-800 dark:text-slate-200">مطابقة دفتر العهد</p>
+            <p className="text-[10px] font-semibold text-slate-400">الحركات الجديدة تحتوي على رصيد قبل وبعد الحركة</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 text-[10px] font-bold">
+          <span className="text-emerald-600 dark:text-emerald-400">موثقة: {custodyReconciliation.documented}</span>
+          <span className={custodyReconciliation.unknown > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}>قديمة بدون تفاصيل: {custodyReconciliation.unknown}</span>
+          <span className="text-indigo-600 dark:text-indigo-400">صافي الحركة: {custodyReconciliation.movement.toLocaleString('ar-EG')} ج.م</span>
+        </div>
+      </div>
+
       {/* Search Bar */}
       <div id="search-filter-row" className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
         <div className="relative flex-1">
@@ -937,8 +1013,8 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       className="p-4 sm:p-5 hover:bg-slate-50/50 dark:hover:bg-slate-950/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-800">
-                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                        <div className={`w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-950 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-800 ${h.status === 'cancelled' ? 'text-rose-600' : 'text-indigo-600 dark:text-indigo-400'}`}>
+                          <CheckCircle2 className={`w-5 h-5 ${h.status === 'cancelled' ? 'text-rose-500' : 'text-emerald-500'}`} />
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
@@ -956,6 +1032,11 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                                 عهدة أوتوماتيكية
                               </span>
                             )}
+                            {h.status === 'cancelled' && (
+                              <span className="text-[9px] font-black text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/30 px-2 py-0.5 rounded-md">
+                                ملغاة مع حفظ القيد
+                              </span>
+                            )}
                             {h.orderNumber && (
                               <span className="text-[9px] font-black text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/30 px-2 py-0.5 rounded-md">
                                 طلب #{h.orderNumber}
@@ -971,15 +1052,16 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
                       </div>
 
                       <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/40 px-3.5 py-1.5 rounded-xl text-emerald-700 dark:text-emerald-400 font-black text-sm tabular-nums flex items-baseline gap-1">
+                        <div className={`${h.status === 'cancelled' ? 'bg-rose-50 dark:bg-rose-950/30 border-rose-100 dark:border-rose-900/40 text-rose-700 dark:text-rose-400' : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-100 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-400'} border px-3.5 py-1.5 rounded-xl font-black text-sm tabular-nums flex items-baseline gap-1`}>
                           {(h.amount ?? 0).toLocaleString('ar-EG')}
                           <span className="text-[10px] font-bold">ج.م</span>
                         </div>
 
                         <button
                           onClick={() => handleDeleteHandover(h.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-colors cursor-pointer shrink-0"
-                          title="حذف السجل وعكس ميزانية الرصيد"
+                          disabled={h.status === 'cancelled' || h.isVirtual}
+                          className={`p-2 rounded-xl transition-colors shrink-0 ${h.status === 'cancelled' || h.isVirtual ? 'text-slate-200 dark:text-slate-700 cursor-not-allowed' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer'}`}
+                          title={h.status === 'cancelled' ? 'تم إلغاء الحركة مع الاحتفاظ بسجل التدقيق' : h.isVirtual ? 'حركة مرتبطة تلقائيًا بطلب' : 'إلغاء العملية وعكس الرصيد مع الاحتفاظ بسجل التدقيق'}
                         >
                           <Trash2 size={16} />
                         </button>
