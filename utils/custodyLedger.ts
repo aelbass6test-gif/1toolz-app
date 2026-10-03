@@ -22,6 +22,8 @@ export type CustodyBalanceSnapshot = {
   after: number;
   direction: 'in' | 'out' | 'settlement';
 };
+export type CustodyPaymentLike = { cashHolderId: string; amount: number };
+export type CustodyHolderLike = { userId: string; currentBalance?: number };
 
 export type CustodyLedgerDetails = {
   schemaVersion: 1;
@@ -38,6 +40,64 @@ export type CustodyLedgerDetails = {
 };
 
 const clean = (value: unknown): string => String(value ?? '').trim();
+
+export const sumCustodyPayments = (payments: CustodyPaymentLike[] = []): number =>
+  payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+
+export const validateCustodyPayments = (
+  payments: CustodyPaymentLike[],
+  total: number,
+  holders: CustodyHolderLike[],
+  balancesToRestore: CustodyPaymentLike[] = []
+): string | null => {
+  const expected = Number(total) || 0;
+  if (!payments.length) return 'يجب اختيار عهدة واحدة على الأقل لسداد الفاتورة.';
+  if (payments.some(payment => !clean(payment.cashHolderId) || !Number.isFinite(Number(payment.amount)) || Number(payment.amount) <= 0)) {
+    return 'يرجى اختيار صاحب العهدة وإدخال مبلغ صحيح وأكبر من صفر لكل دفعة.';
+  }
+  if (Math.abs(sumCustodyPayments(payments) - expected) > 0.01) {
+    return `يجب أن يساوي مجموع السداد من العهد إجمالي الفاتورة (${expected.toLocaleString()} ج.م).`;
+  }
+  const holderIds = new Set(holders.map(holder => String(holder.userId)));
+  if (payments.some(payment => !holderIds.has(String(payment.cashHolderId)))) {
+    return 'يوجد صاحب عهدة غير موجود أو غير متاح حالياً.';
+  }
+  const restoredByHolder = new Map<string, number>();
+  balancesToRestore.forEach(payment => {
+    const id = String(payment.cashHolderId);
+    restoredByHolder.set(id, (restoredByHolder.get(id) || 0) + (Number(payment.amount) || 0));
+  });
+  const requestedByHolder = new Map<string, number>();
+  payments.forEach(payment => {
+    const id = String(payment.cashHolderId);
+    requestedByHolder.set(id, (requestedByHolder.get(id) || 0) + (Number(payment.amount) || 0));
+  });
+  for (const holder of holders) {
+    const id = String(holder.userId);
+    const available = (Number(holder.currentBalance) || 0) + (restoredByHolder.get(id) || 0);
+    if ((requestedByHolder.get(id) || 0) - available > 0.01) {
+      return `رصيد العهدة غير كافٍ لدى صاحب العهدة (${id}).`;
+    }
+  }
+  return null;
+};
+
+export const applyCustodyPayments = <T extends CustodyHolderLike>(
+  holders: T[],
+  payments: CustodyPaymentLike[],
+  direction: 'deduct' | 'restore'
+): T[] => {
+  const sign = direction === 'deduct' ? -1 : 1;
+  const byHolder = new Map<string, number>();
+  payments.forEach(payment => {
+    const id = String(payment.cashHolderId);
+    byHolder.set(id, (byHolder.get(id) || 0) + (Number(payment.amount) || 0));
+  });
+  return holders.map(holder => {
+    const amount = byHolder.get(String(holder.userId));
+    return amount === undefined ? holder : { ...holder, currentBalance: (Number(holder.currentBalance) || 0) + sign * amount };
+  });
+};
 
 export const createCustodyLedgerDetails = (input: Omit<CustodyLedgerDetails, 'schemaVersion' | 'entryType' | 'recordedAt'> & { recordedAt?: string }): CustodyLedgerDetails => ({
   schemaVersion: 1,

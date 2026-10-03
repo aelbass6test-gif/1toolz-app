@@ -16,6 +16,7 @@ import { SupplyOrderItem } from '../types';
 import { InventoryAudit } from './InventoryAudit';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { getLatestProductCost, generateSupplyOrderInvoiceHTML } from '../utils/financials';
+import { applyCustodyPayments, validateCustodyPayments } from '../utils/custodyLedger';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplyOrderModal } from './SupplyOrderModal';
@@ -489,6 +490,14 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               return;
           }
       }
+      if (paymentMethod === 'custody') {
+          const oldCustodyPayments = editingOrder?.paymentMethod === 'custody' ? (editingOrder.custodyPayments || []) : [];
+          const custodyError = validateCustodyPayments(custodyPayments, totalCost, settings.cashHolders || [], oldCustodyPayments);
+          if (custodyError) {
+              showAlert("خطأ في سداد العهدة", custodyError, "error");
+              return;
+          }
+      }
 
       // Validate returns against warehouse stock
       const oldItemsMap = new Map<string, number>();
@@ -555,15 +564,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               // Revert Custody if was custody funded
               if (currentOldOrder.paymentMethod === 'custody') {
                   const oldCustodyPayments = currentOldOrder.custodyPayments || [];
-                  oldCustodyPayments.forEach(cp => {
-                      const cIdx = updatedCashHolders.findIndex(h => h.userId === cp.cashHolderId);
-                      if (cIdx > -1) {
-                          updatedCashHolders[cIdx] = {
-                              ...updatedCashHolders[cIdx],
-                              currentBalance: (updatedCashHolders[cIdx].currentBalance || 0) + cp.amount
-                          };
-                      }
-                  });
+                  updatedCashHolders = applyCustodyPayments(updatedCashHolders, oldCustodyPayments, 'restore');
               }
 
               // Revert Partner Balance if was partner funded
@@ -822,6 +823,10 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                       }
                   }
               });
+          }
+
+          if (paymentMethod === 'custody') {
+              updatedCashHolders = applyCustodyPayments(updatedCashHolders, custodyPayments, 'deduct');
           }
 
           if (editingOrder) {
