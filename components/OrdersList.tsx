@@ -2216,7 +2216,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             ? note.includes(orderIdToDelete)
             : false;
           
-          const isMatch = matchOrderNumber || matchOrderId;
+          const isMatch = (tx.orderId && String(tx.orderId) === String(orderIdToDelete)) || matchOrderNumber || matchOrderId;
           if (isMatch) ptToRemove.push(tx);
           return !isMatch;
         }
@@ -2255,7 +2255,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             ? notes.includes(orderIdToDelete) || tx.orderId === orderIdToDelete || tx.orderId === orderNumberToDelete
             : false;
           
-          const isMatch = matchOrderNumber || matchOrderId;
+          const isMatch = (tx.orderId && String(tx.orderId) === String(orderIdToDelete)) || matchOrderNumber || matchOrderId;
           if (isMatch) handoversToRemove.push(tx);
           return !isMatch;
         }
@@ -2307,7 +2307,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             const matchOrderId = orderIdToDelete
               ? desc.includes(orderIdToDelete) || ref.includes(orderIdToDelete)
               : false;
-            const isMatch = matchOrderNumber || matchOrderId;
+            const isMatch = (tx.orderId && String(tx.orderId) === String(orderIdToDelete)) || matchOrderNumber || matchOrderId;
             if (isMatch) {
                 txsToRemove.push(tx);
             }
@@ -3829,7 +3829,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             const notes = tx.notes || "";
             const matchOrderNumber = orderNumberToDelete ? notes.includes(`#${orderNumberToDelete}`) || notes.includes(orderNumberToDelete) : false;
             const matchOrderId = orderIdToDelete ? notes.includes(orderIdToDelete) || tx.orderId === orderIdToDelete || tx.orderId === orderNumberToDelete : false;
-            const isMatch = matchOrderNumber || matchOrderId;
+            const isMatch = (tx.orderId && String(tx.orderId) === String(orderIdToDelete)) || matchOrderNumber || matchOrderId;
             if (isMatch) handoversToRemove.push(tx);
             return !isMatch;
           });

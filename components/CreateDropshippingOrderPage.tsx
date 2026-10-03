@@ -331,12 +331,16 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
                 type: 'customer_advance',
                 amount: Math.abs(difference),
                 date: new Date().toISOString(),
-                note: fullNote
+                note: fullNote,
+                orderId: orderWithId.id,
+                orderNumber: orderWithId.orderNumber
             } as any;
             
             // Record in Cash Handovers log
             updatedHandovers.unshift({
                 id: `hd-p-${Date.now()}`,
+                orderId: orderWithId.id,
+                orderNumber: orderWithId.orderNumber,
                 fromUserId: 'customer',
                 fromUserName: orderWithId.customerName || 'العميل',
                 toUserId: `part_${partnerId}`,
@@ -362,6 +366,8 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
             // Record in Cash Handovers log
             updatedHandovers.unshift({
                 id: `hd-t-${Date.now()}`,
+                orderId: orderWithId.id,
+                orderNumber: orderWithId.orderNumber,
                 fromUserId: 'customer',
                 fromUserName: orderWithId.customerName || 'العميل',
                 toUserId: `treas_${treasuryId}`,
@@ -386,6 +392,8 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
                     type: difference > 0 ? 'deposit' : 'withdrawal',
                     amount: Math.abs(difference),
                     description: fullNote,
+                    orderId: orderWithId.id,
+                    orderNumber: orderWithId.orderNumber,
                     toAccountId: difference > 0 ? treasuryId : undefined,
                     fromAccountId: difference < 0 ? treasuryId : undefined,
                 };
@@ -417,6 +425,8 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
             
             const handoverTx = {
                 id: `hd-${Date.now()}`,
+                orderId: orderWithId.id,
+                orderNumber: orderWithId.orderNumber,
                 fromUserId: 'customer',
                 fromUserName: orderWithId.customerName || 'العميل',
                 toUserId: empId,

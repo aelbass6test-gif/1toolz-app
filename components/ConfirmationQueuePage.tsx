@@ -1228,6 +1228,8 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
         if (oldAmount > 0) {
             if (oldPartnerId) {
                 const partnerName = settings.partners?.find(p => p.id === oldPartnerId)?.name || 'الشريك';
+                updatedPartners = updatedPartners.map(p => p.id === oldPartnerId ? { ...p, balance: (p.balance || 0) + oldAmount } : p);
+                updatedPartnerTxs.push({ id: `adv-revert-${Date.now()}`, partnerId: oldPartnerId, type: 'repayment', amount: oldAmount, date: new Date().toISOString(), orderId: activeOrder.id, orderNumber: activeOrder.orderNumber, note: `عكس عربون سابق للطلب #${activeOrder.orderNumber}` } as any);
                 const partnerHolderId = `part_${oldPartnerId}`;
                 const exists = updatedHolders.find(h => h.userId === partnerHolderId || h.userId === oldPartnerId);
                 if (exists) {
@@ -1256,7 +1258,9 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                 } else {
                     updatedHolders.push({ userId: partnerHolderId, userName: partnerName, currentBalance: newAmount, lastUpdated: new Date().toISOString() });
                 }
-                updatedHandovers.push({ id: `hd-${Date.now()}`, fromUserId: 'customer', fromUserName: activeOrder.customerName, toUserId: partnerHolderId, toUserName: partnerName, amount: newAmount, date: new Date().toISOString(), notes: applyNote, status: 'completed' } as any);
+                updatedPartners = updatedPartners.map(p => p.id === newPartnerId ? { ...p, balance: (p.balance || 0) - newAmount } : p);
+                updatedPartnerTxs.push({ id: `adv-apply-${Date.now()}`, partnerId: newPartnerId, type: 'customer_advance', amount: newAmount, date: new Date().toISOString(), orderId: activeOrder.id, orderNumber: activeOrder.orderNumber, note: applyNote } as any);
+                updatedHandovers.push({ id: `hd-${Date.now()}`, orderId: activeOrder.id, orderNumber: activeOrder.orderNumber, fromUserId: 'customer', fromUserName: activeOrder.customerName, toUserId: partnerHolderId, toUserName: partnerName, amount: newAmount, date: new Date().toISOString(), notes: applyNote, status: 'completed' } as any);
             } else if (newTreasuryId && setTreasury) {
                 setTreasury((prev: any) => ({
                     ...prev,
@@ -1271,7 +1275,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                 } else {
                     updatedHolders.push({ userId: newEmployeeId, userName: empName, currentBalance: newAmount, lastUpdated: new Date().toISOString() });
                 }
-                updatedHandovers.push({ id: `hd-${Date.now()}`, fromUserId: 'customer', fromUserName: activeOrder.customerName, toUserId: newEmployeeId, toUserName: empName, amount: newAmount, date: new Date().toISOString(), notes: applyNote, status: 'completed' } as any);
+                updatedHandovers.push({ id: `hd-${Date.now()}`, orderId: activeOrder.id, orderNumber: activeOrder.orderNumber, fromUserId: 'customer', fromUserName: activeOrder.customerName, toUserId: newEmployeeId, toUserName: empName, amount: newAmount, date: new Date().toISOString(), notes: applyNote, status: 'completed' } as any);
             }
         }
 
@@ -1711,7 +1715,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                         const note = tx.note || "";
                                                                         const matchNumber = o.orderNumber ? note.includes(`#${o.orderNumber}`) || note.includes(o.orderNumber) : false;
                                                                         const matchId = note.includes(o.id);
-                                                                        const isMatch = matchNumber || matchId;
+                                                                        const isMatch = (tx.orderId && String(tx.orderId) === String(o.id)) || matchNumber || matchId;
                                                                         if (isMatch) ptToRemove.push(tx);
                                                                         return !isMatch;
                                                                     }
@@ -1742,7 +1746,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                                         const notes = tx.notes || "";
                                                                         const matchNumber = o.orderNumber ? notes.includes(`#${o.orderNumber}`) || notes.includes(o.orderNumber) : false;
                                                                         const matchId = notes.includes(o.id);
-                                                                        const isMatch = matchNumber || matchId;
+                                                                        const isMatch = (tx.orderId && String(tx.orderId) === String(o.id)) || matchNumber || matchId;
                                                                         if (isMatch) handoversToRemove.push(tx);
                                                                         return !isMatch;
                                                                     }

@@ -294,6 +294,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                         type: 'repayment',
                         amount: oldAdvance,
                         date: new Date().toISOString(),
+                        orderId: updatedOrder.id,
+                        orderNumber: updatedOrder.orderNumber,
                         note: `إلغاء/تعديل عربون سابق للطلب #${updatedOrder.orderNumber}`
                     } as any);
                 } else if (oldTreasuryId && setTreasury) {
@@ -309,6 +311,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                             type: 'withdrawal',
                             amount: oldAdvance,
                             description: `تعديل/سحب عربون سابق للطلب #${updatedOrder.orderNumber}`,
+                            orderId: updatedOrder.id,
+                            orderNumber: updatedOrder.orderNumber,
                             fromAccountId: oldTreasuryId
                         };
                         return {
@@ -338,12 +342,16 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                         type: 'customer_advance',
                         amount: newAdvance,
                         date: new Date().toISOString(),
+                        orderId: updatedOrder.id,
+                        orderNumber: updatedOrder.orderNumber,
                         note: applyNote
                     } as any);
 
                     // Record in Cash Handovers log
                     updatedHandovers.unshift({
                         id: `hd-p-${Date.now()}`,
+                        orderId: updatedOrder.id,
+                        orderNumber: updatedOrder.orderNumber,
                         fromUserId: 'customer',
                         fromUserName: updatedOrder.customerName || 'العميل',
                         toUserId: `part_${newPartnerId}`,
@@ -360,6 +368,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                     // Record in Cash Handovers log
                     updatedHandovers.unshift({
                         id: `hd-t-${Date.now()}`,
+                        orderId: updatedOrder.id,
+                        orderNumber: updatedOrder.orderNumber,
                         fromUserId: 'customer',
                         fromUserName: updatedOrder.customerName || 'العميل',
                         toUserId: `treas_${newTreasuryId}`,
@@ -382,6 +392,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                             type: 'deposit',
                             amount: newAdvance,
                             description: applyNote,
+                            orderId: updatedOrder.id,
+                            orderNumber: updatedOrder.orderNumber,
                             toAccountId: newTreasuryId
                         };
                         return {
@@ -408,6 +420,8 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                     }
                     updatedHandovers.unshift({
                         id: `hd-edit-${Date.now()}`,
+                        orderId: updatedOrder.id,
+                        orderNumber: updatedOrder.orderNumber,
                         fromUserId: 'customer',
                         fromUserName: updatedOrder.customerName || 'عميل',
                         toUserId: newEmployeeId,
