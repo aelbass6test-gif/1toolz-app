@@ -548,6 +548,8 @@ export interface PartnerTransaction {
   description?: string;
   category?: string;
   treasuryAccountId?: string;
+  orderId?: string;
+  orderNumber?: string;
 }
 
 export interface Supplier {
@@ -1653,6 +1655,8 @@ export interface TreasuryTransaction {
   description: string;
   reference?: string;
   category?: TransactionCategory;
+  orderId?: string;
+  orderNumber?: string;
 }
 
 export interface Treasury {
