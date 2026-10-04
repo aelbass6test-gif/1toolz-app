@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import * as db from '../services/databaseService';
 
 const normalizeName = (name: string): string => {
   if (!name) return '';
@@ -20,10 +21,11 @@ const normalizeName = (name: string): string => {
 };
 import { Link, useParams } from 'react-router-dom';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Treasury } from '../types';
-import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock, LogOut, Share2, Copy } from 'lucide-react';
+import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, ShieldCheck, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock, LogOut, Share2, Copy, Bell, Send, MessageSquare, Mail, Phone } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
 import { PartnerExitModal } from './PartnerExitModal';
+import { PartnerPermissionsModal } from './PartnerPermissionsModal';
 import { generateSafeId } from '../utils/idUtils';
 import { PeriodClosingModal } from './PeriodClosingModal';
 import { motion, AnimatePresence } from 'motion/react';
@@ -50,8 +52,12 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const walletBalance = useMemo(() => calculateWalletLiveBalance(wallet), [wallet]);
   const effectiveHiddenAmount = settings.enableHiddenWalletAmount ? (settings.hiddenWalletAmount || 0) : 0;
   const [partnerName, setPartnerName] = useState('');
+  const [partnerEmail, setPartnerEmail] = useState('');
+  const [partnerPhone, setPartnerPhone] = useState('');
+  const [partnerProfitRatio, setPartnerProfitRatio] = useState('');
   const [partnerPasscode, setPartnerPasscode] = useState('');
   const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
+  const [selectedPermissionsPartner, setSelectedPermissionsPartner] = useState<Partner | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<string | null>(null);
   const [editPartnerName, setEditPartnerName] = useState('');
   const [editPartnerPasscode, setEditPartnerPasscode] = useState('');
@@ -60,7 +66,148 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
 
   // Advanced Modern Systems States
-  const [activeSection, setActiveSection] = useState<'overview' | 'valuation' | 'simulator' | 'analytics' | 'transfers' | 'summary_table'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'valuation' | 'simulator' | 'analytics' | 'transfers' | 'summary_table' | 'requests'>('overview');
+  const [requestsFilterStatus, setRequestsFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [cloudRequests, setCloudRequests] = useState<db.PartnerPortalRequest[]>([]);
+
+  const loadCloudRequests = useCallback(async () => {
+    if (!storeId) return;
+    try {
+      const reqs = await db.getPartnerRequests(storeId);
+      setCloudRequests(reqs);
+    } catch (_) {}
+  }, [storeId]);
+
+  useEffect(() => {
+    loadCloudRequests();
+    // Poll every 10 seconds to catch incoming requests from partners
+    const interval = setInterval(loadCloudRequests, 10000);
+    return () => clearInterval(interval);
+  }, [loadCloudRequests]);
+
+  const partnerRequests = useMemo(() => {
+    const fromSettings = (settings as any).partnerRequests || [];
+    const map = new Map<string, any>();
+    cloudRequests.forEach(r => map.set(r.id, r));
+    fromSettings.forEach((r: any) => {
+      if (!map.has(r.id)) map.set(r.id, r);
+    });
+    const list = Array.from(map.values());
+    list.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+    return list;
+  }, [cloudRequests, settings]);
+
+  const pendingRequestsCount = useMemo(() => partnerRequests.filter((r: any) => r.status === 'pending').length, [partnerRequests]);
+
+  const handleApprovePartnerRequest = async (req: any) => {
+    if (storeId) {
+      await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+    }
+
+    const updatedRequests = partnerRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
+    let updatedTxs = settings.partnerTransactions || [];
+
+    const amt = Number(req.amount || 0);
+
+    if (req.type === 'withdrawal' && amt > 0) {
+      const newTx: PartnerTransaction = {
+        id: `tx_${Date.now()}`,
+        partnerId: req.partnerId,
+        partnerName: req.partnerName,
+        type: 'loan',
+        amount: amt,
+        date: new Date().toISOString(),
+        notes: `اعتماد طلب سحب أرباح من البوابة: ${req.notes || ''}`
+      };
+      updatedTxs = [newTx, ...updatedTxs];
+    } else if (req.type === 'expense' && amt > 0) {
+      const newTx: PartnerTransaction = {
+        id: `tx_${Date.now()}`,
+        partnerId: req.partnerId,
+        partnerName: req.partnerName,
+        type: 'direct_expense',
+        amount: amt,
+        date: new Date().toISOString(),
+        notes: `اعتماد تسجيل مصروف مدفوع من الشريك من البوابة: ${req.notes || ''}`
+      };
+      updatedTxs = [newTx, ...updatedTxs];
+    }
+
+    // Deduct or credit the partner's balance
+    const updatedPartners = (settings.partners || []).map(p => {
+      const isMatch = p.id === req.partnerId || 
+                      (req.partnerId && p.id === req.partnerId.replace('part_', '')) ||
+                      normalizeName(p.name) === normalizeName(req.partnerName);
+      if (isMatch) {
+        let newBalance = Number(p.balance || 0);
+        if (req.type === 'withdrawal') {
+          newBalance -= amt;
+        } else if (req.type === 'expense') {
+          newBalance += amt;
+        }
+        return { ...p, balance: newBalance };
+      }
+      return p;
+    });
+
+    const updatedSettings = {
+      ...settings,
+      partners: updatedPartners,
+      partnerRequests: updatedRequests,
+      partnerTransactions: updatedTxs,
+      activityLogs: [
+        {
+          id: `log_${Date.now()}`,
+          user: 'الإدارة',
+          action: 'اعتماد طلب شريك',
+          details: `تم اعتماد ${req.typeArabic || 'الطلب'} للشريك ${req.partnerName} بمبلغ ${amt.toLocaleString()} ج.م وخصمه من حسابه الجاري`,
+          date: new Date().toISOString(),
+          timestamp: Date.now()
+        },
+        ...(settings.activityLogs || [])
+      ]
+    };
+    updateSettings(updatedSettings);
+
+    if (storeId) {
+      try {
+        const curStore = await db.getStoreData(storeId);
+        if (curStore) {
+          await db.saveStoreData({ id: storeId, name: settings.storeName || 'المتجر' } as any, {
+            ...curStore,
+            settings: updatedSettings
+          });
+        }
+      } catch (e) {
+        console.warn('Error saving approved partner data to cloud:', e);
+      }
+    }
+  };
+
+  const handleRejectPartnerRequest = async (reqId: string) => {
+    if (storeId) {
+      await db.updatePartnerRequestStatus(reqId, storeId, 'rejected');
+      setCloudRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
+    }
+    const updatedRequests = partnerRequests.map((r: any) => r.id === reqId ? { ...r, status: 'rejected' } : r);
+    updateSettings({
+      ...settings,
+      partnerRequests: updatedRequests
+    });
+  };
+
+  const handleDeletePartnerRequest = async (reqId: string) => {
+    if (storeId) {
+      await db.deletePartnerRequestDoc(reqId, storeId);
+      setCloudRequests(prev => prev.filter(r => r.id !== reqId));
+    }
+    const updatedRequests = partnerRequests.filter((r: any) => r.id !== reqId);
+    updateSettings({
+      ...settings,
+      partnerRequests: updatedRequests
+    });
+  };
   const [showHelpGuide, setShowHelpGuide] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'positive' | 'loan' | 'custody'>('all');
@@ -354,18 +501,24 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     if (!partnerName) return;
     const newPartner: Partner = {
       id: generateSafeId('part'),
-      name: partnerName,
+      name: partnerName.trim(),
+      email: partnerEmail.trim().toLowerCase() || undefined,
+      phone: partnerPhone.trim() || undefined,
       balance: 0,
-      profitRatio: 0,
-      passcode: partnerPasscode || Math.floor(1000 + Math.random() * 9000).toString()
+      profitRatio: parseFloat(partnerProfitRatio) || 0,
+      passcode: partnerPasscode || Math.floor(1000 + Math.random() * 9000).toString(),
+      permissions: ['ORDERS_VIEW', 'PRODUCTS_VIEW']
     };
     updateSettings({
       ...settings,
       partners: [...partners, newPartner]
     });
     setPartnerName('');
+    setPartnerEmail('');
+    setPartnerPhone('');
+    setPartnerProfitRatio('');
     setPartnerPasscode('');
-    showToast('تم إضافة الشريك بنجاح');
+    showToast('تم إضافة الشريك وتعيين بياناته بنجاح');
   };
 
   const totals = useMemo(() => {
@@ -1185,6 +1338,17 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'summary_table' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
           ><FileText size={16}/> جدول المركز المالي المجمع</button>
           <button 
+            onClick={() => setActiveSection('requests')}
+            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'requests' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+          >
+            <Send size={16}/> طلبات واستفسارات الشركاء
+            {pendingRequestsCount > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
+                {pendingRequestsCount}
+              </span>
+            )}
+          </button>
+          <button 
             onClick={() => {
               setExitModalPartnerId(partners[0]?.id || null);
               setIsExitModalOpen(true);
@@ -1192,6 +1356,32 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             className="px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 bg-gradient-to-r from-rose-600 to-indigo-600 text-white shadow-md hover:opacity-95 cursor-pointer"
           ><LogOut size={16}/> 🚪 حاسبة وتصفية التخارج</button>
       </div>
+
+      {pendingRequestsCount > 0 && activeSection !== 'requests' && (
+        <div className="mb-6 bg-gradient-to-r from-amber-500/15 via-rose-500/10 to-indigo-500/10 border-2 border-amber-500/30 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-black shadow-md shadow-amber-500/20">
+              <Bell size={20} className="animate-bounce" />
+            </div>
+            <div>
+              <h4 className="font-black text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+                <span>يوجد {pendingRequestsCount} طلب/استفسار معلق وارد من بوابة الشركاء</span>
+                <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">جديد</span>
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                قام الشركاء بتقديم طلبات سحب أرباح أو تسجيل مصروفات من خلال البوابة المالية للمراجعة والاعتماد.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveSection('requests')}
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-500/20 flex items-center gap-2 cursor-pointer"
+          >
+            <span>مراجعة واعتماد الطلبات</span>
+            <ArrowDownRight size={14} />
+          </button>
+        </div>
+      )}
 
       {activeSection === 'overview' && (
         <div className="space-y-8 animate-in fade-in zoom-in-95 duration-300">
@@ -1536,43 +1726,70 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         </div>
       </div>
       
-      <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-            <div className="md:col-span-2 relative">
-              <User className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+      <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <h3 className="text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
+          <User size={18} className="text-indigo-600" />
+          <span>إضافة شريك جديد وتعيين صلاحياته وبيانات الدخول</span>
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+            <div className="relative">
+              <User className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input 
                   type="text" 
                   value={partnerName}
                   onChange={(e) => setPartnerName(e.target.value)}
-                  placeholder="أدخل اسم الشريك الجديد..."
-                  className="w-full pr-12 py-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-transparent focus:border-indigo-600/20 rounded-2xl outline-none transition-all font-bold text-xs"
+                  placeholder="اسم الشريك..."
+                  className="w-full pr-10 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 focus:border-indigo-600 rounded-xl outline-none transition-all font-bold text-xs"
               />
             </div>
-            <div className="relative flex items-center gap-2">
+
+            <div className="relative">
+              <Mail className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                  type="email" 
+                  value={partnerEmail}
+                  onChange={(e) => setPartnerEmail(e.target.value)}
+                  placeholder="البريد الإلكتروني..."
+                  className="w-full pr-10 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 focus:border-indigo-600 rounded-xl outline-none transition-all font-bold text-xs"
+              />
+            </div>
+
+            <div className="relative">
+              <Phone className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input 
+                  type="text" 
+                  value={partnerPhone}
+                  onChange={(e) => setPartnerPhone(e.target.value)}
+                  placeholder="رقم الهاتف..."
+                  className="w-full pr-10 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 focus:border-indigo-600 rounded-xl outline-none transition-all font-mono font-bold text-xs"
+              />
+            </div>
+
+            <div className="relative flex items-center gap-1.5">
               <div className="relative flex-1">
-                <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <Lock className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input 
                     type="text" 
                     maxLength={6}
                     value={partnerPasscode}
                     onChange={(e) => setPartnerPasscode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="رمز PIN للدخول (افتراضي 0000)"
-                    className="w-full pr-12 pl-4 py-4 bg-slate-50 dark:bg-slate-900/50 border-2 border-transparent focus:border-indigo-600/20 rounded-2xl outline-none transition-all font-bold text-xs"
+                    placeholder="PIN (0000)"
+                    className="w-full pr-10 pl-2 py-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 focus:border-indigo-600 rounded-xl outline-none transition-all font-bold text-xs"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setPartnerPasscode(Math.floor(1000 + Math.random() * 9000).toString())}
-                className="px-3 py-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-2xl text-[10px] font-black text-slate-700 dark:text-slate-200 whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer"
-                title="توليد رمز PIN عشوائي مكون من 4 أرقام"
+                className="px-2.5 py-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded-xl text-[10px] font-black text-slate-700 dark:text-slate-200 cursor-pointer"
+                title="توليد PIN"
               >
-                <Sparkles size={12} className="text-amber-500" />
-                <span>توليد PIN</span>
+                توليد
               </button>
             </div>
+
             <button 
               onClick={addPartner} 
-              className="md:col-span-3 bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 text-xs cursor-pointer shadow-lg shadow-indigo-500/10 active:scale-[0.99]"
+              className="md:col-span-4 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-black transition-all flex items-center justify-center gap-2 text-xs cursor-pointer shadow-sm"
             >
                 <Plus size={16} /> إضافة الشريك الجديد وتعيين حسابه
             </button>
@@ -1848,6 +2065,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => setSelectedPermissionsPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="التحكم في صلاحيات الموظفين للشريك"><ShieldCheck size={16}/></button>
                     <button onClick={() => openPinModal(partner)} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-xl transition-all" title="تعيين وتعديل رمز PIN"><Lock size={16}/></button>
                     <button onClick={() => sharePartnerWhatsApp(partner)} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all" title="إرسال الرابط والرمز عبر واتساب"><Share2 size={16}/></button>
                     <button onClick={() => setPreviewPartner(partner)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-xl transition-all" title="معاينة وطباعة كشف الحساب"><Printer size={16}/></button>
@@ -2823,6 +3041,150 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
        </div>
        )}
 
+      {/* Partner Requests Section */}
+      {activeSection === 'requests' && (
+        <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 animate-in fade-in zoom-in-95 duration-300">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-700/60 pb-6">
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 rounded-2xl">
+                  <Send size={24} />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                    طلبات واستفسارات الشركاء من البوابة
+                    {pendingRequestsCount > 0 && (
+                      <span className="bg-rose-500 text-white text-xs font-black px-2.5 py-0.5 rounded-full animate-pulse">
+                        {pendingRequestsCount} معلق
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-sm font-bold text-slate-500 dark:text-slate-400 mt-1">
+                    متابعة واعتماد طلبات سحب الأرباح والمصروفات المدفوعة والاستفسارات المرسلة مباشرة من بوابة الشركاء.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter buttons */}
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/60 p-1 rounded-xl">
+              <button
+                onClick={() => setRequestsFilterStatus('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${requestsFilterStatus === 'all' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'}`}
+              >
+                الكل ({partnerRequests.length})
+              </button>
+              <button
+                onClick={() => setRequestsFilterStatus('pending')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${requestsFilterStatus === 'pending' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500'}`}
+              >
+                المعلقة ({partnerRequests.filter((r: any) => r.status === 'pending').length})
+              </button>
+              <button
+                onClick={() => setRequestsFilterStatus('approved')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${requestsFilterStatus === 'approved' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500'}`}
+              >
+                المعتمدة ({partnerRequests.filter((r: any) => r.status === 'approved').length})
+              </button>
+            </div>
+          </div>
+
+          {/* Requests List */}
+          {partnerRequests.length === 0 ? (
+            <div className="py-16 text-center space-y-3">
+              <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700/50 rounded-2xl flex items-center justify-center mx-auto text-slate-400">
+                <MessageSquare size={32} />
+              </div>
+              <h3 className="font-black text-slate-700 dark:text-slate-300 text-base">لا توجد طلبات واردة حتى الآن</h3>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                عند قيام أي شريك بالضغط على "تقديم طلب للإدارة" من بوابته المالية، سيظهر طلبه هنا فوراً مع خيارات الاعتماد أو الرفض.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {partnerRequests
+                .filter((r: any) => requestsFilterStatus === 'all' || r.status === requestsFilterStatus)
+                .map((req: any) => {
+                  const isPending = req.status === 'pending';
+                  const isApproved = req.status === 'approved';
+
+                  const badgeColor = isPending
+                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400'
+                    : isApproved
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400'
+                    : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400';
+
+                  const statusArabic = isPending ? '⏳ قيد المراجعة' : isApproved ? '✅ تم الاعتماد والتسجيل' : '❌ تم الرفض';
+
+                  return (
+                    <div 
+                      key={req.id}
+                      className="p-5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-indigo-200 dark:hover:border-indigo-800 transition-all"
+                    >
+                      <div className="space-y-2 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-black text-slate-900 dark:text-white text-base">
+                            👤 {req.partnerName}
+                          </span>
+                          <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 border border-indigo-200 dark:border-indigo-800">
+                            {req.typeArabic || (req.type === 'withdrawal' ? 'طلب سحب أرباح' : req.type === 'expense' ? 'تسجيل مصروف' : 'استفسار')}
+                          </span>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border ${badgeColor}`}>
+                            {statusArabic}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            📅 {new Date(req.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+
+                        {req.amount > 0 && (
+                          <div className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                            المبلغ المطلوب: {Number(req.amount).toLocaleString()} ج.م
+                          </div>
+                        )}
+
+                        {req.notes && (
+                          <div className="text-xs text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <strong>ملاحظات الشريك:</strong> {req.notes}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                        {isPending && (
+                          <>
+                            <button
+                              onClick={() => handleApprovePartnerRequest(req)}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Check size={14} />
+                              <span>اعتماد وتسجيل</span>
+                            </button>
+                            <button
+                              onClick={() => handleRejectPartnerRequest(req.id)}
+                              className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl transition-all border border-rose-200 cursor-pointer"
+                            >
+                              <X size={14} />
+                              <span>رفض</span>
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => handleDeletePartnerRequest(req.id)}
+                          className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+                          title="حذف من السجل"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Partner Statement & Print Preview Modal */}
       {previewPartner && (
         <PartnerStatementModal
@@ -2969,6 +3331,19 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
           </div>
         )}
       </AnimatePresence>
+
+      {/* Partner Employee Permissions Modal */}
+      {selectedPermissionsPartner && (
+        <PartnerPermissionsModal
+          partner={selectedPermissionsPartner}
+          storeId={storeId || ''}
+          storeName={settings.storeName || ''}
+          settings={settings}
+          updateSettings={updateSettings}
+          onClose={() => setSelectedPermissionsPartner(null)}
+          showToast={showToast}
+        />
+      )}
 
     </div>
   );

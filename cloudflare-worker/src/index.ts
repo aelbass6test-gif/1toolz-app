@@ -52,10 +52,7 @@ function isOriginAllowed(origin: string, env: Env): boolean {
   if (origin.match(/^https?:\/\/127\.0\.0\.1(:[0-9]+)?$/)) return true;
   // Match Google AI Studio Cloud Run preview & dev domains
   if (origin.match(/^https:\/\/ais-(dev|pre)-[a-z0-9-]+-[0-9]+\.[a-z0-9-]+\.run\.app$/i)) return true;
-  // Match general Cloud Run domains for this deployment
   if (origin.includes("run.app") && origin.includes("ais-")) return true;
-  // Support custom domains linked by store owners (any valid https origin if requested)
-  if (origin.startsWith("http://") || origin.startsWith("https://")) return true;
   return false;
 }
 

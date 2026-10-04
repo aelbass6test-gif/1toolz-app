@@ -68,6 +68,12 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && isValidId(reportId);
     }
 
+    // --- Partner Requests (Public Partner Portal Submission & Admin Management) ---
+    match /partner_requests/{requestId} {
+      allow read, create: if isValidId(requestId);
+      allow update, delete: if isSignedIn() && isValidId(requestId);
+    }
+
     // --- Shared Inventory Audits ---
     match /shared_audits/{auditId} {
       allow read, write: if isValidId(auditId);

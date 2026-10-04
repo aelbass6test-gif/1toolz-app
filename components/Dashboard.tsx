@@ -9,6 +9,7 @@ import { generateDashboardSuggestions } from '../services/geminiService';
 import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getVirtualOrderHandovers } from '../utils/financials';
 import { DashboardManager, DashboardWidget, WidgetWrapper } from './dashboard/DashboardWidgets';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
+import { DailySalesProfitChart } from './dashboard/DailySalesProfitChart';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -155,6 +156,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   const [isEditingLayout, setIsEditingLayout] = useState(false);
 
   const DEFAULT_DASHBOARD_WIDGETS: DashboardWidget[] = [
+    { id: 'daily_chart', title: 'المبيعات والأرباح اليومية', visible: true, type: 'full' },
     { id: 'suggestions', title: 'اقتراحات ذكية', visible: true, type: 'full' },
     { id: 'kpis', title: 'مؤشرات الأداء', visible: true, type: 'full' },
     { id: 'finance_history', title: 'سجل التداولات', visible: true, type: 'full' },
@@ -324,6 +326,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
   const renderWidgetContent = (id: string) => {
     switch (id) {
+      case 'daily_chart': return <DailySalesProfitChart orders={orders} settings={settings} />;
       case 'suggestions': return <SuggestionsWidget />;
       case 'kpis': return <KpisWidget />;
       case 'finance_history': return <FinanceHistoryWidget />;
@@ -1254,20 +1257,20 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {/* KPI 1: Delivery success rate */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-emerald-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-emerald-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
-                <TrendingUp size={20} />
+              <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+                <TrendingUp size={18} />
               </div>
-              <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                 أداء الشحن
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">معدل نجاح التسليم النهائي (Delivery Rate)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">معدل نجاح التسليم النهائي (Delivery Rate)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.deliveryRate}%</span>
-              <span className="text-[10px] text-slate-400 font-bold">من إجمالي الطلبات</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.deliveryRate}%</span>
+              <span className="text-[11px] text-slate-400 font-medium">من إجمالي الطلبات</span>
             </div>
             {/* Miniature visual bar */}
             <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
@@ -1285,41 +1288,41 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           </div>
 
           {/* KPI 2: Average Order Value */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-indigo-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-indigo-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
-                <DollarSign size={20} />
+              <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+                <DollarSign size={18} />
               </div>
-              <span className="text-[10px] bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
                 المعدل التجاري
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">متوسط قيمة السلة الشرائية (AOV)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">متوسط قيمة السلة الشرائية (AOV)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.aov ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
-              <span className="text-xs font-black text-slate-400">ج.م / طلب</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{(stats.aov ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
+              <span className="text-xs font-bold text-slate-400">ج.م / طلب</span>
             </div>
-            <p className="text-[9px] text-slate-400 font-bold mt-3.5">
+            <p className="text-[10px] text-slate-400 font-medium mt-3.5">
               💡 اقتراح: إعرض باقات مكملة لزيادة حجم السلة الشرائية.
             </p>
           </div>
 
           {/* KPI 3: Net Profit Margin */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-cyan-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-cyan-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan-500/5 rounded-full blur-xl group-hover:bg-cyan-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-xl">
-                <ChartIcon size={20} />
+              <div className="p-2.5 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-2xl">
+                <ChartIcon size={18} />
               </div>
-              <span className="text-[10px] bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400">
                 صحة الهامش
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">هامش صافي ربح المتجر (Profit Margin)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">هامش صافي ربح المتجر (Profit Margin)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.netMargin}%</span>
-              <span className="text-[10px] text-slate-400 font-bold">من إجمالي المبيعات</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.netMargin}%</span>
+              <span className="text-[11px] text-slate-400 font-medium">من إجمالي المبيعات</span>
             </div>
             <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
               <div 
@@ -1336,106 +1339,106 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           </div>
 
           {/* KPI 4: Active unique customers */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-purple-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-purple-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-xl">
-                <Users2 size={20} />
+              <div className="p-2.5 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-2xl">
+                <Users2 size={18} />
               </div>
-              <span className="text-[10px] bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
                 العملاء الفريدين
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">قاعدة العملاء الفريدين (Unique Customers)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">قاعدة العملاء الفريدين (Unique Customers)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.uniqueCustomerCount}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.uniqueCustomerCount}</span>
               <span className="text-xs font-bold text-slate-400">عميل فعال</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold mt-3">
+            <p className="text-[10px] text-slate-400 font-medium mt-3">
               🔁 معدل الشراء المتكرر: {(stats.successfulOrdersCount > 0 && stats.uniqueCustomerCount > 0 ? (stats.successfulOrdersCount / stats.uniqueCustomerCount).toFixed(1) : 1)}x لكل عميل
             </p>
           </div>
 
           {/* New KPI 5: POS Receivables */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-orange-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-orange-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-orange-500/5 rounded-full blur-xl group-hover:bg-orange-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-xl">
-                <AlertCircle size={20} />
+              <div className="p-2.5 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-2xl">
+                <AlertCircle size={18} />
               </div>
-              <span className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-orange-600 dark:text-orange-400">
                 مديونيات الكاشير
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">مبيعات الكاشير الآجلة (Receivables)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">مبيعات الكاشير الآجلة (Receivables)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.posReceivables ?? 0).toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{(stats.posReceivables ?? 0).toLocaleString()}</span>
               <span className="text-xs font-bold text-slate-400">ج.م مُعلق</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold mt-3">
+            <p className="text-[10px] text-slate-400 font-medium mt-3">
               ⚠️ مبالغ لدى العملاء لم يتم تحصيلها بعد في الفترات الحالية.
             </p>
           </div>
 
           {/* New KPI 6: Distributed Custody */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-amber-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-amber-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
-                <ShoppingBag size={20} />
+              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-2xl">
+                <ShoppingBag size={18} />
               </div>
-              <span className="text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 العهد الموزعة
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">إجمالي المبالغ بعهدة الموظفين (In Custody)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">إجمالي المبالغ بعهدة الموظفين (In Custody)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{(stats.totalCustodyBalance ?? 0).toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{(stats.totalCustodyBalance ?? 0).toLocaleString()}</span>
               <span className="text-xs font-bold text-slate-400">ج.م نقدية</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold mt-3">
+            <p className="text-[10px] text-slate-400 font-medium mt-3">
               💰 مبالغ "خارج" الخزينة الرئيسية في انتظار التوريد اليدوي.
             </p>
           </div>
 
           {/* New KPI 7: Liquidity Coverage */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-blue-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-blue-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-blue-500/5 rounded-full blur-xl group-hover:bg-blue-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl">
-                <RefreshCcw size={20} />
+              <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-2xl">
+                <RefreshCcw size={18} />
               </div>
-              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
                 قدرة السداد
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">معامل السيولة (Liquidity Months)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">معامل السيولة (Liquidity Months)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.liquidityCoverage}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.liquidityCoverage}</span>
               <span className="text-xs font-bold text-slate-400">شهور تغطية</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold mt-3">
+            <p className="text-[10px] text-slate-400 font-medium mt-3">
               📊 عدد الشهور التي تكفيها السيولة الحالية للمصاريف الإدارية.
             </p>
           </div>
 
           {/* New KPI 8: Dead Stock */}
-          <div className="bg-gradient-to-br from-white to-slate-50/50 dark:from-slate-900 dark:to-slate-850 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group hover:border-rose-500/40 transition-all text-right font-sans">
+          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-rose-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
             <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-rose-500/5 rounded-full blur-xl group-hover:bg-rose-500/10 transition-colors" />
             <div className="flex justify-between items-start mb-4">
-              <div className="p-2 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-xl">
-                <X size={20} />
+              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl">
+                <X size={18} />
               </div>
-              <span className="text-[10px] bg-rose-100 dark:bg-rose-900/30 text-rose-800 dark:text-rose-300 px-2.5 py-1 rounded-full font-black">
+              <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
                 المخزون الساكن
               </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-black">إصناف لم تُبع آخر 30 يوم (Dead Stock)</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">أصناف لم تُبع آخر 30 يوم (Dead Stock)</p>
             <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white font-sans">{stats.deadStockCount}</span>
+              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.deadStockCount}</span>
               <span className="text-xs font-bold text-slate-400">صنف راكد</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-bold mt-3">
+            <p className="text-[10px] text-slate-400 font-medium mt-3">
               🥀 أصناف عالية المخزون ولكنها لا تحقق مبيعات حالية.
             </p>
           </div>
@@ -1493,6 +1496,11 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
             )}
           </button>
         </div>
+      </motion.div>
+
+      {/* 📊 Interactive Daily Sales & Profit Charts */}
+      <motion.div variants={itemVariants}>
+        <DailySalesProfitChart orders={orders} settings={settings} />
       </motion.div>
 
       {/* Bento Grid Layout */}

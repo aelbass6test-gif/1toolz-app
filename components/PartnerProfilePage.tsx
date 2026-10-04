@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import * as db from '../services/databaseService';
 import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order } from '../types';
 import { User, ArrowLeft, TrendingUp, DollarSign, ArrowDownRight, ArrowUpLeft, History, PieChart, Activity, Calendar, Download, Check, Package as PackageIcon, Truck, Coins, Trash2, Printer, Wallet as WalletIcon, PlusCircle, RefreshCw, CheckCircle2, Clock, Eye, Search, Lock, Share2, Copy, Sparkles, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -58,6 +59,23 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
   const [partnerPinInput, setPartnerPinInput] = useState('');
 
   const partner = useMemo(() => settings.partners?.find(p => p.id === partnerId), [settings.partners, partnerId]);
+
+  const [cloudRequests, setCloudRequests] = useState<db.PartnerPortalRequest[]>([]);
+
+  useEffect(() => {
+    if (!storeId) return;
+    db.getPartnerRequests(storeId).then(reqs => setCloudRequests(reqs));
+  }, [storeId]);
+
+  const allPartnerRequests = useMemo(() => {
+    const fromSettings = (settings as any).partnerRequests || [];
+    const map = new Map<string, any>();
+    cloudRequests.forEach(r => map.set(r.id, r));
+    fromSettings.forEach((r: any) => {
+      if (!map.has(r.id)) map.set(r.id, r);
+    });
+    return Array.from(map.values());
+  }, [cloudRequests, settings]);
 
   const openPinModal = () => {
     setPartnerPinInput(partner?.passcode || '0000');
@@ -1055,6 +1073,155 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
             </p>
         </div>
       </motion.div>
+
+      {/* 🔔 طلبات الشريك المعلقة الواردة من البوابة */}
+      {(() => {
+        const partnerPendingRequests = allPartnerRequests.filter(
+          (r: any) => (r.partnerId === partner?.id || normalizeName(r.partnerName) === normalizeName(partner?.name || '')) && r.status === 'pending'
+        );
+        if (partnerPendingRequests.length === 0) return null;
+
+        return (
+          <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-3xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-md">
+                <Clock size={20} className="animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-800 dark:text-white">
+                  طلبات معلقة من الشريك ({partnerPendingRequests.length})
+                </h3>
+                <p className="text-xs text-slate-500">
+                  قدم هذا الشريك طلبات من خلال بوابته المالية وهي بانتظار مراجعتك واعتمادها.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              {partnerPendingRequests.map((req: any) => (
+                <div key={req.id} className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-amber-200 dark:border-amber-900/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-sm">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-slate-900 dark:text-white">{req.typeArabic || req.type}</span>
+                      {req.amount > 0 && (
+                        <span className="text-sm font-black text-indigo-600 font-mono">
+                          {Number(req.amount).toLocaleString()} ج.م
+                        </span>
+                      )}
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(req.date).toLocaleDateString('ar-EG')}
+                      </span>
+                    </div>
+                    {req.notes && (
+                      <p className="text-xs text-slate-500 mt-1">ملاحظات: {req.notes}</p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        const amt = Number(req.amount || 0);
+                        if (storeId) {
+                          await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+                          setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+                        }
+                        const updatedRequests = allPartnerRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
+                        let updatedTxs = settings.partnerTransactions || [];
+                        if (req.type === 'withdrawal' && amt > 0) {
+                          updatedTxs = [{
+                            id: `tx_${Date.now()}`,
+                            partnerId: partner?.id || '',
+                            partnerName: partner?.name || '',
+                            type: 'loan',
+                            amount: amt,
+                            date: new Date().toISOString(),
+                            notes: `اعتماد طلب سحب أرباح من البوابة: ${req.notes || ''}`
+                          }, ...updatedTxs];
+                        } else if (req.type === 'expense' && amt > 0) {
+                          updatedTxs = [{
+                            id: `tx_${Date.now()}`,
+                            partnerId: partner?.id || '',
+                            partnerName: partner?.name || '',
+                            type: 'direct_expense',
+                            amount: amt,
+                            date: new Date().toISOString(),
+                            notes: `اعتماد تسجيل مصروف مدفوع من الشريك من البوابة: ${req.notes || ''}`
+                          }, ...updatedTxs];
+                        }
+
+                        // Deduct from partner's balance
+                        const updatedPartners = (settings.partners || []).map(p => {
+                          const isMatch = p.id === (partner?.id || req.partnerId) || normalizeName(p.name) === normalizeName(req.partnerName);
+                          if (isMatch) {
+                            let newBal = Number(p.balance || 0);
+                            if (req.type === 'withdrawal') newBal -= amt;
+                            else if (req.type === 'expense') newBal += amt;
+                            return { ...p, balance: newBal };
+                          }
+                          return p;
+                        });
+
+                        const updatedSettings = {
+                          ...settings,
+                          partners: updatedPartners,
+                          partnerRequests: updatedRequests,
+                          partnerTransactions: updatedTxs,
+                          activityLogs: [
+                            {
+                              id: `log_${Date.now()}`,
+                              user: 'الإدارة',
+                              action: 'اعتماد طلب شريك',
+                              details: `تم اعتماد ${req.typeArabic || 'الطلب'} للشريك ${req.partnerName} بمبلغ ${amt.toLocaleString()} ج.م وخصمه من حسابه الجاري`,
+                              date: new Date().toISOString(),
+                              timestamp: Date.now()
+                            },
+                            ...(settings.activityLogs || [])
+                          ]
+                        };
+
+                        updateSettings(updatedSettings);
+
+                        if (storeId) {
+                          try {
+                            const curStore = await db.getStoreData(storeId);
+                            if (curStore) {
+                              await db.saveStoreData({ id: storeId, name: settings.storeName || 'المتجر' } as any, {
+                                ...curStore,
+                                settings: updatedSettings
+                              });
+                            }
+                          } catch (e) {
+                            console.warn('Error saving approved partner data to cloud:', e);
+                          }
+                        }
+                      }}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer transition-all"
+                    >
+                      اعتماد
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (storeId) {
+                          await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
+                          setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
+                        }
+                        const updatedRequests = allPartnerRequests.map((r: any) => r.id === req.id ? { ...r, status: 'rejected' } : r);
+                        updateSettings({
+                          ...settings,
+                          partnerRequests: updatedRequests
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl border border-rose-200 cursor-pointer transition-all"
+                    >
+                      رفض
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 💡 شريط توزيع مستحقات الشريك بين البضاعة والسيولة */}
       {(() => {

@@ -34,8 +34,11 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
     const baseTotal = basePrice + order.shippingFee - safeAdvance + inspectionFee + insuranceFee + vatValue;
     const credit = (order as any).creditAmount || 0;
     const returnCash = (order.returnCashToCustomer && (order as any).cashToReturnAmount) ? Number((order as any).cashToReturnAmount) : 0;
-    const total = (order as any).totalAmountOverride !== undefined && (order as any).totalAmountOverride !== null
-        ? Math.max(0, Math.round(Number((order as any).totalAmountOverride) - safeAdvance - credit - returnCash))
+    const hasOverride = (order as any).totalAmountOverride !== undefined && 
+                        (order as any).totalAmountOverride !== null && 
+                        String((order as any).totalAmountOverride).trim() !== '';
+    const total = hasOverride
+        ? Math.max(0, Math.round(Number((order as any).totalAmountOverride)))
         : baseTotal;
 
     return (

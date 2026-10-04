@@ -1,4 +1,5 @@
 export interface OtpEnv {
+  APP_ORIGIN?: string;
   OTP_DB?: OtpDatabase;
   OTP_HASH_SECRET?: string;
   RESEND_API_KEY?: string;
@@ -75,7 +76,7 @@ export async function handleOtpRequest(
   }
 
   const origin = request.headers.get("Origin");
-  if (origin && !isAllowedOtpOrigin(origin)) {
+  if (origin && !isAllowedOtpOrigin(origin, env)) {
     return json(request, env, { success: false, error: "مصدر الطلب غير مسموح." }, 403);
   }
 
@@ -561,10 +562,36 @@ function escapeHtml(value: string): string {
   })[character]!);
 }
 
-function isAllowedOtpOrigin(origin: string): boolean {
+function isAllowedOtpOrigin(origin: string, env?: OtpEnv): boolean {
+  if (!origin) return false;
   try {
     const url = new URL(origin);
-    return url.protocol === "https:" && (url.hostname === "abdomedi.com" || url.hostname.endsWith(".abdomedi.com"));
+    const hostname = url.hostname.toLowerCase();
+
+    // 1. Explicitly configured production APP_ORIGIN in Cloudflare Worker env (e.g. https://app.abdomedi.com)
+    if (env?.APP_ORIGIN) {
+      try {
+        const appUrl = new URL(env.APP_ORIGIN);
+        if (appUrl.hostname.toLowerCase() === hostname) return true;
+      } catch {
+        if (env.APP_ORIGIN.toLowerCase() === origin.toLowerCase()) return true;
+      }
+    }
+
+    // 2. Production domains and all store subdomains (*.abdomedi.com)
+    if (hostname === "abdomedi.com" || hostname.endsWith(".abdomedi.com")) {
+      return true;
+    }
+
+    // 3. Staging and development environments (Google AI Studio Cloud Run preview & localhost)
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return true;
+    }
+    if (hostname.endsWith(".run.app") && hostname.includes("ais-")) {
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }

@@ -1397,9 +1397,11 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                     totalPercentageProfit += basePercentageProfit;
                 }
             });
+            const totalOrderDiscounts = Number(order.discount) || 0;
+            const netProductExtraMarkup = Math.max(0, orderProductExtraMarkup - totalOrderDiscounts);
             totalProductRevenue += orderBaseRevenue;
-            totalProductExtraMarkup += orderProductExtraMarkup;
-            totalExtraMarkup += (orderProductExtraMarkup + shippingMarkup);
+            totalProductExtraMarkup += netProductExtraMarkup;
+            totalExtraMarkup += (netProductExtraMarkup + shippingMarkup);
         });
 
         let totalLoss = 0;
@@ -2840,7 +2842,8 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                             orderExtraMarkup += Math.max(0, (item.price - catalogPrice) * item.quantity);
                                         }
                                     });
-                                    const isMultiProfit = orderExtraMarkup > 0;
+                                    const netOrderExtraMarkup = Math.max(0, orderExtraMarkup - (Number(order.discount) || 0));
+                                    const isMultiProfit = netOrderExtraMarkup > 0;
                                     return (
                                         <tr key={order.id} className={`border-b border-slate-50 dark:border-slate-800/50 ${isMultiProfit ? 'bg-blue-50/50 dark:bg-blue-900/10 border-r-4 border-r-blue-500' : ''}`}>
                                             <td className="p-2 border border-slate-100 dark:border-slate-800 font-bold">{order.orderNumber}</td>
@@ -2850,7 +2853,7 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
                                                     const p = findProductInSettings(item, settings);
                                                     const actualCost = (item.cost !== undefined && item.cost !== null && item.cost > 0) ? item.cost : (getLatestProductCost(p?.id || item.productId, settings) || item.cost || 0);
                                                     const catalogPrice = resolveItemCatalogPrice(item, p, actualCost);
-                                                    const isItemMulti = item.price > catalogPrice;
+                                                    const isItemMulti = item.price > catalogPrice && isMultiProfit;
                                                     return (
                                                         <div key={`${order.id}-${item.productId}-${idx}`} className="mb-1">
                                                             {item.name} ({item.quantity})

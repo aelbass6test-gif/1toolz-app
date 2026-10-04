@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Layers, Plus, Edit2, Trash2, ArrowRightLeft, Search, Filter, 
   MapPin, Phone, User, CheckCircle2, AlertCircle, Package, 
@@ -423,20 +424,44 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
     setShowTransferModal(true);
   };
 
+  // Helper to get stock of product in warehouse with default fallback and variants support
+  const getProductStockInWarehouse = (p: Product, whId: string) => {
+    if (!whId) return 0;
+    const defaultWhId = (settings.warehouses || []).find(w => w.isDefault)?.id || settings.warehouses?.[0]?.id;
+    const isDefaultWh = whId === defaultWhId;
+
+    if (p.hasVariants && p.variants && p.variants.length > 0) {
+      return p.variants.reduce((sum, v) => {
+        let vStock = v.warehouseStock?.[whId] ?? 0;
+        if (vStock === 0 && (!v.warehouseStock || Object.keys(v.warehouseStock).length === 0) && isDefaultWh) {
+          vStock = v.stockQuantity ?? 0;
+        }
+        return sum + vStock;
+      }, 0);
+    }
+
+    let stock = p.warehouseStock?.[whId] ?? 0;
+    if (stock === 0 && (!p.warehouseStock || Object.keys(p.warehouseStock).length === 0) && isDefaultWh) {
+      stock = p.stockQuantity ?? 0;
+    }
+    return stock;
+  };
+
   // Products available in source warehouse
   const availableProductsForTransfer = useMemo(() => {
     if (!transferSourceId) return [];
     return (settings.products || []).filter(p => {
-      const stock = p.warehouseStock?.[transferSourceId] || 0;
+      const stock = getProductStockInWarehouse(p, transferSourceId);
       return stock > 0;
     });
-  }, [settings.products, transferSourceId]);
+  }, [settings.products, transferSourceId, settings.warehouses]);
 
   const selectedTransferProductStock = useMemo(() => {
     if (!transferProductId || !transferSourceId) return 0;
     const p = (settings.products || []).find(x => x.id === transferProductId);
-    return p?.warehouseStock?.[transferSourceId] || 0;
-  }, [settings.products, transferProductId, transferSourceId]);
+    if (!p) return 0;
+    return getProductStockInWarehouse(p, transferSourceId);
+  }, [settings.products, transferProductId, transferSourceId, settings.warehouses]);
 
   const handleExecuteTransfer = () => {
     if (!transferSourceId || !transferTargetId) {
@@ -521,6 +546,57 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
       "success"
     );
     setShowTransferModal(false);
+  };
+
+  const handleDeleteTransfer = (transferId: string) => {
+    const trf = (settings.stockTransfers || []).find(t => t.id === transferId);
+    if (!trf) return;
+
+    showConfirm(
+      "إلغاء عملية التحويل",
+      `هل أنت متأكد من إلغاء التحويل رقم (${trf.transferNumber})؟ سيتم إعادة الكميات إلى مستودع المصدر.`,
+      () => {
+        setSettings(prev => {
+          const updatedProducts = (prev.products || []).map(p => {
+            const item = trf.items?.find(i => i.productId === p.id);
+            if (!item) return p;
+
+            const qty = Number(item.quantity) || 0;
+            const currentSourceStock = p.warehouseStock?.[trf.sourceWarehouseId] || 0;
+            const currentTargetStock = p.warehouseStock?.[trf.destinationWarehouseId] || 0;
+
+            return {
+              ...p,
+              warehouseStock: {
+                ...(p.warehouseStock || {}),
+                [trf.sourceWarehouseId]: currentSourceStock + qty,
+                [trf.destinationWarehouseId]: Math.max(0, currentTargetStock - qty)
+              }
+            };
+          });
+
+          return {
+            ...prev,
+            products: updatedProducts,
+            stockTransfers: (prev.stockTransfers || []).filter(t => t.id !== transferId),
+            activityLogs: [
+              {
+                id: `log-${Date.now()}`,
+                user: 'مسؤول الفروع واللوجستيات',
+                action: 'إلغاء تحويل مخزون',
+                details: `إلغاء العملية رقم ${trf.transferNumber} وإعادة الكميات لمستودع المصدر`,
+                date: new Date().toLocaleString('ar-EG'),
+                timestamp: Date.now()
+              },
+              ...(prev.activityLogs || [])
+            ]
+          };
+        });
+
+        audioSynth.playTone('warning');
+        showAlert("تم الإلغاء", `تم إلغاء عملية التحويل (${trf.transferNumber}) وإعادة الأصناف إلى المستودع المصدر بنجاح.`, "success");
+      }
+    );
   };
 
   return (
@@ -1099,13 +1175,13 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
               <Plus size={14} />
               <span>إجراء نقل فوري</span>
             </button>
-            <button
-              onClick={() => window.location.hash = '#/inventory-transfers'}
+            <Link
+              to="/inventory-transfers"
               className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <span>عرض إدارة النقل الكاملة</span>
               <ArrowRight size={14} className="rotate-180" />
-            </button>
+            </Link>
           </div>
         </div>
 
@@ -1144,6 +1220,14 @@ export const WarehousesTab: React.FC<WarehousesTabProps> = ({
                           👤 {trf.performedBy}
                         </span>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTransfer(trf.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                        title="إلغاء التحويل وإعادة الأصناف للمستودع المصدر"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
                   </div>
 

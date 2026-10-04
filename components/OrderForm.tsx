@@ -3841,26 +3841,35 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   <option value="">-- اختر جهة الاستلام --</option>
                   {treasuryAccountsList.length > 0 && (
                     <optgroup label="🏦 الحسابات البنكية والخزائن">
-                      {treasuryAccountsList.map((acc: any) => (
-                        <option key={`treasury_${acc.id}`} value={`treasury_${acc.id}`}>
-                          🏦 {acc.name} ({acc.type || "خزينة"})
-                        </option>
-                      ))}
+                      {treasuryAccountsList.map((acc: any, idx: number) => {
+                        const accId = acc?.id || acc?._id || `acc_${idx}`;
+                        return (
+                          <option key={`treasury_${accId}`} value={`treasury_${accId}`}>
+                            🏦 {acc.name || `خزينة #${idx + 1}`} ({acc.type || "خزينة"})
+                          </option>
+                        );
+                      })}
                     </optgroup>
                   )}
                   {(getArray(settings.employees).length > 0 || getArray(settings.partners).length > 0) && (
-                    <optgroup label="👤 العهدة النقدية (المدير والموظفين)">
+                    <optgroup label="👤 العهدة النقدية (المدير والموظفين والشركاء)">
                       <option value="employee_admin">👤 عهدة المدير (أنت)</option>
-                      {getArray(settings.partners).map((p: any) => (
-                        <option key={`employee_${p.id}`} value={`employee_${p.id}`}>
-                          🤝 {p.name} (عهدة شريك)
-                        </option>
-                      ))}
-                      {getArray(settings.employees).map((emp: any) => (
-                        <option key={`employee_${emp.id}`} value={`employee_${emp.id}`}>
-                          👤 {emp.name} (عهدة موظف)
-                        </option>
-                      ))}
+                      {getArray(settings.partners).map((p: any, idx: number) => {
+                        const pId = p?.id || p?._id || `partner_${idx}`;
+                        return (
+                          <option key={`partner_${pId}`} value={`partner_${pId}`}>
+                            🤝 {p.name || `شريك #${idx + 1}`} (عهدة شريك)
+                          </option>
+                        );
+                      })}
+                      {getArray(settings.employees).map((emp: any, idx: number) => {
+                        const empId = emp?.id || emp?._id || `emp_${idx}`;
+                        return (
+                          <option key={`employee_${empId}`} value={`employee_${empId}`}>
+                            👤 {emp.name || `موظف #${idx + 1}`} (عهدة موظف)
+                          </option>
+                        );
+                      })}
                     </optgroup>
                   )}
                 </select>

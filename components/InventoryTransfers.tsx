@@ -48,80 +48,62 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
   const products = settings.products || [];
   const transfers = settings.stockTransfers || [];
 
-  useEffect(() => {
-    if (warehouses.length > 0) {
-      const albassWh = warehouses.find(w => w.name.includes('البص')) || warehouses[1] || warehouses[0];
-      const abuzahraWh = warehouses.find(w => w.name.includes('زهره') || w.name.includes('زهرة')) || warehouses[0];
-      
-      const drillProduct = products.find(p => p.name.includes('دريل') && p.name.includes('١٢')) || 
-                           products.find(p => p.name.includes('دريل')) || {
-                             id: 'drill-12v-2b-24acc',
-                             name: 'دريل إكس بي ماكس (XP MAX) ١٢ فولت ٢ بطارية مع ٢٤ قطعة اكسسوار',
-                             sku: 'SKU-DR12-2B-24'
-                           };
-      const weldingProduct = products.find(p => p.name.includes('لحام') || p.name.includes('MIG')) || {
-                               id: 'welding-mig-2500',
-                               name: 'ماكينة لحام اكس باور MIG 2500 موديل C2 كيلو',
-                               sku: 'SKU-WLD-MIG-2500'
-                             };
+  const handleDeleteTransfer = (transferId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const transfer = transfers.find(t => t.id === transferId);
+    if (!transfer) return;
 
-      const correctTransfer: StockTransfer = {
-        id: `TRF-SAMPLE-101`,
-        transferNumber: 'T00001',
-        date: new Date(Date.now() - 3600000 * 4).toISOString(),
-        sourceWarehouseId: albassWh.id,
-        destinationWarehouseId: abuzahraWh.id,
-        items: [
-          {
-            productId: drillProduct.id,
-            name: drillProduct.name,
-            sku: drillProduct.sku || 'SKU-DR12-2B-24',
-            quantity: 3
-          },
-          {
-            productId: weldingProduct.id,
-            name: weldingProduct.name,
-            sku: weldingProduct.sku || 'SKU-WLD-MIG-2500',
-            quantity: 5
-          }
-        ],
-        status: 'completed',
-        notes: 'تحويل مقاصة وتغذية مخزونية بناءً على الربط اللوجستي السريع بين الفروع',
-        performedBy: currentUser?.fullName || 'النظام اللوجستي المباشر'
-      };
-
-      const currentTransfers = settings.stockTransfers || [];
-      const t1Idx = currentTransfers.findIndex(t => t.transferNumber === 'T00001');
-
-      if (t1Idx === -1) {
-        updateSettings({
-          ...settings,
-          stockTransfers: [correctTransfer, ...currentTransfers]
-        });
-      } else {
-        const existingT1 = currentTransfers[t1Idx];
-        const isWrong = existingT1.sourceWarehouseId !== albassWh.id || 
-                        existingT1.destinationWarehouseId !== abuzahraWh.id ||
-                        existingT1.items.length !== 2 ||
-                        existingT1.items[0].quantity !== 3 ||
-                        existingT1.items[1].quantity !== 5;
-
-        if (isWrong) {
-          const updatedTransfers = [...currentTransfers];
-          updatedTransfers[t1Idx] = {
-            ...existingT1,
-            sourceWarehouseId: albassWh.id,
-            destinationWarehouseId: abuzahraWh.id,
-            items: correctTransfer.items
-          };
-          updateSettings({
-            ...settings,
-            stockTransfers: updatedTransfers
-          });
-        }
-      }
+    if (!window.confirm(`هل أنت متأكد من رغبتك في إلغاء عملية التحويل (${transfer.transferNumber})؟ سيتم إعادة الكميات إلى مستودع المصدر.`)) {
+      return;
     }
-  }, [settings.stockTransfers, warehouses, products]);
+
+    const updatedProducts = [...settings.products];
+    transfer.items.forEach(item => {
+      const pIdx = updatedProducts.findIndex(p => p.id === item.productId);
+      if (pIdx > -1) {
+        const prod = { ...updatedProducts[pIdx] };
+        if (item.variantId && prod.variants) {
+          prod.variants = prod.variants.map(v => {
+            if (v.id === item.variantId) {
+              const vUpdated = { ...v };
+              vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+              vUpdated.warehouseStock[transfer.sourceWarehouseId] = (vUpdated.warehouseStock[transfer.sourceWarehouseId] || 0) + item.quantity;
+              vUpdated.warehouseStock[transfer.destinationWarehouseId] = Math.max(0, (vUpdated.warehouseStock[transfer.destinationWarehouseId] || 0) - item.quantity);
+              return vUpdated;
+            }
+            return v;
+          });
+        } else {
+          prod.warehouseStock = { ...(prod.warehouseStock || {}) };
+          prod.warehouseStock[transfer.sourceWarehouseId] = (prod.warehouseStock[transfer.sourceWarehouseId] || 0) + item.quantity;
+          prod.warehouseStock[transfer.destinationWarehouseId] = Math.max(0, (prod.warehouseStock[transfer.destinationWarehouseId] || 0) - item.quantity);
+        }
+        updatedProducts[pIdx] = prod;
+      }
+    });
+
+    updateSettings({
+      ...settings,
+      products: updatedProducts,
+      stockTransfers: transfers.filter(t => t.id !== transferId),
+      activityLogs: [
+        {
+          id: `log-${Date.now()}`,
+          user: currentUser?.fullName || 'النظام',
+          action: 'إلغاء تحويل مخزون',
+          details: `إلغاء التحويل ${transfer.transferNumber} وإعادة البضاعة إلى ${warehouses.find(w => w.id === transfer.sourceWarehouseId)?.name || 'مستودع المصدر'}`,
+          date: new Date().toLocaleString('ar-EG'),
+          timestamp: Date.now()
+        },
+        ...(settings.activityLogs || [])
+      ]
+    });
+
+    if (selectedTransfer?.id === transferId) {
+      setSelectedTransfer(null);
+    }
+    alert('تم إلغاء عملية التحويل وإعادة المخزون بنجاح');
+  };
 
   const handleAddItem = (product: Product, variant?: ProductVariant) => {
     const itemId = variant ? `${product.id}-${variant.id}` : product.id;
@@ -163,6 +145,30 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
     if (!newTransfer.destinationWarehouseId) return "يرجى اختيار مستودع الوجهة";
     if (newTransfer.sourceWarehouseId === newTransfer.destinationWarehouseId) return "لا يمكن النقل لنفس المستودع";
     if (!newTransfer.items || newTransfer.items.length === 0) return "يرجى إضافة منتج واحد على الأقل";
+
+    // Validate available stock in source warehouse
+    for (const item of newTransfer.items) {
+      const prod = products.find(p => p.id === item.productId);
+      if (!prod) continue;
+      let available = 0;
+      if (item.variantId && prod.variants) {
+        const v = prod.variants.find(va => va.id === item.variantId);
+        available = v?.warehouseStock?.[newTransfer.sourceWarehouseId] ?? 0;
+        if (available === 0 && (!v?.warehouseStock || Object.keys(v.warehouseStock).length === 0)) {
+          available = v?.stockQuantity ?? 0;
+        }
+      } else {
+        available = prod.warehouseStock?.[newTransfer.sourceWarehouseId] ?? 0;
+        if (available === 0 && (!prod.warehouseStock || Object.keys(prod.warehouseStock).length === 0)) {
+          available = prod.stockQuantity ?? 0;
+        }
+      }
+
+      if (item.quantity > available) {
+        return `الكمية المطلوبة لتحويل الصنف "${item.name}" (${item.quantity} قطعة) تتجاوز الرصيد المتوفر في مخزن المصدر (${available} قطعة).`;
+      }
+    }
+
     return null;
   };
 
@@ -356,6 +362,14 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                         </div>
                         
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteTransfer(transfer.id, e)}
+                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+                            title="إلغاء التحويل وإعادة البضاعة للمخزن المصدر"
+                          >
+                            <Trash2 size={16} />
+                          </button>
                           <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">{transfer.items.length}</span>
                           <span className="text-xs text-slate-400 font-bold">منتجات</span>
                           {selectedTransfer?.id === transfer.id ? <ChevronUp size={20} className="text-slate-400" /> : <ChevronDown size={20} className="text-slate-400" />}

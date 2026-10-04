@@ -662,8 +662,73 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             await saveLocal(storeId, fullData);
             return fullData;
         } catch (e) {
-            console.error('Supabase fetch failed, falling back to local', e);
-            return local;
+            console.error('Supabase fetch failed, falling back to local/Firestore', e);
+        }
+    }
+
+    // 3. Fallback to Firestore cloud database (ensures external users & partner portal can load data)
+    if (firebaseDb) {
+        try {
+            const storeRef = doc(firebaseDb, 'stores_data', storeId);
+            const snap = await WITH_TIMEOUT(getDoc(storeRef), 8000);
+            if (snap.exists()) {
+                const cloudData = snap.data();
+                const storeSettings = cloudData?.settings || {};
+
+                const customization = {
+                    ...(INITIAL_SETTINGS.customization || {}),
+                    ...(storeSettings.customization || {})
+                };
+                if (!customization.pageSections || customization.pageSections.length === 0) {
+                    customization.pageSections = INITIAL_SETTINGS.customization.pageSections;
+                }
+
+                const fullData: StoreData = {
+                    settings: {
+                        ...INITIAL_SETTINGS,
+                        ...storeSettings,
+                        customization,
+                        storeName: storeSettings.storeName || cloudData?.name || local?.settings?.storeName || 'المتجر',
+                        products: storeSettings.products || local?.settings?.products || [],
+                        suppliers: storeSettings.suppliers || local?.settings?.suppliers || [],
+                        supplyOrders: storeSettings.supplyOrders || local?.settings?.supplyOrders || [],
+                        reviews: storeSettings.reviews || local?.settings?.reviews || [],
+                        abandonedCarts: storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [],
+                        activityLogs: storeSettings.activityLogs || local?.settings?.activityLogs || [],
+                        employees: storeSettings.employees || local?.settings?.employees || [],
+                        discountCodes: storeSettings.discountCodes || local?.settings?.discountCodes || [],
+                        collections: storeSettings.collections || local?.settings?.collections || [],
+                        customPages: storeSettings.customPages || local?.settings?.customPages || [],
+                        paymentMethods: storeSettings.paymentMethods || local?.settings?.paymentMethods || [],
+                        globalOptions: storeSettings.globalOptions || local?.settings?.globalOptions || [],
+                        shippingIntegrations: storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [],
+                        partners: storeSettings.partners || local?.settings?.partners || [],
+                        partnerTransactions: storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [],
+                        warehouses: storeSettings.warehouses || local?.settings?.warehouses || [],
+                        inventoryAudits: storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [],
+                        stockTransfers: storeSettings.stockTransfers || local?.settings?.stockTransfers || [],
+                        orderReturns: storeSettings.orderReturns || local?.settings?.orderReturns || [],
+                        purchaseReturns: storeSettings.purchaseReturns || local?.settings?.purchaseReturns || [],
+                        posSales: storeSettings.posSales || local?.settings?.posSales || [],
+                        cashHolders: storeSettings.cashHolders || local?.settings?.cashHolders || [],
+                        cashHandovers: storeSettings.cashHandovers || local?.settings?.cashHandovers || [],
+                        whatsappTemplates: storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || []
+                    },
+                    orders: cloudData?.orders || local?.orders || [],
+                    wallet: cloudData?.wallet || local?.wallet || {
+                        balance: storeSettings.wallet_balance || 0,
+                        transactions: storeSettings.wallet_transactions || []
+                    },
+                    treasury: cloudData?.treasury || local?.treasury || { accounts: [], transactions: [] },
+                    cart: [],
+                    customers: cloudData?.customers || local?.customers || []
+                };
+
+                await saveLocal(storeId, fullData);
+                return fullData;
+            }
+        } catch (firestoreErr) {
+            console.warn('[FIRESTORE-FETCH] Could not fetch store from Firestore:', firestoreErr);
         }
     }
 
@@ -699,6 +764,10 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     }
     if (collections.length < 50) redundantSettings.collections = collections;
     if (customPages.length < 50) redundantSettings.customPages = customPages;
+    redundantSettings.partners = partners;
+    redundantSettings.partnerTransactions = partnerTransactions;
+    redundantSettings.cashHolders = cashHolders;
+    redundantSettings.cashHandovers = cashHandovers;
 
     const cleanSettingsFinal = cleanUndefined({
         ...cleanSettings,
@@ -791,14 +860,17 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             }
 
             // Collect any employee phones about to be synced and ensure they are present in 'users' table
-            const employeePhones = (data.settings.employees || [])
-                .map((emp: any) => emp.phone)
-                .filter(Boolean);
+            const employeePhones = Array.from(new Set(
+                (data.settings.employees || [])
+                    .map((emp: any) => emp.phone ? String(emp.phone).trim() : '')
+                    .filter(Boolean)
+            ));
                 
             const placeholderUsers = [];
+            const existingPhones = new Set(mappedUsersList.map((u: any) => String(u.phone).trim()));
             for (const phone of employeePhones) {
-                const alreadySyncedCheck = mappedUsersList.some((u: any) => u.phone === phone);
-                if (!alreadySyncedCheck) {
+                if (!existingPhones.has(phone)) {
+                    existingPhones.add(phone);
                     placeholderUsers.push({
                         phone,
                         full_name: `موظف ${phone}`,
@@ -811,7 +883,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             }
             if (placeholderUsers.length > 0) {
                 try {
-                    const { error: stubError } = await supabase.from('users').upsert(placeholderUsers);
+                    const { error: stubError } = await supabase.from('users').upsert(placeholderUsers, { onConflict: 'phone' });
                     if (stubError) {
                         console.warn('Upserting placeholderUsers failed:', stubError);
                     }
@@ -1369,7 +1441,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 () => syncTable('reviews', reviews),
                 () => syncTable('abandoned_carts', abandonedCarts),
                 () => syncTable('activity_logs', activityLogs || []),
-                () => syncTable('employees', employees, ['id', 'updatedAt']),
+                () => syncTable('employees', employees, ['id', 'updatedAt', 'isPartner', 'partnerId', 'role']),
                 () => syncTable('discount_codes', discountCodes),
                 () => syncTable('collections', collections),
                 () => syncTable('custom_pages', customPages, ['isActive', 'updatedAt']),
@@ -1377,7 +1449,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 () => syncTable('customers', customers),
                 () => syncTable('global_options', globalOptions),
                 () => syncTable('shipping_integrations', shippingIntegrations),
-                () => syncTable('partners', partners || []),
+                () => syncTable('partners', partners || [], ['permissions', 'portalPermissions', 'payoutAccounts', 'isEmailVerified', 'emailVerifiedAt', 'lastLoginAt', 'employeeId']),
                 () => syncTable('partner_transactions', partnerTransactions || []),
                 () => syncTable('warehouses', warehouses || []),
                 () => syncTable('inventory_audits', inventoryAudits || []),
@@ -1397,9 +1469,12 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 try {
                     await fn();
                 } catch (e: any) {
-                    syncErrors.push(e);
+                    const isRls = e?.message?.includes('row-level security') || e?.code === '42501';
                     const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
-                    if (!isNet) {
+                    if (!isRls) {
+                        syncErrors.push(e);
+                    }
+                    if (!isNet && !isRls) {
                         console.warn(`Table sync warning:`, e?.message || e);
                     }
                 }
@@ -1607,7 +1682,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         ]);
 
         const storeRef = doc(firebaseDb, 'stores_data', store.id);
-        const storePayload = cleanUndefined({ settings: cleanSettingsFinal, name: store.name });
+        const storePayload = cleanUndefined({ 
+            settings: cleanSettingsFinal, 
+            name: store.name,
+            orders: data.orders || [],
+            treasury: data.treasury || { accounts: [], transactions: [] },
+            wallet: data.wallet || { balance: 0, transactions: [] }
+        });
         await WITH_TIMEOUT(setDoc(storeRef, storePayload, { merge: true })).catch(err => {
             if (err?.code === 'resource-exhausted') {
                 throw new Error('QUOTA_EXCEEDED');
@@ -2092,6 +2173,131 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
         return true;
     } catch (err) {
         console.error('[DATABASE-SERVICE] Error in createUserDoc:', err);
+        return false;
+    }
+};
+
+export interface PartnerPortalRequest {
+    id: string;
+    storeId: string;
+    partnerId: string;
+    partnerName: string;
+    type: 'withdrawal' | 'expense' | 'inquiry';
+    typeArabic: string;
+    amount: number;
+    notes: string;
+    date: string;
+    status: 'pending' | 'approved' | 'rejected';
+    createdAt: string;
+}
+
+export const submitPartnerRequest = async (storeId: string, req: Omit<PartnerPortalRequest, 'storeId' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
+    try {
+        const fullRequest: PartnerPortalRequest = {
+            ...req,
+            storeId,
+            createdAt: new Date().toISOString()
+        };
+
+        // 1. Save to local storage for instant offline resilience
+        try {
+            const localKey = `partner_requests_${storeId}`;
+            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const filtered = existing.filter((r: any) => r.id !== req.id);
+            localStorage.setItem(localKey, JSON.stringify([fullRequest, ...filtered]));
+        } catch (_) {}
+
+        // 2. Save directly to Firestore collection 'partner_requests'
+        if (firebaseDb) {
+            const reqRef = doc(firebaseDb, 'partner_requests', req.id);
+            await setDoc(reqRef, cleanUndefined(fullRequest));
+            console.log('[PARTNER-REQUEST] Successfully saved partner request to Firestore:', req.id);
+        }
+
+        return { success: true };
+    } catch (err: any) {
+        console.error('[PARTNER-REQUEST] Error submitting partner request:', err);
+        return { success: false, error: err.message };
+    }
+};
+
+export const getPartnerRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
+    let requests: PartnerPortalRequest[] = [];
+    
+    // 1. Try local storage first
+    try {
+        const localKey = `partner_requests_${storeId}`;
+        const local = JSON.parse(localStorage.getItem(localKey) || '[]');
+        if (Array.isArray(local) && local.length > 0) {
+            requests = local;
+        }
+    } catch (_) {}
+
+    // 2. Fetch from Firestore
+    if (firebaseDb) {
+        try {
+            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
+            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
+            if (!snap.empty) {
+                const cloudRequests = snap.docs.map(d => d.data() as PartnerPortalRequest);
+                const map = new Map<string, PartnerPortalRequest>();
+                cloudRequests.forEach(r => map.set(r.id, r));
+                requests.forEach(r => {
+                    if (!map.has(r.id)) map.set(r.id, r);
+                });
+                requests = Array.from(map.values());
+                requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+                
+                try {
+                    localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
+                } catch (_) {}
+            }
+        } catch (err) {
+            console.warn('[PARTNER-REQUEST] Error reading partner requests from Firestore:', err);
+        }
+    }
+
+    return requests;
+};
+
+export const updatePartnerRequestStatus = async (requestId: string, storeId: string, status: 'approved' | 'rejected'): Promise<boolean> => {
+    try {
+        if (firebaseDb) {
+            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
+            await setDoc(reqRef, { status, updatedAt: new Date().toISOString() }, { merge: true });
+        }
+
+        try {
+            const localKey = `partner_requests_${storeId}`;
+            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const updated = existing.map((r: any) => r.id === requestId ? { ...r, status } : r);
+            localStorage.setItem(localKey, JSON.stringify(updated));
+        } catch (_) {}
+
+        return true;
+    } catch (err) {
+        console.error('[PARTNER-REQUEST] Error updating partner request status:', err);
+        return false;
+    }
+};
+
+export const deletePartnerRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
+    try {
+        if (firebaseDb) {
+            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
+            await deleteDoc(reqRef);
+        }
+
+        try {
+            const localKey = `partner_requests_${storeId}`;
+            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const updated = existing.filter((r: any) => r.id !== requestId);
+            localStorage.setItem(localKey, JSON.stringify(updated));
+        } catch (_) {}
+
+        return true;
+    } catch (err) {
+        console.error('[PARTNER-REQUEST] Error deleting partner request:', err);
         return false;
     }
 };

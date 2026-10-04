@@ -19,7 +19,22 @@ import { lazyWithRetry } from './utils/lazyWithRetry';
 import GlobalLoader from './components/GlobalLoader';
 import WelcomeLoader from './components/WelcomeLoader';
 
-const AUTH_OTP_API_BASE = (import.meta.env.VITE_AUTH_API_URL || 'https://api.abdomedi.com').replace(/\/$/, '');
+const getAuthOtpApiBase = () => {
+    if (import.meta.env.VITE_AUTH_API_URL) {
+        return import.meta.env.VITE_AUTH_API_URL.replace(/\/$/, '');
+    }
+    if (typeof window !== 'undefined') {
+        const host = window.location.hostname.toLowerCase();
+        // If in production on abdomedi.com, use official API host
+        if (host === 'abdomedi.com' || host.endsWith('.abdomedi.com')) {
+            return 'https://api.abdomedi.com';
+        }
+        // When running in AI Studio (Cloud Run *.run.app) or localhost, use same-origin relative API
+        return '';
+    }
+    return '';
+};
+const AUTH_OTP_API_BASE = getAuthOtpApiBase();
 
 // Page Components (will be loaded via router with automatic retry on chunk updates)
 const SignUpPage = lazyWithRetry(() => import('./components/SignUpPage'));
@@ -1066,6 +1081,7 @@ export const AppComponent = () => {
     // تتبع حالة الحفظ لمنع تداخل التحديثات اللحظية وحماية طابور الحفظ
     const isSavingRef = useRef(false);
     const isDirtyRef = useRef(false);
+    const isFirstSyncAfterLoadRef = useRef(true);
     const pendingCloudSaveRef = useRef(false);
     const latestStateRef = useRef<{ users: User[], allStoresData: Record<string, StoreData>, activeStore: Store | undefined, activeStoreId: string }>({
         users,
@@ -1435,9 +1451,18 @@ export const AppComponent = () => {
 
     // 2. Network sync debounce (Firebase)
     useEffect(() => {
-        if (isInitialLoad) return;
+        if (isInitialLoad) {
+            isFirstSyncAfterLoadRef.current = true;
+            return;
+        }
         
         latestStateRef.current = { users, allStoresData, activeStore, activeStoreId };
+
+        // Do not trigger a dirty cloud sync immediately on the first render when initial load completes
+        if (isFirstSyncAfterLoadRef.current) {
+            isFirstSyncAfterLoadRef.current = false;
+            return;
+        }
 
         if (isRefreshing.current) {
             isRefreshing.current = false; 
@@ -1477,7 +1502,15 @@ export const AppComponent = () => {
                 cloudPromises.push(db.saveGlobalData({ users: curUsers, loyaltyData: {} }));
                 
                 if (curActiveStoreId && curAllStoresData[curActiveStoreId] && curActiveStore) {
-                    cloudPromises.push(db.saveStoreData(curActiveStore, curAllStoresData[curActiveStoreId]));
+                    const storeDataToSync = curAllStoresData[curActiveStoreId];
+                    // Safeguard: only sync to cloud if store data is actually populated
+                    const isUninitializedShell = !storeDataToSync.settings?.storeName && 
+                        (!storeDataToSync.settings?.products || storeDataToSync.settings.products.length === 0) && 
+                        (!storeDataToSync.orders || storeDataToSync.orders.length === 0);
+
+                    if (!isUninitializedShell) {
+                        cloudPromises.push(db.saveStoreData(curActiveStore, storeDataToSync));
+                    }
                 }
 
                 const results = await Promise.all(cloudPromises);
@@ -1837,26 +1870,53 @@ export const AppComponent = () => {
         setSessionInfoForOtp(sessionInfo);
         setOtpError('');
         setOtpTargetEmail(user.email || '');
-        try {
-            const resp = await fetch(`${AUTH_OTP_API_BASE}/api/send-otp`, {
+
+        const payload = JSON.stringify({
+            phone: user.phone,
+            email: user.email,
+            userName: user.fullName
+        });
+
+        const sendReq = async (url: string) => {
+            const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    phone: user.phone,
-                    email: user.email,
-                    userName: user.fullName
-                })
+                body: payload
             });
-            const data = await resp.json();
-            if (data.email) {
-                setOtpTargetEmail(data.email);
+            const data = await resp.json().catch(() => ({}));
+            return { ok: resp.ok, status: resp.status, data };
+        };
+
+        try {
+            const primaryUrl = AUTH_OTP_API_BASE ? `${AUTH_OTP_API_BASE}/api/send-otp` : '/api/send-otp';
+            let res = await sendReq(primaryUrl);
+
+            // If primary remote endpoint rejected origin (403 / "مصدر الطلب غير مسموح") or network failed, fallback to local backend
+            if ((!res.ok || res.status === 403 || res.data?.error?.includes('مصدر الطلب')) && primaryUrl !== '/api/send-otp') {
+                console.warn('[AUTH] Primary OTP URL rejected or failed. Trying same-origin fallback...');
+                const fallbackRes = await sendReq('/api/send-otp').catch(() => null);
+                if (fallbackRes && (fallbackRes.ok || !fallbackRes.data?.error?.includes('مصدر الطلب'))) {
+                    res = fallbackRes;
+                }
             }
-            if (!resp.ok || !data.success) {
-                setOtpError(data.error || 'تعذر إرسال رمز التحقق إلى البريد الإلكتروني.');
+
+            if (res.data?.email) {
+                setOtpTargetEmail(res.data.email);
+            }
+            if (!res.ok || !res.data?.success) {
+                setOtpError(res.data?.error || 'تعذر إرسال رمز التحقق إلى البريد الإلكتروني.');
             }
         } catch (err: any) {
             console.warn('[AUTH] Error sending OTP:', err);
-            setOtpError('تعذر الاتصال بخادم إرسال الرمز.');
+            try {
+                const fbRes = await sendReq('/api/send-otp');
+                if (fbRes.data?.email) setOtpTargetEmail(fbRes.data.email);
+                if (!fbRes.ok || !fbRes.data?.success) {
+                    setOtpError(fbRes.data?.error || 'تعذر إرسال رمز التحقق إلى البريد الإلكتروني.');
+                }
+            } catch (fbErr: any) {
+                setOtpError('تعذر الاتصال بخادم إرسال الرمز.');
+            }
         }
     };
 
@@ -1864,27 +1924,50 @@ export const AppComponent = () => {
         if (!userForOtp) return;
         setOtpError('');
 
-        try {
-            const response = await fetch(`${AUTH_OTP_API_BASE}/api/verify-otp`, {
+        const payload = JSON.stringify({ 
+            phone: userForOtp.phone,
+            email: userForOtp.email || otpTargetEmail, 
+            otp 
+        });
+
+        const verifyReq = async (url: string) => {
+            const resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    phone: userForOtp.phone,
-                    email: userForOtp.email || otpTargetEmail, 
-                    otp 
-                })
+                body: payload
             });
+            const data = await resp.json().catch(() => ({}));
+            return { ok: resp.ok, status: resp.status, data };
+        };
 
-            const data = await response.json();
+        try {
+            const primaryUrl = AUTH_OTP_API_BASE ? `${AUTH_OTP_API_BASE}/api/verify-otp` : '/api/verify-otp';
+            let res = await verifyReq(primaryUrl);
 
-            if (response.ok && data.valid) {
+            if ((!res.ok || res.status === 403 || res.data?.error?.includes('مصدر الطلب')) && primaryUrl !== '/api/verify-otp') {
+                const fallbackRes = await verifyReq('/api/verify-otp').catch(() => null);
+                if (fallbackRes && (fallbackRes.ok || fallbackRes.data?.valid)) {
+                    res = fallbackRes;
+                }
+            }
+
+            if (res.ok && res.data?.valid) {
                 completeLogin(userForOtp, sessionInfoForOtp);
             } else {
-                setOtpError(data.message || data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
+                setOtpError(res.data?.message || res.data?.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
             }
         } catch (err: any) {
             console.error('Error verifying OTP:', err);
-            setOtpError('حدث خطأ أثناء التحقق من الرمز. يرجى المحاولة مرة أخرى.');
+            try {
+                const fbRes = await verifyReq('/api/verify-otp');
+                if (fbRes.ok && fbRes.data?.valid) {
+                    completeLogin(userForOtp, sessionInfoForOtp);
+                    return;
+                }
+                setOtpError(fbRes.data?.message || fbRes.data?.error || 'حدث خطأ أثناء التحقق من الرمز.');
+            } catch {
+                setOtpError('حدث خطأ أثناء التحقق من الرمز. يرجى المحاولة مرة أخرى.');
+            }
         }
     };
 
@@ -2348,16 +2431,15 @@ export const AppComponent = () => {
         }
 
         if (db.isSupabaseActive()) {
+            const supabase = getSupabaseClient();
+            if (!supabase || !activeStoreId) {
+                return () => {};
+            }
+
             console.log('[REALTIME] Custom Supabase cloud active: subscribing to live orders updates.');
             refreshStoreDataRef.current = refreshStoreData;
             activeStoreRef.current = activeStore;
             allStoresDataRef.current = allStoresData;
-
-            const supabase = getSupabaseClient();
-            if (!supabase || !activeStoreId) {
-                console.warn('[REALTIME] Supabase client or active store is unavailable.');
-                return () => {};
-            }
 
             const notifyWhatsAppMessage = (message: any) => {
                 if (message.direction !== 'incoming') return;
@@ -3601,7 +3683,18 @@ export const AppComponent = () => {
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
                                 const draft = { ...p };
-                                // Will be updated by URL, but since it's view-only inside PartnerPortal, this is just a safe stub
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/store/:storeId/partner-portal/:tab" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
                                 return draft;
                             });
                         }} 

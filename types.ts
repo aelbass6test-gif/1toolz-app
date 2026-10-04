@@ -363,6 +363,9 @@ export interface Employee {
   phone?: string;
   permissions: Permission[];
   status?: 'active' | 'invited' | 'pending';
+  isPartner?: boolean;
+  partnerId?: string;
+  role?: string;
   commissionType?: 'fixed' | 'percentage';
   commissionValue?: number;
   balance?: number;
@@ -524,9 +527,41 @@ export interface Review {
   status: 'pending' | 'approved' | 'rejected';
 }
 
+export interface PartnerAllowedReports {
+  salesAndRevenue?: boolean; // تقرير المبيعات والإيرادات
+  topSellingProducts?: boolean; // تقرير المنتجات الأكثر مبيعاً والأرباح
+  inventoryValuation?: boolean; // تقرير قيمة المخزون ورصيد البضائع
+  expensesBreakdown?: boolean; // تقرير المصروفات والتكاليف التشغيلية
+  shippingPerformance?: boolean; // تقرير نسب الشحن والتسليم والمرتجعات
+  profitDistributions?: boolean; // تقرير دورات وتوزيعات الأرباح
+  cashFlowSummary?: boolean; // تقرير التدفقات النقدية والخزائن
+}
+
+export interface PartnerPortalPermissions {
+  canViewOverview?: boolean; // المركز المالي والأرصدة
+  canViewCapital?: boolean; // رؤية رأس المال
+  canViewProfits?: boolean; // رؤية الأرباح المحققة والمسحوبات
+  canViewCustody?: boolean; // رؤية العهد النقدية
+  canViewWithdrawalsTab?: boolean; // تبويب طلبات السحب والمصروفات
+  canRequestWithdrawal?: boolean; // تقديم طلب سحب أرباح
+  canRequestExpense?: boolean; // تقديم طلب تسوية مصروف أو سلفة
+  canViewStatementTab?: boolean; // تبويب كشف الحساب والعمليات
+  canPrintStatement?: boolean; // طباعة وتصدير كشف الحساب
+  canViewPerformanceTab?: boolean; // تبويب أداء المتجر والشراكة
+  canViewStoreSales?: boolean; // رؤية إجمالي مبيعات وإيرادات المتجر
+  canViewStoreProfits?: boolean; // رؤية صافي أرباح المتجر
+  canViewReportsTab?: boolean; // تبويب تقارير الشراكة المخصصة
+  allowedReports?: PartnerAllowedReports; // التقارير المحددة المسموح برؤيتها
+  canViewProfileTab?: boolean; // تبويب الملف الشخصي
+  canEditProfile?: boolean; // تعديل البيانات الشخصية
+  canEditPayoutAccounts?: boolean; // تعديل محافظ وحسابات الصرف
+  canChangeSecurity?: boolean; // تغيير رمز PIN وكلمة المرور
+}
+
 export interface Partner {
   id: string;
   name: string;
+  email?: string;
   phone?: string;
   notes?: string;
   balance: number;
@@ -534,6 +569,23 @@ export interface Partner {
   capital?: number; // رأس المال / الاستثمار
   initialCapital?: number;
   passcode?: string; // رمز المرور لبوابة الشركاء
+  password?: string; // كلمة المرور الآمنة
+  permissions?: Permission[]; // صلاحيات الموظفين الممنوحة للشريك
+  portalPermissions?: PartnerPortalPermissions; // صلاحيات التحكم في لوحة وبوابة الشريك
+  role?: string; // المسمى أو الدور الوظيفي للشريك
+  avatar?: string; // رابط الصورة الشخصية
+  address?: string; // عنوان الشريك
+  nationalId?: string; // الرقم القومي
+  payoutAccounts?: {
+    walletPhone?: string; // رقم محفظة الكاش
+    instaPayHandle?: string; // حساب إنستاباي
+    bankName?: string; // اسم البنك
+    bankAccount?: string; // رقم الحساب أو الآيبان
+  };
+  isEmailVerified?: boolean; // هل تم تأكيد البريد الإلكتروني بكود
+  emailVerifiedAt?: string; // تاريخ تأكيد البريد
+  lastLoginAt?: string; // تاريخ آخر دخول
+  employeeId?: string; // ربط بحساب الموظف
 }
 
 export interface PartnerTransaction {
@@ -854,6 +906,7 @@ export interface AkkedIntegrationConfig {
 export interface Settings {
   id?: string;
   storeName?: string;
+  partnerRequests?: any[];
   defaultWarehouseId?: string;
   data?: any; // For flexible local storage
   storeBranches?: any[];
