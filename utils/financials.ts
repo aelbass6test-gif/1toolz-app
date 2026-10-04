@@ -834,6 +834,8 @@ export const calculateWalletLiveBalance = (wallet?: Wallet, treasury?: Treasury)
 
         // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+        // Custody expenses were already deducted from the holder's balance, not the central wallet.
+        if (t.details?.cashHolderId || (t.details?.expensePaidBy && t.note?.includes('عهدة'))) return sum;
 
         // Deposits: include completed, approved, or implicit deposits (exclude pending charge requests and cancelled)
         if (t.type === 'إيداع') {

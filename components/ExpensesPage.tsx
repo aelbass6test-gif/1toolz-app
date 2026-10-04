@@ -250,6 +250,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         const amount = Number(t.amount) || 0;
         if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+        // مصروف العهدة تم خصمه عند تسليم العهدة؛ لا نخصمه مرة ثانية من المحفظة.
+        if (t.details?.cashHolderId || (t.details?.expensePaidBy && t.note?.includes('عهدة'))) return sum;
         if (t.type === 'إيداع') {
             if (t.status === 'cancelled') return sum;
             if (t.status === 'pending' && (t.category === 'wallet_charge' || t.category === 'charge')) return sum;
@@ -261,8 +263,6 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
   }, [wallet.transactions, wallet.balance]);
 
   const expenses = useMemo(() => {
-      const walletExps = wallet.transactions.filter(t => t.type === 'سحب' && t.category && (settings.expenseCategories || []).includes(t.category));
-      
       const treasuryExps = (treasury?.transactions || [])
         .filter((t: any) => t.type === 'withdrawal' && t.category && (settings.expenseCategories || []).includes(t.category))
         .map((t: any) => ({
@@ -273,8 +273,11 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
             note: t.description,
             category: t.category,
             status: 'completed',
-            details: t.fromAccountId ? { accountId: t.fromAccountId } : undefined
+            details: t.fromAccountId ? { treasuryAccountId: t.fromAccountId } : undefined
         } as any));
+      const treasuryIds = new Set(treasuryExps.map(t => t.id));
+      // بعض الإصدارات القديمة كانت تسجل نفس حركة الخزينة في المحفظة أيضًا.
+      const walletExps = wallet.transactions.filter(t => t.type === 'سحب' && t.category && (settings.expenseCategories || []).includes(t.category) && !treasuryIds.has(t.id));
 
       return [...walletExps, ...treasuryExps].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [wallet.transactions, treasury?.transactions, settings.expenseCategories]);
@@ -558,7 +561,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           note: `مصروف (بواسطة عهدة ${holder.userName}): ${description || 'مصروف جديد'}`,
           category: category,
           status: 'completed',
-          details: { expensePaidBy: holder.userName, cashHolderId: selectedCustodyId }
+          details: { expensePaidBy: holder.userName, cashHolderId: selectedCustodyId, custodyHandoverId: handoverId }
       };
 
       setWallet(prev => ({
@@ -683,14 +686,27 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
               updateSettings({
                   ...settings,
                   partners: (settings.partners || []).map(p => p.id === paidByPartnerId ? { ...p, balance: (p.balance || 0) - amntoRefund } : p),
-                  partnerTransactions: (settings.partnerTransactions || []).filter(pt => pt.id !== id + 'pt')
+                  partnerTransactions: (settings.partnerTransactions || []).filter(pt => pt.id !== id + 'pt' && pt.id !== id)
               });
+          }
+
+          const cashHolderId = transactionToDelete.details?.cashHolderId;
+          if (cashHolderId) {
+            updateSettings({
+              ...settings,
+              cashHolders: (settings.cashHolders || []).map(holder => holder.userId === cashHolderId
+                ? { ...holder, currentBalance: (holder.currentBalance || 0) + amntoRefund, lastUpdated: new Date().toISOString() }
+                : holder),
+              cashHandovers: (settings.cashHandovers || []).filter(h => h.id !== transactionToDelete.details?.custodyHandoverId)
+            });
           }
 
           setWallet(prevWallet => {
             const updatedTransactions = prevWallet.transactions.filter(t => t.id !== id);
             const currentBalance = Number(prevWallet.balance) || 0;
-            const newBalance = (!paidByPartnerId && !transactionToDelete.details?.expensePaidBy && !transactionToDelete.note.includes('بواسطة') && !transactionToDelete.note.includes('دفعهم')) || txAccountToRefund ? currentBalance + amntoRefund : currentBalance;
+            const isCustodyExpense = Boolean(transactionToDelete.details?.cashHolderId);
+            const shouldRefundWallet = !paidByPartnerId && !isCustodyExpense && (!txAccountToRefund || txAccountToRefund === 'main_wallet') && !transactionToDelete.details?.expensePaidBy && !transactionToDelete.note.includes('بواسطة') && !transactionToDelete.note.includes('دفعهم');
+            const newBalance = shouldRefundWallet ? currentBalance + amntoRefund : currentBalance;
 
             return {
                 ...prevWallet,

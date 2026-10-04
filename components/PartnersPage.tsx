@@ -1191,7 +1191,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-8 bg-slate-50/30 dark:bg-slate-900/10 min-h-screen">
+    <div dir="rtl" className="p-4 sm:p-6 lg:p-8 space-y-8 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/20 min-h-screen">
       <AnimatePresence>
         {isProfitPaymentOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1416,30 +1416,30 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         )}
       </AnimatePresence>
 
-      <div className="flex bg-slate-200/50 dark:bg-slate-800/80 p-1.5 rounded-2xl w-fit mb-2 overflow-x-auto max-w-full custom-scrollbar">
+      <div className="flex flex-wrap bg-white/80 dark:bg-slate-900/80 p-1.5 rounded-2xl w-full mb-2 gap-1 border border-slate-200/70 dark:border-slate-800 shadow-sm sticky top-2 z-20 backdrop-blur-md">
           <button 
             onClick={() => setActiveSection('overview')}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'overview' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'overview' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-300'}`}
           ><PieChart size={16}/> نظرة عامة وتوزيع الأرباح</button>
           <button 
             onClick={() => setActiveSection('simulator')}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'simulator' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'simulator' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-300'}`}
           ><Calculator size={16}/> محاكاة الأرباح والاحتمالات</button>
           <button 
             onClick={() => setActiveSection('transfers')}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'transfers' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'transfers' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-300'}`}
           ><ArrowRightLeft size={16}/> التحويلات الداخلية بين الشركاء</button>
           <button 
             onClick={() => setActiveSection('valuation')}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'valuation' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'valuation' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-300'}`}
           ><Sparkles size={16}/> تقييم المشروع وتصفية الحسابات</button>
           <button 
             onClick={() => setActiveSection('summary_table')}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'summary_table' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'summary_table' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-300'}`}
           ><FileText size={16}/> جدول المركز المالي المجمع</button>
           <button 
             onClick={() => setActiveSection('requests')}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'requests' ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+            className={`px-4 py-2.5 rounded-xl font-bold text-sm transition-all whitespace-nowrap flex items-center gap-2 ${activeSection === 'requests' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-300'}`}
           >
             <Send size={16}/> طلبات واستفسارات الشركاء
             {pendingRequestsCount > 0 && (
