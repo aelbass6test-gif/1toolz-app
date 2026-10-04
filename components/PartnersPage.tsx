@@ -655,7 +655,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         return;
     }
     const totalRatios = partners.reduce((sum, p) => sum + (p.profitRatio || 0), 0);
-    if (totalRatios !== 100) {
+    if (Math.abs(totalRatios - 100) > 0.01) {
         showToast(`خطأ: لتوزيع الأرباح يجب أن يكون مجموع النسب 100% تماماً. (الحالي: ${totalRatios}%) - إذا كان هناك نسبة مستقطعة للشركة، قم بإضافتها كشريك باسم "أرباح محتجزة" أو "الشركة".`, 'error');
         return;
     }
@@ -987,7 +987,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         }
     }
 
-    const isWithdrawal = ['loan', 'profit_withdrawal', 'expense_repayment'].includes(transactionType);
+    const isWithdrawal = ['loan', 'profit_withdrawal', 'expense_repayment', 'capital_withdrawal'].includes(transactionType);
     const isSupplyFunding = transactionType === 'supply_funding';
 
     if (selectedTreasuryId && isWithdrawal && setTreasury && treasury) {
@@ -1102,7 +1102,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
     const movesRealMoney = !['profit_distribution', 'customer_advance'].includes(transactionType);
     
-    if (movesRealMoney) {
+    if (movesRealMoney && !selectedTreasuryId) {
         setWallet(prev => ({ 
             ...prev, 
             balance: isSupplyFunding ? prev.balance : prev.balance + (isWithdrawal ? -amount : amount),
@@ -2074,12 +2074,22 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                         setDialog({
                             isOpen: true,
                             title: 'تأكيد تصفية الحساب',
-                            message: 'سيتم حذف جميع المعاملات المالية لهذا الشريك وتصفير رصيده (لا يمكن التراجع عن هذا الإجراء). هل أنت متأكد؟',
+                            message: 'سيتم تسجيل حركة تسوية وإغلاق الرصيد مع الاحتفاظ بكل المعاملات السابقة للمراجعة. هل أنت متأكد؟',
                             onConfirm: () => {
+                                const currentBalance = Number(partner.balance) || 0;
+                                const settlementAmount = Math.abs(currentBalance);
+                                const settlement: PartnerTransaction | null = settlementAmount > 0 ? {
+                                    id: generateSafeId('pt_settlement'),
+                                    partnerId: partner.id,
+                                    type: currentBalance >= 0 ? 'profit_withdrawal' : 'repayment',
+                                    amount: settlementAmount,
+                                    date: new Date().toISOString(),
+                                    note: `تسوية رصيد الشريك وإغلاق الحساب بدون حذف السجل السابق (${partner.name})`
+                                } : null;
                                 updateSettings({
                                     ...settings,
                                     partners: partners.map(p => p.id === partner.id ? {...p, balance: 0} : p),
-                                    partnerTransactions: transactions.filter(t => t.partnerId !== partner.id)
+                                    partnerTransactions: settlement ? [...transactions, settlement] : transactions
                                 });
                                 setDialog(null);
                                 showToast('تم تصفية حساب الشريك بنجاح، يمكنك الآن حذفه.');

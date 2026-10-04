@@ -1002,6 +1002,10 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             partnerName: cleanItem.partnerName || cleanItem.partner_name || '',
                             treasury_account_id: cleanItem.treasuryAccountId || cleanItem.treasury_account_id || '',
                             treasuryAccountId: cleanItem.treasuryAccountId || cleanItem.treasury_account_id || '',
+                            orderId: cleanItem.orderId || cleanItem.order_id || '',
+                            order_id: cleanItem.orderId || cleanItem.order_id || '',
+                            orderNumber: cleanItem.orderNumber || cleanItem.order_number || '',
+                            order_number: cleanItem.orderNumber || cleanItem.order_number || '',
                             type: cleanItem.type || '',
                             amount: Number(cleanItem.amount ?? 0),
                             date: cleanItem.date || '',
@@ -1039,7 +1043,11 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             amount: Number(cleanItem.amount ?? 0),
                             type: cleanItem.type || 'deposit',
                             description: cleanItem.description || '',
-                            reference: cleanItem.reference || ''
+                            reference: cleanItem.reference || '',
+                            orderId: cleanItem.orderId || cleanItem.order_id || '',
+                            order_id: cleanItem.orderId || cleanItem.order_id || '',
+                            orderNumber: cleanItem.orderNumber || cleanItem.order_number || '',
+                            order_number: cleanItem.orderNumber || cleanItem.order_number || ''
                         };
                     } else if (table === 'whatsapp_templates') {
                         const detailsObj: any = {

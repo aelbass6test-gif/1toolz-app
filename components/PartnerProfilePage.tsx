@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { calculateOrderProfitLoss, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
+import { generateSafeId } from '../utils/idUtils';
 
 import { Treasury } from '../types';
 
@@ -586,8 +587,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
 
     setDialog({
       isOpen: true,
-      title: 'تأكيد الحذف',
-      message: 'هل أنت متأكد من حذف هذه المعاملة الخاصة بالشريك؟ قد يؤثر ذلك على رصيد الشريك.',
+      title: 'تأكيد عكس المعاملة',
+      message: 'سيتم تسجيل حركة عكسية مع الاحتفاظ بالمعاملة الأصلية للمراجعة. هل تريد المتابعة؟',
       onConfirm: () => {
         let currentBalance = partner?.balance || 0;
         const isAddition = ['capital_addition', 'repayment', 'supply_funding', 'shipping_funding', 'profit_distribution', 'expense_coverage'].includes(t.type);
@@ -602,7 +603,21 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         const newPartners = (settings.partners || []).map(p => 
             p.id === partnerId ? { ...p, balance: currentBalance } : p
         );
-        const newPartnerTransactions = (settings.partnerTransactions || []).filter(tx => tx.id !== t.id);
+        const reversalType: PartnerTransaction['type'] = isAddition
+          ? (t.type === 'capital_addition' ? 'capital_withdrawal' : 'loan')
+          : 'repayment';
+        const reversalTransaction: PartnerTransaction = {
+          id: generateSafeId('pt_reversal'),
+          partnerId: partnerId || '',
+          type: reversalType,
+          amount: Number(t.amount) || 0,
+          date: new Date().toISOString(),
+          note: `عكس محاسبي للمعاملة ${t.id} بدل حذفها: ${t.note || ''}`
+        };
+        const newPartnerTransactions = [
+          ...(settings.partnerTransactions || []),
+          reversalTransaction
+        ];
 
         updateSettings({
             ...settings,
@@ -629,7 +644,19 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                   }
                   return acc;
                 });
-                const updatedTxs = prev.transactions.filter((tx: any) => tx.reference !== tRef);
+                const updatedTxs = [
+                  ...(prev.transactions || []),
+                  {
+                    id: generateSafeId('t_reversal'),
+                    date: new Date().toISOString(),
+                    type: linkedTreasuryTx.type === 'withdrawal' ? 'deposit' : 'withdrawal',
+                    amount: t.amount,
+                    description: `عكس محاسبي للمعاملة ${t.id}`,
+                    reference: `${tRef}_reversal`,
+                    toAccountId: linkedTreasuryTx.fromAccountId,
+                    fromAccountId: linkedTreasuryTx.toAccountId
+                  }
+                ];
                 return {
                   ...prev,
                   accounts: updatedAccounts,
@@ -644,10 +671,20 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
         if (setWallet && t.type !== 'profit_distribution') {
           setWallet((prev: any) => {
             if (!prev) return prev;
-            const walletTxId = `pt_w_${t.id}`;
-            const updatedTransactions = (prev.transactions || []).filter((tx: any) => tx.id !== walletTxId);
+            const updatedTransactions = [
+              ...(prev.transactions || []),
+              {
+                id: generateSafeId('wtx_reversal'),
+                type: t.type === 'loan' || t.type === 'profit_withdrawal' || t.type === 'expense_repayment' ? 'إيداع' : 'سحب',
+                amount: t.amount,
+                note: `عكس محاسبي للمعاملة ${t.id}`,
+                date: new Date().toISOString(),
+                category: 'partner_reversal',
+                status: 'completed'
+              }
+            ];
             
-            const isWithdrawal = t.type === 'loan' || t.type === 'profit_withdrawal' || t.type === 'expense_repayment';
+            const isWithdrawal = t.type === 'loan' || t.type === 'profit_withdrawal' || t.type === 'expense_repayment' || t.type === 'capital_withdrawal';
             const isSupplyFunding = t.type === 'supply_funding';
             
             let newBalance = prev.balance;
