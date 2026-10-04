@@ -64,6 +64,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [transactionAmount, setTransactionAmount] = useState('');
   const [transactionType, setTransactionType] = useState<PartnerTransaction['type']>('loan');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState('');
+  const [isProfitPaymentOpen, setIsProfitPaymentOpen] = useState(false);
+  const [profitPaymentTreasuryId, setProfitPaymentTreasuryId] = useState('');
 
   // Advanced Modern Systems States
   const [activeSection, setActiveSection] = useState<'overview' | 'valuation' | 'simulator' | 'analytics' | 'transfers' | 'summary_table' | 'requests'>('overview');
@@ -697,6 +699,78 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     });
   };
 
+  const payableProfitTotal = useMemo(() => partners.reduce((sum, partner) => {
+    const distributed = transactions.filter(t => t.partnerId === partner.id && t.type === 'profit_distribution').reduce((value, t) => value + (Number(t.amount) || 0), 0);
+    const paid = transactions.filter(t => t.partnerId === partner.id && t.type === 'profit_withdrawal').reduce((value, t) => value + (Number(t.amount) || 0), 0);
+    return sum + Math.max(0, distributed - paid);
+  }, 0), [partners, transactions]);
+
+  const payDistributedProfits = () => {
+    if (!profitPaymentTreasuryId) {
+      showToast('يرجى اختيار الخزينة التي سيتم الدفع منها', 'error');
+      return;
+    }
+    if (payableProfitTotal <= 0) {
+      showToast('لا توجد أرباح موزعة ومستحقة للدفع حالياً', 'error');
+      return;
+    }
+    const selectedBalance = profitPaymentTreasuryId === 'central_wallet'
+      ? calculateWalletLiveBalance(wallet, treasury)
+      : Number(treasury?.accounts?.find(account => account.id === profitPaymentTreasuryId)?.balance || 0);
+    if (selectedBalance < payableProfitTotal) {
+      showToast(`رصيد الخزينة المختارة غير كافٍ. المطلوب ${payableProfitTotal.toLocaleString()} ج.م والمتاح ${selectedBalance.toLocaleString()} ج.م`, 'error');
+      return;
+    }
+
+    const batchId = generateSafeId('profit_payment');
+    const paymentTransactions: PartnerTransaction[] = [];
+    const updatedPartners = partners.map(partner => {
+      const distributed = transactions.filter(t => t.partnerId === partner.id && t.type === 'profit_distribution').reduce((value, t) => value + (Number(t.amount) || 0), 0);
+      const paid = transactions.filter(t => t.partnerId === partner.id && t.type === 'profit_withdrawal').reduce((value, t) => value + (Number(t.amount) || 0), 0);
+      const amount = Math.max(0, distributed - paid);
+      if (amount <= 0) return partner;
+      paymentTransactions.push({
+        id: `${batchId}_${partner.id}`,
+        partnerId: partner.id,
+        partnerName: partner.name,
+        type: 'profit_withdrawal',
+        amount,
+        date: new Date().toISOString(),
+        treasuryAccountId: profitPaymentTreasuryId,
+        note: `دفع أرباح موزعة فعلياً - دفعة ${batchId}`
+      });
+      return { ...partner, balance: partner.balance - amount };
+    });
+
+    updateSettings({ ...settings, partners: updatedPartners, partnerTransactions: [...transactions, ...paymentTransactions] });
+    const paymentDate = new Date().toISOString();
+    const accountName = profitPaymentTreasuryId === 'central_wallet'
+      ? 'المحفظة المركزية'
+      : (treasury?.accounts?.find(account => account.id === profitPaymentTreasuryId)?.name || 'الخزينة');
+    const treasuryTransaction = {
+      id: `${batchId}_treasury`, date: paymentDate, type: 'withdrawal', amount: payableProfitTotal,
+      description: `دفع أرباح الشركاء فعلياً من ${accountName}`,
+      fromAccountId: profitPaymentTreasuryId === 'central_wallet' ? undefined : profitPaymentTreasuryId,
+      reference: batchId, category: 'partner_profit_payment'
+    };
+    if (profitPaymentTreasuryId === 'central_wallet') {
+      setWallet(prev => ({
+        ...prev,
+        balance: prev.balance - payableProfitTotal,
+        transactions: [{ id: `${batchId}_wallet`, type: 'سحب', amount: payableProfitTotal, date: paymentDate, note: `دفع أرباح الشركاء فعلياً - ${batchId}`, category: 'manual_withdrawal', status: 'completed' } as Transaction, ...(prev.transactions || [])]
+      }));
+    } else if (setTreasury) {
+      setTreasury((previous: Treasury | undefined) => previous ? {
+        ...previous,
+        accounts: previous.accounts.map(account => account.id === profitPaymentTreasuryId ? { ...account, balance: account.balance - payableProfitTotal } : account),
+        transactions: [treasuryTransaction, ...(previous.transactions || [])]
+      } : previous);
+    }
+    setProfitPaymentTreasuryId('');
+    setIsProfitPaymentOpen(false);
+    showToast(`تم دفع ${payableProfitTotal.toLocaleString()} ج.م من ${accountName} وتحديث حسابات الشركاء`);
+  };
+
   const deletePartner = (partnerId: string) => {
     if (transactions.some(t => t.partnerId === partnerId)) {
         showToast('عفواً، لا يمكن حذف شريك له حركات مالية مسجلة. للضرورة، قم بتصفية أرقامه أولاً.', 'error');
@@ -1118,6 +1192,32 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
   return (
     <div className="p-4 sm:p-6 space-y-8 bg-slate-50/30 dark:bg-slate-900/10 min-h-screen">
+      <AnimatePresence>
+        {isProfitPaymentOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-800 rounded-3xl p-7 max-w-md w-full space-y-5 shadow-2xl">
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 flex items-center justify-center"><DollarSign size={28} /></div>
+                <h3 className="font-black text-xl dark:text-white">دفع الأرباح فعليًا</h3>
+                <p className="text-sm text-slate-500">إجمالي الأرباح الموزعة المستحقة: <strong className="text-emerald-600">{payableProfitTotal.toLocaleString()} ج.م</strong></p>
+              </div>
+              <label className="block space-y-2">
+                <span className="text-xs font-black text-slate-500">اختر الخزينة أو الحساب المالي</span>
+                <select value={profitPaymentTreasuryId} onChange={event => setProfitPaymentTreasuryId(event.target.value)} className="w-full p-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold">
+                  <option value="">-- اختر الحساب --</option>
+                  <option value="central_wallet">المحفظة المركزية (الرصيد الأساسي)</option>
+                  {(treasury?.accounts || []).map(account => <option key={account.id} value={account.id}>{account.name} — الرصيد {Number(account.balance || 0).toLocaleString()} ج.م</option>)}
+                </select>
+              </label>
+              <p className="text-[11px] text-slate-500 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3">سيتم تسجيل حركة سحب من الحساب المختار وحركة دفع أرباح لكل شريك، ولن يمكن تكرار دفع نفس الأرباح.</p>
+              <div className="flex gap-3">
+                <button onClick={() => { setIsProfitPaymentOpen(false); setProfitPaymentTreasuryId(''); }} className="flex-1 py-3 rounded-xl bg-slate-100 dark:bg-slate-700 font-bold">إلغاء</button>
+                <button onClick={payDistributedProfits} disabled={!profitPaymentTreasuryId || payableProfitTotal <= 0} className="flex-1 py-3 rounded-xl bg-emerald-600 disabled:bg-slate-300 text-white font-black">تأكيد الدفع</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {dialog && (
           <motion.div 
@@ -1662,6 +1762,13 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                       className={`w-full group relative overflow-hidden text-white px-8 py-4 rounded-2xl font-black transition-all duration-300 shadow-xl active:scale-95 ${undistributedProfit > 0 ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/25' : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed shadow-none'}`}
                     >
                         توزيع الأرباح المتبقية
+                    </button>
+                    <button
+                      onClick={() => setIsProfitPaymentOpen(true)}
+                      disabled={payableProfitTotal <= 0}
+                      className={`w-full px-8 py-3 rounded-2xl font-black transition-all ${payableProfitTotal > 0 ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'}`}
+                    >
+                      دفع الأرباح المستحقة فعليًا ({payableProfitTotal.toLocaleString()} ج.م)
                     </button>
                 </div>
             </div>
