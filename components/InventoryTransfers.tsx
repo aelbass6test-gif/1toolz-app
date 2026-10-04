@@ -48,10 +48,24 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
   const products = settings.products || [];
   const transfers = settings.stockTransfers || [];
 
+  const getWarehouseStock = (stock: Record<string, number> | undefined, fallback: number, sourceWarehouseId: string) => {
+    const normalized = { ...(stock || {}) };
+    if (Object.keys(normalized).length === 0 && fallback > 0) normalized[sourceWarehouseId] = fallback;
+    return normalized;
+  };
+
+  const sumWarehouseStock = (stock: Record<string, number> | undefined) =>
+    Object.values(stock || {}).reduce((sum, quantity) => sum + Math.max(0, Number(quantity) || 0), 0);
+
   const handleDeleteTransfer = (transferId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const transfer = transfers.find(t => t.id === transferId);
     if (!transfer) return;
+
+    if (transfer.status !== 'completed') {
+      alert('هذه العملية ملغاة بالفعل ولا يمكن إلغاؤها مرة أخرى');
+      return;
+    }
 
     if (!window.confirm(`هل أنت متأكد من رغبتك في إلغاء عملية التحويل (${transfer.transferNumber})؟ سيتم إعادة الكميات إلى مستودع المصدر.`)) {
       return;
@@ -66,18 +80,21 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
           prod.variants = prod.variants.map(v => {
             if (v.id === item.variantId) {
               const vUpdated = { ...v };
-              vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+              vUpdated.warehouseStock = getWarehouseStock(vUpdated.warehouseStock, vUpdated.stockQuantity || 0, transfer.sourceWarehouseId);
               vUpdated.warehouseStock[transfer.sourceWarehouseId] = (vUpdated.warehouseStock[transfer.sourceWarehouseId] || 0) + item.quantity;
               vUpdated.warehouseStock[transfer.destinationWarehouseId] = Math.max(0, (vUpdated.warehouseStock[transfer.destinationWarehouseId] || 0) - item.quantity);
+              vUpdated.stockQuantity = sumWarehouseStock(vUpdated.warehouseStock);
               return vUpdated;
             }
             return v;
           });
         } else {
-          prod.warehouseStock = { ...(prod.warehouseStock || {}) };
+          prod.warehouseStock = getWarehouseStock(prod.warehouseStock, prod.stockQuantity || 0, transfer.sourceWarehouseId);
           prod.warehouseStock[transfer.sourceWarehouseId] = (prod.warehouseStock[transfer.sourceWarehouseId] || 0) + item.quantity;
           prod.warehouseStock[transfer.destinationWarehouseId] = Math.max(0, (prod.warehouseStock[transfer.destinationWarehouseId] || 0) - item.quantity);
+          prod.stockQuantity = sumWarehouseStock(prod.warehouseStock);
         }
+        if (prod.variants) prod.stockQuantity = prod.variants.reduce((sum, variant) => sum + (Number(variant.stockQuantity) || 0), 0);
         updatedProducts[pIdx] = prod;
       }
     });
@@ -85,7 +102,13 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
     updateSettings({
       ...settings,
       products: updatedProducts,
-      stockTransfers: transfers.filter(t => t.id !== transferId),
+      stockTransfers: transfers.map(t => t.id === transferId ? {
+        ...t,
+        status: 'cancelled' as const,
+        cancelledAt: new Date().toISOString(),
+        cancelledBy: currentUser?.fullName || currentUser?.email || 'System',
+        cancellationReason: 'إلغاء يدوي وإعادة الكمية إلى مخزن المصدر'
+      } : t),
       activityLogs: [
         {
           id: `log-${Date.now()}`,
@@ -205,18 +228,21 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
           prod.variants = prod.variants.map(v => {
             if (v.id === item.variantId) {
               const vUpdated = { ...v };
-              vUpdated.warehouseStock = { ...(vUpdated.warehouseStock || {}) };
+              vUpdated.warehouseStock = getWarehouseStock(vUpdated.warehouseStock, vUpdated.stockQuantity || 0, transferData.sourceWarehouseId);
               vUpdated.warehouseStock[transferData.sourceWarehouseId] = (vUpdated.warehouseStock[transferData.sourceWarehouseId] || 0) - item.quantity;
               vUpdated.warehouseStock[transferData.destinationWarehouseId] = (vUpdated.warehouseStock[transferData.destinationWarehouseId] || 0) + item.quantity;
+              vUpdated.stockQuantity = sumWarehouseStock(vUpdated.warehouseStock);
               return vUpdated;
             }
             return v;
           });
         } else {
-          prod.warehouseStock = { ...(prod.warehouseStock || {}) };
+          prod.warehouseStock = getWarehouseStock(prod.warehouseStock, prod.stockQuantity || 0, transferData.sourceWarehouseId);
           prod.warehouseStock[transferData.sourceWarehouseId] = (prod.warehouseStock[transferData.sourceWarehouseId] || 0) - item.quantity;
           prod.warehouseStock[transferData.destinationWarehouseId] = (prod.warehouseStock[transferData.destinationWarehouseId] || 0) + item.quantity;
+          prod.stockQuantity = sumWarehouseStock(prod.warehouseStock);
         }
+        if (prod.variants) prod.stockQuantity = prod.variants.reduce((sum, variant) => sum + (Number(variant.stockQuantity) || 0), 0);
         
         updatedProducts[pIdx] = prod;
       }
@@ -333,7 +359,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                         <div>
                           <div className="flex items-center gap-2">
                              <h4 className="font-black text-slate-800 dark:text-white">{transfer.transferNumber}</h4>
-                             <span className="px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 text-[10px] font-black rounded-lg border border-emerald-100 dark:border-emerald-900/30">مكتمل</span>
+                             <span className={`px-2 py-0.5 text-[10px] font-black rounded-lg border ${transfer.status === 'cancelled' ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30' : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30'}`}>{transfer.status === 'cancelled' ? 'ملغى' : 'مكتمل'}</span>
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 dark:text-slate-400 font-bold">
                             <span className="flex items-center gap-1.5">
@@ -365,7 +391,8 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                           <button
                             type="button"
                             onClick={(e) => handleDeleteTransfer(transfer.id, e)}
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
+                            disabled={transfer.status === 'cancelled'}
+                            className={`p-2 rounded-xl transition-colors ${transfer.status === 'cancelled' ? 'text-slate-200 dark:text-slate-700 cursor-not-allowed' : 'text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer'}`}
                             title="إلغاء التحويل وإعادة البضاعة للمخزن المصدر"
                           >
                             <Trash2 size={16} />

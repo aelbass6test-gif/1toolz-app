@@ -1389,7 +1389,13 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
     status TEXT NOT NULL,
     notes TEXT,
     performed_by TEXT,
-    performedBy TEXT
+    performedBy TEXT,
+    cancelled_at TEXT,
+    cancelledAt TEXT,
+    cancelled_by TEXT,
+    cancelledBy TEXT,
+    cancellation_reason TEXT,
+    cancellationReason TEXT
 );
 
 -- 28. ORDER_RETURNS (مرتجعات طلبات البيع)

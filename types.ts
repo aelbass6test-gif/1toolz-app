@@ -1210,6 +1210,9 @@ export interface StockTransfer {
   status: 'completed' | 'draft' | 'cancelled';
   notes?: string;
   performedBy: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancellationReason?: string;
 }
 
 export interface OrderReturnItem {

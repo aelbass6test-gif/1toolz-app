@@ -1240,7 +1240,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             status: cleanItem.status || 'pending',
                             notes: cleanItem.notes || '',
                             performed_by: cleanItem.performedBy || cleanItem.performed_by || '',
-                            performedBy: cleanItem.performedBy || cleanItem.performed_by || ''
+                            performedBy: cleanItem.performedBy || cleanItem.performed_by || '',
+                            cancelled_at: cleanItem.cancelledAt || cleanItem.cancelled_at || null,
+                            cancelledAt: cleanItem.cancelledAt || cleanItem.cancelled_at || null,
+                            cancelled_by: cleanItem.cancelledBy || cleanItem.cancelled_by || null,
+                            cancelledBy: cleanItem.cancelledBy || cleanItem.cancelled_by || null,
+                            cancellation_reason: cleanItem.cancellationReason || cleanItem.cancellation_reason || null,
+                            cancellationReason: cleanItem.cancellationReason || cleanItem.cancellation_reason || null
                         };
                     } else if (table === 'order_returns') {
                         mappedItem = {
