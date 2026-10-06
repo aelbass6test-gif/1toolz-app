@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, User, Phone, MapPin } from 'lucide-react';
 import { CustomerProfile } from '../types';
+import { normalizePhone } from '../utils/phoneUtils';
 
 interface Props {
   isOpen: boolean;
@@ -13,11 +14,17 @@ interface Props {
 export function CustomerSelectModal({ isOpen, onClose, customers, onSelect }: Props) {
   const [search, setSearch] = useState('');
 
+  useEffect(() => {
+    if (isOpen) setSearch('');
+  }, [isOpen]);
+
   const filteredCustomers = useMemo(() => {
-    if (!search) return customers;
-    return customers.filter(c => 
-      (c.name || '').toLowerCase().includes(search.toLowerCase()) || 
-      (c.phone || '').includes(search)
+    const query = search.trim().toLocaleLowerCase();
+    const phoneQuery = normalizePhone(search);
+    if (!query) return customers;
+    return customers.filter(customer =>
+      (customer.name || '').toLocaleLowerCase().includes(query) ||
+      (phoneQuery.length > 0 && normalizePhone(customer.phone).includes(phoneQuery))
     );
   }, [search, customers]);
 
@@ -77,11 +84,12 @@ export function CustomerSelectModal({ isOpen, onClose, customers, onSelect }: Pr
                  <div className="text-center py-12 text-slate-400 space-y-2">
                     <p className="font-black text-sm">لا يوجد نتائج تطابق بحثك</p>
                     <p className="text-xs">جرب البحث برقم هاتف أو اسم مختلف</p>
+                    {search && <button type="button" onClick={() => setSearch('')} className="mt-2 px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-black hover:bg-indigo-100 transition-colors">عرض كل العملاء</button>}
                  </div>
               ) : (
-                 filteredCustomers.map(customer => (
+                 filteredCustomers.map((customer, index) => (
                     <button
-                      key={customer.phone}
+                      key={`${customer.id || normalizePhone(customer.phone) || customer.name || 'customer'}-${index}`}
                       onClick={() => {
                          onSelect(customer);
                          onClose();
@@ -95,7 +103,7 @@ export function CustomerSelectModal({ isOpen, onClose, customers, onSelect }: Pr
                           <div className="flex items-center gap-3 text-xs text-slate-500 font-mono font-bold">
                              <span className="flex items-center gap-1">
                                 <Phone size={12} className="text-slate-400" />
-                                {customer.phone}
+                                {customer.phone || 'رقم الهاتف غير مسجل'}
                              </span>
                              {customer.governorate && (
                                 <span className="flex items-center gap-1 font-sans text-indigo-600 dark:text-indigo-400">

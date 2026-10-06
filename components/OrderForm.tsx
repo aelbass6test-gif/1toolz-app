@@ -91,6 +91,7 @@ import { validateEgyptianPhone, validateAddressQuality } from "../utils/validati
 import { evaluateCustomerRisk, saveBlacklistEntry, removeBlacklistEntry } from "../utils/fraudShield";
 import { FraudShieldModal } from "./FraudShieldModal";
 import { audioSynth } from "../utils/audioSynth";
+import { normalizePhone, phonesMatch } from "../utils/phoneUtils";
 import {
   calculateCodFee,
   getLatestProductCost,
@@ -470,6 +471,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [showEditTotalModal, setShowEditTotalModal] = useState(false);
   const [showAddCustomModal, setShowAddCustomModal] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(
+    isEditing || Boolean(orderData.discount) || Boolean(orderData.advancePayment) || Boolean(orderData.shippingNotes) || Boolean(orderData.notes)
+  );
+  const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
 
   // Bosta Estimator states
   const [isEstimatingBostaFee, setIsEstimatingBostaFee] = useState(false);
@@ -485,7 +490,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
 
   // Shipping Company Category Filter
-  const [shippingCategoryTab, setShippingCategoryTab] = useState<"all" | "api" | "local">("all");
 
   const getShipmentTypeGuide = (type: string) => {
     switch (type) {
@@ -643,23 +647,18 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     );
   };
 
-  const apiCompanies = useMemo(() => {
-    return activeCompanies.filter(isApiCarrier);
-  }, [activeCompanies]);
+  const isBostaCarrier = (comp: string) => {
+    const carrier = comp.toLowerCase().trim();
+    return carrier.includes("bosta") || carrier.includes("بوسطة") || carrier.includes("بوسطه");
+  };
 
-  const localCompanies = useMemo(() => {
-    return activeCompanies.filter((comp) => !isApiCarrier(comp));
-  }, [activeCompanies]);
 
   const customerStats = useMemo(() => {
-    const phone = (orderData.customerPhone || "").replace(/\D/g, "");
-    if (!phone || phone.length < 6) return null;
-
-    const customerOrders = (orders || []).filter((o) => {
-      const p = (o.customerPhone || "").replace(/\D/g, "");
-      const p2 = (o.customerPhone2 || "").replace(/\D/g, "");
-      return (p && p.slice(-8) === phone.slice(-8)) || (p2 && p2.slice(-8) === phone.slice(-8));
-    });
+    const phone = normalizePhone(orderData.customerPhone);
+    if (!phone || phone.length < 8) return null;
+    const customerOrders = (orders || []).filter((o) =>
+      phonesMatch(o.customerPhone, phone) || phonesMatch(o.customerPhone2, phone)
+    );
 
     if (customerOrders.length === 0) {
       return {
@@ -883,21 +882,18 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   // Smart phone autocomplete suggestion
   const matchedCustomer = useMemo(() => {
-    const phone = (orderData.customerPhone || "").trim();
-    if (phone.length < 4 || isEditing) return null;
-    return customers.find(c => c.phone.replace(/\D/g, '').includes(phone.replace(/\D/g, '')));
+    const phone = normalizePhone(orderData.customerPhone);
+    if (phone.length < 8 || isEditing) return null;
+    return customers.find((customer) => phonesMatch(customer.phone, phone)) || null;
   }, [orderData.customerPhone, customers, isEditing]);
 
   // Automatic field population on exact or strong phone match
   useEffect(() => {
     if (isEditing) return;
-    const phoneDigits = (orderData.customerPhone || "").replace(/\D/g, "");
+    const phoneDigits = normalizePhone(orderData.customerPhone);
     if (phoneDigits.length < 8) return;
 
-    const found = customers.find((c) => {
-      const cPhoneDigits = (c.phone || "").replace(/\D/g, "");
-      return cPhoneDigits.length >= 8 && cPhoneDigits.slice(-8) === phoneDigits.slice(-8);
-    });
+    const found = customers.find((customer) => phonesMatch(customer.phone, phoneDigits));
 
     if (found) {
       setOrderData((prev: any) => {
@@ -1445,6 +1441,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         setValidationError("برجاء إدخال رقم هاتف العميل (6 أرقام على الأقل) للمتابعة");
         return false;
       }
+      if (activeCompanies.length > 0 && !orderData.shippingCompany) {
+        setValidationError("برجاء اختيار شركة الشحن من أعلى النموذج قبل المتابعة");
+        return false;
+      }
     }
     if (step === 2) {
       const requiresItems = ["delivery", "partial_delivery", "exchange"].includes(orderData.shipmentType || "delivery");
@@ -1492,6 +1492,44 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   // Render Step 1: Customer & Shipment Type
   const renderStep1_CustomerAndShipment = () => (
     <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+      {/* Choose the shipping carrier before collecting the remaining order details. */}
+      <section id="order-carrier-selection" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-5 sm:p-6 rounded-[28px] border border-slate-200/80 dark:border-slate-800 shadow-sm">
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.85fr)] gap-4 md:items-center">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0"><Truck size={19} /></div>
+            <div>
+              <h2 className="text-sm font-black text-slate-900 dark:text-white">شركة الشحن</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">اخترها من البداية؛ ستُستخدم لحساب التكلفة وخيارات التوصيل في الخطوات التالية.</p>
+            </div>
+          </div>
+          <div>
+            <select
+              aria-label="شركة الشحن"
+              value={orderData.shippingCompany || ""}
+              onChange={(event) => {
+                const company = event.target.value;
+                handleFieldChange("shippingCompany", company);
+                const options = settings.shippingOptions?.[company];
+                if (options && Array.isArray(options) && options.length > 0) {
+                  handleFieldChange("shippingOptionId", options[0].id);
+                }
+              }}
+              className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all cursor-pointer"
+            >
+              <option value="">-- اختر شركة الشحن --</option>
+              {activeCompanies.map((company) => (
+                <option key={company} value={company}>
+                  {settings.companyNames?.[company] || company} — {isApiCarrier(company) ? "ربط API" : "محلي"}
+                </option>
+              ))}
+            </select>
+            {activeCompanies.length === 0 && (
+              <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">لا توجد شركة شحن مفعّلة؛ يمكنك متابعة إدخال البيانات واختيار المتاح بعد تفعيل شركة من الإعدادات.</p>
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* 1. Customer Details Box */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-slate-200/80 dark:border-slate-800">
@@ -1878,6 +1916,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </div>
 
             <div className="mt-3">
+              {isBostaCarrier(orderData.shippingCompany || "") && (
               <BostaAddressValidator
                 selectedCity={orderData.governorate || orderData.shippingArea}
                 selectedDistrictId={orderData.bostaDistrictId}
@@ -1900,6 +1939,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   }
                 }}
               />
+              )}
             </div>
           </div>
         </div>
@@ -2863,14 +2903,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   // Render Step 3: Shipping & Services
   const renderStep3_ShippingAndServices = () => {
-    // Current filtered companies based on selected tab
-    const displayedCompanies = 
-      shippingCategoryTab === "api" 
-        ? apiCompanies 
-        : shippingCategoryTab === "local" 
-        ? localCompanies 
-        : activeCompanies;
-
     const isCurrentCarrierApi = isApiCarrier(orderData.shippingCompany || "");
     const selectedCarrierName = settings.companyNames?.[orderData.shippingCompany || ""] || orderData.shippingCompany;
 
@@ -2882,11 +2914,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-200/80 dark:border-slate-800">
             <div className="flex items-center gap-3.5">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25 shrink-0">
-                4
+                3
               </div>
               <div>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2.5">
-                  <span>شركة الشحن والتوصيل</span>
+                  <span>مراجعة الشحن والخدمات</span>
                   {orderData.shippingCompany && (
                     <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                       {isCurrentCarrierApi ? "⚡ API مباشر" : "🏠 محلي"}
@@ -2894,7 +2926,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   )}
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                  اختر شركة التوصيل، مصاريف الشحن، الربط البرمجي، وتأمين الشحنات
+                  راجع التكلفة والتأمين وخيارات التوصيل قبل حفظ الطلب
                 </p>
               </div>
             </div>
@@ -2919,154 +2951,20 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             </div>
           </div>
 
-          {/* Section 1: Carrier Selector (Interactive Visual Cards + Filter Tabs) */}
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                  1. اختر شركة الشحن / التوصيل
-                </h3>
-                <span className="text-xs text-slate-400 font-medium">({displayedCompanies.length} شركة متاحة)</span>
+          {/* Section 1: Carrier summary — selection happens with customer details in step 1. */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/20 p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-xs"><Truck size={18} /></div>
+              <div>
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">شركة الشحن المحددة في الخطوة الأولى</p>
+                <p className="text-sm font-black text-slate-900 dark:text-white">{orderData.shippingCompany ? selectedCarrierName : "لم تُحدد بعد"}</p>
               </div>
-
-              {/* Tabs */}
-              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setShippingCategoryTab("all")}
-                  className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer ${
-                    shippingCategoryTab === "all"
-                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  الكل ({activeCompanies.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShippingCategoryTab("api")}
-                  className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
-                    shippingCategoryTab === "api"
-                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <Zap size={12} className={shippingCategoryTab === "api" ? "text-amber-300" : "text-emerald-500"} />
-                  <span>الربط البرمجي ({apiCompanies.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShippingCategoryTab("local")}
-                  className={`px-3 py-1.5 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
-                    shippingCategoryTab === "local"
-                      ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-xs"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <span>🏠 المحلية ({localCompanies.length})</span>
-                </button>
-              </div>
+              {orderData.shippingCompany && <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/60">{isCurrentCarrierApi ? "ربط API" : "محلي"}</span>}
             </div>
-
-            {/* Visual Interactive Carrier Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {displayedCompanies.map((comp) => {
-                const isSelected = orderData.shippingCompany === comp;
-                const isApi = isApiCarrier(comp);
-                const name = settings.companyNames?.[comp] || comp;
-
-                return (
-                  <button
-                    key={comp}
-                    type="button"
-                    onClick={() => {
-                      handleFieldChange("shippingCompany", comp);
-                      const opts = settings.shippingOptions?.[comp];
-                      if (opts && Array.isArray(opts) && opts.length > 0) {
-                        handleFieldChange("shippingOptionId", opts[0].id);
-                      }
-                    }}
-                    className={`p-4 rounded-2xl border-2 text-right transition-all flex flex-col justify-between gap-3 relative group cursor-pointer ${
-                      isSelected
-                        ? "bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-slate-900 border-emerald-500 shadow-md shadow-emerald-500/10 ring-2 ring-emerald-500/20"
-                        : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/80 hover:border-emerald-300 dark:hover:border-emerald-700 hover:bg-white dark:hover:bg-slate-800 shadow-2xs"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
-                        isSelected 
-                          ? "bg-gradient-to-tr from-emerald-600 to-teal-600 text-white shadow-xs" 
-                          : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-                      }`}>
-                        {isApi ? <Zap size={16} className={isSelected ? "text-amber-300" : "text-emerald-500"} /> : <Truck size={16} />}
-                      </div>
-
-                      {isSelected ? (
-                        <span className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-                          <Check size={14} />
-                        </span>
-                      ) : (
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg border ${
-                          isApi 
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" 
-                            : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                        }`}>
-                          {isApi ? "⚡ API" : "محلي"}
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      <span className={`text-xs font-black block truncate ${
-                        isSelected ? "text-emerald-950 dark:text-emerald-200" : "text-slate-800 dark:text-slate-200"
-                      }`}>
-                        {name}
-                      </span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium block mt-0.5">
-                        {isApi ? "ربط فوري وتوليد تلقائي" : "تسليم محلي عبر المندوب"}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Supplementary Dropdown for Fast Carrier Search / Full List */}
-            <div className="pt-1">
-              <select
-                value={orderData.shippingCompany || ""}
-                onChange={(e) => {
-                  const comp = e.target.value;
-                  handleFieldChange("shippingCompany", comp);
-                  const opts = settings.shippingOptions?.[comp];
-                  if (opts && Array.isArray(opts) && opts.length > 0) {
-                    handleFieldChange("shippingOptionId", opts[0].id);
-                  }
-                }}
-                className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all cursor-pointer"
-              >
-                <option value="">-- أو اختر من القائمة الكاملة لكافة الشركات المتاحة --</option>
-                {apiCompanies.length > 0 && (
-                  <optgroup label="🚀 شركات الشحن المربوطة برمجياً (API Integration)">
-                    {apiCompanies.map((comp) => (
-                      <option key={`dd_${comp}`} value={comp}>
-                        🌐 {settings.companyNames?.[comp] || comp} (ربط API مباشر)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {localCompanies.length > 0 && (
-                  <optgroup label="🏠 شركات الشحن المحلية والخاصة (Internal / Local)">
-                    {localCompanies.map((comp) => (
-                      <option key={`dd_${comp}`} value={comp}>
-                        🚚 {settings.companyNames?.[comp] || comp} (محلي / يدوي)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            </div>
+            <button type="button" onClick={() => {
+              setWizardStep(1);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }} className="px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-900 text-emerald-800 dark:text-emerald-300 text-xs font-black hover:bg-emerald-100 dark:hover:bg-emerald-950/60 transition-colors">تغيير شركة الشحن</button>
           </div>
 
           {/* Section 2: Financials & Smart Shipping Fee Engine + Customer Delivery Stats */}
@@ -4058,11 +3956,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100/90 via-slate-50/50 to-slate-100/80 dark:from-slate-950 dark:via-slate-900/50 dark:to-slate-950 p-3.5 sm:p-6 md:p-8 transition-colors duration-500" dir="rtl">
-      <form onSubmit={handleValidatedSubmit} className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-3 sm:p-5 lg:p-7 transition-colors duration-300" dir="rtl">
+      <form onSubmit={handleValidatedSubmit} className="max-w-7xl mx-auto space-y-5">
         {/* Top Header & Smart Switchers */}
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-5 sm:p-7 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           
           <div className="flex items-center gap-4">
             <button
@@ -4076,43 +3973,40 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                  {isEditing ? `✏️ تعديل الطلب رقم #${orderData.orderNumber}` : "✨ إنشاء طلب مبيعات جديد"}
+                  {isEditing ? `تعديل الطلب #${orderData.orderNumber}` : "إنشاء طلب جديد"}
                 </h1>
-                <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white text-[11px] font-black px-3.5 py-1 rounded-full shadow-md shadow-emerald-500/25 flex items-center gap-1.5">
-                  <Zap size={13} className="text-amber-300" /> الإصدار الاحترافي فائق السرعة
-                </span>
               </div>
-              <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 mt-1">
-                واجهة مبيعات ذكية تدعم التعبئة الفورية للعملاء، التسعير التلقائي للشحن، وحسابات الأرباح اللحظية.
+              <p className="text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
+                أضف بيانات العميل والمنتجات، ثم راجع الشحن والإجمالي قبل الحفظ.
               </p>
             </div>
           </div>
 
           {/* UI Mode Toggle */}
-          <div className="flex items-center bg-slate-100/90 dark:bg-slate-800/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shrink-0 self-start md:self-auto shadow-inner">
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0 self-start md:self-auto">
             <button
               type="button"
               onClick={() => setUiMode("wizard")}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 uiMode === "wizard"
-                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25"
+                  ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Compass size={16} />
-              <span>الوضع الإرشادي (خطوات متسلسلة)</span>
+              <span>خطوات</span>
             </button>
             <button
               type="button"
               onClick={() => setUiMode("single")}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 uiMode === "single"
-                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25"
+                  ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Zap size={16} />
-              <span>الوضع السريع (شاشة واحدة Pro)</span>
+              <span>كل الحقول</span>
             </button>
           </div>
         </div>
@@ -4140,12 +4034,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         {/* Wizard Progress Header (Only when uiMode === 'wizard') */}
         {uiMode === "wizard" && (
-          <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-4 sm:p-6 rounded-[28px] border border-slate-200/80 dark:border-slate-800 shadow-md">
+          <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
               {[
-                { step: 1, label: "1. العميل والعملية", icon: <UserIcon size={18} /> },
-                { step: 2, label: "2. المنتجات والمخزون", icon: <Package size={18} />, badge: `${getArray(orderData.items).length} صنف` },
-                { step: 3, label: "3. شركة الشحن والحسابات", icon: <Truck size={18} />, badge: `${orderData.shippingFee || 0} ج.م` },
+                { step: 1, label: "العميل والعملية", icon: <UserIcon size={18} /> },
+                { step: 2, label: "المنتجات", icon: <Package size={18} />, badge: `${getArray(orderData.items).length} صنف` },
+                { step: 3, label: "الشحن والمراجعة", icon: <Truck size={18} />, badge: `${orderData.shippingFee || 0} ج.م` },
               ].map((item) => {
                 const isActive = wizardStep === item.step;
                 const isCompleted = wizardStep > item.step;
@@ -4158,16 +4052,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         setWizardStep(item.step as any);
                       }
                     }}
-                    className={`p-3.5 sm:p-4 rounded-2xl border-2 flex items-center justify-between gap-2 text-xs font-black transition-all cursor-pointer ${
+                    className={`p-2.5 sm:p-3 rounded-xl border flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer ${
                       isActive
-                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-xl shadow-emerald-500/25 scale-[1.01]"
+                        ? "bg-emerald-700 text-white border-emerald-700 shadow-sm"
                         : isCompleted
-                        ? "bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:border-emerald-400"
-                        : "bg-slate-50/80 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:border-emerald-400"
+                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${
+                      <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
                         isActive ? "bg-white/20 text-white" : isCompleted ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-700"
                       }`}>
                         {isCompleted ? <Check size={14} /> : item.step}
@@ -4191,16 +4085,31 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         {/* Main Workspace Layout (2 Columns: Form Content + Live Summary) */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           {/* Left/Center Form Column (8 of 12 cols) */}
-          <div className="xl:col-span-8 space-y-6">
+          <div className="xl:col-span-8 space-y-5">
             {uiMode === "wizard" ? (
               // Wizard Mode Display (One step at a time)
               <div className="space-y-6">
                 {wizardStep === 1 && renderStep1_CustomerAndShipment()}
                 {wizardStep === 2 && renderStep2_ProductsAndFulfillment()}
                 {wizardStep === 3 && (
-                  <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
                     {renderStep3_ShippingAndServices()}
-                    {renderStep4_FinancialsAndNotes()}
+                    <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                      <button
+                        type="button"
+                        aria-expanded={showAdvancedOptions}
+                        aria-controls="order-advanced-settings"
+                        onClick={() => setShowAdvancedOptions((open) => !open)}
+                        className="w-full px-4 py-4 sm:px-5 flex items-center justify-between gap-3 text-right hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                      >
+                        <span>
+                          <span className="block text-sm font-bold text-slate-900 dark:text-white">خيارات إضافية للطلب</span>
+                          <span className="block mt-0.5 text-xs text-slate-500 dark:text-slate-400">الخصم والعربون والملاحظات وتعيين الموظف — اختيارية</span>
+                        </span>
+                        <ChevronDown size={18} className={`shrink-0 text-slate-500 transition-transform ${showAdvancedOptions ? "rotate-180" : ""}`} />
+                      </button>
+                      {showAdvancedOptions && <div id="order-advanced-settings" className="border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4">{renderStep4_FinancialsAndNotes()}</div>}
+                    </section>
                   </div>
                 )}
 
@@ -4252,22 +4161,26 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <div className="bg-white dark:bg-slate-900 p-6 sm:p-7 rounded-[28px] border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-sm space-y-6 relative overflow-hidden backdrop-blur-xl">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-2xs">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-2xs">
                     <Calculator size={20} />
                   </div>
                   <div>
-                    <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white">ملخص الفاتورة التفاعلي</h3>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">حسابات دقيقة ومباشرة لحظة بلحظة</p>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white">ملخص الطلب</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">الإجمالي يتحدث تلقائياً</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono font-black bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  مباشر
-                </span>
+                <button
+                  type="button"
+                  aria-expanded={showInvoiceDetails}
+                  onClick={() => setShowInvoiceDetails((open) => !open)}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
+                >
+                  التفاصيل <ChevronDown size={15} className={`transition-transform ${showInvoiceDetails ? "rotate-180" : ""}`} />
+                </button>
               </div>
 
-              {/* Financial Breakdown List */}
-              <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-slate-100 dark:divide-slate-800/80">
+              {/* Optional financial breakdown */}
+              {showInvoiceDetails && <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-slate-100 dark:divide-slate-800/80">
                 <div className="flex justify-between items-center pt-2">
                   <span className="text-slate-600 dark:text-slate-400">إجمالي المنتجات ({getArray(orderData.items).length} أصناف):</span>
                   <span className="font-mono font-black text-slate-900 dark:text-white text-base">
@@ -4371,12 +4284,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     </span>
                   </div>
                 )}
-              </div>
+              </div>}
 
               {/* Grand Total COD Banner */}
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/20 space-y-2.5 mt-4">
+              <div className="p-5 rounded-2xl bg-emerald-700 text-white shadow-sm shadow-emerald-900/10 space-y-2.5 mt-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-black text-xs uppercase tracking-wider text-indigo-100">
+                  <span className="font-black text-xs uppercase tracking-wider text-emerald-100">
                     المبلغ المطلوب تحصيله (COD):
                   </span>
                   <div className="flex items-center gap-2">
@@ -4395,9 +4308,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   </div>
                 </div>
                 {orderData.totalAmountOverride !== undefined && orderData.totalAmountOverride !== null && String(orderData.totalAmountOverride).trim() !== "" && (
-                  <div className="flex items-center justify-between bg-indigo-950/60 p-2.5 rounded-xl border border-indigo-400/40 mt-2">
+                  <div className="flex items-center justify-between bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-400/40 mt-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-indigo-100">
+                      <span className="text-[11px] font-bold text-emerald-100">
                         ⚠️ تم فرض المبلغ يدوياً: {Number(orderData.totalAmountOverride).toLocaleString("ar-EG")} ج.م ({orderData.totalAmountOverrideReason || "بدون سبب"})
                       </span>
                     </div>
@@ -4415,8 +4328,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
               </div>
 
-              {/* Submit & Cancel Buttons */}
-              <div className="space-y-3 pt-2">
+              {/* Keep one primary action: wizard navigation already owns it in guided mode. */}
+              {uiMode === "single" && <div className="space-y-3 pt-2">
                 <button
                   type="submit"
                   className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-600/25 hover:shadow-indigo-600/40 transition-all flex items-center justify-center gap-3 text-base active:scale-[0.98] cursor-pointer"
@@ -4432,7 +4345,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 >
                   إلغاء والعودة للقائمة الرئيسية
                 </button>
-              </div>
+              </div>}
             </div>
           </div>
         </div>

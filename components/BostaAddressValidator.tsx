@@ -175,7 +175,7 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
 
   // Filter districts for selected city or query
   const filteredDistricts = useMemo(() => {
-    if (!searchQuery.trim()) return districts.slice(0, 30);
+    if (!searchQuery.trim()) return [];
     const qNorm = normalizeArabic(searchQuery);
 
     return districts.filter(d => {
@@ -239,7 +239,9 @@ export const BostaAddressValidator: React.FC<BostaAddressValidatorProps> = ({
       {/* Suggested verified districts */}
       <div className="max-h-44 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
         {filteredDistricts.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-3 font-medium">لا توجد أحياء مطابقة للبحث</p>
+          <p className="text-xs text-slate-400 text-center py-3 font-medium">
+            {searchQuery.trim() ? "لا توجد أحياء مطابقة للبحث" : "اكتب اسم الحي أو المنطقة لعرض الأحياء المعتمدة"}
+          </p>
         ) : (
           filteredDistricts.map((dist: any, idx) => {
             const isSelected = activeDistrictId === (dist._id || dist.districtId);

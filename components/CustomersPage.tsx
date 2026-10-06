@@ -12,6 +12,7 @@ import { AddCustomerModal } from './crm/AddCustomerModal';
 import { Customer360Modal } from './crm/Customer360Modal';
 import { CRMCardsGrid } from './crm/CRMCardsGrid';
 import { CRMAnalyticsTab } from './crm/CRMAnalyticsTab';
+import { normalizePhone } from '../utils/phoneUtils';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -62,15 +63,17 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
 
   // Filter & Sort
   const filteredCustomers = useMemo(() => {
+    const query = searchTerm.trim().toLocaleLowerCase();
+    const phoneQuery = normalizePhone(searchTerm);
     return enrichedCustomers.filter(c => {
-      // Search
-      const matchesSearch = 
-        !searchTerm || 
-        (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (c.phone || '').includes(searchTerm) ||
-        (c.address || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (c.city || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (c.tags || []).some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
+      // Search names/text and normalize phone digits (including Arabic numerals and +20).
+      const matchesSearch =
+        !query ||
+        (c.name || '').toLocaleLowerCase().includes(query) ||
+        (phoneQuery.length > 0 && normalizePhone(c.phone).includes(phoneQuery)) ||
+        (c.address || '').toLocaleLowerCase().includes(query) ||
+        (c.city || '').toLocaleLowerCase().includes(query) ||
+        (c.tags || []).some(t => t.toLocaleLowerCase().includes(query));
 
       // Segment Filter
       const matchesSegment = 
@@ -272,6 +275,10 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
                 ))}
               </select>
             </div>
+
+            {(searchTerm.trim() || selectedGov !== 'all' || selectedSegment !== 'all') && (
+              <button type="button" onClick={() => { setSearchTerm(''); setSelectedGov('all'); setSelectedSegment('all'); }} className="px-3 py-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-black hover:bg-amber-100 dark:hover:bg-amber-950/50 transition-colors">مسح الفلاتر وإظهار الكل</button>
+            )}
 
             {/* View Mode Switcher */}
             <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
