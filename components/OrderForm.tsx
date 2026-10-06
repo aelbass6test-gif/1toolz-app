@@ -470,6 +470,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [showEditTotalModal, setShowEditTotalModal] = useState(false);
   const [showAddCustomModal, setShowAddCustomModal] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState("");
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(
+    isEditing || Boolean(orderData.discount) || Boolean(orderData.advancePayment) || Boolean(orderData.shippingNotes) || Boolean(orderData.notes)
+  );
+  const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
 
   // Bosta Estimator states
   const [isEstimatingBostaFee, setIsEstimatingBostaFee] = useState(false);
@@ -4058,11 +4062,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100/90 via-slate-50/50 to-slate-100/80 dark:from-slate-950 dark:via-slate-900/50 dark:to-slate-950 p-3.5 sm:p-6 md:p-8 transition-colors duration-500" dir="rtl">
-      <form onSubmit={handleValidatedSubmit} className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-3 sm:p-5 lg:p-7 transition-colors duration-300" dir="rtl">
+      <form onSubmit={handleValidatedSubmit} className="max-w-7xl mx-auto space-y-5">
         {/* Top Header & Smart Switchers */}
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-5 sm:p-7 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none flex flex-col md:flex-row md:items-center justify-between gap-5 relative overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600" />
+        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           
           <div className="flex items-center gap-4">
             <button
@@ -4076,43 +4079,40 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <div>
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                  {isEditing ? `✏️ تعديل الطلب رقم #${orderData.orderNumber}` : "✨ إنشاء طلب مبيعات جديد"}
+                  {isEditing ? `تعديل الطلب #${orderData.orderNumber}` : "إنشاء طلب جديد"}
                 </h1>
-                <span className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white text-[11px] font-black px-3.5 py-1 rounded-full shadow-md shadow-emerald-500/25 flex items-center gap-1.5">
-                  <Zap size={13} className="text-amber-300" /> الإصدار الاحترافي فائق السرعة
-                </span>
               </div>
-              <p className="text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 mt-1">
-                واجهة مبيعات ذكية تدعم التعبئة الفورية للعملاء، التسعير التلقائي للشحن، وحسابات الأرباح اللحظية.
+              <p className="text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
+                أضف بيانات العميل والمنتجات، ثم راجع الشحن والإجمالي قبل الحفظ.
               </p>
             </div>
           </div>
 
           {/* UI Mode Toggle */}
-          <div className="flex items-center bg-slate-100/90 dark:bg-slate-800/90 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 shrink-0 self-start md:self-auto shadow-inner">
+          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shrink-0 self-start md:self-auto">
             <button
               type="button"
               onClick={() => setUiMode("wizard")}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 uiMode === "wizard"
-                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25"
+                  ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Compass size={16} />
-              <span>الوضع الإرشادي (خطوات متسلسلة)</span>
+              <span>خطوات</span>
             </button>
             <button
               type="button"
               onClick={() => setUiMode("single")}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 uiMode === "single"
-                  ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/25"
+                  ? "bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <Zap size={16} />
-              <span>الوضع السريع (شاشة واحدة Pro)</span>
+              <span>كل الحقول</span>
             </button>
           </div>
         </div>
@@ -4140,12 +4140,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
         {/* Wizard Progress Header (Only when uiMode === 'wizard') */}
         {uiMode === "wizard" && (
-          <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-4 sm:p-6 rounded-[28px] border border-slate-200/80 dark:border-slate-800 shadow-md">
+          <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="grid grid-cols-3 gap-2 sm:gap-4">
               {[
-                { step: 1, label: "1. العميل والعملية", icon: <UserIcon size={18} /> },
-                { step: 2, label: "2. المنتجات والمخزون", icon: <Package size={18} />, badge: `${getArray(orderData.items).length} صنف` },
-                { step: 3, label: "3. شركة الشحن والحسابات", icon: <Truck size={18} />, badge: `${orderData.shippingFee || 0} ج.م` },
+                { step: 1, label: "العميل والعملية", icon: <UserIcon size={18} /> },
+                { step: 2, label: "المنتجات", icon: <Package size={18} />, badge: `${getArray(orderData.items).length} صنف` },
+                { step: 3, label: "الشحن والمراجعة", icon: <Truck size={18} />, badge: `${orderData.shippingFee || 0} ج.م` },
               ].map((item) => {
                 const isActive = wizardStep === item.step;
                 const isCompleted = wizardStep > item.step;
@@ -4158,16 +4158,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         setWizardStep(item.step as any);
                       }
                     }}
-                    className={`p-3.5 sm:p-4 rounded-2xl border-2 flex items-center justify-between gap-2 text-xs font-black transition-all cursor-pointer ${
+                    className={`p-2.5 sm:p-3 rounded-xl border flex items-center justify-between gap-2 text-xs font-semibold transition-colors cursor-pointer ${
                       isActive
-                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-xl shadow-emerald-500/25 scale-[1.01]"
+                        ? "bg-emerald-700 text-white border-emerald-700 shadow-sm"
                         : isCompleted
-                        ? "bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:border-emerald-400"
-                        : "bg-slate-50/80 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:border-emerald-400"
+                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black shrink-0 ${
+                      <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
                         isActive ? "bg-white/20 text-white" : isCompleted ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-700"
                       }`}>
                         {isCompleted ? <Check size={14} /> : item.step}
@@ -4191,16 +4191,31 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         {/* Main Workspace Layout (2 Columns: Form Content + Live Summary) */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           {/* Left/Center Form Column (8 of 12 cols) */}
-          <div className="xl:col-span-8 space-y-6">
+          <div className="xl:col-span-8 space-y-5">
             {uiMode === "wizard" ? (
               // Wizard Mode Display (One step at a time)
               <div className="space-y-6">
                 {wizardStep === 1 && renderStep1_CustomerAndShipment()}
                 {wizardStep === 2 && renderStep2_ProductsAndFulfillment()}
                 {wizardStep === 3 && (
-                  <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+                  <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
                     {renderStep3_ShippingAndServices()}
-                    {renderStep4_FinancialsAndNotes()}
+                    <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                      <button
+                        type="button"
+                        aria-expanded={showAdvancedOptions}
+                        aria-controls="order-advanced-settings"
+                        onClick={() => setShowAdvancedOptions((open) => !open)}
+                        className="w-full px-4 py-4 sm:px-5 flex items-center justify-between gap-3 text-right hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                      >
+                        <span>
+                          <span className="block text-sm font-bold text-slate-900 dark:text-white">خيارات إضافية للطلب</span>
+                          <span className="block mt-0.5 text-xs text-slate-500 dark:text-slate-400">الخصم والعربون والملاحظات وتعيين الموظف — اختيارية</span>
+                        </span>
+                        <ChevronDown size={18} className={`shrink-0 text-slate-500 transition-transform ${showAdvancedOptions ? "rotate-180" : ""}`} />
+                      </button>
+                      {showAdvancedOptions && <div id="order-advanced-settings" className="border-t border-slate-200 dark:border-slate-800 p-3 sm:p-4">{renderStep4_FinancialsAndNotes()}</div>}
+                    </section>
                   </div>
                 )}
 
@@ -4252,22 +4267,26 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <div className="bg-white dark:bg-slate-900 p-6 sm:p-7 rounded-[28px] border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-sm space-y-6 relative overflow-hidden backdrop-blur-xl">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-2xs">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-2xs">
                     <Calculator size={20} />
                   </div>
                   <div>
-                    <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white">ملخص الفاتورة التفاعلي</h3>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">حسابات دقيقة ومباشرة لحظة بلحظة</p>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white">ملخص الطلب</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">الإجمالي يتحدث تلقائياً</p>
                   </div>
                 </div>
-                <span className="text-[10px] font-mono font-black bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  مباشر
-                </span>
+                <button
+                  type="button"
+                  aria-expanded={showInvoiceDetails}
+                  onClick={() => setShowInvoiceDetails((open) => !open)}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
+                >
+                  التفاصيل <ChevronDown size={15} className={`transition-transform ${showInvoiceDetails ? "rotate-180" : ""}`} />
+                </button>
               </div>
 
-              {/* Financial Breakdown List */}
-              <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-slate-100 dark:divide-slate-800/80">
+              {/* Optional financial breakdown */}
+              {showInvoiceDetails && <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-slate-100 dark:divide-slate-800/80">
                 <div className="flex justify-between items-center pt-2">
                   <span className="text-slate-600 dark:text-slate-400">إجمالي المنتجات ({getArray(orderData.items).length} أصناف):</span>
                   <span className="font-mono font-black text-slate-900 dark:text-white text-base">
@@ -4371,12 +4390,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     </span>
                   </div>
                 )}
-              </div>
+              </div>}
 
               {/* Grand Total COD Banner */}
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/20 space-y-2.5 mt-4">
+              <div className="p-5 rounded-2xl bg-emerald-700 text-white shadow-sm shadow-emerald-900/10 space-y-2.5 mt-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-black text-xs uppercase tracking-wider text-indigo-100">
+                  <span className="font-black text-xs uppercase tracking-wider text-emerald-100">
                     المبلغ المطلوب تحصيله (COD):
                   </span>
                   <div className="flex items-center gap-2">
@@ -4395,9 +4414,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   </div>
                 </div>
                 {orderData.totalAmountOverride !== undefined && orderData.totalAmountOverride !== null && String(orderData.totalAmountOverride).trim() !== "" && (
-                  <div className="flex items-center justify-between bg-indigo-950/60 p-2.5 rounded-xl border border-indigo-400/40 mt-2">
+                  <div className="flex items-center justify-between bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-400/40 mt-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold text-indigo-100">
+                      <span className="text-[11px] font-bold text-emerald-100">
                         ⚠️ تم فرض المبلغ يدوياً: {Number(orderData.totalAmountOverride).toLocaleString("ar-EG")} ج.م ({orderData.totalAmountOverrideReason || "بدون سبب"})
                       </span>
                     </div>
@@ -4415,8 +4434,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 )}
               </div>
 
-              {/* Submit & Cancel Buttons */}
-              <div className="space-y-3 pt-2">
+              {/* Keep one primary action: wizard navigation already owns it in guided mode. */}
+              {uiMode === "single" && <div className="space-y-3 pt-2">
                 <button
                   type="submit"
                   className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg shadow-indigo-600/25 hover:shadow-indigo-600/40 transition-all flex items-center justify-center gap-3 text-base active:scale-[0.98] cursor-pointer"
@@ -4432,7 +4451,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 >
                   إلغاء والعودة للقائمة الرئيسية
                 </button>
-              </div>
+              </div>}
             </div>
           </div>
         </div>
