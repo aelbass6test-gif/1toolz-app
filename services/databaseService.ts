@@ -778,117 +778,77 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         wallet_balance: wallet.balance || 0
     });
 
-    // --- Custom Supabase Save Logic ---
+    // --- Custom Supabase Save Logic (Ultra-Optimized for Low Egress) ---
     const supabase = getSupabaseClient();
     if (supabase) {
         let supabaseSaveSucceeded = false;
         try {
-            // First: Ensure store record exists in stores_data (to satisfy FK constraints)
-            try {
-                await supabase.from('stores_data').upsert({
-                    id: store.id,
-                    name: store.name,
-                    settings: cleanSettingsFinal
-                });
-            } catch (storesDataErr: any) {
-                console.warn('[SUPABASE-SYNC] Error updating stores_data:', storesDataErr?.message || storesDataErr);
-                throw storesDataErr;
+            // 1. Send clean, lightweight settings to stores_data without repeating massive relational tables
+            const cleanSettingsSupabase = cleanUndefined({
+                ...cleanSettings,
+                wallet_settings: wallet.settings || null,
+                withdraw_requests: wallet.withdrawRequests || [],
+                supply_balance: wallet.supplyBalance || 0,
+                wallet_balance: wallet.balance || 0
+            });
+
+            const storesDataFingerprintKey = `${store.id}:stores_data_header`;
+            const storesDataFingerprint = JSON.stringify({ name: store.name, settings: cleanSettingsSupabase });
+
+            if (syncFingerprints.get(storesDataFingerprintKey) !== storesDataFingerprint) {
+                try {
+                    await supabase.from('stores_data').upsert({
+                        id: store.id,
+                        name: store.name,
+                        settings: cleanSettingsSupabase
+                    });
+                    syncFingerprints.set(storesDataFingerprintKey, storesDataFingerprint);
+                } catch (storesDataErr: any) {
+                    console.warn('[SUPABASE-SYNC] Error updating stores_data:', storesDataErr?.message || storesDataErr);
+                    throw storesDataErr;
+                }
             }
 
-            // Synchronize Users to Supabase first to ensure employee and user relations are valid
+            // 2. Synchronize Users only when user list actually changes (Fingerprinted)
             const localGlobal = await getLocal('global');
             const usersList = localGlobal?.users || [];
+            const usersFingerprintKey = 'global:users_sync';
+            const usersFingerprint = JSON.stringify(usersList);
             
-            // Map users to relational format
-            const emailSeenInPayload = new Set<string>();
-            const mappedUsersList = usersList.map((user: any) => {
-                let userEmail = user.email ? user.email.trim() : null;
-                if (userEmail) {
-                    const lowerEmail = userEmail.toLowerCase();
-                    if (emailSeenInPayload.has(lowerEmail)) {
-                        userEmail = null;
-                    } else {
-                        emailSeenInPayload.add(lowerEmail);
-                    }
-                }
-                return {
-                    phone: user.phone || '',
-                    full_name: user.fullName || '',
-                    email: userEmail,
-                    is_admin: user.isAdmin || false,
-                    is_banned: user.isBanned || false,
-                    join_date: user.joinDate || null,
-                    stores: user.stores || [],
-                    sites: user.sites || []
-                };
-            }).filter((u: any) => !!u.phone);
-
-            // Fetch existing users to prevent duplicate email clashing on different phones
-            try {
-                const { data: existingSbUsers } = await supabase.from('users').select('phone, email');
-                if (existingSbUsers) {
-                    const dbEmailToPhone = new Map<string, string>();
-                    existingSbUsers.forEach((su: any) => {
-                        if (su.email) {
-                            dbEmailToPhone.set(su.email.toLowerCase().trim(), su.phone);
+            if (syncFingerprints.get(usersFingerprintKey) !== usersFingerprint) {
+                // Map users to relational format
+                const emailSeenInPayload = new Set<string>();
+                const mappedUsersList = usersList.map((user: any) => {
+                    let userEmail = user.email ? user.email.trim() : null;
+                    if (userEmail) {
+                        const lowerEmail = userEmail.toLowerCase();
+                        if (emailSeenInPayload.has(lowerEmail)) {
+                            userEmail = null;
+                        } else {
+                            emailSeenInPayload.add(lowerEmail);
                         }
-                    });
+                    }
+                    return {
+                        phone: user.phone || '',
+                        full_name: user.fullName || '',
+                        email: userEmail,
+                        is_admin: user.isAdmin || false,
+                        is_banned: user.isBanned || false,
+                        join_date: user.joinDate || null,
+                        stores: user.stores || [],
+                        sites: user.sites || []
+                    };
+                }).filter((u: any) => !!u.phone);
 
-                    mappedUsersList.forEach((u: any) => {
-                        if (u.email) {
-                            const lowerEmail = u.email.toLowerCase().trim();
-                            const existingPhone = dbEmailToPhone.get(lowerEmail);
-                            if (existingPhone && existingPhone !== u.phone) {
-                                u.email = null; // Clash! Nullify to bypass unique constraint
-                            }
+                if (mappedUsersList.length > 0) {
+                    try {
+                        const { error: usersError } = await supabase.from('users').upsert(mappedUsersList, { onConflict: 'phone' });
+                        if (!usersError) {
+                            syncFingerprints.set(usersFingerprintKey, usersFingerprint);
                         }
-                    });
-                }
-            } catch (userCheckErr) {
-                console.warn('Failed to pre-verify existing user emails:', userCheckErr);
-            }
-
-            if (mappedUsersList.length > 0) {
-                try {
-                    const { error: usersError } = await supabase.from('users').upsert(mappedUsersList);
-                    if (usersError) {
-                        console.warn('Upserting users during saveStoreData failed:', usersError);
+                    } catch (uErr: any) {
+                        console.warn('Upserting users threw error:', uErr?.message || uErr);
                     }
-                } catch (uErr: any) {
-                    console.warn('Upserting users threw error:', uErr?.message || uErr);
-                }
-            }
-
-            // Collect any employee phones about to be synced and ensure they are present in 'users' table
-            const employeePhones = Array.from(new Set(
-                (data.settings.employees || [])
-                    .map((emp: any) => emp.phone ? String(emp.phone).trim() : '')
-                    .filter(Boolean)
-            ));
-                
-            const placeholderUsers = [];
-            const existingPhones = new Set(mappedUsersList.map((u: any) => String(u.phone).trim()));
-            for (const phone of employeePhones) {
-                if (!existingPhones.has(phone)) {
-                    existingPhones.add(phone);
-                    placeholderUsers.push({
-                        phone,
-                        full_name: `موظف ${phone}`,
-                        email: null,
-                        is_admin: false,
-                        is_banned: false,
-                        join_date: new Date().toISOString()
-                    });
-                }
-            }
-            if (placeholderUsers.length > 0) {
-                try {
-                    const { error: stubError } = await supabase.from('users').upsert(placeholderUsers, { onConflict: 'phone' });
-                    if (stubError) {
-                        console.warn('Upserting placeholderUsers failed:', stubError);
-                    }
-                } catch (pErr: any) {
-                    console.warn('Upserting placeholderUsers threw error:', pErr?.message || pErr);
                 }
             }
 
