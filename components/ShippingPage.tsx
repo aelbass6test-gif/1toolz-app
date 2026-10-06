@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Settings, ShippingOption, CompanyFees, CityOption } from '../types';
-import { Save, Info, Truck, Plus, Trash2, Wallet, Scale, AlertCircle, XCircle, Package, RefreshCcw, Percent, Coins, Building2, MapPin, Repeat, Settings as SettingsIcon, ShieldCheck, Banknote, ChevronDown, ChevronUp, Eye, ArrowRight, Link2, Plug, CheckCircle2, Wrench, ArrowLeft, Map, Link as LinkIcon, Download, ListChecks, CheckSquare, Square, Search, Lock, Unlock, Unlink, X } from 'lucide-react';
+import { Save, Info, Truck, Plus, Trash2, Edit2, Wallet, Scale, AlertCircle, XCircle, Package, RefreshCcw, Percent, Coins, Building2, MapPin, Repeat, Settings as SettingsIcon, ShieldCheck, Banknote, ChevronDown, ChevronUp, Eye, ArrowRight, Link2, Plug, CheckCircle2, Wrench, ArrowLeft, Map, Link as LinkIcon, Download, ListChecks, CheckSquare, Square, Search, Lock, Unlock, Unlink, X } from 'lucide-react';
 import SaveBar from './SaveBar';
 import BostaSystemPortal from './BostaSystemPortal';
 import TurboSystemPortal from './TurboSystemPortal';
@@ -1359,7 +1359,8 @@ interface InsurancePackagesManagerProps {
 }
 
 const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ settings, setSettings }) => {
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
   const [pkgName, setPkgName] = useState('');
   const [pkgType, setPkgType] = useState<'flat' | 'percent'>('percent');
   const [pkgValue, setPkgValue] = useState<number | ''>('');
@@ -1369,31 +1370,66 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
 
   const packages = settings.insurancePackages || [];
 
-  const handleAddPackage = () => {
-    if (!pkgName.trim() || pkgValue === '') return;
-    const newPkg = {
-      id: `pkg_${Date.now()}`,
-      name: pkgName.trim(),
-      type: pkgType,
-      value: Number(pkgValue),
-      minAmount: pkgMin !== '' ? Number(pkgMin) : undefined,
-      maxAmount: pkgMax !== '' ? Number(pkgMax) : undefined,
-      description: pkgDesc.trim() || undefined,
-    };
-
-    setSettings((prev) => ({
-      ...prev,
-      insurancePackages: [...(prev.insurancePackages || []), newPkg],
-    }));
-
-    // Reset fields
+  const handleOpenAdd = () => {
+    setEditingPackageId(null);
     setPkgName('');
     setPkgType('percent');
     setPkgValue('');
     setPkgMin('');
     setPkgMax('');
     setPkgDesc('');
-    setShowAddModal(false);
+    setShowModal(true);
+  };
+
+  const handleOpenEdit = (pkg: any) => {
+    setEditingPackageId(pkg.id);
+    setPkgName(pkg.name || '');
+    setPkgType(pkg.type || 'percent');
+    setPkgValue(pkg.value ?? '');
+    setPkgMin(pkg.minAmount ?? '');
+    setPkgMax(pkg.maxAmount ?? '');
+    setPkgDesc(pkg.description || '');
+    setShowModal(true);
+  };
+
+  const handleSavePackage = () => {
+    if (!pkgName.trim() || pkgValue === '') return;
+
+    if (editingPackageId) {
+      setSettings((prev) => ({
+        ...prev,
+        insurancePackages: (prev.insurancePackages || []).map((p) =>
+          p.id === editingPackageId
+            ? {
+                ...p,
+                name: pkgName.trim(),
+                type: pkgType,
+                value: Number(pkgValue),
+                minAmount: pkgMin !== '' ? Number(pkgMin) : undefined,
+                maxAmount: pkgMax !== '' ? Number(pkgMax) : undefined,
+                description: pkgDesc.trim() || undefined,
+              }
+            : p
+        ),
+      }));
+    } else {
+      const newPkg = {
+        id: `pkg_${Date.now()}`,
+        name: pkgName.trim(),
+        type: pkgType,
+        value: Number(pkgValue),
+        minAmount: pkgMin !== '' ? Number(pkgMin) : undefined,
+        maxAmount: pkgMax !== '' ? Number(pkgMax) : undefined,
+        description: pkgDesc.trim() || undefined,
+      };
+
+      setSettings((prev) => ({
+        ...prev,
+        insurancePackages: [...(prev.insurancePackages || []), newPkg],
+      }));
+    }
+
+    setShowModal(false);
   };
 
   const handleDeletePackage = async (id: string) => {
@@ -1432,7 +1468,7 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
             </button>
           )}
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAdd}
             className="flex items-center gap-2 text-sm bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-blue-700 active:scale-95 transition-all cursor-pointer"
           >
             <Plus size={16} /> إضافة باقة تأمين
@@ -1463,13 +1499,22 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
                 <div>
                   <div className="flex justify-between items-start mb-2">
                     <span className="font-bold text-slate-800 dark:text-white text-base">{pkg.name}</span>
-                    <button
-                      onClick={() => handleDeletePackage(pkg.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors"
-                      title="حذف الباقة"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleOpenEdit(pkg)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors cursor-pointer"
+                        title="تعديل باقة التأمين"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeletePackage(pkg.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                        title="حذف الباقة"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${pkg.type === 'flat' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-400'}`}>
@@ -1501,14 +1546,14 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
         )}
       </div>
 
-      {showAddModal && (
+      {showModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/70 dark:bg-black/90 backdrop-blur-sm animate-in fade-in duration-200 text-right">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl p-6 border border-slate-300 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-                <ShieldCheck className="text-blue-600" /> إضافة باقة تأمين جديدة
+                <ShieldCheck className="text-blue-600" /> {editingPackageId ? 'تعديل باقة التأمين' : 'إضافة باقة تأمين جديدة'}
               </h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-red-500">
+              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-red-500 cursor-pointer">
                 <XCircle size={20} />
               </button>
             </div>
@@ -1590,15 +1635,15 @@ const InsurancePackagesManager: React.FC<InsurancePackagesManagerProps> = ({ set
 
               <div className="flex gap-3 pt-4">
                 <button
-                  onClick={handleAddPackage}
+                  onClick={handleSavePackage}
                   disabled={!pkgName.trim() || pkgValue === ''}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all active:scale-95 text-center"
+                  className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all active:scale-95 text-center cursor-pointer"
                 >
-                  إضافة الباقة
+                  {editingPackageId ? 'حفظ التعديلات' : 'إضافة الباقة'}
                 </button>
                 <button
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-3 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all text-center"
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 py-3 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all text-center cursor-pointer"
                 >
                   إلغاء
                 </button>
