@@ -10,6 +10,7 @@ import { triggerWebhooks } from '../utils/webhook';
 import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
 import { deductOrderStock } from '../utils/inventoryManager';
+import { normalizePhone } from '../utils/phoneUtils';
 import { getSupabaseClient } from '../services/databaseService';
 
 interface CreateOrderPageProps {
@@ -459,10 +460,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         }
 
         // Customer Logic
-        const cleanPhone = (orderToAdd.customerPhone || '').replace(/\s/g, '').replace('+2', '');
+        const cleanPhone = normalizePhone(orderToAdd.customerPhone);
         if (cleanPhone) {
             setCustomers(prev => {
-                const existing = prev.find(c => c.phone.replace(/\s/g, '').replace('+2', '') === cleanPhone);
+                const existing = prev.find(customer => normalizePhone(customer.phone) === cleanPhone);
                 const debtToAdd = (orderWithId as any).recordedAsDebt ? (orderWithId.totalAmountOverride || (orderWithId.productPrice + orderWithId.shippingFee - (orderWithId.discount || 0))) : 0;
 
                 if (existing) {
@@ -712,12 +713,25 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
     };
 
     const uniqueCustomers = useMemo(() => {
-        const seen = new Set();
-        return customers.filter(c => {
-          if (seen.has(c.phone)) return false;
-          seen.add(c.phone);
-          return true;
+        const byPhone = new Map<string, CustomerProfile>();
+        const withoutPhone: CustomerProfile[] = [];
+        const completeness = (customer: CustomerProfile) =>
+            Number(Boolean(customer.name)) + Number(Boolean(customer.address)) +
+            Number(Boolean(customer.governorate)) + Number(Boolean(customer.city));
+
+        customers.forEach(customer => {
+            const normalizedPhone = normalizePhone(customer.phone);
+            if (!normalizedPhone) {
+                withoutPhone.push(customer);
+                return;
+            }
+            const current = byPhone.get(normalizedPhone);
+            if (!current || completeness(customer) > completeness(current)) {
+                byPhone.set(normalizedPhone, customer);
+            }
         });
+
+        return [...byPhone.values(), ...withoutPhone];
     }, [customers]);
 
     return (

@@ -1,5 +1,6 @@
 import { Order, CustomerProfile } from '../../types';
 import * as XLSX from 'xlsx';
+import { normalizePhone } from '../../utils/phoneUtils';
 
 export interface EnrichedCustomerProfile extends CustomerProfile {
   computedSegment: 'vip' | 'regular' | 'new' | 'risk' | 'inactive' | 'debt';
@@ -18,7 +19,7 @@ export function computeEnrichedCustomers(
 
   // Process orders
   orders.forEach(order => {
-    const cleanPhone = (order.customerPhone || '').replace(/\s/g, '').replace('+2', '');
+    const cleanPhone = normalizePhone(order.customerPhone);
     if (!cleanPhone) return;
 
     if (!ordersByPhone.has(cleanPhone)) {
@@ -89,7 +90,7 @@ export function computeEnrichedCustomers(
 
   // Merge saved customers
   (savedCustomers || []).forEach(savedC => {
-    const cleanPhone = (savedC.phone || '').replace(/\s/g, '').replace('+2', '');
+    const cleanPhone = normalizePhone(savedC.phone);
     if (!cleanPhone) return;
 
     if (computedMap.has(cleanPhone)) {
@@ -127,7 +128,7 @@ export function computeEnrichedCustomers(
   const now = new Date().getTime();
 
   return Array.from(computedMap.values()).map(c => {
-    const cleanPhone = (c.phone || '').replace(/\s/g, '').replace('+2', '');
+    const cleanPhone = normalizePhone(c.phone);
     const cOrders = ordersByPhone.get(cleanPhone) || [];
     cOrders.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

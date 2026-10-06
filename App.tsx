@@ -11,6 +11,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth } f
 import { getApps, initializeApp } from 'firebase/app';
 import firebaseConfig from './firebase-applet-config.json';
 import { INITIAL_SETTINGS } from './constants';
+import { normalizePhone } from './utils/phoneUtils';
 import { oneToolzProducts } from './data/one-toolz-products';
 
 import { triggerWebhooks } from './utils/webhook';
@@ -3593,16 +3594,34 @@ export const AppComponent = () => {
                         loyaltyData={{}} 
                         customers={pageProps.customers}
                         onUpdateCustomer={(phone, updates) => {
+                          const normalizedPhone = normalizePhone(phone);
+                          if (!normalizedPhone) return;
                           pageProps.setCustomers((prev: CustomerProfile[]) => {
-                            // Check if customer exists in current list
-                            const exists = prev.some(c => c.phone === phone);
+                            const exists = prev.some(customer => normalizePhone(customer.phone) === normalizedPhone);
                             if (exists) {
-                              return prev.map(c => c.phone === phone ? { ...c, ...updates } : c);
-                            } else {
-                              // If they don't exist yet (dynamically created in view), add them explicitly
-                              const customerFromOrders = pageProps.customers.find((c: any) => c.phone === phone);
-                              return [...prev, { ...customerFromOrders, ...updates, phone, id: phone }];
+                              return prev.map(customer => normalizePhone(customer.phone) === normalizedPhone ? { ...customer, ...updates } : customer);
                             }
+
+                            const savedCustomer = pageProps.customers.find((customer: CustomerProfile) => normalizePhone(customer.phone) === normalizedPhone);
+                            const sourceOrder = pageProps.orders.find((order: Order) => normalizePhone(order.customerPhone) === normalizedPhone);
+                            const now = new Date().toISOString();
+                            const baseCustomer: CustomerProfile = {
+                              id: savedCustomer?.id || normalizedPhone,
+                              name: savedCustomer?.name || sourceOrder?.customerName || '',
+                              phone: savedCustomer?.phone || sourceOrder?.customerPhone || phone,
+                              address: savedCustomer?.address || sourceOrder?.customerAddress || '',
+                              totalOrders: savedCustomer?.totalOrders || 0,
+                              successfulOrders: savedCustomer?.successfulOrders || 0,
+                              returnedOrders: savedCustomer?.returnedOrders || 0,
+                              totalSpent: savedCustomer?.totalSpent || 0,
+                              lastOrderDate: savedCustomer?.lastOrderDate || sourceOrder?.date || now,
+                              firstOrderDate: savedCustomer?.firstOrderDate || sourceOrder?.date || now,
+                              averageOrderValue: savedCustomer?.averageOrderValue || 0,
+                              loyaltyPoints: savedCustomer?.loyaltyPoints || 0,
+                              ...savedCustomer,
+                              ...updates,
+                            };
+                            return [...prev, baseCustomer];
                           });
                         }}
                       />
