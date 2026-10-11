@@ -1,0 +1,19 @@
+# STAGING ONLY - deploys to the separate Worker "1toolz-app-staging".
+# Never use this file for production (production uses wrangler.toml).
+name = "1toolz-app-staging"
+main = "src/index.ts"
+compatibility_date = "2026-09-09"
+workers_dev = true
+
+# Serve the Vite build from this Worker (same binding as production).
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+
+# Non-secret variables only.
+# No [[routes]], no zone_id, no account_id, no secrets.
+# APP_ORIGIN and APP_BACKEND_URL are set later (Dashboard + --keep-vars,
+# or added here once the real staging URLs exist).
+[vars]
+APP_ENV = "staging"
+STAGING_MODE = "true"
