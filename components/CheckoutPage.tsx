@@ -9,6 +9,7 @@ interface CheckoutPageProps {
   settings: Settings;
   cart: OrderItem[];
   onPlaceOrder: (data: PlaceOrderData) => string;
+  storeId?: string;
 }
 
 const RefreshCw = ({ size, className }: { size: number; className?: string }) => (
@@ -27,7 +28,7 @@ const RotateCcw = ({ size, className }: { size: number; className?: string }) =>
   </svg>
 );
 
-export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPlaceOrder }) => {
+export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPlaceOrder, storeId }) => {
   const navigate = useNavigate();
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -120,76 +121,36 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (cart.length === 0) {
-      alert("سلة المشتريات فارغة!");
-      navigate('/store');
-      return;
-    }
+    if (cart.length === 0) { alert("سلة المشتريات فارغة!"); navigate('/store'); return; }
     setIsSubmitting(true);
-    await new Promise(r => setTimeout(r, 600));
-
     let paymentMethodName = activePaymentMethods.find(m => m.id === selectedPaymentMethod)?.name || 'غير محدد';
-    let mhIntentUrl: string | undefined = undefined;
-
-    if (selectedPaymentMethod.startsWith('moneyhash_')) {
+    const isMoneyHash = selectedPaymentMethod.startsWith('moneyhash_');
+    if (isMoneyHash) {
       const mhMethodId = selectedPaymentMethod.replace('moneyhash_', '');
       const mhObj = MONEYHASH_DEFAULT_METHODS.find(m => m.id === mhMethodId);
       paymentMethodName = `دفع إلكتروني (MoneyHash - ${mhObj?.name || mhMethodId})`;
-
-      if (settings.moneyHashConfig?.isActive) {
-        const mhRes = await createMoneyHashIntent({
-          amount: total,
-          currency: settings.moneyHashConfig.currency || 'EGP',
-          orderNumber: `ORD-${Date.now().toString().slice(-4)}`,
-          customerName,
-          customerPhone,
-          customerEmail,
-          selectedMethodId: mhMethodId,
-          config: settings.moneyHashConfig,
-          storeName: (settings as any)?.storeName || 'المتجر الإلكتروني'
-        });
-
-        if (mhRes.success && mhRes.payUrl) {
-          mhIntentUrl = mhRes.payUrl;
-        }
-      }
     }
-
     const finalNotes = `${notes} [وسيلة الدفع: ${paymentMethodName}]${discountAmount > 0 ? ` [كوبون: ${couponCode}]` : ''}`;
-
     try {
-      const orderId = onPlaceOrder({
-        customerName,
-        customerPhone,
-        customerEmail: customerEmail.trim() || undefined,
-        customerAddress,
-        buildingNumber,
-        floorNumber,
-        apartmentNumber,
-        shippingCompany,
-        shippingArea,
-        shippingFee,
-        paymentMethod: paymentMethodName,
-        notes: finalNotes,
-        redeemedPoints: 0,
-        discount: discountAmount,
-      });
-
-      if (mhIntentUrl) {
-        try {
-          window.open(mhIntentUrl, '_blank');
-        } catch {}
+      // Create the local order first. The server then validates its own catalog totals before creating an intent.
+      const orderId = onPlaceOrder({ customerName, customerPhone, customerEmail: customerEmail.trim() || undefined, customerAddress, buildingNumber, floorNumber, apartmentNumber, shippingCompany, shippingArea, shippingFee, paymentMethod: paymentMethodName, notes: finalNotes, redeemedPoints: 0, discount: discountAmount });
+      let mhIntentUrl: string | undefined;
+      if (isMoneyHash && settings.moneyHashConfig?.isActive && storeId) {
+        const mhRes = await createMoneyHashIntent({
+          storeId, orderId, items: cart.map(item => ({ productId: item.productId, quantity: item.quantity, variantId: item.variantId })),
+          shippingArea, discountCode: couponCode, customerName, customerPhone, customerEmail,
+          selectedMethodId: selectedPaymentMethod.replace('moneyhash_', ''), config: settings.moneyHashConfig
+        });
+        if (mhRes.success && mhRes.payUrl) mhIntentUrl = mhRes.payUrl;
+        else paymentMethodName = 'الدفع عند الاستلام (تعذر تفعيل الدفع الإلكتروني)';
       }
-
+      if (mhIntentUrl) window.open(mhIntentUrl, '_blank', 'noopener,noreferrer');
       navigate(`/order-success/${orderId}`);
     } catch (err) {
-      console.error('Failed to place order:', err);
+      console.error('Failed to place order:', err instanceof Error ? err.message : 'unknown error');
       alert('حدث خطأ أثناء تأكيد الطلب. يرجى المحاولة مرة أخرى.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    } finally { setIsSubmitting(false); }
   };
-
   const currentMethod = activePaymentMethods.find(m => m.id === selectedPaymentMethod);
   const primaryColor = settings.customization.primaryColor || '#6366f1';
 

@@ -3611,7 +3611,7 @@ export const AppComponent = () => {
                     <Route path="/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                    <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
+                    <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} storeId={activeStoreId || undefined} />} />
                     <Route path="/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
                     <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
@@ -3901,7 +3901,7 @@ export const AppComponent = () => {
                 <Route path="products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} storeId={activeStoreId || undefined} />} />
                 <Route path="order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
 
                 {/* Path with store ID */}
@@ -3911,7 +3911,7 @@ export const AppComponent = () => {
                 <Route path="/store/:storeId/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/store/:storeId/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="/store/:storeId/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} storeId={activeStoreId || undefined} />} />
                 <Route path="/store/:storeId/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
                 <Route path="*" element={<CatchAllRedirect currentUser={currentUser} isEmployeeSession={isEmployeeSession} activeStoreId={activeStoreId} />} />
             </Routes>

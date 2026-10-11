@@ -932,10 +932,7 @@ export interface MoneyHashMethodConfig {
 export interface MoneyHashConfig {
   isActive: boolean;
   mode: 'test' | 'live';
-  apiKey: string; // MoneyHash Secret API Key (mh_sec_...)
-  publicApiKey?: string; // MoneyHash Public Key (mh_pub_...)
-  accountKey?: string; // MoneyHash Account Key
-  webhookSecret?: string;
+  accountKey?: string; // Non-secret MoneyHash account identifier only
   currency?: string; // e.g. 'EGP', 'SAR', 'AED', 'USD'
   selectedMethods: Record<string, boolean>; // e.g. { cards: true, vodafone_cash: true, instapay: true, fawry: true, valu: true, tabby: true, tamara: true, meeza: true, apple_pay: true }
   methodsConfig?: MoneyHashMethodConfig[];

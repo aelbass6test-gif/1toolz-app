@@ -9,6 +9,8 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import fs from "fs";
+import crypto from "node:crypto";
+import { verifyMoneyHashSignature, isMoneyHashPaidStatus, shouldApplyMoneyHashStatus } from "./utils/moneyHashSecurity";
 import { GoogleGenAI } from "@google/genai";
 import { db, auth } from "./services/firebaseClient";
 import { doc, getDoc, setDoc, getDocs, collection, query, where, limit } from "firebase/firestore";
@@ -11266,259 +11268,137 @@ async function startServer() {
 
   // ==========================================
   // MoneyHash Payment Orchestration API Proxy
+  // Secrets are read only from the server environment.
   // ==========================================
-  app.post("/api/moneyhash/create-intent", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const {
-        amount,
-        currency = "EGP",
-        orderNumber,
-        customerName = "عميل المتجر",
-        customerPhone = "",
-        customerEmail = "",
-        selectedMethodId = "CARD",
-        storeName = "المتجر الإلكتروني",
-        mode = "test",
-        apiKey = "",
-        publicApiKey = ""
-      } = body;
-
-      if (!amount || amount <= 0) {
-        return c.json({ success: false, error: "قيمة المبلغ المطلوب سداده غير صحيحة" }, 400);
-      }
-
-      const intentId = `mh_intent_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const baseUrl = mode === "live" ? "https://api.moneyhash.io/api/v1.1" : "https://sandbox.moneyhash.io/api/v1.1";
-
-      // If apiKey is provided, attempt direct MoneyHash API call
-      if (apiKey && apiKey.trim().length > 5) {
-        try {
-          const mhRes = await fetch(`${baseUrl}/payments/intent/create/`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Api-Key": apiKey.trim()
-            },
-            body: JSON.stringify({
-              amount: Number(amount),
-              currency: currency || "EGP",
-              payment_method: (selectedMethodId || "CARD").toUpperCase(),
-              customer: {
-                first_name: customerName.split(" ")[0] || "عميل",
-                last_name: customerName.split(" ").slice(1).join(" ") || "المتجر",
-                email: customerEmail || "customer@store.com",
-                phone: customerPhone || "+201000000000"
-              },
-              meta_data: {
-                order_number: orderNumber,
-                store_name: storeName
-              }
-            })
-          });
-
-          if (mhRes.ok) {
-            const mhData = await mhRes.json();
-            const mhIntentId = mhData?.data?.id || mhData?.id || intentId;
-            const mhEmbedUrl = mhData?.data?.embed_url || mhData?.embed_url || `https://checkout.moneyhash.io/embed/${mhIntentId}`;
-            return c.json({
-              success: true,
-              intentId: mhIntentId,
-              embedUrl: mhEmbedUrl,
-              payUrl: mhEmbedUrl,
-              data: mhData
-            });
-          }
-        } catch (apiErr) {
-          console.warn("[MONEYHASH-DIRECT-API-WARN] Falling back to hosted MoneyHash Checkout URL:", apiErr);
-        }
-      }
-
-      // Simulated / Sandbox Paylink URL for instant testing & client demo
-      const simulatedPayUrl = `https://checkout.moneyhash.io/embed/${intentId}?amount=${amount}&currency=${currency}&order=${orderNumber}&store=${encodeURIComponent(storeName)}`;
-
-      return c.json({
-        success: true,
-        intentId,
-        embedUrl: simulatedPayUrl,
-        payUrl: simulatedPayUrl,
-        message: mode === "test" ? "تم إنشاء نية الدفع بنجاح (وضع الاختبار)" : "تم إنشاء رابط الدفع بنجاح"
-      });
-    } catch (err: any) {
-      console.error("[MONEYHASH-CREATE-INTENT-ERROR]", err);
-      return c.json({ success: false, error: err.message || "خطأ في إنشاء نية الدفع عبر MoneyHash" }, 500);
-    }
-  });
-
-  app.get("/api/moneyhash/status/:intentId", async (c) => {
-    try {
-      const intentId = c.req.param("intentId");
-      const apiKey = c.req.query("apiKey") || "";
-      
-      if (apiKey && apiKey.trim().length > 5) {
-        try {
-          const mhRes = await fetch(`https://api.moneyhash.io/api/v1.1/payments/intent/${intentId}/`, {
-            headers: { "X-Api-Key": apiKey.trim() }
-          });
-          if (mhRes.ok) {
-            const mhData = await mhRes.json();
-            const status = mhData?.data?.status || mhData?.status || "SUCCESSFUL";
-            return c.json({ success: true, status, data: mhData });
-          }
-        } catch (e) {}
-      }
-
-      return c.json({
-        success: true,
-        status: "SUCCESSFUL",
-        message: "حالة العملية مكتملة ومدفوعة"
-      });
-    } catch (err: any) {
-      return c.json({ success: false, error: err.message }, 500);
-    }
-  });
-
-  // MoneyHash v1.1 Account Creation API Proxy (v11_accounts_create)
-  app.post("/api/moneyhash/accounts/create", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const {
-        name,
-        email = "",
-        phone = "",
-        country = "EG",
-        currency = "EGP",
-        mode = "test",
-        apiKey = ""
-      } = body;
-
-      if (!name) {
-        return c.json({ success: false, error: "اسم الحساب أو اسم المتجر مطلوب" }, 400);
-      }
-
-      const generatedAccountId = `mh_acc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      const baseUrl = mode === "live" ? "https://api.moneyhash.io/api/v1.1" : "https://sandbox.moneyhash.io/api/v1.1";
-
-      if (apiKey && apiKey.trim().length > 5) {
-        try {
-          const res = await fetch(`${baseUrl}/accounts/`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Api-Key": apiKey.trim()
-            },
-            body: JSON.stringify({
-              name,
-              email: email || "store@domain.com",
-              phone: phone || "+201000000000",
-              country: country || "EG",
-              default_currency: currency || "EGP"
-            })
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            const realAccId = data?.data?.id || data?.id || generatedAccountId;
-            return c.json({
-              success: true,
-              accountId: realAccId,
-              accountKey: data?.data?.account_key || data?.account_key || realAccId,
-              data: data
-            });
-          }
-        } catch (apiErr) {
-          console.warn("[MONEYHASH-ACCOUNT-CREATE-API-WARN] Fallback to simulated account response:", apiErr);
-        }
-      }
-
-      return c.json({
-        success: true,
-        accountId: generatedAccountId,
-        accountKey: `acc_key_${generatedAccountId}`,
-        message: "تم إنشاء وتسجيل حساب التاجر بنجاح على MoneyHash v1.1"
-      });
-    } catch (err: any) {
-      return c.json({ success: false, error: err.message || "فشل إنشاء حساب التاجر على MoneyHash" }, 500);
-    }
-  });
-
-  // MoneyHash v1.1 Accounts Payment Methods Creation API Proxy (v11_accounts_payment_methods_create)
-  app.post("/api/moneyhash/accounts/payment-methods/create", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const {
-        accountId,
-        provider,
-        methodId,
-        credentials = {},
-        mode = "test",
-        apiKey = ""
-      } = body;
-
-      if (!provider && !methodId) {
-        return c.json({ success: false, error: "اسم مزود الخدمة أو وسيلة الدفع مطلوب" }, 400);
-      }
-
-      const baseUrl = mode === "live" ? "https://api.moneyhash.io/api/v1.1" : "https://sandbox.moneyhash.io/api/v1.1";
-
-      if (apiKey && apiKey.trim().length > 5 && accountId) {
-        try {
-          const res = await fetch(`${baseUrl}/accounts/${accountId}/payment-methods/`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Api-Key": apiKey.trim()
-            },
-            body: JSON.stringify({
-              provider: (provider || methodId || "CARD").toUpperCase(),
-              credentials: credentials,
-              is_active: true
-            })
-          });
-
-          if (res.ok) {
-            const data = await res.json();
-            return c.json({ success: true, data });
-          }
-        } catch (apiErr) {
-          console.warn("[MONEYHASH-PM-CREATE-API-WARN] Fallback:", apiErr);
-        }
-      }
-
-      return c.json({
-        success: true,
-        message: `تم ربط وتفعيل طريقة الدفع (${provider || methodId}) لحساب التاجر بنجاح`
-      });
-    } catch (err: any) {
-      return c.json({ success: false, error: err.message }, 500);
-    }
-  });
-
-  // MoneyHash Webhook Listener
-  const handleMoneyHashWebhook = async (c: any) => {
-    try {
-      const payload = await c.req.json().catch(() => ({}));
-      const intentId = payload?.data?.id || payload?.intent_id || payload?.id;
-      const eventType = payload?.event || payload?.type || "intent.successful";
-      const orderNumber = payload?.data?.meta_data?.order_number || payload?.meta_data?.order_number;
-
-      console.log(`[MONEYHASH-WEBHOOK] Received event: ${eventType} for Intent: ${intentId}, Order: ${orderNumber}`);
-
-      return c.json({
-        success: true,
-        message: "Webhook processed successfully",
-        intentId,
-        eventType
-      });
-    } catch (err: any) {
-      console.error("[MONEYHASH-WEBHOOK-ERROR]", err);
-      return c.json({ success: false, error: err.message }, 500);
-    }
+  const moneyHashAdmin = () => {
+    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    return url && key ? createClient(url, key) : null;
   };
+  const moneyHashApiKey = () => (process.env.MONEYHASH_API_KEY || '').trim();
+  const moneyHashOrgKey = () => (process.env.MONEYHASH_ORGANIZATION_KEY || '').trim();
+  const moneyHashAccounts = (): Record<string, string> => {
+    try { return JSON.parse(process.env.MONEYHASH_ACCOUNT_MAP_JSON || '{}'); } catch { return {}; }
+  };
+  const moneyHashBase = (mode: string) => mode === 'live' ? 'https://web.moneyhash.io/api/v1.4' : 'https://sandbox.moneyhash.io/api/v1.4';
+  const deterministicIdempotencyKey = (storeId: string, orderId: string) => {
+    const hex = crypto.createHash('sha256').update(`${storeId}:${orderId}`).digest('hex').slice(0, 32);
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-${((parseInt(hex.slice(16,18),16)&3)|8).toString(16)}${hex.slice(18,20)}-${hex.slice(20)}`;
+  };
+  const getServerMoneyHashConfig = async (storeId: string) => {
+    const store = await getCachedStore(db, storeId);
+    const settings = store?.settings || {};
+    const config = settings.moneyHashConfig || {};
+    const accountId = moneyHashAccounts()[storeId] || config.accountKey;
+    return { settings, config, accountId };
+  };
+  const calculateServerTotal = (settings: any, items: any[], shippingArea?: string, discountCode?: string) => {
+    if (!Array.isArray(items) || items.length === 0) throw new Error('عناصر الطلب مطلوبة');
+    const products = Array.isArray(settings.products) ? settings.products : [];
+    let subtotal = 0;
+    for (const item of items) {
+      const product = products.find((p: any) => p.id === item.productId);
+      const quantity = Number(item.quantity);
+      if (!product || !Number.isInteger(quantity) || quantity < 1 || quantity > 100) throw new Error('عنصر طلب غير صالح');
+      const variant = product.variants?.find((v: any) => v.id === item.variantId);
+      const price = Number(variant?.price ?? product.price);
+      if (!Number.isFinite(price) || price < 0) throw new Error('سعر منتج غير صالح');
+      subtotal += price * quantity;
+    }
+    const allOptions = Object.values(settings.shippingOptions || {}).flat() as any[];
+    const shipping = allOptions.find(option => option.label === shippingArea);
+    const shippingFee = Number(shipping?.deliveryPrice ?? 0);
+    let discount = 0;
+    const coupon = settings.discountCodes?.find((c: any) => c.active && c.code === String(discountCode || '').toUpperCase().trim());
+    if (coupon) discount = coupon.type === 'fixed' ? Number(coupon.value) : subtotal * Number(coupon.value) / 100;
+    return { amount: Math.max(0, subtotal + shippingFee - discount), currency: configCurrency(settings), subtotal, shippingFee, discount };
+  };
+  const configCurrency = (settings: any) => String(settings.moneyHashConfig?.currency || 'EGP').toUpperCase();
 
-  app.post("/api/webhooks/moneyhash", handleMoneyHashWebhook);
-  app.post("/api/webhook/moneyhash", handleMoneyHashWebhook);
+  app.post('/api/moneyhash/create-intent', async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const { storeId, orderId, items, shippingArea, discountCode, customerName = 'عميل المتجر', customerPhone = '', customerEmail = '', selectedMethodId = 'CARD' } = body;
+      if (typeof storeId !== 'string' || typeof orderId !== 'string') return c.json({ success: false, error: 'معرف المتجر والطلب مطلوبان' }, 400);
+      const { settings, config, accountId } = await getServerMoneyHashConfig(storeId);
+      if (!config.isActive || !accountId || !moneyHashApiKey()) return c.json({ success: false, error: 'بوابة MoneyHash غير مهيأة لهذا المتجر' }, 503);
+      const totals = calculateServerTotal(settings, items, shippingArea, discountCode);
+      if (!totals.amount) return c.json({ success: false, error: 'إجمالي الطلب غير صالح' }, 400);
+      const admin = moneyHashAdmin();
+      const idempotencyKey = deterministicIdempotencyKey(storeId, orderId);
+      if (admin) {
+        const existing = await admin.from('moneyhash_payments').select('intent_id,status,raw_intent').eq('store_id', storeId).eq('idempotency_key', idempotencyKey).maybeSingle();
+        if (existing.data?.intent_id) return c.json({ success: true, intentId: existing.data.intent_id, embedUrl: existing.data.raw_intent?.embed_url, payUrl: existing.data.raw_intent?.embed_url, data: existing.data.raw_intent });
+      }
+      const response = await fetch(`${moneyHashBase(config.mode)}/payments/intent/`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': moneyHashApiKey(), 'X-Idempotency-Key': idempotencyKey }, body: JSON.stringify({ account: accountId, amount: totals.amount, amount_currency: totals.currency, payment_method: String(selectedMethodId).toUpperCase(), billing_data: { first_name: String(customerName).split(' ')[0], last_name: String(customerName).split(' ').slice(1).join(' '), email: customerEmail, phone_number: customerPhone }, custom_fields: { store_id: storeId, order_id: orderId } }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return c.json({ success: false, error: 'رفض MoneyHash إنشاء نية الدفع' }, response.status as any);
+      const intent = data?.data || data;
+      const intentId = intent?.id;
+      if (!intentId || typeof intent?.embed_url !== 'string') return c.json({ success: false, error: 'استجابة MoneyHash غير مكتملة' }, 502);
+      if (admin) await admin.from('moneyhash_payments').upsert({ store_id: storeId, order_id: orderId, intent_id: intentId, idempotency_key: idempotencyKey, amount: totals.amount, currency: totals.currency, status: String(intent.status || 'PENDING').toUpperCase(), raw_intent: intent, updated_at: new Date().toISOString() }, { onConflict: 'store_id,idempotency_key' });
+      return c.json({ success: true, intentId, embedUrl: intent.embed_url, payUrl: intent.embed_url, data: intent });
+    } catch (err: any) { return c.json({ success: false, error: err?.message || 'تعذر إنشاء نية الدفع' }, 400); }
+  });
 
+  app.get('/api/moneyhash/status/:intentId', async (c) => {
+    try {
+      const intentId = c.req.param('intentId');
+      const admin = moneyHashAdmin();
+      if (!admin || !moneyHashApiKey()) return c.json({ success: false, error: 'خدمة الدفع غير مهيأة' }, 503);
+      const payment = await admin.from('moneyhash_payments').select('store_id,status').eq('intent_id', intentId).maybeSingle();
+      if (!payment.data?.store_id) return c.json({ success: false, error: 'نية الدفع غير معروفة' }, 404);
+      const { config } = await getServerMoneyHashConfig(payment.data.store_id);
+      const response = await fetch(`${moneyHashBase(config.mode)}/payments/intent/${encodeURIComponent(intentId)}/`, { headers: { 'X-Api-Key': moneyHashApiKey() } });
+      const data = await response.json().catch(() => ({}));
+      const intent = data?.data || data;
+      const status = String(intent?.status || 'UNKNOWN').toUpperCase();
+      return response.ok ? c.json({ success: true, status, data: intent }) : c.json({ success: false, error: 'تعذر استرجاع حالة النية' }, 502);
+    } catch (err: any) { return c.json({ success: false, error: err?.message || 'تعذر استرجاع حالة الدفع' }, 500); }
+  });
+
+  app.post('/api/webhooks/moneyhash', async (c) => {
+    const raw = await c.req.text();
+    const signature = c.req.header('MoneyHash-Signature') || c.req.header('X-MoneyHash-Signature');
+    if (!verifyMoneyHashSignature(raw, signature, moneyHashOrgKey())) return c.json({ success: false, error: 'توقيع webhook غير صالح' }, 401);
+    try {
+      const payload = JSON.parse(raw);
+      const intent = payload?.data || payload;
+      const intentId = intent?.id || payload?.intent_id;
+      const status = String(intent?.payment_status?.status || intent?.status || payload?.status || '').toUpperCase();
+      const storeId = intent?.custom_fields?.store_id || payload?.custom_fields?.store_id;
+      const orderId = intent?.custom_fields?.order_id || payload?.custom_fields?.order_id;
+      const admin = moneyHashAdmin();
+      if (!admin || !intentId || !storeId) return c.json({ success: false, error: 'بيانات webhook غير مكتملة' }, 503);
+      const eventKey = String(intent?.payment_status?.status_id || intent?.payment_status?.operation_id || payload?.id || `${intentId}:${status}`);
+      const inserted = await admin.from('moneyhash_webhook_events').insert({ store_id: storeId, event_key: eventKey, intent_id: intentId, status: 'processing', payload }).select('id').maybeSingle();
+      if (inserted.error?.code === '23505') {
+        const prior = await admin.from('moneyhash_webhook_events').select('status').eq('store_id', storeId).eq('event_key', eventKey).maybeSingle();
+        return prior.data?.status === 'completed' ? c.json({ success: true, duplicate: true }) : c.json({ success: false, retry: true }, 503);
+      }
+      if (inserted.error) return c.json({ success: false, retry: true }, 503);
+      const payment = await admin.from('moneyhash_payments').select('order_id,status').eq('store_id', storeId).eq('intent_id', intentId).maybeSingle();
+      const actualOrderId = payment.data?.order_id || orderId;
+      if (!actualOrderId) return c.json({ success: false, retry: true }, 503);
+      const previous = payment.data?.status;
+      if (shouldApplyMoneyHashStatus(previous, status)) {
+        await admin.from('moneyhash_payments').update({ status, transaction_id: intent?.payment_status?.transaction_id || null, raw_intent: intent, updated_at: new Date().toISOString() }).eq('store_id', storeId).eq('intent_id', intentId);
+        await admin.from('orders').update({ paymentStatus: isMoneyHashPaidStatus(status) ? 'مدفوع' : 'بانتظار الدفع', moneyHashStatus: status, moneyHashIntentId: intentId, store_id: storeId }).eq('id', actualOrderId).eq('store_id', storeId);
+      }
+      await admin.from('moneyhash_webhook_events').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('store_id', storeId).eq('event_key', eventKey);
+      return c.json({ success: true, duplicate: false });
+    } catch (err: any) { return c.json({ success: false, retry: true }, 503); }
+  });
+  app.post('/api/webhook/moneyhash', async (c) => c.redirect('/api/webhooks/moneyhash', 307));
+
+  app.post('/api/moneyhash/accounts/create', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    if (!body.name || !moneyHashApiKey()) return c.json({ success: false, error: 'بيانات الحساب أو إعداد الخادم ناقصة' }, 400);
+    const response = await fetch(`${moneyHashBase(body.mode || 'test')}/accounts/`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Api-Key': moneyHashApiKey() }, body: JSON.stringify({ name: body.name, email: body.email, phone: body.phone, country: body.country, default_currency: body.currency }) });
+    const data = await response.json().catch(() => ({}));
+    const account = data?.data || data;
+    return response.ok ? c.json({ success: true, accountId: account?.id, accountKey: account?.id, data: account }) : c.json({ success: false, error: 'تعذر إنشاء حساب MoneyHash' }, 502);
+  });
   // Catch-all JSON 404 for missing /api/* endpoints (prevents HTML fallback on API errors)
   app.all("/api/*", (c) => {
     return c.json({ success: false, error: `مسار غير موجود في خادم API: ${c.req.path}` }, 404);

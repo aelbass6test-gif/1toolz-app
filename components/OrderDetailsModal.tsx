@@ -294,15 +294,19 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const handleGenerateMoneyHashPaylink = async () => {
     try {
       const mhConfig = settings.moneyHashConfig || DEFAULT_MONEYHASH_CONFIG;
+      if (!storeId) {
+        alert('لا يمكن إنشاء رابط دفع بدون متجر محدد.');
+        return;
+      }
       const res = await createMoneyHashIntent({
-        amount: order.totalPrice || order.productPrice || 0,
-        currency: mhConfig.currency || 'EGP',
-        orderNumber: order.orderNumber,
+        storeId,
+        orderId: order.id,
+        items: (order.items || []).map(item => ({ productId: item.productId, quantity: item.quantity, variantId: item.variantId })),
+        shippingArea: order.shippingArea,
         customerName: order.customerName,
         customerPhone: order.customerPhone,
         customerEmail: order.customerEmail,
-        config: mhConfig,
-        storeName: settings.storeName || 'المتجر الإلكتروني'
+        config: mhConfig
       });
 
       if (res.success && res.payUrl) {
@@ -312,7 +316,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         const waUrl = `https://wa.me/${targetPhone}?text=${encodeURIComponent(waMsg)}`;
         window.open(waUrl, '_blank');
       } else {
-        alert(res.message || 'تعذر إنشاء رابط الدفع. يرجى التأكد من تفعيل إعدادات MoneyHash وتوفير المفتاح السري.');
+        alert(res.message || 'تعذر إنشاء رابط الدفع. يرجى التأكد من تفعيل إعدادات MoneyHash لهذا المتجر.');
       }
     } catch (err: any) {
       alert('خطأ في إنشاء رابط الدفع: ' + (err.message || 'حاول مرة أخرى'));
