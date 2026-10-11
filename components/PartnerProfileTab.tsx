@@ -46,6 +46,7 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
   // Password & PIN fields
   const [newPin, setNewPin] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [requireEmailOtp, setRequireEmailOtp] = useState<boolean>(partner.requireEmailOtp ?? true);
 
   // Email verification state
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
@@ -70,6 +71,7 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
         nationalId: nationalId.trim() || undefined,
         passcode: newPin.trim() ? newPin.trim() : partner.passcode,
         password: newPassword.trim() ? newPassword.trim() : partner.password,
+        requireEmailOtp: requireEmailOtp,
         payoutAccounts: {
           walletPhone: walletPhone.trim() || undefined,
           instaPayHandle: instaPayHandle.trim() || undefined,
@@ -527,6 +529,30 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#008060]"
                 />
               </div>
+            </div>
+
+            {/* Email OTP Security Toggle */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/60">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={16} className="text-[#008060]" />
+                  <span className="font-black text-xs text-slate-900">فرض التحقق الأمني بالبريد الإلكتروني (Email OTP)</span>
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-md font-bold">حماية مصرفية</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  إرسال كود تحقق سري لمرة واحدة (OTP) لبريدك عند كل تسجيل دخول لمنع الدخول بـ PIN فقط.
+                </p>
+              </div>
+
+              <label className="relative inline-flex items-center cursor-pointer shrink-0 mr-3">
+                <input
+                  type="checkbox"
+                  checked={requireEmailOtp}
+                  onChange={(e) => setRequireEmailOtp(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#008060]"></div>
+              </label>
             </div>
           </div>
 

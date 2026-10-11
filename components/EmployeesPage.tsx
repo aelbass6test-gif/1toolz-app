@@ -3,6 +3,8 @@ import { Settings, Employee, Permission, PERMISSIONS, User, Store } from '../typ
 import { Users, UserPlus, UserCog, Trash2, XCircle, KeyRound, AlertCircle, Check, Clock, Copy, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createUserDoc } from '../services/databaseService';
+import { db } from '../services/firebaseClient';
+import { doc, setDoc } from 'firebase/firestore';
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -61,8 +63,23 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
   const [editEmployeeError, setEditEmployeeError] = useState('');
   const [newEmployeeCredentials, setNewEmployeeCredentials] = useState<{ phone: string, pass: string } | null>(null);
   const [resetPasswordCredentials, setResetPasswordCredentials] = useState<{ phone: string, pass: string } | null>(null);
+  const [employeeToResetPassword, setEmployeeToResetPassword] = useState<Employee | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+
+  const handleOwnerResetEmployeePassword = async (emp: Employee, newPass: string) => {
+    const phone = (emp.phone || emp.id).trim();
+    try {
+      const userRef = doc(db, 'users', phone);
+      await setDoc(userRef, { password: newPass, lastPasswordReset: new Date().toISOString() }, { merge: true });
+      
+      setUsers(prev => prev.map(u => u.phone === phone ? { ...u, password: newPass } : u));
+      setResetPasswordCredentials({ phone, pass: newPass });
+      setEmployeeToResetPassword(null);
+    } catch (err: any) {
+      alert(`فشل تعيين كلمة المرور: ${err.message}`);
+    }
+  };
 
   const owner = useMemo(() => 
       users.find(u => u.stores?.some(s => s.id === activeStoreId)),
@@ -272,8 +289,17 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
             owner={owner}
             loggedInUser={currentUser}
             users={users}
+            onResetPassword={(emp) => setEmployeeToResetPassword(emp)}
         />
       </motion.div>
+      
+      {employeeToResetPassword && (
+        <ResetPasswordModal 
+          employee={employeeToResetPassword}
+          onClose={() => setEmployeeToResetPassword(null)}
+          onConfirm={handleOwnerResetEmployeePassword}
+        />
+      )}
       
       {isEmployeeModalOpen && (
         <EmployeeModal 
@@ -314,8 +340,9 @@ const PermissionsCard: React.FC<{
   onRequestAction: (id: string, action: 'accept' | 'decline') => void, 
   owner: User | undefined, 
   loggedInUser: User | null,
-  users: User[]
-}> = ({ employees, partners = [], onAdd, onEdit, onDelete, onRequestAction, owner, loggedInUser, users }) => {
+  users: User[],
+  onResetPassword: (emp: Employee) => void
+}> = ({ employees, partners = [], onAdd, onEdit, onDelete, onRequestAction, owner, loggedInUser, users, onResetPassword }) => {
   // Consolidate everyone for display
   const employeesToDisplay = useMemo(() => {
     let list: any[] = [];
@@ -508,6 +535,7 @@ const PermissionsCard: React.FC<{
                                 </>
                             ) : (
                                 <>
+                                    <button onClick={() => onResetPassword(emp)} className="p-2 text-slate-400 hover:text-amber-500 rounded-lg transition-colors" title="إعادة تعيين كلمة مرور الموظف"><KeyRound size={18} /></button>
                                     <button onClick={() => onEdit(emp)} className="p-2 text-slate-400 hover:text-blue-500 rounded-lg transition-colors"><UserCog size={18} /></button>
                                     <button onClick={() => onDelete(emp)} className="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"><Trash2 size={18} /></button>
                                 </>
@@ -841,6 +869,63 @@ const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ onClose, onAdd, err
   );
 };
 
+interface ResetPasswordModalProps {
+  employee: Employee;
+  onClose: () => void;
+  onConfirm: (emp: Employee, pass: string) => void;
+}
+const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({ employee, onClose, onConfirm }) => {
+  const [pass, setPass] = useState(() => 'emp#' + Math.floor(1000 + Math.random() * 9000));
+  const generateRandom = () => setPass('emp#' + Math.floor(1000 + Math.random() * 9000));
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl p-6 text-right border border-slate-200 dark:border-slate-800 space-y-4">
+        <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-lg font-black dark:text-white flex items-center gap-2">
+            <KeyRound className="text-amber-500" size={20} />
+            إعادة تعيين كلمة مرور الموظف
+          </h3>
+          <button onClick={onClose}><XCircle className="text-slate-400 hover:text-red-500" /></button>
+        </div>
+        <p className="text-xs text-slate-500">
+          تعيين كلمة مرور جديدة للموظف: <strong className="text-slate-800 dark:text-white">{employee.name}</strong> ({employee.phone || employee.id})
+        </p>
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-slate-600 dark:text-slate-400">كلمة المرور الجديدة:</label>
+          <div className="relative">
+            <input
+              type="text"
+              value={pass}
+              onChange={e => setPass(e.target.value)}
+              className="w-full p-3 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 outline-none font-mono font-bold text-sm"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={generateRandom}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-purple-600"
+              title="توليد كلمة مرور عشوائية"
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl font-bold text-xs">إلغاء</button>
+          <button
+            onClick={() => onConfirm(employee, pass)}
+            disabled={!pass || pass.length < 6}
+            className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-xs transition disabled:opacity-50"
+          >
+            حفظ وتعيين كلمة المرور
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface CredentialsModalProps { credentials: { phone: string, pass: string }, onClose: () => void; }
 const CredentialsModal: React.FC<CredentialsModalProps> = ({ credentials, onClose }) => {
     const copyToClipboard = (text: string) => navigator.clipboard.writeText(text);
@@ -860,7 +945,17 @@ const CredentialsModal: React.FC<CredentialsModalProps> = ({ credentials, onClos
                         <div className="flex justify-between items-center"><span className="font-mono font-bold text-lg dark:text-white">{credentials.pass}</span><button onClick={() => copyToClipboard(credentials.pass)}><Copy size={16}/></button></div>
                     </div>
                 </div>
-                <button onClick={onClose} className="w-full mt-6 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg font-bold">إغلاق</button>
+                <div className="mt-4 space-y-2">
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(`مرحباً، تم تعيين كلمة مرور جديدة لحسابك في المتجر:\nرقم الهاتف: ${credentials.phone}\nكلمة المرور: ${credentials.pass}\nرابط الدخول: ${typeof window !== 'undefined' ? window.location.origin : ''}/employee-login`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition"
+                    >
+                      مشاركة مع الموظف عبر واتساب 💬
+                    </a>
+                    <button onClick={onClose} className="w-full py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-xs">إلغاء وإغلاق</button>
+                </div>
             </div>
         </div>
     );

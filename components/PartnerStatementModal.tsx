@@ -399,7 +399,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
 
   
   const buildHtmlContent = () => {
-    const storeTitle = (settings as any).storeName || (settings as any).companyName || 'وان تولز للعدد اليدوية';
+    const storeTitle = (settings as any).storeName || (settings as any).companyName || 'متجرنا';
     const printDate = new Date().toLocaleDateString('ar-EG');
     const printTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 
@@ -640,7 +640,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
 
   const handleCopyWhatsAppSummary = () => {
     const text = `📊 *كشف حساب الشريك - ${partner.name}*
-🏢 المتجر: ${(settings as any).storeName || (settings as any).companyName || 'وان تولز للعدد اليدوية'}
+🏢 المتجر: ${(settings as any).storeName || (settings as any).companyName || 'متجرنا'}
 📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}
 ────────────────────
 💰 *الرصيد الصافي الحالي:* ${(partner.balance ?? 0) >= 0 ? 'مستحق له ' : 'مديونية عليه '}${(partner.balance ?? 0).toLocaleString()} ج.م
@@ -852,7 +852,7 @@ export const PartnerStatementModal: React.FC<PartnerStatementModalProps> = ({
             {/* Sheet Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b-2 border-slate-900 pb-5 gap-4">
               <div>
-                <h1 className="text-2xl font-black text-slate-900">{(settings as any).storeName || (settings as any).companyName || 'وان تولز للعدد اليدوية'}</h1>
+                <h1 className="text-2xl font-black text-slate-900">{(settings as any).storeName || (settings as any).companyName || 'متجرنا'}</h1>
                 <p className="text-xs font-bold text-slate-600 mt-1 flex items-center gap-2">
                   <span>كشف حساب الشريك:</span>
                   <span className="text-indigo-700 font-black text-sm">{partner.name}</span>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft, Printer } from 'lucide-react';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft, Printer, ExternalLink } from 'lucide-react';
 import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
@@ -9,6 +9,7 @@ import { triggerCelebration } from '../utils/celebration';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { SmartInventoryHubNav, SmartInventoryHubContent, InventoryHubTab } from './inventory/SmartInventoryHub';
 import { ProductSalesLogModal } from './ProductSalesLogModal';
+import { generateSlug, getProductUrl } from '../utils/slugUtils';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -848,6 +849,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         id: productData.id || `prod-${Date.now()}`,
         sku: productData.sku || `SKU-${Date.now()}`,
         name: productData.name!,
+        slug: productData.slug?.trim() || generateSlug(productData.name!) || `prod-${Date.now()}`,
         price: productData.price || 0,
         weight: productData.weight || 1,
         costPrice: productData.costPrice || 0,
@@ -1784,18 +1786,32 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                       </td>
                       <td className="px-6 py-4">
                         <div className={`flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition-opacity`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pUrl = `${window.location.origin}${getProductUrl(product, activeStoreId || undefined)}`;
+                              navigator.clipboard.writeText(pUrl);
+                              alert(`تم نسخ رابط المنتج المباشر بنجاح:\n${pUrl}`);
+                            }}
+                            className="p-2 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all cursor-pointer"
+                            title="نسخ رابط صفحة المنتج ومشاركتها مع العملاء"
+                          >
+                            <ExternalLink size={18} />
+                          </button>
                           <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all" title="إنشاء منشور تسويقي">
                             <Wand2 size={18} />
                           </button>
                           <button 
                             onClick={() => openEditModal(product)}
                             className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all"
+                            title="تعديل المنتج"
                           >
                             <Edit3 size={18} />
                           </button>
                           <button 
                             onClick={() => setProductToDelete(product)}
                             className="p-2 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+                            title="حذف المنتج"
                           >
                             <Trash2 size={18} />
                           </button>
@@ -2838,7 +2854,13 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                         label="اسم المنتج / الخدمة" 
                                         icon={<Package size={16}/>} 
                                         value={productData.name || ''} 
-                                        onChange={e => updateField('name', e.target.value)} 
+                                        onChange={e => {
+                                            const newName = e.target.value;
+                                            updateField('name', newName);
+                                            if (!productData.slug || productData.slug === generateSlug(productData.name || '')) {
+                                                updateField('slug', generateSlug(newName));
+                                            }
+                                        }} 
                                         placeholder="مثال: قميص قطني فاخر / باقة تسويق شاملة"
                                         required 
                                     />
@@ -2849,6 +2871,13 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                         onChange={e => updateField('sku', e.target.value)} 
                                         placeholder="مثال: PRD-2026-X01"
                                         required 
+                                    />
+                                    <FormInput 
+                                        label="رابط ومسار المنتج المباشر (SEO Slug)" 
+                                        icon={<Globe size={16}/>} 
+                                        value={productData.slug || ''} 
+                                        onChange={e => updateField('slug', e.target.value.toLowerCase().replace(/\s+/g, '-'))} 
+                                        placeholder="مثال: smart-watch-ultra"
                                     />
                                     <FormInput 
                                         label="تصنيف المنتج (القسم)" 

@@ -50,7 +50,7 @@ export const WidgetWrapper: React.FC<WidgetWrapperProps> = ({
       id={widget.id}
       dragListener={false}
       dragControls={dragControls}
-      className={`relative ${widget.type === 'full' ? 'col-span-full' : 'col-span-1'} ${!widget.visible ? 'opacity-50 grayscale' : ''}`}
+      className={`relative ${widget.type === 'full' ? 'col-span-12' : 'col-span-12 md:col-span-6'} ${!widget.visible ? 'opacity-50 grayscale' : ''}`}
     >
       {isEditing && (
         <div className="absolute top-4 left-4 z-50 flex items-center gap-2">

@@ -228,23 +228,47 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
   const [exitModalPartnerId, setExitModalPartnerId] = useState<string | null>(null);
 
-  // Dedicated PIN Management Modal State
+  // Dedicated Security & PIN Management Modal State
   const [pinModalPartner, setPinModalPartner] = useState<Partner | null>(null);
   const [pinModalCode, setPinModalCode] = useState('');
+  const [pinModalEmail, setPinModalEmail] = useState('');
+  const [pinModalRequireOtp, setPinModalRequireOtp] = useState<boolean>(true);
 
   const openPinModal = (partner: Partner) => {
     setPinModalPartner(partner);
     setPinModalCode(partner.passcode || '0000');
+    setPinModalEmail(partner.email || '');
+    setPinModalRequireOtp(partner.requireEmailOtp ?? true);
   };
 
   const handleSavePin = () => {
     if (!pinModalPartner) return;
     const cleanCode = pinModalCode.trim().replace(/\D/g, '') || '0000';
-    updateSettings({
+    const cleanEmail = pinModalEmail.trim().toLowerCase();
+    const updatedPartners = partners.map(p => 
+      p.id === pinModalPartner.id ? { 
+        ...p, 
+        passcode: cleanCode,
+        email: cleanEmail || p.email,
+        requireEmailOtp: pinModalRequireOtp
+      } : p
+    );
+    const newSettings = {
       ...settings,
-      partners: partners.map(p => p.id === pinModalPartner.id ? { ...p, passcode: cleanCode } : p)
-    });
-    showToast(`تم تعيين رمز PIN للشريك (${pinModalPartner.name}) بنجاح: ${cleanCode}`);
+      partners: updatedPartners
+    };
+    updateSettings(newSettings);
+    if (storeId) {
+      db.getStoreData(storeId).then(cur => {
+        if (cur) {
+          db.saveStoreData({ id: storeId, name: settings.storeName || 'المتجر' } as any, {
+            ...cur,
+            settings: newSettings
+          });
+        }
+      }).catch(err => console.warn('Cloud save error:', err));
+    }
+    showToast(`تم تحديث إعدادات أمان ودخول الشريك (${pinModalPartner.name}) بنجاح`);
     setPinModalPartner(null);
   };
 
@@ -3375,6 +3399,45 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
               </div>
 
               <div className="space-y-4">
+                {/* 1. Email address for OTP */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300">
+                    البريد الإلكتروني المعتمد لاستلام كود التحقق (OTP):
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="email"
+                      value={pinModalEmail}
+                      onChange={(e) => setPinModalEmail(e.target.value)}
+                      placeholder="partner@example.com"
+                      className="w-full pr-11 pl-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:border-emerald-500 rounded-2xl outline-none font-bold text-xs text-slate-800 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Enforce Email OTP toggle */}
+                <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200/80 dark:border-emerald-800/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-black text-emerald-900 dark:text-emerald-200 block">
+                      🔒 فرض التحقق بالبريد (Email OTP)
+                    </span>
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-400 block leading-tight">
+                      إلزام الشريك بإدخال كود التحقق الأمني لمرة واحدة عند الدخول
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 mr-2">
+                    <input
+                      type="checkbox"
+                      checked={pinModalRequireOtp}
+                      onChange={(e) => setPinModalRequireOtp(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#008060]"></div>
+                  </label>
+                </div>
+
+                {/* 3. PIN code */}
                 <div className="space-y-2">
                   <label className="block text-xs font-black text-slate-600 dark:text-slate-300">
                     رمز المرور السري (PIN) للشريك
@@ -3388,22 +3451,19 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
                         value={pinModalCode}
                         onChange={(e) => setPinModalCode(e.target.value.replace(/\D/g, ''))}
                         placeholder="أدخل 4-6 أرقام..."
-                        className="w-full pr-12 pl-4 py-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-amber-500/30 rounded-2xl outline-none font-black text-center text-xl tracking-widest text-slate-800 dark:text-white"
+                        className="w-full pr-12 pl-4 py-3 bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-amber-500/30 rounded-2xl outline-none font-black text-center text-lg tracking-widest text-slate-800 dark:text-white"
                       />
                     </div>
                     <button
                       type="button"
                       onClick={generateRandomPin}
-                      className="px-3.5 py-3.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-2xl text-xs font-black transition-colors flex items-center gap-1 cursor-pointer border border-amber-300/40"
+                      className="px-3 py-3 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-2xl text-xs font-black transition-colors flex items-center gap-1 cursor-pointer border border-amber-300/40"
                       title="توليد رمز PIN عشوائي جديد"
                     >
                       <Sparkles size={14} className="text-amber-500" />
                       <span>توليد تلقائي</span>
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-400 font-bold">
-                    * هذا الرمز يُطلب من الشريك عند الدخول إلى رابط بوابته المالية المخصصة لحماية خصوصية الحساب.
-                  </p>
                 </div>
 
                 <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-3">

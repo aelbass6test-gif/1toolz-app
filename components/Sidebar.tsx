@@ -68,6 +68,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                 { to: `${storePrefix}/create-order`, label: 'إنشاء طلب جديد', icon: <Plus size={18} /> },
                 { to: `${storePrefix}/orders`, label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={18} /> },
                 { 
+                    to: `${storePrefix}/quotations`, 
+                    label: 'عروض الأسعار والفواتير', 
+                    icon: <FileSpreadsheet size={18} />,
+                    badge: { text: "جديد 📄", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px] font-bold" }
+                },
+                { 
                     to: `${storePrefix}/confirmation-queue`, 
                     label: 'تأكيد الطلبات والمعالجة', 
                     icon: <PhoneForwarded size={18} />,
@@ -300,114 +306,117 @@ const Sidebar: React.FC<SidebarProps> = ({
     const hasActiveSearch = searchQuery.trim().length > 0;
 
     const sidebarContentJSX = (
-        <div className="h-full flex flex-col p-3 sm:p-3.5 bg-white/95 dark:bg-[#0d1714]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-emerald-950/80 font-sans text-right select-none" dir="rtl">
+        <div className="h-full flex flex-col p-3 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans text-right select-none" dir="rtl">
             
-            {/* Header section */}
-            <div className="p-3 mb-2.5 rounded-2xl bg-gradient-to-r from-slate-100/90 via-indigo-50/50 to-purple-50/50 dark:from-slate-900/90 dark:via-indigo-950/30 dark:to-purple-950/30 border border-slate-200/80 dark:border-slate-800/80 shadow-xs flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#008060] to-[#0f5c48] flex items-center justify-center text-white shadow-md shadow-emerald-500/20 shrink-0">
-                        <ShoppingCart size={20} />
+            {/* Header section (Architectural Store Crest) */}
+            <div className="p-2.5 mb-2 rounded-2xl bg-slate-100/70 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.07] flex justify-between items-center group/store shadow-2xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 border border-emerald-400/30 flex items-center justify-center text-white shadow-xs shrink-0 ring-1 ring-emerald-500/20">
+                        <ShoppingCart size={17} />
                     </div>
                     <div className="overflow-hidden">
                         <div className="flex items-center gap-1.5">
-                            <h2 className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[110px]" title={activeStore?.name}>
+                            <h2 className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[120px]" title={activeStore?.name}>
                                 {activeStore?.name || 'منظومة التشغيل'}
                             </h2>
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" title="المتجر نشط" />
+                            <span className="relative flex h-1.5 w-1.5 shrink-0" title="المتجر نشط">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                            </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">الإدارة العامة</span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-white/80 dark:bg-slate-800/80 text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-slate-700/60">
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">الإدارة المركزية</span>
+                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-white/[0.08]">
                                 {activeStore?.id ? activeStore.id.slice(-8) : 'm-media'}
                             </span>
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                     {/* Desktop Collapse Trigger to Expand Workspace */}
                     {onToggleDesktopCollapse && (
                         <button 
                             onClick={onToggleDesktopCollapse}
-                            className="hidden md:flex p-1.5 text-slate-400 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 rounded-lg hover:bg-white/80 dark:hover:bg-slate-800/80 transition-all cursor-pointer border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80"
-                            title="طي الشريط الجانبي وتوسيع الشاشة (Ctrl + B)"
+                            className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-white/80 dark:hover:bg-white/[0.06] transition-all cursor-pointer border border-transparent hover:border-slate-200/80 dark:hover:border-white/[0.08]"
+                            title="طي القائمة وتوسيع مساحة العمل (Ctrl + B)"
                         >
-                            <PanelLeftClose size={18} />
+                            <PanelLeftClose size={15} />
                         </button>
                     )}
                     {onClose && (
                         <button onClick={onClose} className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
-                            <X size={18}/>
+                            <X size={16}/>
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Quick Screen Expand System Bar */}
+            {/* Quick Workspace Expand Strip (Architectural Utility Bar) */}
             {onToggleDesktopCollapse && (
-                <div className="hidden md:flex items-center justify-between px-3 py-1.5 mb-2.5 bg-gradient-to-r from-indigo-50/70 via-purple-50/40 to-slate-50/70 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-slate-900/30 rounded-xl border border-indigo-100/80 dark:border-indigo-900/40 text-slate-700 dark:text-slate-200 shadow-2xs">
+                <div className="hidden md:flex items-center justify-between px-2.5 py-1.5 mb-2 bg-slate-100/60 dark:bg-white/[0.03] rounded-xl border border-slate-200/70 dark:border-white/[0.06] text-slate-600 dark:text-slate-300 shadow-2xs">
                     <div className="flex items-center gap-1.5 text-[11px] font-bold">
-                        <Maximize2 size={13} className="text-indigo-600 dark:text-indigo-400" />
-                        <span>نظام توسيع الشاشة</span>
+                        <Maximize2 size={12} className="text-emerald-600 dark:text-emerald-400" />
+                        <span>توسيع مساحة العمل</span>
                     </div>
                     <button
                         onClick={onToggleDesktopCollapse}
-                        className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-black rounded-lg bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white border border-indigo-200/60 dark:border-indigo-800/60 transition-all cursor-pointer shadow-2xs group"
+                        className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-black rounded-md bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 border border-slate-200/80 dark:border-white/[0.08] transition-all cursor-pointer shadow-2xs group"
                         title="طي الشريط وتوسيع مساحة العمل بالكامل (Ctrl + B)"
                     >
                         <span>طي</span>
-                        <kbd className="text-[9px] font-mono opacity-70 group-hover:opacity-100">Ctrl+B</kbd>
+                        <kbd className="font-mono text-[9px] opacity-70 group-hover:opacity-100">⌘B</kbd>
                     </button>
                 </div>
             )}
 
-            {/* Smart Search Filter */}
-            <div className="mb-3 relative">
+            {/* Smart Search Filter (Engineered Input) */}
+            <div className="mb-2.5 relative">
                 <div className="relative">
                     <input 
                         type="text"
                         placeholder="بحث سريع في القائمة..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-slate-100/80 dark:bg-slate-950/80 text-xs border border-slate-200/90 dark:border-slate-800/90 rounded-2xl py-2.5 px-3 pl-8 pr-9 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                        className="w-full bg-slate-100/70 dark:bg-white/[0.03] text-xs border border-slate-200/80 dark:border-white/[0.07] rounded-xl py-2 px-3 pl-7 pr-8 text-right focus:outline-none focus:ring-1 focus:ring-emerald-500/40 focus:border-emerald-500/40 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
                     />
-                    <div className="absolute right-3 top-3 text-slate-400 pointer-events-none">
-                        <Search size={14} />
+                    <div className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none">
+                        <Search size={13} />
                     </div>
                     {searchQuery ? (
                         <button 
                             onClick={() => setSearchQuery('')}
-                            className="absolute left-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                            className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
                         >
-                            <X size={14} />
+                            <X size={13} />
                         </button>
                     ) : null}
                 </div>
 
                 {/* Collapse / Expand all quick triggers */}
                 {!hasActiveSearch && (
-                    <div className="flex justify-between items-center mt-2 px-1 text-[10px] text-slate-400 font-bold">
+                    <div className="flex justify-between items-center mt-1.5 px-1 text-[10px] text-slate-400 font-mono font-medium">
                         <button 
                             onClick={expandAll}
-                            className="flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer"
+                            className="flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
                         >
-                            <Maximize2 size={10} />
-                            <span>توسيع المجموعات</span>
+                            <Maximize2 size={9} />
+                            <span>توسيع الكل</span>
                         </button>
                         <button 
                             onClick={collapseAll}
-                            className="flex items-center gap-1 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer"
+                            className="flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
                         >
-                            <Minimize2 size={10} />
-                            <span>طي المجموعات</span>
+                            <Minimize2 size={9} />
+                            <span>طي الكل</span>
                         </button>
                     </div>
                 )}
             </div>
             
             {/* Nav Links & Scrollable Container */}
-            <nav className="flex-1 space-y-2.5 overflow-y-auto pb-8 no-scrollbar pr-0.5 pl-0.5">
+            <nav className="flex-1 space-y-1.5 overflow-y-auto pb-6 no-scrollbar pr-0.5 pl-0.5">
                 {filteredNavItems.length === 0 ? (
-                    <div className="text-center py-8 px-2 text-xs font-bold text-slate-400 bg-slate-50 dark:bg-slate-950/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                    <div className="text-center py-8 px-2 text-xs font-bold text-slate-400 bg-slate-50/50 dark:bg-white/[0.02] rounded-xl border border-dashed border-slate-200 dark:border-white/[0.08]">
                         لا توجد نتائج مطابقة لبحثك
                     </div>
                 ) : (
@@ -417,27 +426,27 @@ const Sidebar: React.FC<SidebarProps> = ({
                             const containsActivePath = item.links.some(link => isLinkActive(link));
 
                             return (
-                                <div key={item.title} className="space-y-1 bg-slate-50/60 dark:bg-slate-950/30 rounded-2xl p-1.5 border border-slate-200/40 dark:border-slate-800/40 transition-all duration-200">
+                                <div key={item.title} className="space-y-0.5 bg-slate-50/50 dark:bg-white/[0.02] rounded-xl p-1 border border-slate-200/50 dark:border-white/[0.04] transition-all duration-150">
                                     
                                     {/* Actionable Header representing a grouping */}
                                     <button 
                                         onClick={() => toggleGroup(item.title)}
-                                        className="w-full flex items-center justify-between px-2.5 py-1.5 text-right hover:bg-slate-200/50 dark:hover:bg-slate-800/40 rounded-xl transition-colors cursor-pointer group"
+                                        className="w-full flex items-center justify-between px-2 py-1 text-right hover:bg-slate-200/40 dark:hover:bg-white/[0.04] rounded-lg transition-colors cursor-pointer group"
                                     >
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 tracking-wider">
+                                            <span className="text-[10px] font-mono font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
                                                 {item.title}
                                             </span>
                                             {containsActivePath && isCollapsed && (
-                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" title="الصفحة الحالية داخل هذا القسم" />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="الصفحة الحالية داخل هذا القسم" />
                                             )}
                                         </div>
                                         
                                         {!hasActiveSearch && (
                                             <ChevronDown 
-                                                size={13} 
+                                                size={12} 
                                                 className={`text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-200 ${
-                                                    !isCollapsed ? 'rotate-180 text-indigo-500' : ''
+                                                    !isCollapsed ? 'rotate-180 text-emerald-500' : ''
                                                 }`} 
                                             />
                                         )}
@@ -445,7 +454,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                                     {/* Sub Items under the Category Accordion */}
                                     {!isCollapsed && (
-                                        <div className="space-y-0.5 mt-1 transition-all">
+                                        <div className="space-y-0.5 mt-0.5 transition-all">
                                             {item.links.map(link => {
                                                 const active = isLinkActive(link);
                                                 return (
@@ -455,29 +464,31 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                         end={true}
                                                         target={link.external ? "_blank" : undefined}
                                                         rel={link.external ? "noopener noreferrer" : undefined}
-                                                        className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all duration-200 text-xs font-bold ${
+                                                        className={`relative flex items-center justify-between px-2.5 py-2 rounded-lg transition-all duration-150 text-xs ${
                                                             active 
-                                                                ? 'bg-gradient-to-r from-[#008060] to-[#0f5c48] text-white shadow-md shadow-emerald-600/20 font-black' 
-                                                                : 'text-slate-700 dark:text-slate-300 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400'
+                                                                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-950 dark:text-emerald-100 font-black border border-emerald-500/25 dark:border-emerald-500/35 shadow-2xs before:absolute before:right-0 before:top-1.5 before:bottom-1.5 before:w-1 before:bg-emerald-500 before:rounded-l-full' 
+                                                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-bold'
                                                         }`}
                                                     >
                                                         {() => (
                                                             <>
-                                                                <div className="flex items-center gap-2.5 min-w-0">
-                                                                    <span className={`shrink-0 transition-colors duration-200 ${
+                                                                <div className="flex items-center gap-2.5 min-w-0 pr-1">
+                                                                    <span className={`shrink-0 transition-colors duration-150 ${
                                                                         active 
-                                                                            ? 'text-white' 
-                                                                            : 'text-slate-400 group-hover:text-indigo-500'
+                                                                            ? 'text-emerald-600 dark:text-emerald-400' 
+                                                                            : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-200'
                                                                     }`}>
                                                                         {link.icon}
                                                                     </span>
                                                                     <span className="truncate pr-0.5">{link.label}</span>
                                                                 </div>
 
-                                                                {/* Interactive Status Badge */}
+                                                                {/* Interactive Status Badge (Architectural Monospace Tag) */}
                                                                 {link.badge && (
-                                                                    <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black rounded-md leading-none ${
-                                                                        active ? 'bg-white/20 text-white' : link.badge.color
+                                                                    <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-mono font-black rounded-md leading-none ${
+                                                                        active 
+                                                                            ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' 
+                                                                            : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-white/[0.06]'
                                                                     }`}>
                                                                         {link.badge.text}
                                                                     </span>
@@ -497,20 +508,20 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
             </nav>
 
-            {/* Brand Credit Signature */}
-            <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60 text-center text-[10px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-0.5">
-                <span className="font-black text-slate-700 dark:text-slate-300">عبدو ميديا برايم | AbdoMedia Prime © 2026</span>
-                <span className="text-[9px] text-slate-400 dark:text-slate-500">منظومة التجارة والتسويق الرقمي المتكاملة</span>
+            {/* Brand Credit Signature (Architectural Engineering Watermark) */}
+            <div className="pt-2.5 border-t border-slate-200/60 dark:border-white/[0.06] text-center text-[10px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-0.5 font-mono select-none">
+                <span className="font-bold text-slate-700 dark:text-slate-300 tracking-tight">ABDOMEDIA PRIME // v2026</span>
+                <span className="text-[9px] text-slate-400 dark:text-slate-500">منظومة التجارة والتشغيل المؤسسي المتكاملة</span>
             </div>
         </div>
     );
 
     const sidebarCollapsedRailJSX = (
-        <div className="h-full flex flex-col items-center py-3 px-1.5 bg-white/85 dark:bg-[#090d16]/90 backdrop-blur-2xl border-l border-slate-200/70 dark:border-slate-800/80 font-sans select-none relative" dir="rtl">
+        <div className="h-full flex flex-col items-center py-3 px-1.5 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans select-none relative" dir="rtl">
             {/* Store Icon & Quick Expand */}
-            <div className="flex flex-col items-center gap-2 mb-2 pb-2.5 border-b border-slate-200/60 dark:border-slate-800/60 w-full">
+            <div className="flex flex-col items-center gap-2 mb-2 pb-2.5 border-b border-slate-200/60 dark:border-white/[0.06] w-full">
                 <div 
-                    className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0 cursor-pointer group relative"
+                    className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 border border-emerald-400/30 flex items-center justify-center text-white shadow-xs shrink-0 cursor-pointer group relative ring-1 ring-emerald-500/20"
                     title={activeStore?.name || 'منظومة التشغيل'}
                     onClick={onToggleDesktopCollapse}
                 >
@@ -522,10 +533,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                 {onToggleDesktopCollapse && (
                     <button
                         onClick={onToggleDesktopCollapse}
-                        className="w-10 h-8 rounded-xl flex items-center justify-center text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 bg-slate-100/80 hover:bg-indigo-50 dark:bg-slate-800/80 dark:hover:bg-indigo-950/40 border border-slate-200/70 dark:border-slate-700/80 transition-all cursor-pointer group shadow-2xs"
+                        className="w-10 h-8 rounded-xl flex items-center justify-center text-slate-500 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 bg-slate-100/70 hover:bg-slate-200/70 dark:bg-white/[0.04] dark:hover:bg-white/[0.08] border border-slate-200/80 dark:border-white/[0.08] transition-all cursor-pointer group shadow-2xs"
                         title="توسيع القائمة بالكامل (Ctrl + B)"
                     >
-                        <PanelLeftOpen size={16} className="group-hover:scale-110 transition-transform" />
+                        <PanelLeftOpen size={15} className="group-hover:scale-110 transition-transform" />
                     </button>
                 )}
             </div>
@@ -537,7 +548,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         return (
                             <div key={group.title} className="space-y-1">
                                 {groupIdx > 0 && (
-                                    <div className="w-5 h-px bg-slate-200/70 dark:bg-slate-800/70 mx-auto my-2" />
+                                    <div className="w-5 h-px bg-slate-200/60 dark:border-white/[0.06] mx-auto my-2" />
                                 )}
                                 {group.links.map(link => {
                                     const active = isLinkActive(link);
@@ -548,10 +559,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                                             end={true}
                                             target={link.external ? "_blank" : undefined}
                                             rel={link.external ? "noopener noreferrer" : undefined}
-                                            className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-all duration-200 relative group cursor-pointer ${
+                                            className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-all duration-150 relative group cursor-pointer ${
                                                 active
-                                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-600/30 font-black'
-                                                    : 'text-slate-600 dark:text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400'
+                                                    ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 dark:border-emerald-500/35 shadow-2xs font-black'
+                                                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white'
                                             }`}
                                         >
                                             {() => (
@@ -561,15 +572,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                     </span>
 
                                                     {/* Sleek Floating Hover Tooltip (Left side in RTL) */}
-                                                    <div className="absolute right-full mr-3 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-2 px-3 py-1.5 bg-slate-900 dark:bg-slate-800 text-white text-xs font-black rounded-xl shadow-2xl border border-slate-700/80 z-50 pointer-events-none whitespace-nowrap animate-in fade-in zoom-in-95 duration-150">
+                                                    <div className="absolute right-full mr-3 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-2 px-3 py-1.5 bg-[#0b101b] text-white text-xs font-bold rounded-xl shadow-2xl border border-white/[0.1] z-50 pointer-events-none whitespace-nowrap animate-in fade-in zoom-in-95 duration-150">
                                                         <span>{link.label}</span>
                                                         {link.badge && (
-                                                            <span className={`px-1.5 py-0.5 text-[9px] font-black rounded-md ${link.badge.color}`}>
+                                                            <span className={`px-1.5 py-0.5 text-[8px] font-mono font-bold rounded-md ${link.badge.color}`}>
                                                                 {link.badge.text}
                                                             </span>
                                                         )}
                                                         {/* Little arrow pointing right toward icon */}
-                                                        <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-900 dark:bg-slate-800 rotate-45 border-t border-r border-slate-700/80" />
+                                                        <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 bg-[#0b101b] rotate-45 border-t border-r border-white/[0.1]" />
                                                     </div>
                                                 </>
                                             )}
@@ -585,13 +596,13 @@ const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Bottom Expand Button */}
             {onToggleDesktopCollapse && (
-                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/60 w-full flex flex-col items-center">
+                <div className="pt-2 border-t border-slate-200/60 dark:border-white/[0.06] w-full flex flex-col items-center">
                     <button
                         onClick={onToggleDesktopCollapse}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors cursor-pointer group"
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:text-emerald-600 dark:text-slate-400 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-white/[0.04] transition-colors cursor-pointer group"
                         title="توسيع القائمة بالكامل (Ctrl + B)"
                     >
-                        <Maximize2 size={16} className="group-hover:scale-110 transition-transform" />
+                        <Maximize2 size={15} className="group-hover:scale-110 transition-transform" />
                     </button>
                 </div>
             )}

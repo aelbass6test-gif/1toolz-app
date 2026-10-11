@@ -263,6 +263,11 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                 <span className="text-xs text-slate-400 font-mono">
                   {order.date ? new Date(order.date).toLocaleDateString('ar-EG', { dateStyle: 'short' }) : ''}
                 </span>
+                {order.quotationNumber && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    عرض أسعار #{order.quotationNumber}
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-1">
@@ -588,12 +593,19 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
 
                 {/* COD Total to Collect */}
                 <div className="pt-2.5 border-t border-slate-200 dark:border-white/[0.08] flex justify-between items-baseline font-black">
-                  <span className="text-slate-900 dark:text-white text-sm">مبلغ التحصيل (COD):</span>
+                  <div className="space-y-0.5">
+                    <span className="text-slate-900 dark:text-white text-sm block">مبلغ التحصيل (COD):</span>
+                    {totalAmount === 0 && (
+                      <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 inline-block">
+                        {order.quotationNumber ? `عرض أسعار #${order.quotationNumber} (تصفير التحصيل - مدفوع مقدماً)` : 'مدفوع بالكامل مسبقاً (تحصيل 0)'}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-left font-mono">
-                    <span className="text-2xl font-black tabular-nums text-indigo-600 dark:text-indigo-400">
+                    <span className={`text-2xl font-black tabular-nums ${totalAmount === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
                       {totalAmount.toLocaleString()}
                     </span>
-                    <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 mr-1.5">ج.م</span>
+                    <span className="text-xs font-bold mr-1.5 text-slate-500">ج.م</span>
                   </div>
                 </div>
               </div>

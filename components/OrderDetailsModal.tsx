@@ -6,7 +6,7 @@ import {
   FileText, DollarSign, Calculator, ChevronRight, Share2, Printer, 
   ExternalLink, Sparkles, History, Check, AlertTriangle, HelpCircle,
   TrendingUp, TrendingDown, Layers, FileSearch, ArrowDownRight, ArrowUpRight,
-  RotateCcw, RefreshCcw, MessageSquare
+  RotateCcw, RefreshCcw, MessageSquare, Zap
 } from 'lucide-react';
 import { Order, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
@@ -19,6 +19,7 @@ import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
 import { OrderWhatsAppChatModal } from './OrderWhatsAppChatModal';
+import { createMoneyHashIntent, buildMoneyHashWhatsAppMessage, DEFAULT_MONEYHASH_CONFIG } from '../utils/moneyHashService';
 
 interface OrderDetailsModalProps {
   order: Order;
@@ -290,6 +291,34 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     }
   };
 
+  const handleGenerateMoneyHashPaylink = async () => {
+    try {
+      const mhConfig = settings.moneyHashConfig || DEFAULT_MONEYHASH_CONFIG;
+      const res = await createMoneyHashIntent({
+        amount: order.totalPrice || order.productPrice || 0,
+        currency: mhConfig.currency || 'EGP',
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        customerEmail: order.customerEmail,
+        config: mhConfig,
+        storeName: settings.storeName || 'المتجر الإلكتروني'
+      });
+
+      if (res.success && res.payUrl) {
+        const waMsg = buildMoneyHashWhatsAppMessage(order, res.payUrl, settings.storeName || 'المتجر الإلكتروني');
+        const cleanPhone = (order.customerPhone || '').replace(/\D/g, '');
+        const targetPhone = cleanPhone.startsWith('01') ? '2' + cleanPhone : cleanPhone;
+        const waUrl = `https://wa.me/${targetPhone}?text=${encodeURIComponent(waMsg)}`;
+        window.open(waUrl, '_blank');
+      } else {
+        alert(res.message || 'تعذر إنشاء رابط الدفع. يرجى التأكد من تفعيل إعدادات MoneyHash وتوفير المفتاح السري.');
+      }
+    } catch (err: any) {
+      alert('خطأ في إنشاء رابط الدفع: ' + (err.message || 'حاول مرة أخرى'));
+    }
+  };
+
   const statusInfo = ORDER_STATUS_METADATA[order.status] || { label: order.status.replace(/_/g, ' '), color: 'bg-slate-500 text-white', icon: 'Package' };
 
   return (
@@ -309,10 +338,18 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </button>
               <button 
                 onClick={handlePrintSummary} 
-                className="flex items-center gap-2.5 px-5 py-2.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-slate-200/80 dark:border-white/10 rounded-2xl font-black text-slate-700 dark:text-slate-200 text-xs sm:text-sm transition-all shadow-sm hover:border-indigo-300 dark:hover:border-indigo-500/40 active:scale-95"
+                className="flex items-center gap-2.5 px-4 py-2.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 border border-slate-200/80 dark:border-white/10 rounded-2xl font-black text-slate-700 dark:text-slate-200 text-xs sm:text-sm transition-all shadow-sm hover:border-indigo-300 dark:hover:border-indigo-500/40 active:scale-95"
               >
                 <Printer size={16} className="text-indigo-600 dark:text-indigo-400" />
-                <span>طباعة الفاتورة والملخص</span>
+                <span>طباعة الفاتورة</span>
+              </button>
+              <button 
+                onClick={handleGenerateMoneyHashPaylink} 
+                className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-2xl font-black text-xs sm:text-sm transition-all shadow-md shadow-purple-600/20 active:scale-95 cursor-pointer"
+                title="إنشاء رابط دفع إلكتروني MoneyHash وإرساله للعميل عبر واتساب"
+              >
+                <Zap size={16} className="text-purple-200" />
+                <span>رابط دفع MoneyHash 💳</span>
               </button>
             </div>
             

@@ -1127,6 +1127,22 @@ const StoreSettingsModal: React.FC<{ store: Store, onClose: () => void, onSave: 
 
                      <div>
                         <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 block flex items-center gap-1.5">
+                          <Globe size={16} className="text-emerald-500"/> النطاق الفرعي (Subdomain)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="text" 
+                            value={formData.subdomain || ''} 
+                            onChange={e => setFormData(p => ({...p, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')}))} 
+                            placeholder="my-store"
+                            className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-mono font-bold focus:ring-2 focus:ring-[#00c48c] outline-none dir-ltr text-right text-slate-900 dark:text-white"
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">يُستخدم كرابط افتراضي سريع ومجاني للمتجر.</p>
+                     </div>
+
+                     <div>
+                        <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 block flex items-center gap-1.5">
                           <Globe size={16} className="text-purple-500"/> النطاق المخصص (Custom Domain)
                         </label>
                         <input 

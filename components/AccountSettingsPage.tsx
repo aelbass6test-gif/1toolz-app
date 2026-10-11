@@ -3,12 +3,25 @@ import { User } from '../types';
 import { 
   Save, CheckCircle, Loader2, User as UserIcon, Mail, Phone, ShieldCheck, 
   Globe, Lock, Bell, Smartphone, KeyRound, Sparkles, ShieldAlert, Laptop, 
-  LogOut, Camera, AlertCircle, RefreshCw, Layers, Moon, Sun, Check, ArrowRight
+  LogOut, Camera, AlertCircle, RefreshCw, Layers, Moon, Sun, Check, ArrowRight,
+  Fingerprint, Scan, Cpu, Trash2, PlusCircle, CheckCircle2
 } from 'lucide-react';
 import { auth } from '../services/firebaseClient';
 import { verifyBeforeUpdateEmail, sendPasswordResetEmail } from 'firebase/auth';
 import { updateUserInSupabase, createUserDoc } from '../services/databaseService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  isWebAuthnSupported, 
+  isPlatformAuthenticatorAvailable, 
+  detectBiometricDeviceName,
+  registerBiometricCredential, 
+  authenticateBiometricCredential,
+  getStoredBiometrics,
+  saveStoredBiometric,
+  removeStoredBiometric,
+  isBiometricEnabledFor,
+  setBiometricEnabledFor
+} from '../utils/webAuthnService';
 
 interface AccountSettingsPageProps {
   currentUser: User | null;
@@ -47,6 +60,107 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
   const [resetSentMessage, setResetSentMessage] = useState('');
   const [error, setError] = useState('');
   const [sessionsCleared, setSessionsCleared] = useState(false);
+
+  // Biometric / WebAuthn States for Owner
+  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [isPlatformAuthAvailable, setIsPlatformAuthAvailable] = useState(false);
+  const [biometricDeviceName, setBiometricDeviceName] = useState('مستشعر البصمة البيومترية');
+  const [isEnrollingBio, setIsEnrollingBio] = useState(false);
+  const [isTestingBio, setIsTestingBio] = useState(false);
+  const [bioTestSuccessMsg, setBioTestSuccessMsg] = useState('');
+  const [ownerBiometricEnabled, setOwnerBiometricEnabled] = useState(false);
+
+  useEffect(() => {
+    const checkBiometrics = async () => {
+      const supported = isWebAuthnSupported();
+      setIsBiometricSupported(supported);
+      setBiometricDeviceName(detectBiometricDeviceName());
+      if (supported) {
+        const plat = await isPlatformAuthenticatorAvailable();
+        setIsPlatformAuthAvailable(plat);
+      }
+    };
+    checkBiometrics();
+
+    if (currentUser?.email || currentUser?.phone) {
+      const ownerKey = currentUser.email || currentUser.phone || 'owner';
+      setOwnerBiometricEnabled(isBiometricEnabledFor(ownerKey));
+    }
+  }, [currentUser]);
+
+  // Handle Register Biometric for Owner
+  const handleEnrollOwnerBiometric = async () => {
+    if (!currentUser) return;
+    setIsEnrollingBio(true);
+    setBioTestSuccessMsg('');
+    setError('');
+    try {
+      const ownerKey = currentUser.email || currentUser.phone || 'owner';
+      const res = await registerBiometricCredential({
+        userId: ownerKey,
+        userName: currentUser.email || currentUser.fullName || 'مالك المتجر',
+        userDisplayName: currentUser.fullName || 'مالك النظام',
+        rpName: 'لوحة إدارة المتجر',
+        deviceName: biometricDeviceName
+      });
+
+      if (res.success && res.credential) {
+        saveStoredBiometric(ownerKey, res.credential, true);
+        const existing = currentUser.biometricCredentials || [];
+        const updated = [res.credential, ...existing.filter(c => c.id !== res.credential?.id)];
+        const updatedUser: User = { 
+          ...currentUser, 
+          biometricCredentials: updated, 
+          allowBiometricAuth: true 
+        };
+        setCurrentUser(updatedUser);
+        setOwnerBiometricEnabled(true);
+        setShowSuccess(true);
+        setSuccessMessage('🎉 تم تسجيل وتفعيل بصمة هذا الجهاز (WebAuthn Passkey) لحساب المالك بنجاح!');
+        setTimeout(() => setShowSuccess(false), 4000);
+      } else {
+        setError(res.error || 'تعذر تسجيل البصمة على هذا الجهاز.');
+      }
+    } catch (err: any) {
+      setError('خطأ أثناء تسجيل البصمة: ' + (err.message || ''));
+    } finally {
+      setIsEnrollingBio(false);
+    }
+  };
+
+  // Handle Test Biometric for Owner
+  const handleTestOwnerBiometric = async () => {
+    if (!currentUser) return;
+    setIsTestingBio(true);
+    setBioTestSuccessMsg('');
+    try {
+      const ownerKey = currentUser.email || currentUser.phone || 'owner';
+      const stored = getStoredBiometrics(ownerKey);
+      const allCreds = [...(currentUser.biometricCredentials || []), ...stored];
+      const res = await authenticateBiometricCredential(allCreds.length > 0 ? allCreds : undefined, 'لوحة إدارة المتجر');
+      if (res.success) {
+        setBioTestSuccessMsg('تم التحقق بنجاح! مستشعر البصمة يعمل بكفاءة وأمان 100%');
+      } else {
+        setError(res.error || 'فشل فحص البصمة');
+      }
+    } catch (err: any) {
+      setError('خطأ أثناء فحص البصمة: ' + (err.message || ''));
+    } finally {
+      setIsTestingBio(false);
+    }
+  };
+
+  // Handle Remove Biometric for Owner
+  const handleRemoveOwnerBiometric = (credId: string) => {
+    if (!currentUser) return;
+    const ownerKey = currentUser.email || currentUser.phone || 'owner';
+    removeStoredBiometric(ownerKey, credId, true);
+    const updated = (currentUser.biometricCredentials || []).filter(c => c.id !== credId);
+    setCurrentUser({ ...currentUser, biometricCredentials: updated });
+    setShowSuccess(true);
+    setSuccessMessage('تم إلغاء وحذف مفتاح البصمة المحدد.');
+    setTimeout(() => setShowSuccess(false), 3000);
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -523,6 +637,130 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${twoFactorEnabled ? '-translate-x-6' : '-translate-x-1'}`} />
                 </button>
+              </div>
+
+              {/* Biometric Authentication (WebAuthn / Passkeys) Card for Owner */}
+              <div className="p-5 rounded-2xl bg-gradient-to-br from-slate-50 to-teal-50/25 dark:from-slate-800/50 dark:to-slate-850 border border-teal-500/20 dark:border-teal-500/20 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-500 shrink-0">
+                      <Fingerprint size={22} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-black text-slate-800 dark:text-slate-100">
+                          المصادقة الحيوية للمالك (WebAuthn Passkeys / Touch ID)
+                        </h3>
+                        <span className="bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          FIDO2 Ready
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        تسجيل الدخول وفتح لوحة الإدارة بلمسة واحدة عبر مستشعر هذا الجهاز المشفر
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Device Detection Badge */}
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-900 text-white text-[11px] font-mono shrink-0">
+                    <div className="w-2 h-2 rounded-full bg-teal-400 animate-ping" />
+                    <span className="font-bold">{biometricDeviceName}</span>
+                  </div>
+                </div>
+
+                {/* Test Success Feedback */}
+                {bioTestSuccessMsg && (
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                    <span>{bioTestSuccessMsg}</span>
+                  </div>
+                )}
+
+                {/* Enrolled Owner Credentials */}
+                {((currentUser?.biometricCredentials && currentUser.biometricCredentials.length > 0) || getStoredBiometrics(currentUser?.email || currentUser?.phone || 'owner').length > 0) ? (
+                  <div className="space-y-2.5 pt-1">
+                    <div className="text-xs font-black text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                      <span>الأجهزة ومفاتيح الأمان المسجلة للمالك:</span>
+                      <span className="text-[11px] text-teal-600 dark:text-teal-400 font-bold">بصمة مشفرة نشطة</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[...(currentUser?.biometricCredentials || []), ...getStoredBiometrics(currentUser?.email || currentUser?.phone || 'owner')].map((cred, idx) => (
+                        <div key={cred.id + idx} className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-600 flex items-center justify-center">
+                              <Fingerprint size={16} />
+                            </div>
+                            <div>
+                              <div className="font-black text-xs text-slate-800 dark:text-slate-100">{cred.name || 'مستشعر بيومتري معتمد'}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                تاريخ التسجيل: {new Date(cred.createdAt).toLocaleDateString('ar-EG')}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOwnerBiometric(cred.id)}
+                            title="إلغاء وحذف مفتاح البصمة"
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/60 border border-dashed border-slate-300 dark:border-slate-700 text-center space-y-1">
+                    <Fingerprint size={24} className="mx-auto text-slate-400" />
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">لم يتم تسجيل بصمة هذا الجهاز لحساب المالك بعد</p>
+                    <p className="text-[11px] text-slate-400">
+                      يمكنك تسجيل بصمة جهازك الآن لتسريع الدخول وتأمين لوحة التحكم بحماية الأجهزة المصرفية (FIDO2).
+                    </p>
+                  </div>
+                )}
+
+                {/* Actions Toolbar */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleEnrollOwnerBiometric}
+                    disabled={isEnrollingBio}
+                    className="px-4 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow-md transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isEnrollingBio ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>جاري مسح وتسجيل البصمة...</span>
+                      </>
+                    ) : (
+                      <>
+                        <PlusCircle size={15} />
+                        <span>تسجيل بصمة هذا الجهاز (Touch ID / Face ID)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTestOwnerBiometric}
+                    disabled={isTestingBio}
+                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-black transition-all flex items-center gap-2 border border-slate-200 dark:border-slate-700 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isTestingBio ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>جاري فحص المستشعر...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Scan size={15} className="text-teal-500" />
+                        <span>اختبار مستشعر البصمة الآن</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Security Health Score */}

@@ -56,6 +56,32 @@ const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 let supabaseSingleton: any = null;
 const syncFingerprints = new Map<string, string>();
 
+const defaultMissingColumns = [
+    'partners:email',
+    'partners:passcode',
+    'partners:password',
+    'partners:requireEmailOtp',
+    'partners:require_email_otp',
+    'partners:isEmailVerified',
+    'partners:is_email_verified',
+    'partners:emailVerifiedAt',
+    'partners:email_verified_at',
+    'partners:lastLoginAt',
+    'partners:last_login_at',
+    'partners:employeeId',
+    'partners:employee_id',
+    'partners:permissions',
+    'partners:portalPermissions',
+    'partners:payoutAccounts'
+];
+let storedMissingCols: string[] = [];
+try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('supabase_missing_columns') : null;
+    if (raw) storedMissingCols = JSON.parse(raw);
+} catch (e) {}
+
+const knownMissingColumns = new Set<string>([...defaultMissingColumns, ...storedMissingCols]);
+
 export const syncSupabaseCredentials = (storeId: string, settings: any) => {
     if (typeof window === 'undefined') return;
     const activeStoreId = localStorage.getItem('lastActiveStoreId');
@@ -242,6 +268,87 @@ export const getLocal = async (key: string): Promise<any> => {
         const treasury = await localDb.treasury.get(key);
         const customers = await localDb.customers.where('store_id').equals(key).toArray();
 
+        // 1. Fetch quotations from IndexedDB
+        let quotations: any[] = [];
+        try {
+            if (localDb.quotations) {
+                quotations = await localDb.quotations.where('store_id').equals(key).toArray();
+            }
+        } catch (qErr) {
+            console.warn('[DB] Could not read quotations from IndexedDB:', qErr);
+        }
+
+        // 2. Fallback: If quotations empty, attempt restore from backups
+        if (!quotations || quotations.length === 0) {
+            try {
+                const qDirect = localStorage.getItem(`quotations_backup_${key}`);
+                if (qDirect) {
+                    quotations = JSON.parse(qDirect);
+                } else {
+                    const backup = localStorage.getItem(`emergency_store_backup_${key}`);
+                    if (backup) {
+                        const parsed = JSON.parse(backup);
+                        if (parsed.quotations && Array.isArray(parsed.quotations) && parsed.quotations.length > 0) {
+                            quotations = parsed.quotations;
+                        }
+                    }
+                }
+            } catch (backupErr) {
+                console.warn('[DB] Backup quotations read error:', backupErr);
+            }
+        }
+
+        // 3. Self-healing: If any orders exist that were converted from a quotation, restore them if missing!
+        if (orders && orders.length > 0) {
+            const existingQNumbers = new Set((quotations || []).map((q: any) => q.quotationNumber));
+            const reconstructedQuotations: any[] = [];
+
+            for (const ord of orders) {
+                if (ord.quotationNumber && !existingQNumbers.has(ord.quotationNumber)) {
+                    existingQNumbers.add(ord.quotationNumber);
+                    reconstructedQuotations.push({
+                        id: `qt_restored_${ord.id}`,
+                        quotationNumber: ord.quotationNumber,
+                        createdAt: ord.createdAt || ord.date || new Date().toISOString(),
+                        validUntil: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+                        status: 'محول_لطلب_شحن',
+                        customerName: ord.customerName || '',
+                        customerPhone: ord.customerPhone || '',
+                        customerPhone2: ord.customerPhone2 || '',
+                        customerEmail: ord.customerEmail || '',
+                        customerAddress: ord.customerAddress || '',
+                        customerCity: ord.customerCity || '',
+                        items: ord.items || [],
+                        subtotal: ord.productPrice || ord.totalPrice || 0,
+                        discount: 0,
+                        shippingFee: ord.shippingFee || 0,
+                        total: ord.totalPrice || 0,
+                        advancePayment: (ord.paymentMethod?.includes('مدفوع') || ord.totalAmountOverride === 0) ? (ord.totalPrice || 0) : 0,
+                        remainingAmount: ord.totalAmountOverride !== undefined ? ord.totalAmountOverride : (ord.totalPrice || 0),
+                        shippingCompany: ord.shippingCompany || '',
+                        convertedOrderId: ord.id,
+                        convertedOrderNumber: ord.orderNumber,
+                        convertedAt: ord.date || ord.createdAt,
+                        notes: ord.notes || 'مسترجع تلقائياً من طلب الشحن المحول',
+                        terms: '',
+                        createdBy: (ord as any).salesEmployee || ord.assignedEmployeeId || 'المبيعات'
+                    });
+                }
+            }
+
+            if (reconstructedQuotations.length > 0) {
+                quotations = [...(quotations || []), ...reconstructedQuotations];
+                try {
+                    if (localDb.quotations) {
+                        const qWithId = quotations.map((q: any) => ({ ...q, store_id: key }));
+                        await localDb.quotations.bulkPut(qWithId);
+                    }
+                } catch (persistErr) {
+                    console.warn('[DB] Failed saving reconstructed quotations to Dexie:', persistErr);
+                }
+            }
+        }
+
         // If there's no settings in IndexedDB and no orders, we don't have this store locally at all.
         if (!settingsRecord && (!orders || orders.length === 0)) {
             // Check emergency fallback first
@@ -261,7 +368,8 @@ export const getLocal = async (key: string): Promise<any> => {
             wallet: wallet || { balance: 0, transactions: [] },
             treasury: treasury,
             cart: [],
-            customers: customers || []
+            customers: customers || [],
+            quotations: quotations || []
         };
 
         return result;
@@ -320,11 +428,31 @@ export const saveLocal = async (key: string, data: any) => {
             const customersWithId = data.customers.map((c: any) => ({ ...c, store_id: storeId }));
             await localDb.customers.bulkPut(customersWithId);
         }
+
+        if (data.quotations) {
+            try {
+                if (localDb.quotations) {
+                    const quotationsWithId = data.quotations.map((q: any) => ({ ...q, store_id: storeId }));
+                    await localDb.quotations.where('store_id').equals(storeId).delete();
+                    if (quotationsWithId.length > 0) {
+                        await localDb.quotations.bulkPut(quotationsWithId);
+                    }
+                }
+            } catch (qErr) {
+                console.warn('[DB] Failed saving quotations to IndexedDB:', qErr);
+            }
+            try {
+                localStorage.setItem(`quotations_backup_${key}`, JSON.stringify(data.quotations));
+            } catch (storageErr) {
+                // Ignore storage quota
+            }
+        }
         
         // Lean emergency backup to localStorage (strip heavy base64 to avoid localStorage 5MB quota limit)
         try {
             const leanStoreData = {
                 ...data,
+                quotations: data.quotations || [],
                 settings: {
                     ...data.settings,
                     products: (data.settings?.products || []).map((p: any) => ({
@@ -465,7 +593,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 activityLogs, employees, discountCodes, collectionsList, customPages, 
                 paymentMethods, customers, globalOptions, shippingIntegrations, partners, partnerTransactions, chatMessages,
                 warehouses, inventoryAudits, stockTransfers, orderReturns, purchaseReturns, posSales, cashHolders, cashHandovers,
-                whatsappTemplates, callScripts,
+                whatsappTemplates, callScripts, quotationsList,
                 storeRowResult
             ] = await Promise.all([
                 fetchTable('products'),
@@ -499,6 +627,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 fetchTable('cash_handovers'),
                 fetchTable('whatsapp_templates'),
                 fetchTable('call_scripts'),
+                fetchTable('quotations'),
                 supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
             ]);
 
@@ -541,7 +670,26 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             isConnected: Boolean(si.isConnected ?? si.is_connected ?? details?.isConnected ?? false)
                         };
                     }),
-                    partners: partners.length > 0 ? partners : (storeSettings.partners || local?.settings?.partners || []),
+                    partners: (partners.length > 0 ? partners : (storeSettings.partners || local?.settings?.partners || [])).map((p: any) => {
+                        const fallbackPartner = (storeSettings.partners || local?.settings?.partners || []).find((fp: any) => fp.id === p.id);
+                        const details = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
+                        return {
+                            ...fallbackPartner,
+                            ...p,
+                            email: p.email || details.email || fallbackPartner?.email || '',
+                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || '0000',
+                            password: p.password || details.password || fallbackPartner?.password || '',
+                            requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? details.requireEmailOtp ?? fallbackPartner?.requireEmailOtp ?? true),
+                            isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? details.isEmailVerified ?? fallbackPartner?.isEmailVerified ?? false),
+                            emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || details.emailVerifiedAt || fallbackPartner?.emailVerifiedAt,
+                            lastLoginAt: p.lastLoginAt || p.last_login_at || details.lastLoginAt || fallbackPartner?.lastLoginAt,
+                            permissions: p.permissions || details.permissions || fallbackPartner?.permissions || {},
+                            portalPermissions: p.portalPermissions || details.portalPermissions || fallbackPartner?.portalPermissions || {},
+                            payoutAccounts: p.payoutAccounts || details.payoutAccounts || fallbackPartner?.payoutAccounts || {},
+                            biometricCredentials: p.biometricCredentials || details.biometricCredentials || fallbackPartner?.biometricCredentials || [],
+                            allowBiometricAuth: Boolean(p.allowBiometricAuth ?? details.allowBiometricAuth ?? fallbackPartner?.allowBiometricAuth ?? false)
+                        };
+                    }),
                     partnerTransactions: partnerTransactions.length > 0 ? partnerTransactions : (storeSettings.partnerTransactions || local?.settings?.partnerTransactions || []),
                     warehouses: warehouses.length > 0 ? warehouses : (storeSettings.warehouses || local?.settings?.warehouses || []),
                     inventoryAudits: inventoryAudits.length > 0 ? inventoryAudits : (storeSettings.inventoryAudits || []),
@@ -647,7 +795,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     }))
                 },
                 cart: [],
-                customers
+                customers,
+                quotations: (quotationsList && quotationsList.length > 0) ? quotationsList : (storeSettings?.quotations || local?.quotations || [])
             };
 
             // SAFEGUARD: If Supabase returns nothing but we have local data, 
@@ -721,7 +870,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     },
                     treasury: cloudData?.treasury || local?.treasury || { accounts: [], transactions: [] },
                     cart: [],
-                    customers: cloudData?.customers || local?.customers || []
+                    customers: cloudData?.customers || local?.customers || [],
+                    quotations: cloudData?.quotations || local?.quotations || []
                 };
 
                 await saveLocal(storeId, fullData);
@@ -786,10 +936,12 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             // 1. Send clean, lightweight settings to stores_data without repeating massive relational tables
             const cleanSettingsSupabase = cleanUndefined({
                 ...cleanSettings,
+                partners: partners || [],
                 wallet_settings: wallet.settings || null,
                 withdraw_requests: wallet.withdrawRequests || [],
                 supply_balance: wallet.supplyBalance || 0,
-                wallet_balance: wallet.balance || 0
+                wallet_balance: wallet.balance || 0,
+                quotations: data.quotations || []
             });
 
             const storesDataFingerprintKey = `${store.id}:stores_data_header`;
@@ -940,7 +1092,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         };
                     } else if (table === 'partners') {
                         mappedItem = {
-                            ...mappedItem,
+                            id: cleanItem.id,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
                             name: cleanItem.name || '',
                             phone: cleanItem.phone || '',
                             notes: cleanItem.notes || '',
@@ -1337,7 +1491,15 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 }
                 const uniqueItems = Array.from(map.values());
                 
-                let currentItemsToUpsert = [...uniqueItems];
+                let currentItemsToUpsert = uniqueItems.map(item => {
+                    const copy = { ...item };
+                    for (const key of Object.keys(copy)) {
+                        if (knownMissingColumns.has(`${table}:${key}`)) {
+                            delete copy[key];
+                        }
+                    }
+                    return copy;
+                });
                 let upsertSuccess = false;
                 let attempts = 0;
                 
@@ -1346,6 +1508,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         const { error } = await supabase.from(table).upsert(currentItemsToUpsert);
                         if (!error) {
                             upsertSuccess = true;
+                            if ((window as any).SUPABASE_SCHEMA_ERROR?.table === table) {
+                                delete (window as any).SUPABASE_SCHEMA_ERROR;
+                            }
                             break;
                         }
                         
@@ -1355,14 +1520,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         }
                         
                         if (error.code === 'PGRST204') {
-                            console.warn(`Column missing in table ${table}: ${error.message}`);
-                            // Return error specifically about columns so UI can show warning/button
-                            (window as any).SUPABASE_SCHEMA_ERROR = {
-                                table,
-                                message: error.message,
-                                code: error.code
-                            };
-                            
                             // Parse missing column name
                             const msg = error.message || '';
                             const match = msg.match(/Could not find the '([^']+)' column/i) || 
@@ -1371,12 +1528,17 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                                           
                             if (match && match[1]) {
                                 const missingCol = match[1];
-                                console.warn(`[SYNC-SELF-HEAL] Stripping missing column '${missingCol}' from table '${table}' payload and retrying...`);
+                                knownMissingColumns.add(`${table}:${missingCol}`);
+                                try {
+                                    if (typeof window !== 'undefined') {
+                                        localStorage.setItem('supabase_missing_columns', JSON.stringify(Array.from(knownMissingColumns)));
+                                    }
+                                } catch (e) {}
                                 currentItemsToUpsert = currentItemsToUpsert.map(item => {
                                     const copy = { ...item };
                                     if (copy.details && typeof copy.details === 'object') {
                                         copy.details = { ...copy.details, [missingCol]: item[missingCol] };
-                                    } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates', 'shipping_integrations'].includes(table)) {
+                                    } else if (['orders', 'products', 'supply_orders', 'transactions', 'payment_methods', 'stores_data', 'whatsapp_templates', 'shipping_integrations', 'partners'].includes(table)) {
                                         copy.details = { [missingCol]: item[missingCol] };
                                     }
                                     delete copy[missingCol];
@@ -1385,6 +1547,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                                 attempts++;
                                 continue;
                             }
+
+                            // Record schema error only if self-healing wasn't possible
+                            (window as any).SUPABASE_SCHEMA_ERROR = {
+                                table,
+                                message: error.message,
+                                code: error.code
+                            };
                         }
                         
                         throw error;
@@ -1423,7 +1592,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 () => syncTable('customers', customers),
                 () => syncTable('global_options', globalOptions),
                 () => syncTable('shipping_integrations', shippingIntegrations),
-                () => syncTable('partners', partners || [], ['permissions', 'portalPermissions', 'payoutAccounts', 'isEmailVerified', 'emailVerifiedAt', 'lastLoginAt', 'employeeId']),
+                () => syncTable('partners', partners || [], [
+                    'permissions', 'portalPermissions', 'payoutAccounts', 
+                    'isEmailVerified', 'is_email_verified', 'emailVerifiedAt', 'email_verified_at',
+                    'lastLoginAt', 'last_login_at', 'employeeId', 'employee_id',
+                    'email', 'passcode', 'password', 'requireEmailOtp', 'require_email_otp',
+                    'biometricCredentials', 'biometric_credentials', 'allowBiometricAuth', 'allow_biometric_auth'
+                ]),
                 () => syncTable('partner_transactions', partnerTransactions || []),
                 () => syncTable('warehouses', warehouses || []),
                 () => syncTable('inventory_audits', inventoryAudits || []),
@@ -1435,6 +1610,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 () => syncTable('cash_handovers', cashHandovers || []),
                 () => syncTable('whatsapp_templates', whatsappTemplates || []),
                 () => syncTable('call_scripts', callScripts || []),
+                () => syncTable('quotations', data.quotations || []),
                 () => syncTable('chat_messages', [])
             ];
 
@@ -1652,7 +1828,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             syncCollection('cash_holders', cashHolders, 'userId'),
             syncCollection('cash_handovers', cashHandovers),
             syncCollection('whatsapp_templates', whatsappTemplates),
-            syncCollection('call_scripts', callScripts)
+            syncCollection('call_scripts', callScripts),
+            syncCollection('quotations', data.quotations || [])
         ]);
 
         const storeRef = doc(firebaseDb, 'stores_data', store.id);
@@ -1661,7 +1838,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             name: store.name,
             orders: data.orders || [],
             treasury: data.treasury || { accounts: [], transactions: [] },
-            wallet: data.wallet || { balance: 0, transactions: [] }
+            wallet: data.wallet || { balance: 0, transactions: [] },
+            quotations: data.quotations || []
         });
         await WITH_TIMEOUT(setDoc(storeRef, storePayload, { merge: true })).catch(err => {
             if (err?.code === 'resource-exhausted') {

@@ -1304,6 +1304,10 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     partnerName TEXT,
     treasury_account_id TEXT,
     treasuryAccountId TEXT,
+    order_id TEXT,
+    orderId TEXT,
+    order_number TEXT,
+    orderNumber TEXT,
     type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
@@ -1594,6 +1598,10 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     partnerName TEXT,
     treasury_account_id TEXT,
     treasuryAccountId TEXT,
+    order_id TEXT,
+    orderId TEXT,
+    order_number TEXT,
+    orderNumber TEXT,
     type TEXT NOT NULL, -- loan, capital_addition, profit_withdrawal, repayment, etc.
     amount NUMERIC NOT NULL,
     date TEXT NOT NULL,
@@ -2517,7 +2525,14 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
                                 placeholder="اسم-متجرك"
                                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-mono"
                                 value={settings.subdomain || ''}
-                                onChange={(e) => setSettings(prev => ({ ...prev, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                                onChange={(e) => {
+                                    const cleanSub = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                                    setSettings(prev => ({ 
+                                        ...prev, 
+                                        subdomain: cleanSub,
+                                        isSubdomainFixed: Boolean(cleanSub)
+                                    }));
+                                }}
                                 dir="ltr"
                             />
                         </div>

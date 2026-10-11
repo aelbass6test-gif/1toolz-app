@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Settings, OrderItem, PlaceOrderData } from '../types';
 import { Lock, ShoppingBag, Tag, CreditCard, Banknote, Smartphone, CheckCircle2, Truck, ShieldCheck, ChevronRight, Info, MapPin, Phone, User, MessageSquare, ArrowLeft, ShoppingCart, RefreshCw as LucideRefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { MONEYHASH_DEFAULT_METHODS, createMoneyHashIntent } from '../utils/moneyHashService';
 
 interface CheckoutPageProps {
   settings: Settings;
@@ -30,6 +31,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
   const navigate = useNavigate();
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [buildingNumber, setBuildingNumber] = useState('');
   const [floorNumber, setFloorNumber] = useState('');
@@ -44,25 +46,52 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
   const activePaymentMethods = settings.paymentMethods?.filter(m => m.active) || [];
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>(activePaymentMethods[0]?.id || 'cod');
 
-  const activeCompanies = useMemo(() => Object.keys(settings.shippingOptions).filter(c => settings.activeCompanies[c] !== false), [settings]);
-  const [shippingCompany, setShippingCompany] = useState(activeCompanies[0] || '');
+  useEffect(() => {
+    const storeName = (settings as any)?.storeName || 'المتجر الإلكتروني';
+    document.title = `إتمام الطلب | ${storeName}`;
+  }, [settings]);
+
+  // Autofill logged-in customer info
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('storefront_logged_customer');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.name) setCustomerName(parsed.name);
+        if (parsed.phone) setCustomerPhone(parsed.phone);
+        if (parsed.email) setCustomerEmail(parsed.email);
+        if (parsed.address) setCustomerAddress(parsed.address);
+        if (parsed.governorate) setShippingArea(parsed.governorate);
+      }
+    } catch {}
+  }, []);
+
+  const activeCompanies = useMemo(() => Object.keys(settings.shippingOptions || {}).filter(c => settings.activeCompanies?.[c] !== false), [settings]);
+  const [shippingCompany, setShippingCompany] = useState(activeCompanies[0] || 'default_carrier');
   const [shippingArea, setShippingArea] = useState('');
 
-  useEffect(() => {
-    if (shippingCompany) {
-      const defaultArea = settings.shippingOptions[shippingCompany]?.[0]?.label;
-      if (defaultArea) {
-        setShippingArea(defaultArea);
-      }
-    }
-  }, [shippingCompany, settings.shippingOptions]);
+  const fallbackOptions = [
+    { id: 'cairo_giza', label: 'القاهرة والجيزة', deliveryPrice: 45 },
+    { id: 'alex', label: 'الإسكندرية والبحيرة', deliveryPrice: 55 },
+    { id: 'delta', label: 'محافظات الدلتا والقناة', deliveryPrice: 55 },
+    { id: 'upper_egypt', label: 'محافظات الصعيد والوجه القبلي', deliveryPrice: 70 },
+    { id: 'remote', label: 'المحافظات الحدودية والنائية', deliveryPrice: 85 }
+  ];
 
-  const shippingOptions = settings.shippingOptions[shippingCompany] || [];
+  const shippingOptions = (settings.shippingOptions && settings.shippingOptions[shippingCompany] && settings.shippingOptions[shippingCompany].length > 0)
+    ? settings.shippingOptions[shippingCompany]
+    : fallbackOptions;
+
+  useEffect(() => {
+    if (!shippingArea && shippingOptions.length > 0) {
+      setShippingArea(shippingOptions[0].label);
+    }
+  }, [shippingCompany, shippingOptions, shippingArea]);
 
   const { subtotal, shippingFee, total } = useMemo(() => {
     const sub = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
     const selectedOption = shippingOptions.find(opt => opt.label === shippingArea);
-    const fee = selectedOption ? selectedOption.deliveryPrice : 0;
+    const fee = selectedOption ? selectedOption.deliveryPrice : (shippingOptions[0]?.deliveryPrice || 50);
     return {
       subtotal: sub,
       shippingFee: fee,
@@ -97,15 +126,42 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
       return;
     }
     setIsSubmitting(true);
-    await new Promise(r => setTimeout(r, 800));
+    await new Promise(r => setTimeout(r, 600));
 
-    const paymentMethodName = activePaymentMethods.find(m => m.id === selectedPaymentMethod)?.name || 'غير محدد';
-    const finalNotes = `${notes} [دفع عبر: ${paymentMethodName}]${discountAmount > 0 ? ` [كوبون: ${couponCode}]` : ''}`;
+    let paymentMethodName = activePaymentMethods.find(m => m.id === selectedPaymentMethod)?.name || 'غير محدد';
+    let mhIntentUrl: string | undefined = undefined;
+
+    if (selectedPaymentMethod.startsWith('moneyhash_')) {
+      const mhMethodId = selectedPaymentMethod.replace('moneyhash_', '');
+      const mhObj = MONEYHASH_DEFAULT_METHODS.find(m => m.id === mhMethodId);
+      paymentMethodName = `دفع إلكتروني (MoneyHash - ${mhObj?.name || mhMethodId})`;
+
+      if (settings.moneyHashConfig?.isActive) {
+        const mhRes = await createMoneyHashIntent({
+          amount: total,
+          currency: settings.moneyHashConfig.currency || 'EGP',
+          orderNumber: `ORD-${Date.now().toString().slice(-4)}`,
+          customerName,
+          customerPhone,
+          customerEmail,
+          selectedMethodId: mhMethodId,
+          config: settings.moneyHashConfig,
+          storeName: (settings as any)?.storeName || 'المتجر الإلكتروني'
+        });
+
+        if (mhRes.success && mhRes.payUrl) {
+          mhIntentUrl = mhRes.payUrl;
+        }
+      }
+    }
+
+    const finalNotes = `${notes} [وسيلة الدفع: ${paymentMethodName}]${discountAmount > 0 ? ` [كوبون: ${couponCode}]` : ''}`;
 
     try {
       const orderId = onPlaceOrder({
         customerName,
         customerPhone,
+        customerEmail: customerEmail.trim() || undefined,
         customerAddress,
         buildingNumber,
         floorNumber,
@@ -113,11 +169,18 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
         shippingCompany,
         shippingArea,
         shippingFee,
-        paymentMethod: selectedPaymentMethod,
+        paymentMethod: paymentMethodName,
         notes: finalNotes,
         redeemedPoints: 0,
         discount: discountAmount,
       });
+
+      if (mhIntentUrl) {
+        try {
+          window.open(mhIntentUrl, '_blank');
+        } catch {}
+      }
+
       navigate(`/order-success/${orderId}`);
     } catch (err) {
       console.error('Failed to place order:', err);
@@ -187,6 +250,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                     <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">رقم الهاتف</label>
                   </div>
                 </div>
+
+                <div className="group relative">
+                  <input type="email" placeholder="name@example.com" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} className="w-full pt-8 pb-4 px-6 bg-white border-2 border-slate-200 rounded-3xl text-sm font-black focus:border-indigo-600 outline-none transition-all text-left" dir="ltr" />
+                  <label className="absolute right-6 top-3 text-[9px] font-black uppercase text-slate-400 tracking-widest">البريد الإلكتروني (لتأكيد الطلب وتتبع الشحنة بالإيميل)</label>
+                </div>
               </motion.section>
 
               {/* Section 2: Shipping */}
@@ -251,21 +319,67 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ settings, cart, onPl
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {activePaymentMethods.map(method => (
-                    <div key={method.id} onClick={() => setSelectedPaymentMethod(method.id)} className={`p-6 rounded-[2rem] border-2 cursor-pointer transition-all flex items-center gap-5 relative overflow-hidden ${selectedPaymentMethod === method.id ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-200 bg-white hover:border-slate-200'}`}>
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedPaymentMethod === method.id ? 'border-indigo-600' : 'border-slate-300'}`}>
-                        {selectedPaymentMethod === method.id && <motion.div layoutId="radio" className="w-3 h-3 bg-indigo-600 rounded-full" />}
+                <div className="space-y-4">
+                  {/* MoneyHash Payment Options Header if Active */}
+                  {settings.moneyHashConfig?.isActive && (
+                    <div className="p-4 rounded-3xl bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 text-white space-y-3 shadow-md">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="font-black text-xs text-purple-200">الدفع الإلكتروني الآمن الموحد (MoneyHash)</span>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-500/30 text-purple-300 border border-purple-400/30">
+                          دفع فوري ومشفر 100%
+                        </span>
                       </div>
-                      <div className="flex-1 text-right">
-                        <span className={`font-black block text-base mb-1 ${selectedPaymentMethod === method.id ? 'text-indigo-600' : 'text-slate-700'}`}>{method.name}</span>
-                        <span className="text-[10px] text-slate-400 font-bold block">{method.type === 'cod' ? 'ادفع عند الاستلام' : 'تحويل بنكي / محفظة'}</span>
-                      </div>
-                      <div className={`p-3 rounded-2xl ${selectedPaymentMethod === method.id ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}>
-                        {method.type === 'cod' ? <Banknote size={20}/> : <Smartphone size={20}/>}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {MONEYHASH_DEFAULT_METHODS.filter(m => settings.moneyHashConfig?.selectedMethods?.[m.id] ?? m.enabled).map(mhMethod => {
+                          const isSelected = selectedPaymentMethod === `moneyhash_${mhMethod.id}`;
+                          return (
+                            <div
+                              key={mhMethod.id}
+                              onClick={() => setSelectedPaymentMethod(`moneyhash_${mhMethod.id}`)}
+                              className={`p-4 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3 relative overflow-hidden ${
+                                isSelected
+                                  ? 'border-purple-400 bg-white/10 text-white ring-2 ring-purple-400/40'
+                                  : 'border-white/10 bg-white/5 text-slate-200 hover:border-purple-300/40 hover:bg-white/10'
+                              }`}
+                            >
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'border-purple-400 bg-purple-500' : 'border-slate-400'}`}>
+                                {isSelected && <div className="w-2 h-2 bg-white rounded-full" />}
+                              </div>
+                              <div className="flex-1 text-right">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-lg">{mhMethod.icon}</span>
+                                  <span className="font-black text-xs block leading-tight">{mhMethod.name}</span>
+                                </div>
+                                <span className="text-[10px] text-purple-200/80 font-bold block mt-0.5">{mhMethod.description}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* Manual & COD Methods */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {activePaymentMethods.map(method => (
+                      <div key={method.id} onClick={() => setSelectedPaymentMethod(method.id)} className={`p-6 rounded-[2rem] border-2 cursor-pointer transition-all flex items-center gap-5 relative overflow-hidden ${selectedPaymentMethod === method.id ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-200 bg-white hover:border-slate-200'}`}>
+                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${selectedPaymentMethod === method.id ? 'border-indigo-600' : 'border-slate-300'}`}>
+                          {selectedPaymentMethod === method.id && <motion.div layoutId="radio" className="w-3 h-3 bg-indigo-600 rounded-full" />}
+                        </div>
+                        <div className="flex-1 text-right">
+                          <span className={`font-black block text-base mb-1 ${selectedPaymentMethod === method.id ? 'text-indigo-600' : 'text-slate-700'}`}>{method.name}</span>
+                          <span className="text-[10px] text-slate-400 font-bold block">{method.type === 'cod' ? 'ادفع عند الاستلام' : 'تحويل بنكي / محفظة'}</span>
+                        </div>
+                        <div className={`p-3 rounded-2xl ${selectedPaymentMethod === method.id ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400'}`}>
+                          {method.type === 'cod' ? <Banknote size={20}/> : <Smartphone size={20}/>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <AnimatePresence>

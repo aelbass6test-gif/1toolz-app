@@ -1,6 +1,14 @@
 node_modules/
 dist/
+dist-test/
 cloudflare-worker/dist/
 .env
 .env.*
 !.env.example
+.dev.env.json
+.dev.pid
+cloud_sql_proxy
+captured.json
+captured-products.json
+mail-config-cache.json
+*.log

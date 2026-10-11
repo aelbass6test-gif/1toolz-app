@@ -1,52 +1,582 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { Settings, Store, Product, StoreCustomization, OrderItem, Review } from '../types';
-import { ShoppingCart, Package, Search, Facebook, Instagram, Twitter, MessageCircle, ArrowDown, CheckCircle, Star, X, LayoutGrid, ChevronLeft, ChevronRight, ArrowRight, ArrowLeft, BrainCircuit, RefreshCw, Wand2, Info, ShieldCheck, Truck, RotateCcw, CreditCard, Heart, Store as StoreIcon, Phone, Mail, LayoutDashboard, Palette, ExternalLink, Eye } from 'lucide-react';
+import { Settings, Store, Product, StoreCustomization, OrderItem, Review, Order, CustomerProfile } from '../types';
+import { 
+  ShoppingCart, 
+  Package, 
+  Search, 
+  Facebook, 
+  Instagram, 
+  Twitter, 
+  MessageCircle, 
+  ArrowDown, 
+  CheckCircle, 
+  Star, 
+  X, 
+  LayoutGrid, 
+  ChevronLeft, 
+  ChevronRight, 
+  ArrowRight, 
+  ArrowLeft, 
+  RefreshCw, 
+  Info, 
+  ShieldCheck, 
+  Truck, 
+  RotateCcw, 
+  CreditCard, 
+  Heart, 
+  Store as StoreIcon, 
+  Phone, 
+  Mail, 
+  LayoutDashboard, 
+  Palette, 
+  ExternalLink, 
+  Eye, 
+  User, 
+  Zap, 
+  Sparkles,
+  ShoppingBag,
+  SlidersHorizontal
+} from 'lucide-react';
 import CartSidebar from './CartSidebar';
-import { searchProductsWithAI } from '../services/geminiService';
 import { SmartUpdatesWidget } from './SmartUpdatesWidget';
-import { motion, AnimatePresence } from 'motion/react'; interface StorefrontPageProps { settings: Settings; setSettings: React.Dispatch<React.SetStateAction<Settings>>; activeStore: Store | undefined; cart: OrderItem[]; onAddToCart: (product: Product) => void; onUpdateCartQuantity: (productId: string, quantity: number) => void; onRemoveFromCart: (productId: string) => void;
-} const ProductReviewDisplay = ({ reviews }: { reviews: Review[] }) => { if (reviews.length === 0) return ( <div className="py-12 text-center bg-slate-50 rounded-[2rem] border border-dashed border-slate-200 "> <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm"> <MessageCircle className="text-slate-300" size={32} /> </div> <h4 className="font-black text-slate-800 mb-1">لا توجد تقييمات حتى الآن</h4> <p className="text-slate-500 text-sm max-w-[200px] mx-auto">كن أول من يشارك تجربته مع هذا المنتج الرائع!</p> </div> ); return ( <div className="space-y-6"> {reviews.map((review) => ( <div key={review.id} className="group p-6 bg-white rounded-[2rem] border border-slate-200 shadow-sm transition-all hover:shadow-xl hover:border-slate-200 "> <div className="flex justify-between items-start mb-4"> <div className="flex items-center gap-4"> <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-indigo-200 "> {review.customerName.charAt(0)} </div> <div className="text-right"> <h4 className="font-black text-base ">{review.customerName}</h4> <div className="flex text-amber-500 mt-1"> {[...Array(5)].map((_, i) => ( <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} className={i < review.rating ? "" : "text-slate-200 "} /> ))} </div> </div> </div> <span className="text-[10px] bg-slate-100 px-3 py-1 rounded-full text-slate-400 font-black uppercase tracking-wider"> {new Date(review.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })} </span> </div> <p className="text-sm text-slate-600 leading-relaxed pr-2 border-r-2 border-indigo-100 ">{review.comment}</p> </div> ))} </div> );
-}; const ReviewModal = ({ productId, productName, onClose, onSubmit }: { productId: string, productName: string, onClose: () => void, onSubmit: (review: Omit<Review, 'id' | 'status' | 'date'>) => void }) => { const [name, setName] = useState(''); const [comment, setComment] = useState(''); const [rating, setRating] = useState(5); const [isSubmitting, setIsSubmitting] = useState(false); const handleSubmit = async (e: React.FormEvent) => { e.preventDefault(); setIsSubmitting(true); await new Promise(r => setTimeout(r, 600)); onSubmit({ productId, customerName: name, comment, rating }); onClose(); setIsSubmitting(false); }; return ( <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl" onClick={onClose} > <motion.div initial={{ scale: 0.9, opacity: 0, y: 30 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 30 }} className="bg-white w-full max-w-xl rounded-[3rem] p-8 sm:p-12 text-right shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] relative overflow-hidden" onClick={e => e.stopPropagation()} > <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-400 to-amber-600" /> <div className="flex justify-between items-start mb-10"> <button onClick={onClose} className="p-3 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors"> <X className="text-slate-400" size={24} /> </button> <div className="text-right"> <h3 className="font-black text-3xl text-slate-900 mb-2 leading-none">ضع بصمتك</h3> <p className="text-sm text-slate-500 font-bold">للمنتج: {productName}</p> </div> </div> <form onSubmit={handleSubmit} className="space-y-8"> <div className="flex flex-col items-center justify-center gap-4 py-8 bg-slate-50 rounded-[2.5rem] border border-slate-200 "> <div className="flex gap-3"> {[1, 2, 3, 4, 5].map((star) => ( <button key={star} type="button" onMouseEnter={() => setRating(star)} onClick={() => setRating(star)} className="focus:outline-none transition-all hover:scale-125" > <Star size={48} fill={star <= rating ? "#f59e0b" : "none"} className={star <= rating ? "text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]" : "text-slate-200 "} /> </button> ))} </div> <span className="text-lg font-black text-amber-600 tracking-tight"> {rating === 5 ? 'تجربة أسطورية! ⭐⭐⭐⭐⭐' : rating === 4 ? 'راضٍ جداً عن المنتج 😊' : rating === 3 ? 'منتج جيد وعملي ✅' : rating === 2 ? 'هناك ملاحظات بسيطة ⚠️' : 'لم يعجبني للأسف ❌'} </span> </div> <div className="space-y-6"> <div className="relative group"> <input type="text" required className="w-full pt-8 pb-4 px-6 bg-slate-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white outline-none rounded-3xl transition-all font-black text-slate-900 peer" value={name} onChange={e => setName(e.target.value)} /> <label className="absolute right-6 top-4 text-[10px] font-black uppercase tracking-widest text-slate-400 group-focus-within:text-indigo-600 transition-colors pointer-events-none">الاسم الكامل</label> </div> <div className="relative group"> <textarea required className="w-full pt-8 pb-4 px-6 bg-slate-50 border-2 border-transparent focus:border-indigo-600 focus:bg-white outline-none rounded-3xl transition-all font-bold text-slate-900 h-40 resize-none" value={comment} onChange={e => setComment(e.target.value)} /> <label className="absolute right-6 top-4 text-[10px] font-black uppercase tracking-widest text-slate-400 group-focus-within:text-indigo-600 transition-colors pointer-events-none">رأيك بالتفصيل</label> </div> </div> <button type="submit" disabled={isSubmitting} className="w-full py-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-indigo-500/30 flex items-center justify-center gap-3 transform active:scale-95 transition-all disabled:opacity-70" > {isSubmitting ? ( <RefreshCw size={24} className="animate-spin" /> ) : ( <> <CheckCircle size={24} /> <span>اعتمـاد التقييـم</span> </> )} </button> <div className="flex items-center justify-center gap-2 text-slate-400 text-[10px] font-black uppercase"> <ShieldCheck size={14}/> <span>خصوصيتك محمية. يتم مراجعة التقييم بشرياً.</span> </div> </form> </motion.div> </motion.div> );
-}; const ProductCard: React.FC<{ product: Product, customization: StoreCustomization, onAddToCart: (product: Product) => void, onReview: (id: string, name: string) => void, reviews: Review[], onViewDetails: () => void }> = ({ product, customization, onAddToCart, onReview, reviews, onViewDetails }) => { const [isAdded, setIsAdded] = useState(false); const productReviews = reviews.filter(r => r.productId === product.id && r.status === 'approved'); const averageRating = productReviews.length > 0 ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length : 0; const handleAddToCartClick = (e: React.MouseEvent) => { e.stopPropagation(); onAddToCart(product); setIsAdded(true); setTimeout(() => setIsAdded(false), 2000); }; const handleReviewClick = (e: React.MouseEvent) => { e.stopPropagation(); onReview(product.id, product.name); }; const primaryColor = customization.primaryColor || '#6366f1'; const cardStyle = customization.cardStyle || 'default'; const cardClasses = { default: "bg-white rounded-[2.5rem] border border-slate-200 shadow-sm hover:shadow-2xl", elevated: "bg-white rounded-[1.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] hover:shadow-[0_30px_70px_rgba(0,0,0,0.2)]", outlined: "bg-transparent rounded-none border-2 border-slate-200 hover:border-indigo-600" }; return ( <motion.div whileHover={{ y: -12 }} className={`group relative overflow-hidden flex flex-col cursor-pointer transition-all duration-700 ${cardClasses[cardStyle as keyof typeof cardClasses]}`} onClick={onViewDetails} > <div className="relative aspect-[4/5] overflow-hidden bg-slate-50 p-4"> <motion.img src={product.thumbnail || `https://picsum.photos/600/750?random=${product.id}`} alt={product.name} className="w-full h-full object-cover rounded-[2rem] transition-transform duration-1000 group-hover:scale-115" loading="lazy" referrerPolicy="no-referrer" /> <div className="absolute top-8 right-8 flex flex-col gap-3"> {productReviews.length > 0 && ( <div className="bg-white/95 backdrop-blur-xl px-4 py-2 rounded-2xl flex items-center gap-2 shadow-2xl border border-white/20"> <Star size={14} className="text-amber-500" fill="currentColor"/> <span className="text-xs font-black">{averageRating.toFixed(1)}</span> </div> )} </div> <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" /> <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-[80%] translate-y-6 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500"> <button onClick={handleAddToCartClick} className="w-full py-5 bg-white text-slate-900 rounded-[1.5rem] font-black text-xs shadow-[0_20px_50px_rgba(0,0,0,0.3)] flex items-center justify-center gap-2 hover:bg-slate-900 hover:text-white active:scale-95 transition-all" > {isAdded ? <CheckCircle size={20} className="text-emerald-500" /> : <ShoppingCart size={20} />} <span>{isAdded ? 'تمت الإضافة' : 'إضافة للسلة'}</span> </button> </div> </div> <div className="p-8 flex flex-col flex-grow text-right"> <div className="flex justify-between items-center mb-3"> <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600 "> {product.collectionId ? 'وصل حديثاً ✨' : 'الأكثر طلباً 🔥'} </p> <button onClick={handleReviewClick} className="p-2 text-slate-300 hover:text-amber-500 transition-colors rounded-full"> <MessageCircle size={14} /> </button> </div> <h3 className="font-black text-xl mb-4 line-clamp-2 leading-tight text-slate-900 h-14"> {product.name} </h3> <div className="flex items-center gap-3 mt-auto"> <div className="flex items-baseline gap-1.5 order-last"> <span className="text-3xl font-black" style={{ color: primaryColor }}> {product.price.toLocaleString()} </span> <span className="text-xs font-black text-slate-400 uppercase">ج.م</span> </div> <div className="h-px flex-grow bg-slate-100 " /> </div> </div> </motion.div> );
-}; const Header: React.FC<{ customization: StoreCustomization, activeStore: Store | undefined, cartCount: number, onOpenCart: () => void }> = ({ customization, activeStore, cartCount, onOpenCart }) => { const headerStyle = customization.headerStyle || 'floating'; const primaryColor = customization.primaryColor || '#6366f1'; const [isMenuOpen, setIsMenuOpen] = useState(false); const containerClasses = { floating: "sticky top-4 container mx-auto px-4 z-[60]", classic: "sticky top-0 w-full z-[60] bg-white/95 border-b border-slate-200 ", minimal: "sticky top-0 w-full z-[60] bg-transparent backdrop-blur-md px-6", luxury: "sticky top-0 w-full z-[60] bg-slate-950 border-b border-white/5 py-2" }; const innerClasses = { floating: "bg-white/80 backdrop-blur-3xl border border-white/40 rounded-[2rem] sm:rounded-[2.5rem] shadow-xl px-4 sm:px-8 h-20 sm:h-24 flex items-center justify-between gap-4 flex-row-reverse", classic: "container mx-auto h-20 flex items-center justify-between px-6 flex-row-reverse", minimal: "container mx-auto h-24 flex items-center justify-between px-4 flex-row-reverse", luxury: "container mx-auto h-28 flex items-center justify-between px-8 border-y border-white/10 flex-row-reverse" }; return ( <motion.header initial={{ y: -100 }} animate={{ y: 0 }} className={containerClasses[headerStyle as keyof typeof containerClasses]} > <div className={innerClasses[headerStyle as keyof typeof innerClasses]}> <div className="flex items-center gap-2 sm:gap-4"> <button onClick={onOpenCart} className="group relative p-2.5 sm:p-4 bg-slate-900 text-white rounded-xl sm:rounded-2xl shadow-xl transition-all active:scale-95"> <ShoppingCart size={22} strokeWidth={2.5} /> {cartCount > 0 && ( <span className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-indigo-600 text-white text-[8px] sm:text-[11px] font-black w-4 h-4 sm:w-7 sm:h-7 rounded-full flex items-center justify-center border-2 sm:border-4 border-white "> {cartCount} </span> )} </button> <button onClick={() => setIsMenuOpen(true)} className="lg:hidden p-2.5 bg-slate-100 text-slate-900 rounded-xl"> <LayoutGrid size={18} /> </button> <div className="hidden sm:flex flex-col text-right"> <span className="text-[9px] font-black uppercase text-slate-400">السلة</span> <span className="text-xs font-black " style={{ color: customization.textColor }}>{cartCount > 0 ? 'متاحة' : 'فارغة'}</span> </div> </div> <div className="hidden lg:flex items-center gap-10 font-black text-[11px] uppercase tracking-widest"> {customization.navigationLinks?.map((link, idx) => ( <a key={idx} href={link.url} className="text-slate-500 hover:text-slate-950 transition-colors"> {link.label} </a> ))} </div> <a href="/" className="flex items-center gap-2 sm:gap-3 group"> <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center text-white transition-transform" style={{ backgroundColor: primaryColor }}> <StoreIcon size={24} /> </div> {customization.logoUrl ? ( <img src={customization.logoUrl} alt="Logo" className="h-7 sm:h-10 w-auto object-contain" referrerPolicy="no-referrer" /> ) : ( <h1 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tighter truncate max-w-[120px] sm:max-w-none"> {activeStore?.name || 'متجري'} </h1> )} </a> </div> <AnimatePresence> {isMenuOpen && ( <> <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMenuOpen(false)} className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[100]" /> <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="fixed top-0 right-0 h-full w-full max-w-xs bg-white z-[110] p-8 flex flex-col text-right" > <div className="flex justify-between items-center mb-12"> <button onClick={() => setIsMenuOpen(false)} className="p-2 bg-slate-100 rounded-xl text-slate-400"> <X size={24} /> </button> <span className="font-black text-xs uppercase text-slate-400 tracking-widest">القائمة</span> </div> <nav className="flex flex-col gap-6"> {customization.navigationLinks?.map((link, idx) => ( <a key={idx} href={link.url} className="text-2xl font-black text-slate-900 hover:text-indigo-600 transition-colors"> {link.label} </a> ))} {(!customization.navigationLinks || customization.navigationLinks.length === 0) && ( <p className="text-slate-400 font-bold">لا توجد روابط في القائمة</p> )} </nav> </motion.div> </> )} </AnimatePresence> </motion.header> );
-}; const HeroSection: React.FC<{ customization: StoreCustomization }> = ({ customization }) => { const banners = customization.banners || []; const [currentIndex, setCurrentIndex] = useState(0); if (banners.length === 0) return null; const banner = banners[currentIndex]; return ( <div className="relative h-[80vh] sm:h-[90vh] w-full bg-slate-950 overflow-hidden"> <AnimatePresence mode="wait"> <motion.div key={currentIndex} initial={{ opacity: 0, scale: 1.1 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} transition={{ duration: 1.2 }} className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${banner.imageUrl})` }} /> </AnimatePresence> <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" /> <div className="absolute inset-0 bg-black/40" /> <div className="relative z-10 h-full container mx-auto px-6 flex flex-col items-center justify-center text-center"> <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} key={`content-${currentIndex}`} className="max-w-4xl" > <h2 className="text-4xl sm:text-6xl md:text-8xl text-white font-black leading-tight mb-8 tracking-tighter"> {banner.title} </h2> <p className="text-lg sm:text-xl md:text-2xl text-slate-300 max-w-2xl mx-auto font-medium mb-12"> {banner.subtitle} </p> <div className="flex justify-center"> <motion.a whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} href={banner.link || "#products-section"} className="px-10 py-5 sm:px-14 sm:py-6 bg-white text-slate-950 font-black rounded-full text-lg sm:text-xl shadow-2xl flex items-center gap-4 transition-all" > <span>تسوق الآن</span> <ArrowRight size={24} /> </motion.a> </div> </motion.div> </div> </div> );
-}; const StorefrontPage: React.FC<StorefrontPageProps> = ({ settings, setSettings, activeStore, cart, onAddToCart, onUpdateCartQuantity, onRemoveFromCart }) => { 
+import { motion, AnimatePresence } from 'motion/react';
+import { CustomerAuthModal, StoreCustomer } from './storefront/CustomerAuthModal';
+import { generateSlug, getProductUrl } from '../utils/slugUtils';
+
+interface StorefrontPageProps {
+  settings: Settings;
+  setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  activeStore: Store | undefined;
+  cart: OrderItem[];
+  orders?: Order[];
+  customers?: CustomerProfile[];
+  onAddToCart: (product: Product) => void;
+  onUpdateCartQuantity: (productId: string, quantity: number) => void;
+  onRemoveFromCart: (productId: string) => void;
+}
+
+const ProductReviewDisplay = ({ reviews }: { reviews: Review[] }) => {
+  if (reviews.length === 0) {
+    return (
+      <div className="py-12 text-center bg-slate-50 rounded-[2rem] border border-dashed border-slate-200">
+        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+          <MessageCircle className="text-slate-300" size={32} />
+        </div>
+        <h4 className="font-black text-slate-800 mb-1">لا توجد تقييمات حتى الآن</h4>
+        <p className="text-slate-500 text-sm max-w-[200px] mx-auto">كن أول من يشارك تجربته مع هذا المنتج الرائع!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {reviews.map((review) => (
+        <div 
+          key={review.id} 
+          className="group p-6 bg-white rounded-[2rem] border border-slate-200 shadow-sm transition-all hover:shadow-xl"
+        >
+          <div className="flex justify-between items-start mb-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-200">
+                {review.customerName.charAt(0)}
+              </div>
+              <div className="text-right">
+                <h4 className="font-black text-base">{review.customerName}</h4>
+                <div className="flex text-amber-500 mt-1">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} size={14} fill={i < review.rating ? "currentColor" : "none"} className={i < review.rating ? "" : "text-slate-200"} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <span className="text-[10px] bg-slate-100 px-3 py-1 rounded-full text-slate-400 font-black uppercase tracking-wider">
+              {new Date(review.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' })}
+            </span>
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed pr-2 border-r-2 border-emerald-100">{review.comment}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ReviewModal = ({ 
+  productId, 
+  productName, 
+  onClose, 
+  onSubmit 
+}: { 
+  productId: string; 
+  productName: string; 
+  onClose: () => void; 
+  onSubmit: (review: Omit<Review, 'id' | 'status' | 'date'>) => void; 
+}) => {
+  const [name, setName] = useState('');
+  const [comment, setComment] = useState('');
+  const [rating, setRating] = useState(5);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    await new Promise(r => setTimeout(r, 600));
+    onSubmit({ productId, customerName: name, comment, rating });
+    onClose();
+    setIsSubmitting(false);
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl" 
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0, y: 30 }} 
+        animate={{ scale: 1, opacity: 1, y: 0 }} 
+        exit={{ scale: 0.9, opacity: 0, y: 30 }} 
+        className="bg-white w-full max-w-xl rounded-[3rem] p-8 sm:p-12 text-right shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] relative overflow-hidden" 
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-400 to-amber-600" />
+        <div className="flex justify-between items-start mb-10">
+          <button onClick={onClose} className="p-3 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors cursor-pointer">
+            <X className="text-slate-400" size={24} />
+          </button>
+          <div className="text-right">
+            <h3 className="font-black text-3xl text-slate-900 mb-2 leading-none">ضع رأيك في المنتج</h3>
+            <p className="text-sm text-slate-500 font-bold">{productName}</p>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="flex flex-col items-center justify-center gap-4 py-8 bg-slate-50 rounded-[2.5rem] border border-slate-200">
+            <div className="flex gap-3">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button 
+                  key={star} 
+                  type="button" 
+                  onMouseEnter={() => setRating(star)} 
+                  onClick={() => setRating(star)} 
+                  className="focus:outline-none transition-all hover:scale-125 cursor-pointer"
+                >
+                  <Star size={48} fill={star <= rating ? "#f59e0b" : "none"} className={star <= rating ? "text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]" : "text-slate-200"} />
+                </button>
+              ))}
+            </div>
+            <span className="text-lg font-black text-amber-600 tracking-tight">
+              {rating === 5 ? 'تجربة ممتازة! ⭐⭐⭐⭐⭐' : rating === 4 ? 'راضٍ جداً عن المنتج 😊' : rating === 3 ? 'منتج جيد وعملي ✅' : rating === 2 ? 'هناك ملاحظات بسيطة ⚠️' : 'لم يعجبني للأسف ❌'}
+            </span>
+          </div>
+
+          <div className="space-y-6">
+            <div className="relative group">
+              <input 
+                type="text" 
+                required 
+                className="w-full pt-8 pb-4 px-6 bg-slate-50 border-2 border-transparent focus:border-emerald-600 focus:bg-white outline-none rounded-3xl transition-all font-black text-slate-900" 
+                value={name} 
+                onChange={e => setName(e.target.value)} 
+                placeholder="اسمك الكريم"
+              />
+            </div>
+            <div className="relative group">
+              <textarea 
+                required 
+                className="w-full pt-8 pb-4 px-6 bg-slate-50 border-2 border-transparent focus:border-emerald-600 focus:bg-white outline-none rounded-3xl transition-all font-bold text-slate-900 h-36 resize-none" 
+                value={comment} 
+                onChange={e => setComment(e.target.value)} 
+                placeholder="اكتب تفاصيل تجربتك مع المنتج..."
+              />
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={isSubmitting} 
+            className="w-full py-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-emerald-500/30 flex items-center justify-center gap-3 transform active:scale-95 transition-all disabled:opacity-70 cursor-pointer"
+          >
+            {isSubmitting ? <RefreshCw size={22} className="animate-spin" /> : <><CheckCircle size={22} /> <span>اعتماد التقييم</span></>}
+          </button>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+};
+
+const ProductCard: React.FC<{ 
+  product: Product; 
+  customization: StoreCustomization; 
+  activeStoreId?: string;
+  onAddToCart: (product: Product) => void; 
+  onBuyNow: (product: Product) => void;
+  onReview: (id: string, name: string) => void; 
+  reviews: Review[]; 
+  onQuickView: () => void; 
+}> = ({ 
+  product, 
+  customization, 
+  activeStoreId,
+  onAddToCart, 
+  onBuyNow,
+  onReview, 
+  reviews, 
+  onQuickView 
+}) => {
+  const navigate = useNavigate();
+  const [isAdded, setIsAdded] = useState(false);
+  const productReviews = reviews.filter(r => r.productId === product.id && r.status === 'approved');
+  const averageRating = productReviews.length > 0 
+    ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length 
+    : 5;
+
+  const productUrl = getProductUrl(product, activeStoreId);
+
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Navigate to full product page
+    navigate(productUrl);
+  };
+
+  const handleAddToCartClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onAddToCart(product);
+    setIsAdded(true);
+    setTimeout(() => setIsAdded(false), 2000);
+  };
+
+  const handleBuyNowClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onBuyNow(product);
+  };
+
+  const handleQuickViewClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onQuickView();
+  };
+
+  const primaryColor = customization.primaryColor || '#059669';
+
+  return (
+    <motion.div 
+      whileHover={{ y: -8 }} 
+      className="group relative overflow-hidden flex flex-col bg-white rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer"
+      onClick={handleCardClick}
+    >
+      {/* Product Image Box */}
+      <div className="relative aspect-[4/4] overflow-hidden bg-slate-50 p-3">
+        <img 
+          src={product.thumbnail || `https://picsum.photos/600/600?random=${product.id}`} 
+          alt={product.name} 
+          className="w-full h-full object-cover rounded-2xl transition-transform duration-700 group-hover:scale-105" 
+          loading="lazy" 
+          referrerPolicy="no-referrer" 
+        />
+        
+        {/* Rating badge */}
+        <div className="absolute top-5 right-5">
+          <div className="bg-white/95 backdrop-blur-md px-3 py-1 rounded-xl flex items-center gap-1.5 shadow-md border border-slate-100 text-xs font-black">
+            <Star size={13} className="text-amber-500 fill-amber-500"/>
+            <span>{averageRating.toFixed(1)}</span>
+          </div>
+        </div>
+
+        {/* Quick View Button on Hover */}
+        <button
+          type="button"
+          onClick={handleQuickViewClick}
+          className="absolute top-5 left-5 p-2 rounded-xl bg-white/90 hover:bg-white text-slate-700 shadow-md opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+          title="معاينة سريعة"
+        >
+          <Eye size={15} />
+        </button>
+      </div>
+
+      {/* Product Info */}
+      <div className="p-5 flex flex-col flex-grow text-right space-y-3">
+        <h3 className="font-black text-base line-clamp-2 text-slate-900 h-11 leading-snug hover:text-emerald-700 transition-colors">
+          {product.name}
+        </h3>
+
+        <div className="flex items-baseline justify-between pt-1">
+          <div className="flex items-baseline gap-1">
+            <span className="text-2xl font-black text-emerald-700 dark:text-emerald-400 font-mono">
+              {(product.price ?? 0).toLocaleString()}
+            </span>
+            <span className="text-xs font-bold text-slate-400">ج.م</span>
+          </div>
+          {product.category && (
+            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg">
+              {product.category}
+            </span>
+          )}
+        </div>
+
+        {/* Action Buttons: Add to Cart + Buy Now */}
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={handleAddToCartClick}
+            className={`py-2.5 px-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
+              isAdded 
+                ? 'bg-emerald-600 text-white shadow-sm' 
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+            }`}
+          >
+            {isAdded ? <CheckCircle size={15} /> : <ShoppingCart size={15} />}
+            <span>{isAdded ? 'تمت الإضافة' : 'أضف للسلة'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleBuyNowClick}
+            className="py-2.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95 cursor-pointer"
+            style={{ backgroundColor: primaryColor }}
+          >
+            <Zap size={14} className="text-amber-300" />
+            <span>شراء فوري</span>
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+const Header: React.FC<{ 
+  customization: StoreCustomization; 
+  activeStore: Store | undefined; 
+  cartCount: number; 
+  onOpenCart: () => void;
+  onOpenAccount: () => void;
+  customerSession: StoreCustomer | null;
+}> = ({ 
+  customization, 
+  activeStore, 
+  cartCount, 
+  onOpenCart,
+  onOpenAccount,
+  customerSession 
+}) => {
+  const primaryColor = customization.primaryColor || '#059669';
+
+  return (
+    <header className="sticky top-0 w-full z-[80] bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 shadow-xs">
+      <div className="container mx-auto px-4 sm:px-6 h-20 flex items-center justify-between gap-4">
+        {/* Left: Cart & Customer Profile */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Cart button */}
+          <button 
+            type="button"
+            onClick={onOpenCart} 
+            className="group relative px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl shadow-md shadow-emerald-600/20 flex items-center gap-2.5 transition-all active:scale-95 cursor-pointer"
+            style={{ backgroundColor: primaryColor }}
+            title="فتح سلة المشتريات"
+          >
+            <ShoppingCart size={19} />
+            <span className="text-xs font-black hidden sm:inline">السلة</span>
+            {cartCount > 0 && (
+              <span className="bg-white text-emerald-800 text-xs font-black px-2 py-0.5 rounded-full shadow-xs">
+                {cartCount}
+              </span>
+            )}
+          </button>
+
+          {/* Customer Profile / Sign In */}
+          <button
+            type="button"
+            onClick={onOpenAccount}
+            className="px-3.5 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white rounded-2xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer"
+            title="حسابي ومتابعة الطلبات"
+          >
+            <User size={17} className="text-slate-500" />
+            <span className="hidden sm:inline">
+              {customerSession ? customerSession.name.split(' ')[0] : 'تسجيل الدخول / حسابي'}
+            </span>
+          </button>
+        </div>
+
+        {/* Center: Navigation Links */}
+        <div className="hidden md:flex items-center gap-8 font-black text-xs text-slate-600 dark:text-slate-300">
+          <a href="#products-section" className="hover:text-emerald-600 transition-colors">المنتجات</a>
+          <a href="#about-us-section" className="hover:text-emerald-600 transition-colors">من نحن</a>
+          <Link to="/track-order" className="hover:text-emerald-600 transition-colors">تتبع شحنتك 🚚</Link>
+        </div>
+
+        {/* Right: Store Brand & Logo */}
+        <Link to="/store" className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-md" style={{ backgroundColor: primaryColor }}>
+            <StoreIcon size={22} />
+          </div>
+          <div className="text-right">
+            <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+              {activeStore?.name || 'متجرنا الإلكتروني'}
+            </h1>
+            <p className="text-[10px] text-slate-400 font-bold hidden sm:block">تجربة تسوق آمنة وسريعة</p>
+          </div>
+        </Link>
+      </div>
+    </header>
+  );
+};
+
+const HeroSection: React.FC<{ customization: StoreCustomization }> = ({ customization }) => {
+  const banners = customization.banners || [];
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  if (banners.length === 0) {
+    return (
+      <div className="relative py-20 sm:py-28 bg-gradient-to-b from-emerald-950 via-slate-900 to-slate-950 text-white text-center px-4 overflow-hidden">
+        <div className="max-w-3xl mx-auto space-y-6 relative z-10">
+          <span className="px-4 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase tracking-wider inline-block">
+            ✨ مرحباً بك في متجرنا
+          </span>
+          <h2 className="text-3xl sm:text-5xl md:text-6xl font-black tracking-tight leading-tight">
+            أفضل المنتجات بأعلى جودة وأفضل الأسعار!
+          </h2>
+          <p className="text-sm sm:text-lg text-slate-300 font-medium max-w-xl mx-auto">
+            تصفح تشكيلتنا المميزة من المنتجات مع شحن سريع وضمان شامل ومعاينة قبل الاستلام.
+          </p>
+          <div className="pt-4">
+            <a 
+              href="#products-section" 
+              className="inline-flex items-center gap-2 px-8 py-4 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black rounded-2xl text-sm sm:text-base shadow-xl shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95"
+            >
+              <span>تسوق الآن</span>
+              <ArrowDown size={18} />
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const banner = banners[currentIndex];
+  return (
+    <div className="relative h-[65vh] sm:h-[75vh] w-full bg-slate-950 overflow-hidden">
+      <AnimatePresence mode="wait">
+        <motion.div 
+          key={currentIndex} 
+          initial={{ opacity: 0, scale: 1.05 }} 
+          animate={{ opacity: 1, scale: 1 }} 
+          exit={{ opacity: 0 }} 
+          transition={{ duration: 0.8 }} 
+          className="absolute inset-0 bg-cover bg-center" 
+          style={{ backgroundImage: `url(${banner.imageUrl})` }} 
+        />
+      </AnimatePresence>
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-black/50" />
+      <div className="relative z-10 h-full container mx-auto px-6 flex flex-col items-center justify-center text-center">
+        <div className="max-w-3xl space-y-6">
+          <h2 className="text-3xl sm:text-5xl md:text-6xl text-white font-black leading-tight tracking-tight">
+            {banner.title}
+          </h2>
+          <p className="text-sm sm:text-lg text-slate-200 font-medium max-w-xl mx-auto">
+            {banner.subtitle}
+          </p>
+          <div className="pt-2">
+            <a 
+              href={banner.link || "#products-section"} 
+              className="inline-flex items-center gap-3 px-8 py-4 bg-white text-slate-950 font-black rounded-2xl text-sm sm:text-base shadow-2xl transition-all hover:scale-105 active:scale-95"
+            >
+              <span>تصفح العروض</span>
+              <ArrowRight size={18} />
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const StorefrontPage: React.FC<StorefrontPageProps> = ({ 
+  settings, 
+  setSettings, 
+  activeStore, 
+  cart, 
+  orders = [],
+  customers = [],
+  onAddToCart, 
+  onUpdateCartQuantity, 
+  onRemoveFromCart 
+}) => { 
   const navigate = useNavigate();
   const location = useLocation();
   const [isCartOpen, setIsCartOpen] = useState(false); 
   const [searchTerm, setSearchTerm] = useState(''); 
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [reviewModalOpen, setReviewModalOpen] = useState(false); 
   const [selectedProductForReview, setSelectedProductForReview] = useState<{id: string, name: string} | null>(null); 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null); 
+  const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
+
+  // Active logged-in customer session
+  const [customerSession, setCustomerSession] = useState<StoreCustomer | null>(() => {
+    try {
+      const saved = localStorage.getItem('storefront_logged_customer');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const customization = settings.customization; 
   const cartCount = cart.reduce((a, c) => a + c.quantity, 0); 
-  const primaryColor = customization.primaryColor || '#6366f1'; 
+  const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const primaryColor = customization.primaryColor || '#059669'; 
 
   // Check if store owner/merchant previewing
   const isOwnerSession = Boolean(localStorage.getItem('currentUser') || localStorage.getItem('owner_authenticated') || activeStore);
 
+  // Dynamically update browser tab title
+  useEffect(() => {
+    const storeName = activeStore?.name || (settings as any)?.storeName || (activeStore as any)?.settings?.storeName || 'متجري الإلكتروني';
+    document.title = `${storeName} | المتجر الإلكتروني`;
+  }, [activeStore?.name, settings]);
+
   const handleReviewSubmit = (review: Omit<Review, 'id' | 'status' | 'date'>) => { 
     const newReview: Review = { ...review, id: Date.now().toString(), date: new Date().toISOString(), status: 'pending' }; 
     setSettings(prevSettings => ({ ...prevSettings, reviews: [...(prevSettings.reviews || []), newReview] })); 
-    alert("شكراً لك من القلب 🤍! تقييمك قيد المراجعة الفورية وسيظهر للجميع قريباً."); 
+    alert("شكراً لتقييمك الرائع 🤍! تم استلام التقييم وسيظهر في المتجر فوراً."); 
   }; 
+
   const openReviewModal = (productId: string, productName: string) => { 
     setSelectedProductForReview({ id: productId, name: productName }); 
     setReviewModalOpen(true); 
   }; 
+
+  // Fast direct Buy Now flow
+  const handleDirectBuyNow = (product: Product) => {
+    onAddToCart(product);
+    navigate('/checkout');
+  };
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    (settings.products || []).forEach(p => {
+      if (p.category) set.add(p.category);
+    });
+    return Array.from(set);
+  }, [settings.products]);
+
   const filteredProducts = useMemo(() => { 
-    return settings.products.filter(p => { 
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()); 
-      return matchesSearch; 
+    return (settings.products || []).filter(p => { 
+      const matchesSearch = !searchTerm.trim() || p.name.toLowerCase().includes(searchTerm.toLowerCase()); 
+      const matchesCategory = selectedCategory === 'all' || p.category === selectedCategory;
+      return matchesSearch && matchesCategory; 
     }); 
-  }, [settings.products, searchTerm]); 
+  }, [settings.products, searchTerm, selectedCategory]); 
+
   return ( 
-    <div className="min-h-screen flex flex-col selection:bg-indigo-600 selection:text-white antialiased overflow-x-hidden" style={{ backgroundColor: customization.backgroundColor || '#ffffff', color: customization.textColor || '#000000', fontFamily: customization.fontFamily || 'Tajawal, sans-serif' }} > 
+    <div 
+      className="min-h-screen flex flex-col antialiased overflow-x-hidden bg-slate-50 text-slate-900" 
+      dir="rtl"
+      style={{ fontFamily: customization.fontFamily || 'Tajawal, sans-serif' }}
+    > 
+      {/* Merchant Top Bar */}
       {isOwnerSession && (
-        <div className="sticky top-0 z-[120] bg-slate-900/95 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 text-xs border-b border-slate-800 shadow-lg flex items-center justify-between gap-3 font-sans select-none" dir="rtl">
+        <div className="sticky top-0 z-[120] bg-slate-900/95 backdrop-blur-md text-white px-3 sm:px-6 py-2.5 text-xs border-b border-slate-800 shadow-lg flex items-center justify-between gap-3 font-sans select-none">
           <div className="flex items-center gap-2.5">
             <span className="flex h-2.5 w-2.5 relative">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -57,38 +587,372 @@ import { motion, AnimatePresence } from 'motion/react'; interface StorefrontPage
           </div>
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => navigate(activeStore?.id ? `/store/${activeStore.id}/customize-store` : '/customize-store')}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition flex items-center gap-1.5 font-bold cursor-pointer"
-            >
-              <Palette size={13} className="text-purple-400" />
-              <span className="hidden xs:inline">تخصيص المظهر</span>
-            </button>
-            <button 
-              onClick={() => {
-                const previewUrl = window.location.origin + '/store';
-                window.open(previewUrl, '_blank');
-              }}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white transition flex items-center gap-1.5 font-bold cursor-pointer"
-              title="فتح في علامة تبويب جديدة"
-            >
-              <ExternalLink size={13} className="text-indigo-400" />
-              <span className="hidden xs:inline">نافذة جديدة</span>
-            </button>
-            <button 
               onClick={() => navigate(activeStore?.id ? `/store/${activeStore.id}/dashboard` : '/dashboard')}
-              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white transition flex items-center gap-1.5 font-black shadow-md shadow-indigo-600/30 cursor-pointer"
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1.5 font-black shadow-md shadow-emerald-600/30 cursor-pointer"
             >
               <LayoutDashboard size={13} />
-              <span>العودة للوحة التحكم 🔙</span>
+              <span>لوحة التحكم 🔙</span>
             </button>
           </div>
         </div>
       )}
-      <SmartUpdatesWidget primaryColor={primaryColor} /> 
+
+      {/* Announcement Bar */}
       {customization.isAnnouncementBarVisible && customization.announcementBarText && ( 
-        <div className="bg-indigo-600 text-white py-3 text-center text-[10px] sm:text-xs font-black tracking-widest uppercase" style={{ backgroundColor: primaryColor }}> 
+        <div className="bg-emerald-600 text-white py-2.5 text-center text-xs font-black tracking-wider uppercase" style={{ backgroundColor: primaryColor }}> 
           {customization.announcementBarText} 
         </div> 
-      )} <Header customization={customization} activeStore={activeStore} cartCount={cartCount} onOpenCart={() => setIsCartOpen(true)} /> <main className="flex-grow"> {customization.pageSections && customization.pageSections.length > 0 ? ( customization.pageSections.map(section => { if (!section.enabled) return null; if (section.type === 'hero') { return <HeroSection key={section.id} customization={customization} />; } if (section.type === 'products') { return ( <div key={section.id} id="products-section" className="container mx-auto px-6 py-24 text-right"> <h2 className="text-4xl sm:text-5xl font-black mb-16 ">أحدث المنتجات</h2> <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${customization.productColumnsDesktop || 4} gap-8 md:gap-12`}> {filteredProducts.map(product => ( <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={openReviewModal} reviews={settings.reviews || []} onViewDetails={() => setSelectedProduct(product)} /> ))} </div> {filteredProducts.length === 0 && ( <div className="py-20 text-center text-slate-400 font-bold">لا توجد منتجات حالياً.</div> )} </div> ); } if (section.type === 'about_us') { if (!customization.aboutUs?.enabled) return null; return ( <div key={section.id} id="about-us-section" className="container mx-auto px-6 py-20 text-right"> <div className="bg-slate-50 rounded-[3rem] p-8 sm:p-16 border border-slate-200 flex flex-col md:flex-row items-center gap-12"> <div className="flex-1 space-y-6"> <p className="text-indigo-600 font-extrabold text-sm uppercase tracking-widest">{customization.aboutUs?.subtitle}</p> <h2 className="text-4xl sm:text-5xl font-black text-slate-900 leading-tight">{customization.aboutUs?.title}</h2> <p className="text-lg text-slate-500 leading-loose font-medium max-w-2xl">{customization.aboutUs?.content}</p> </div> {customization.aboutUs?.imageUrl && ( <div className="flex-1 w-full relative"> <div className="absolute inset-0 bg-indigo-600 rounded-[2.5rem] transform rotate-3 scale-105 opacity-10 " /> <img src={customization.aboutUs.imageUrl} alt="About Us" className="w-full h-auto aspect-square object-cover rounded-[2.5rem] relative z-10 shadow-2xl" referrerPolicy="no-referrer" /> </div> )} </div> </div> ); } return null; }) ) : ( <> <HeroSection customization={customization} /> <div id="products-section" className="container mx-auto px-6 py-24 text-right"> <h2 className="text-4xl sm:text-5xl font-black mb-16 ">أحدث المنتجات</h2> <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-${customization.productColumnsDesktop || 4} gap-8 md:gap-12`}> {filteredProducts.map(product => ( <ProductCard key={product.id} product={product} customization={customization} onAddToCart={onAddToCart} onReview={openReviewModal} reviews={settings.reviews || []} onViewDetails={() => setSelectedProduct(product)} /> ))} </div> {filteredProducts.length === 0 && ( <div className="py-20 text-center text-slate-400 font-bold">لا توجد منتجات حالياً.</div> )} </div> </> )} </main> <footer className="bg-slate-950 text-white pt-24 pb-12 overflow-hidden relative"> <div className="container mx-auto px-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-16 text-right mb-20 relative z-10"> <div className="lg:col-span-1"> <div className="flex items-center gap-3 mb-8 justify-end"> <h2 className="text-3xl font-black tracking-tighter">{activeStore?.name || 'متجري'}</h2> <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center" style={{ backgroundColor: primaryColor }}> <StoreIcon size={20} /> </div> </div> <p className="text-slate-400 font-medium leading-relaxed mb-10"> {customization.footerText || 'نوفر لك تجربة تسوق فريدة تجمع بين الجودة والأصالة والمعاصرة في متجر واحد متكامل يلبي طموحاتك.'} </p> <div className="flex gap-4 justify-end"> {[<Facebook key="fb"/>, <Instagram key="ig"/>, <Twitter key="tw"/>].map((icon, i) => ( <a key={i} href="#" className="w-12 h-12 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center text-slate-400 hover:bg-white hover:text-slate-950 transition-all"> {React.cloneElement(icon as React.ReactElement<any>, { size: 20 })} </a> ))} </div> </div> {[ { title: "روابط سريعة", links: ["الرئيسية", "المتجر", "من نحن", "الشحن", "اتصل بنا"] }, { title: "قوانين المتجر", links: ["سياسة القابلة", "سياسة الاسترجاع", "الشروط والأحكام", "الخصوصية"] }, { title: "اتصل بنا", links: [customization.contactInfo?.phone || "0123456789", customization.contactInfo?.email || "info@store.com", customization.contactInfo?.address || "القاهرة، مصر"] } ].map((section, idx) => ( <div key={idx}> <h4 className="font-black text-lg mb-8 text-white">{section.title}</h4> <ul className="space-y-4"> {section.links.map((link, i) => ( <li key={i}> <a href="#" className="text-slate-400 hover:text-white transition-colors font-medium text-sm block">{link}</a> </li> ))} </ul> </div> ))} </div> <div className="container mx-auto px-6 pt-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8 text-slate-500 font-black text-[10px] uppercase tracking-widest text-center md:text-right"> <p>© {new Date().getFullYear()} {activeStore?.name || 'Store'}. جميع الحقوق محفوظة.</p> </div> </footer> <CartSidebar isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} onUpdateQuantity={onUpdateCartQuantity} onRemoveItem={onRemoveFromCart} primaryColor={primaryColor} /> <AnimatePresence> {selectedProduct && ( <ProductDetailModal product={selectedProduct} allProducts={settings.products} allReviews={settings.reviews || []} customization={customization} onClose={() => setSelectedProduct(null)} onAddToCart={onAddToCart} onSelectProduct={setSelectedProduct} /> )} {reviewModalOpen && selectedProductForReview && ( <ReviewModal productId={selectedProductForReview.id} productName={selectedProductForReview.name} onClose={() => setReviewModalOpen(false)} onSubmit={handleReviewSubmit} /> )} </AnimatePresence> </div> );
-}; const ProductDetailModal: React.FC<{ product: Product; allProducts: Product[]; allReviews: Review[]; customization: StoreCustomization; onClose: () => void; onAddToCart: (product: Product) => void; onSelectProduct: (product: Product) => void; }> = ({ product, allProducts, allReviews, customization, onClose, onAddToCart, onSelectProduct }) => { const [isAdded, setIsAdded] = useState(false); const [currentImageIndex, setCurrentImageIndex] = useState(0); const images = [product.thumbnail, ...(product.images || [])].filter(Boolean) as string[]; const productReviews = allReviews.filter(r => r.productId === product.id && r.status === 'approved'); const relatedProducts = allProducts.filter(p => p.collectionId === product.collectionId && p.id !== product.id).slice(0, 4); const averageRating = productReviews.length > 0 ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length : 5.0; const handleAddToCartClick = () => { onAddToCart(product); setIsAdded(true); setTimeout(() => setIsAdded(false), 2000); }; return ( <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-3xl p-4 sm:p-12" onClick={onClose} > <motion.div initial={{ scale: 0.9, opacity: 0, y: 50 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.85, opacity: 0, y: 30 }} className="bg-white w-full max-w-7xl h-[95vh] rounded-[3rem] sm:rounded-[4rem] shadow-2xl flex flex-col lg:flex-row overflow-hidden relative" onClick={e => e.stopPropagation()} > <button onClick={onClose} className="absolute top-4 left-4 sm:top-8 sm:left-8 z-20 p-2 sm:p-4 bg-white/95 border border-slate-200 rounded-2xl text-slate-900 shadow-2xl" > <X size={24} /> </button> <div className="w-full lg:w-[60%] bg-slate-50 relative flex flex-col items-center justify-center p-4 sm:p-20 overflow-hidden"> <motion.div key={currentImageIndex} className="relative w-full aspect-square max-w-[600px]"> <img src={images[currentImageIndex] || `https://picsum.photos/800/800?random=${product.id}`} className="w-full h-full object-contain drop-shadow-2xl" referrerPolicy="no-referrer" /> </motion.div> </div> <div className="w-full lg:w-[40%] p-6 sm:p-16 overflow-y-auto bg-white text-right"> <h2 className="text-3xl sm:text-5xl font-black mb-6 text-slate-900 leading-tight">{product.name}</h2> <div className="flex items-baseline gap-3 mb-10"> <span className="text-4xl sm:text-5xl font-black text-indigo-600 "> {product.price.toLocaleString()} </span> <span className="text-xl font-black text-slate-400 uppercase">ج.م</span> </div> <div className="p-6 bg-slate-50 rounded-[2rem] mb-12"> <div className="text-lg text-slate-600 leading-relaxed font-medium" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(product.description || 'لا يوجد وصف حالي للمنتج.') }}></div> </div> <motion.button whileTap={{ scale: 0.95 }} onClick={handleAddToCartClick} className={`w-full py-6 rounded-3xl font-black text-2xl shadow-2xl ${isAdded ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white hover:bg-indigo-700'}`} style={{ backgroundColor: isAdded ? '' : customization.primaryColor }} > {isAdded ? 'تمت الإضافة للسلة' : 'أضف للسلة الآن'} </motion.button> </div> </motion.div> </motion.div> );
-}; export default StorefrontPage;
+      )} 
+
+      {/* Main Header */}
+      <Header 
+        customization={customization} 
+        activeStore={activeStore} 
+        cartCount={cartCount} 
+        onOpenCart={() => setIsCartOpen(true)} 
+        onOpenAccount={() => setIsCustomerAuthOpen(true)}
+        customerSession={customerSession}
+      /> 
+
+      {/* Hero Section */}
+      <HeroSection customization={customization} />
+
+      {/* Main Catalog Workspace */}
+      <main id="products-section" className="flex-grow container mx-auto px-4 sm:px-6 py-12 sm:py-16">
+        {/* Search & Categories Bar */}
+        <div className="mb-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="relative w-full sm:max-w-md">
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              placeholder="ابحث عن منتج بالاسم..."
+              className="w-full p-3.5 pl-10 bg-white rounded-2xl border border-slate-200 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 shadow-xs"
+            />
+            <Search size={16} className="absolute left-3.5 top-3.5 text-slate-400" />
+          </div>
+
+          {/* Category Tabs */}
+          {categories.length > 0 && (
+            <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 no-scrollbar">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory('all')}
+                className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
+                  selectedCategory === 'all'
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                الكل
+              </button>
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
+                    selectedCategory === cat
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Section Heading */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+              أحدث المنتجات والعروض
+            </h2>
+            <p className="text-xs text-slate-500 font-bold mt-1">
+              متاح {filteredProducts.length} منتج جاهز للشحن الفوري
+            </p>
+          </div>
+        </div>
+
+        {/* Products Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+          {filteredProducts.map(product => (
+            <ProductCard 
+              key={product.id} 
+              product={product} 
+              customization={customization} 
+              activeStoreId={activeStore?.id}
+              onAddToCart={onAddToCart} 
+              onBuyNow={handleDirectBuyNow}
+              onReview={openReviewModal} 
+              reviews={settings.reviews || []} 
+              onQuickView={() => setSelectedProduct(product)} 
+            />
+          ))}
+        </div>
+
+        {filteredProducts.length === 0 && (
+          <div className="py-20 text-center bg-white rounded-3xl border border-dashed border-slate-200 p-8 space-y-3">
+            <Package size={40} className="mx-auto text-slate-300" />
+            <h3 className="text-base font-black text-slate-800">لا توجد منتجات مطابقة للبحث</h3>
+            <p className="text-xs text-slate-400">جرب البحث بكلمات أخرى أو اختر قسماً مختلفاً.</p>
+          </div>
+        )}
+
+        {/* About Us Section */}
+        {customization.aboutUs?.enabled && (
+          <section id="about-us-section" className="mt-20 p-8 sm:p-14 bg-white rounded-3xl border border-slate-200 shadow-xs">
+            <div className="max-w-3xl space-y-4">
+              <span className="text-xs font-black text-emerald-600 uppercase tracking-widest block">
+                {customization.aboutUs?.subtitle || 'من نحن'}
+              </span>
+              <h3 className="text-2xl sm:text-4xl font-black text-slate-900 leading-tight">
+                {customization.aboutUs?.title || 'التزامنا بالجودة ورضا العملاء أولاً'}
+              </h3>
+              <p className="text-sm sm:text-base text-slate-600 leading-relaxed font-medium">
+                {customization.aboutUs?.content || 'نسعى دائماً لتقديم أفضل المنتجات بأعلى معايير الجودة وبأفضل الأسعار التنافسية، مع توفير تجربة تسوق سلسة وخدمة عملاء متواصلة على مدار الساعة.'}
+              </p>
+            </div>
+          </section>
+        )}
+      </main>
+
+      {/* Floating Bottom Cart Bar (Sticky when cart has items) */}
+      {cartCount > 0 && (
+        <div className="fixed bottom-5 inset-x-4 max-w-xl mx-auto z-[90] animate-in slide-in-from-bottom-5 duration-300">
+          <div className="bg-slate-900 text-white p-3.5 sm:p-4 rounded-3xl shadow-2xl border border-slate-800 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-slate-950 flex items-center justify-center font-black">
+                <ShoppingCart size={20} />
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-bold text-slate-300">{cartCount} أصناف في السلة</p>
+                <p className="text-base font-black text-emerald-400 font-mono">{cartSubtotal.toLocaleString()} ج.م</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsCartOpen(true)}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 transition-colors cursor-pointer"
+              >
+                عرض السلة
+              </button>
+              <Link
+                to="/checkout"
+                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black shadow-md flex items-center gap-1.5 transition-all active:scale-95"
+              >
+                <span>إتمام الطلب</span>
+                <ArrowLeft size={16} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Store Footer */}
+      <footer className="bg-slate-950 text-white pt-16 pb-12 mt-auto">
+        <div className="container mx-auto px-6 grid grid-cols-1 md:grid-cols-3 gap-10 text-right mb-12">
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white">
+                <StoreIcon size={18} />
+              </div>
+              <h2 className="text-xl font-black">{activeStore?.name || 'متجرنا'}</h2>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
+              {customization.footerText || 'نوفر لك تجربة تسوق فريدة تجمع بين الجودة والسرعة والضمان الشامل.'}
+            </p>
+          </div>
+
+          <div>
+            <h4 className="font-black text-sm text-white mb-4">خدمة العملاء</h4>
+            <ul className="space-y-2 text-xs text-slate-400">
+              <li><Link to="/track-order" className="hover:text-emerald-400 transition-colors">تتبع الشحنة</Link></li>
+              <li><button onClick={() => setIsCustomerAuthOpen(true)} className="hover:text-emerald-400 transition-colors">حسابي والطلبات السابقة</button></li>
+              <li><a href="#about-us-section" className="hover:text-emerald-400 transition-colors">من نحن والضمان</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-black text-sm text-white mb-4">طرق الدفع والتوصيل</h4>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              الدفع عند الاستلام • فودافون كاش • إنستاباي • توصيل سريع لكافة المحافظات 🚚
+            </p>
+          </div>
+        </div>
+
+        <div className="container mx-auto px-6 pt-6 border-t border-slate-800 text-center text-[11px] text-slate-500 font-bold">
+          © {new Date().getFullYear()} {activeStore?.name || 'Store'}. جميع الحقوق محفوظة.
+        </div>
+      </footer>
+
+      {/* Cart Sidebar Drawer */}
+      <CartSidebar 
+        isOpen={isCartOpen} 
+        onClose={() => setIsCartOpen(false)} 
+        cart={cart} 
+        onUpdateQuantity={onUpdateCartQuantity} 
+        onRemoveItem={onRemoveFromCart} 
+        primaryColor={primaryColor} 
+      /> 
+
+      {/* Customer Account & Login Modal */}
+      <CustomerAuthModal
+        isOpen={isCustomerAuthOpen}
+        onClose={() => setIsCustomerAuthOpen(false)}
+        orders={orders}
+        customers={customers}
+        onSaveCustomer={(c) => setCustomerSession(c)}
+        primaryColor={primaryColor}
+        storeName={activeStore?.name || 'متجرنا'}
+      />
+
+      {/* Product Detail Modal */}
+      <AnimatePresence>
+        {selectedProduct && (
+          <ProductDetailModal 
+            product={selectedProduct} 
+            allProducts={settings.products || []} 
+            allReviews={settings.reviews || []} 
+            customization={customization} 
+            onClose={() => setSelectedProduct(null)} 
+            onAddToCart={onAddToCart} 
+            onBuyNow={handleDirectBuyNow}
+            onSelectProduct={setSelectedProduct} 
+          />
+        )}
+        {reviewModalOpen && selectedProductForReview && (
+          <ReviewModal 
+            productId={selectedProductForReview.id} 
+            productName={selectedProductForReview.name} 
+            onClose={() => setReviewModalOpen(false)} 
+            onSubmit={handleReviewSubmit} 
+          />
+        )}
+      </AnimatePresence>
+    </div> 
+  );
+};
+
+const ProductDetailModal: React.FC<{ 
+  product: Product; 
+  allProducts: Product[]; 
+  allReviews: Review[]; 
+  customization: StoreCustomization; 
+  onClose: () => void; 
+  onAddToCart: (product: Product) => void; 
+  onBuyNow: (product: Product) => void;
+  onSelectProduct: (product: Product) => void; 
+}> = ({ 
+  product, 
+  allProducts, 
+  allReviews, 
+  customization, 
+  onClose, 
+  onAddToCart, 
+  onBuyNow,
+  onSelectProduct 
+}) => {
+  const [isAdded, setIsAdded] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const images = [product.thumbnail, ...(product.images || [])].filter(Boolean) as string[];
+  const productReviews = allReviews.filter(r => r.productId === product.id && r.status === 'approved');
+  const averageRating = productReviews.length > 0 
+    ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length 
+    : 5;
+
+  const handleAddToCartClick = () => {
+    onAddToCart(product);
+    setIsAdded(true);
+    setTimeout(() => setIsAdded(false), 2000);
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 sm:p-8" 
+      onClick={onClose}
+      dir="rtl"
+    >
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0, y: 30 }} 
+        animate={{ scale: 1, opacity: 1, y: 0 }} 
+        exit={{ scale: 0.95, opacity: 0, y: 30 }} 
+        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col md:flex-row overflow-hidden relative" 
+        onClick={e => e.stopPropagation()}
+      >
+        <button 
+          onClick={onClose} 
+          className="absolute top-4 left-4 z-20 p-2.5 bg-white/90 border border-slate-200 rounded-xl text-slate-800 shadow-md cursor-pointer hover:bg-slate-100 transition-colors"
+        >
+          <X size={20} />
+        </button>
+
+        {/* Product Image */}
+        <div className="w-full md:w-[45%] bg-slate-50 p-6 flex flex-col items-center justify-center">
+          <img 
+            src={images[currentImageIndex] || `https://picsum.photos/600/600?random=${product.id}`} 
+            alt={product.name}
+            className="w-full max-h-72 object-contain drop-shadow-md rounded-2xl" 
+            referrerPolicy="no-referrer" 
+          />
+        </div>
+
+        {/* Product Details & Actions */}
+        <div className="w-full md:w-[55%] p-6 sm:p-8 overflow-y-auto text-right space-y-6">
+          <div>
+            <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg">
+              {product.category || 'منتج مميز'}
+            </span>
+            <h2 className="text-xl sm:text-2xl font-black mt-2 text-slate-900 leading-snug">
+              {product.name}
+            </h2>
+          </div>
+
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-black text-emerald-700 font-mono">
+              {(product.price ?? 0).toLocaleString()}
+            </span>
+            <span className="text-sm font-black text-slate-400">ج.م</span>
+          </div>
+
+          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+            <h4 className="text-xs font-bold text-slate-400 mb-2">وصف المنتج:</h4>
+            <div 
+              className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium" 
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(product.description || 'منتج أصلي عالي الجودة.') }}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button 
+              onClick={handleAddToCartClick} 
+              className={`py-3.5 px-3 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer ${
+                isAdded ? 'bg-emerald-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+              }`}
+            >
+              {isAdded ? <CheckCircle size={18} /> : <ShoppingCart size={18} />}
+              <span>{isAdded ? 'تمت الإضافة للسلة' : 'أضف للسلة'}</span>
+            </button>
+
+            <button 
+              onClick={() => onBuyNow(product)} 
+              className="py-3.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
+            >
+              <Zap size={18} className="text-amber-300" />
+              <span>شراء الآن</span>
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
+export default StorefrontPage;

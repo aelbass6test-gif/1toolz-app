@@ -610,6 +610,17 @@ CREATE TABLE IF NOT EXISTS partners (
     storeId TEXT,
     name TEXT NOT NULL,
     phone TEXT,
+    email TEXT,
+    passcode TEXT,
+    password TEXT,
+    require_email_otp BOOLEAN DEFAULT false,
+    "requireEmailOtp" BOOLEAN DEFAULT false,
+    is_email_verified BOOLEAN DEFAULT false,
+    "isEmailVerified" BOOLEAN DEFAULT false,
+    email_verified_at TEXT,
+    "emailVerifiedAt" TEXT,
+    last_login_at TEXT,
+    "lastLoginAt" TEXT,
     notes TEXT,
     balance NUMERIC DEFAULT 0,
     profit_ratio NUMERIC DEFAULT 0,
@@ -617,6 +628,7 @@ CREATE TABLE IF NOT EXISTS partners (
     capital NUMERIC DEFAULT 0,
     initial_capital NUMERIC DEFAULT 0,
     initialCapital NUMERIC DEFAULT 0,
+    details JSONB DEFAULT '{}'::jsonb,
     created_at TEXT,
     createdAt TEXT,
     updated_at TEXT,
@@ -634,6 +646,10 @@ CREATE TABLE IF NOT EXISTS partner_transactions (
     partnerName TEXT,
     treasury_account_id TEXT,
     treasuryAccountId TEXT,
+    order_id TEXT,
+    orderId TEXT,
+    order_number TEXT,
+    orderNumber TEXT,
     type TEXT NOT NULL,
     amount NUMERIC NOT NULL DEFAULT 0,
     date TEXT NOT NULL,
@@ -1667,6 +1683,18 @@ ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initialCapital" NUMERIC DEFAULT 0
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "initial_capital" NUMERIC DEFAULT 0;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profitRatio" NUMERIC DEFAULT 0;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "profit_ratio" NUMERIC DEFAULT 0;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "email" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "passcode" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "password" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "requireEmailOtp" BOOLEAN DEFAULT false;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "require_email_otp" BOOLEAN DEFAULT false;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "isEmailVerified" BOOLEAN DEFAULT false;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "is_email_verified" BOOLEAN DEFAULT false;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "emailVerifiedAt" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "email_verified_at" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "lastLoginAt" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "last_login_at" TEXT;
+ALTER TABLE partners ADD COLUMN IF NOT EXISTS "details" JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE partners ADD COLUMN IF NOT EXISTS "createdAt" TEXT;
@@ -1700,6 +1728,10 @@ ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partnerId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "partner_id" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasuryAccountId" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "treasury_account_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "orderId" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "order_id" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "order_number" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "description" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "category" TEXT;
 ALTER TABLE partner_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
@@ -1831,6 +1863,10 @@ ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "created_at" TEXT;
 ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS "storeId" TEXT;
 ALTER TABLE treasury_accounts ADD COLUMN IF NOT EXISTS store_id TEXT;
 
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "orderId" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "order_id" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "orderNumber" TEXT;
+ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "order_number" TEXT;
 ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updatedAt" TEXT;
 ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "updated_at" TEXT;
 ALTER TABLE treasury_transactions ADD COLUMN IF NOT EXISTS "createdAt" TEXT;

@@ -49,6 +49,7 @@ const CustomersPage = lazyWithRetry(() => import('./components/CustomersPage'));
 const WalletPage = lazyWithRetry(() => import('./components/WalletPage'));
 const SettingsPage = lazyWithRetry(() => import('./components/SettingsPage'));
 const StorefrontPage = lazyWithRetry(() => import('./components/StorefrontPage'));
+const ProductDetailPage = lazyWithRetry(() => import('./components/ProductDetailPage'));
 const CheckoutPage = lazyWithRetry(() => import('./components/CheckoutPage'));
 const OrderSuccessPage = lazyWithRetry(() => import('./components/OrderSuccessPage'));
 const StoreCustomizationPage = lazyWithRetry(() => import('./components/StoreCustomizationPage'));
@@ -91,10 +92,12 @@ const POSPage = lazyWithRetry(() => import('./components/POSPage'));
 const CashManagement = lazyWithRetry(() => import('./components/CashManagement'));
 const CreateOrderPage = lazyWithRetry(() => import('./components/CreateOrderPage'));
 const EditOrderPage = lazyWithRetry(() => import('./components/EditOrderPage'));
+const QuotationsPage = lazyWithRetry(() => import('./components/QuotationsPage'));
 const ChatBot = lazyWithRetry(() => import('./components/ChatBot'));
 const CongratsModal = lazyWithRetry(() => import('./components/CongratsModal'));
 const OrderTrackingPage = lazyWithRetry(() => import('./components/OrderTrackingPage'));
 const CustomerOrderActionPage = lazyWithRetry(() => import('./components/CustomerOrderActionPage'));
+const CustomerQuoteApprovalPage = lazyWithRetry(() => import('./components/CustomerQuoteApprovalPage'));
 const OtpVerificationPage = lazyWithRetry(() => import('./components/OtpVerificationPage'));
 const FirebaseActionPage = lazyWithRetry(() => import('./components/FirebaseActionPage'));
 const IosInstallPrompt = lazyWithRetry(() => import('./components/IosInstallPrompt'));
@@ -780,6 +783,7 @@ function sanitizeData(storeData: StoreData): StoreData {
                 transactions: sanitizedTransactions || storeData.wallet?.transactions || []
             },
             orders: sanitizedOrders || storeData.orders || [],
+            quotations: storeData.quotations || [],
         };
     }
 
@@ -969,7 +973,20 @@ export const AppComponent = () => {
     const [isInitialLoad, setIsInitialLoad] = useState<boolean>(true);
     const [syncedSnapshot, setSyncedSnapshot] = useState<{ users: User[]; allStoresData: Record<string, StoreData>; } | null>(null);
     const [authChecked, setAuthChecked] = useState<boolean>(false);
-    const [cart, setCart] = useState<OrderItem[]>([]);
+    const [cart, setCart] = useState<OrderItem[]>(() => {
+        try {
+            const saved = localStorage.getItem('storefront_cart');
+            return saved ? JSON.parse(saved) : [];
+        } catch {
+            return [];
+        }
+    });
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('storefront_cart', JSON.stringify(cart));
+        } catch (e) {}
+    }, [cart]);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
     const [isEmployeeSession, setIsEmployeeSession] = useState<boolean>(false);
     const [theme, setTheme] = useState<string>(localStorage.getItem('theme') || 'system');
@@ -1420,6 +1437,42 @@ export const AppComponent = () => {
 
         return () => clearTimeout(updateTimeout);
     }, [allStoresData, isInitialLoad]);
+
+    // Update browser tab title dynamically based on active store and current route
+    useEffect(() => {
+        const path = location.pathname;
+        const isStorefrontRoute = isStandaloneStorefront || 
+            path === '/' ||
+            path.startsWith('/store') || 
+            path.startsWith('/product') || 
+            path.startsWith('/products') || 
+            path.startsWith('/p/') || 
+            path.startsWith('/cart') || 
+            path.startsWith('/checkout') || 
+            path.startsWith('/order-success');
+
+        const currentSettings = (activeStoreId && allStoresData[activeStoreId]?.settings) || INITIAL_SETTINGS;
+        const storeName = activeStore?.name || (currentSettings as any)?.storeName || (activeStore as any)?.settings?.storeName || 'المتجر الإلكتروني';
+
+        if (isStorefrontRoute) {
+            if (path.includes('/checkout')) {
+                document.title = `إتمام الطلب | ${storeName}`;
+            } else if (path.includes('/cart')) {
+                document.title = `سلة المشتريات | ${storeName}`;
+            } else if (path.includes('/order-success')) {
+                document.title = `تم تأكيد طلبك بنجاح 🎉 | ${storeName}`;
+            } else if (!path.includes('/product') && !path.includes('/p/')) {
+                document.title = `${storeName} | المتجر الإلكتروني`;
+            }
+            return;
+        }
+
+        if (activeStore?.name) {
+            document.title = `${activeStore.name} | لوحة التحكم`;
+        } else {
+            document.title = `لوحة التحكم | ${storeName}`;
+        }
+    }, [activeStore?.name, activeStoreId, allStoresData, isStandaloneStorefront, location.pathname]);
 
     // --- Aggressive Auto-Save Logic ---
     // 1. Instant local persistence to IndexedDB
@@ -2110,19 +2163,53 @@ export const AppComponent = () => {
                    (phoneNormalized && phoneNormalized === inputNormalized);
         });
 
+        let isOwnerSession = false;
+        let recognizedOwnerUser: User | null = null;
+
         if (!employeeRecord) {
-            throw new Error("لست موظفاً في هذا المتجر.");
+            // Check if user is the Owner of this store or Admin (تمييز المالك عن الموظف)
+            const matchedUser = users.find(u => {
+                const uPhoneNorm = normalizePhoneForMatch(u.phone);
+                return u.phone === phone || uPhoneNorm === inputNormalized;
+            });
+
+            let candidateUser = matchedUser;
+            if (!candidateUser) {
+                try {
+                    const dbCandidate = await db.getUserByPhone(phone);
+                    if (dbCandidate) candidateUser = dbCandidate;
+                } catch {
+                    // Ignore DB lookup error
+                }
+            }
+
+            if (candidateUser) {
+                const ownsStore = Boolean(
+                    candidateUser.isAdmin || 
+                    candidateUser.defaultStoreId === storeId || 
+                    candidateUser.ownedStoreIds?.includes(storeId) || 
+                    candidateUser.stores?.some(s => s.id === storeId)
+                );
+                if (ownsStore) {
+                    isOwnerSession = true;
+                    recognizedOwnerUser = candidateUser;
+                }
+            }
+
+            if (!isOwnerSession) {
+                throw new Error("هذا الرقم غير مسجل كموظف في هذا المتجر. إذا كنت مالك المتجر، يرجى استخدام بوابة دخول المالك (بدون الحاجة لكود متجر).");
+            }
         }
 
-        if (employeeRecord.status !== 'active') {
+        if (employeeRecord && employeeRecord.status !== 'active') {
             const statusMap: Record<string, string> = { 'invited': 'في انتظار القبول', 'pending': 'معلق' };
             const statusText = statusMap[employeeRecord.status || ''] || employeeRecord.status;
             throw new Error(`حالة حسابك هي "${statusText}". يرجى التواصل مع مدير المتجر.`);
         }
 
-        const authPhone = (employeeRecord.phone || employeeRecord.id || phone).trim();
+        const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
         const firebaseEmail = `${authPhone}@mystore-auth.app`;
-        console.log('[AUTH] Employee login attempt for phone:', authPhone);
+        console.log('[AUTH] Login attempt for phone:', authPhone, isOwnerSession ? '(Owner Mode)' : '(Employee Mode)');
         try {
              await signInWithEmailAndPassword(auth, firebaseEmail, password);
              console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
@@ -2216,23 +2303,38 @@ export const AppComponent = () => {
                       }
                   } else {
                       console.log('[MIGRATION] Legacy user not found in Supabase for employee:', authPhone);
-                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                      const fsUser = await db.getUserByPhone(authPhone);
+                      if (fsUser && fsUser.password && fsUser.password === password) {
+                          console.log('[AUTH] Employee password verified from Firestore record:', authPhone);
+                      } else {
+                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                      }
                   }
              } else {
                   if (err.code === 'auth/network-request-failed') {
                       throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
                   }
                   console.error('[AUTH] Employee login Firebase Auth failure:', err);
-                  throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                  const fsUser = await db.getUserByPhone(authPhone);
+                  if (fsUser && fsUser.password && fsUser.password === password) {
+                      console.log('[AUTH] Employee password verified from Firestore record (post-reset):', authPhone);
+                  } else {
+                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
+                  }
              }
         }
 
-        const employeeUser = await db.getUserByPhone(authPhone);
-        if (!employeeUser) {
-            throw new Error("لم يتم العثور على بيانات الموظف.");
+        const targetUser = (isOwnerSession && recognizedOwnerUser) ? recognizedOwnerUser : await db.getUserByPhone(authPhone);
+        if (!targetUser) {
+            throw new Error(isOwnerSession ? "لم يتم العثور على بيانات المالك." : "لم يتم العثور على بيانات الموظف.");
         }
 
-        startOtpFlow(employeeUser, { isEmployee: true, storeId: storeId }, password);
+        if (isOwnerSession) {
+            console.log('[AUTH] Owner recognized on portal. Starting full Owner session for:', targetUser.fullName);
+            startOtpFlow(targetUser, null, password);
+        } else {
+            startOtpFlow(targetUser, { isEmployee: true, storeId: storeId }, password);
+        }
     };
 
     const handleEmployeeRegisterRequest = async (data: EmployeeRegisterRequestData) => {
@@ -3225,6 +3327,25 @@ export const AppComponent = () => {
                 });
             }
         },
+        quotations: activeStoreId ? allStoresData[activeStoreId]?.quotations || [] : [],
+        setQuotations: (updater: any) => {
+            if(activeStoreId) {
+                setAllStoresData(p => {
+                    const currentQuotations = p[activeStoreId]?.quotations || [];
+                    const newQuotations = typeof updater === 'function' ? updater(currentQuotations) : updater;
+                    
+                    if (currentQuotations === newQuotations) return p;
+
+                    return {
+                        ...p, 
+                        [activeStoreId]: {
+                            ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
+                            quotations: newQuotations
+                        }
+                    };
+                });
+            }
+        },
         setOrders: (updater: any) => {
             if(activeStoreId) {
                 setAllStoresData(p => {
@@ -3359,6 +3480,7 @@ export const AppComponent = () => {
             orderNumber: `${nextNum}`,
             customerName: orderData.customerName,
             customerPhone: orderData.customerPhone,
+            customerEmail: orderData.customerEmail,
             customerAddress: orderData.customerAddress,
             buildingNumber: orderData.buildingNumber,
             floorNumber: orderData.floorNumber,
@@ -3370,7 +3492,7 @@ export const AppComponent = () => {
             status: 'في_انتظار_المكالمة',
             date: new Date().toISOString(),
             items: pageProps.cart.map((item: any) => ({
-                productId: item.id,
+                productId: item.productId || item.id,
                 name: item.name,
                 quantity: item.quantity,
                 price: item.price,
@@ -3391,16 +3513,54 @@ export const AppComponent = () => {
         };
         
         pageProps.setOrders((prev: Order[]) => [newOrder, ...prev]);
+
+        // Auto-register or update customer in store CRM
+        if (orderData.customerPhone) {
+            const normalizedPhone = normalizePhone(orderData.customerPhone);
+            pageProps.setCustomers((prev: CustomerProfile[]) => {
+                const exists = prev.find(c => normalizePhone(c.phone) === normalizedPhone);
+                if (exists) {
+                    return prev.map(c => normalizePhone(c.phone) === normalizedPhone ? {
+                        ...c,
+                        email: orderData.customerEmail || c.email,
+                        totalOrders: (c.totalOrders || 0) + 1,
+                        lastOrderDate: new Date().toISOString(),
+                        loyaltyPoints: (c.loyaltyPoints || 0) + 10
+                    } : c);
+                }
+                const newProfile: CustomerProfile = {
+                    id: normalizedPhone,
+                    name: orderData.customerName || 'عميل المتجر',
+                    phone: orderData.customerPhone,
+                    email: orderData.customerEmail || '',
+                    address: orderData.customerAddress || '',
+                    governorate: orderData.shippingArea || '',
+                    city: '',
+                    totalOrders: 1,
+                    successfulOrders: 0,
+                    returnedOrders: 0,
+                    totalSpent: (newOrder.productPrice || 0) + (newOrder.shippingFee || 0) - (newOrder.discount || 0),
+                    lastOrderDate: new Date().toISOString(),
+                    firstOrderDate: new Date().toISOString(),
+                    averageOrderValue: newOrder.productPrice || 0,
+                    loyaltyPoints: 10
+                };
+                return [newProfile, ...prev];
+            });
+        }
+
         pageProps.setCart([]); // Clear cart
+        try { localStorage.removeItem('storefront_cart'); } catch (e) {}
         triggerWebhooks(newOrder, pageProps.settings);
         return newOrder.id;
     };
 
-    const handleAddToCart = (product: any) => {
+    const handleAddToCart = (product: any, quantity: number = 1) => {
+        const qtyToAdd = Math.max(1, Number(quantity) || 1);
         pageProps.setCart((prev: any[]) => {
             const existing = prev.find(item => (item.productId || item.id) === product.id);
             if (existing) {
-                return prev.map(item => (item.productId || item.id) === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+                return prev.map(item => (item.productId || item.id) === product.id ? { ...item, quantity: (item.quantity || 1) + qtyToAdd } : item);
             }
             const newItem: OrderItem = {
                 productId: product.id,
@@ -3409,7 +3569,7 @@ export const AppComponent = () => {
                 cost: product.costPrice || 0,
                 weight: product.weight || 0,
                 thumbnail: product.thumbnail,
-                quantity: 1
+                quantity: qtyToAdd
             };
             return [...prev, newItem];
         });
@@ -3446,9 +3606,14 @@ export const AppComponent = () => {
                 <Routes>
                     <Route path="/" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                     <Route path="/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
+                    <Route path="/track-order" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
             </Suspense>
@@ -3469,6 +3634,8 @@ export const AppComponent = () => {
                 <Route path="/cancel-order/:id" element={<CustomerOrderActionPage orders={pageProps.orders} allStoresData={allStoresData} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} setAllStoresData={setAllStoresData} />} />
                 <Route path="/shared-report/:id" element={<SharedReportView />} />
                 <Route path="/shared-audit/:auditId" element={<WarehouseSubmitPage />} />
+                <Route path="/quote-approval/:id" element={<CustomerQuoteApprovalPage allStoresData={allStoresData} setAllStoresData={setAllStoresData} forceSync={forceSync} />} />
+                <Route path="/quote-approval" element={<CustomerQuoteApprovalPage allStoresData={allStoresData} setAllStoresData={setAllStoresData} forceSync={forceSync} />} />
                 
                 <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
@@ -3493,13 +3660,19 @@ export const AppComponent = () => {
                         <Outlet/>
                     </EmployeeLayoutWrapper>
                 }>
-                    <Route index element={<EmployeeDashboardPage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} />} />
-                    <Route path="dashboard" element={<EmployeeDashboardPage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} />} />
+                    <Route index element={<EmployeeDashboardPage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} activeStore={pageProps.activeStore} />} />
+                    <Route path="dashboard" element={<EmployeeDashboardPage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} activeStore={pageProps.activeStore} />} />
                     <Route path="confirmation-queue" element={
                         <EmployeePermissionRoute currentUser={currentUser} permission="ORDERS_MANAGE">
                             <ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />
                         </EmployeePermissionRoute>
                     } />
+                    <Route path="pos" element={
+                        <EmployeePermissionRoute currentUser={currentUser} permission="POS_VIEW">
+                            <POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />
+                        </EmployeePermissionRoute>
+                    } />
+                    <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
                     <Route path="my-activity" element={<EmployeeActivityPage currentUser={currentUser} orders={pageProps.orders} />} />
                     <Route path="account-settings" element={<EmployeeAccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
@@ -3577,6 +3750,7 @@ export const AppComponent = () => {
                     <Route path="maintenance" element={<MaintenancePage currentStoreId={activeStoreId!} settings={pageProps.settings} setSettings={pageProps.setSettings} customers={pageProps.customers} setCustomers={pageProps.setCustomers} products={pageProps.products} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} setOrders={pageProps.setOrders} />} />
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
+                    <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
                     <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
                     <Route path="dropshipping/new" element={<CreateDropshippingOrderPage {...pageProps} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
@@ -3722,8 +3896,23 @@ export const AppComponent = () => {
                 } />
 
                 <Route path="store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
+
+                {/* Path with store ID */}
+                <Route path="/store/:storeId/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="/store/:storeId/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
                 <Route path="*" element={<CatchAllRedirect currentUser={currentUser} isEmployeeSession={isEmployeeSession} activeStoreId={activeStoreId} />} />
             </Routes>
             {showCongratsModal && (

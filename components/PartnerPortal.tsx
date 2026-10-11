@@ -6,7 +6,8 @@ import {
   DollarSign, Search, Printer, FileText, CheckCircle,
   Loader2, RefreshCw, AlertCircle, TrendingUp,
   Copy, Share2, Coins, Package as PackageIcon,
-  X, Send, ShieldCheck, Building2, Key, BarChart3
+  X, Send, ShieldCheck, Building2, Key, BarChart3,
+  Fingerprint, Scan, Cpu, Trash2, CheckCircle2, Shield, PlusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -14,6 +15,17 @@ import {
   Tooltip, CartesianGrid
 } from 'recharts';
 import * as db from '../services/databaseService';
+import { 
+  isWebAuthnSupported, 
+  isPlatformAuthenticatorAvailable, 
+  detectBiometricDeviceName,
+  registerBiometricCredential, 
+  authenticateBiometricCredential,
+  getStoredBiometrics,
+  saveStoredBiometric,
+  removeStoredBiometric,
+  setBiometricEnabledFor
+} from '../utils/webAuthnService';
 import { generateAbdoMediaPolicyHTML } from '../utils/reportGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { getVirtualOrderHandovers } from '../utils/financials';
@@ -129,7 +141,11 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const rawSupplyOrders = settings.supplyOrders || [];
   const rawOrders: Order[] = activeStoreData?.orders || [];
   const rawTreasury: Treasury = activeStoreData?.treasury || { accounts: [], transactions: [] };
-  const storeName = activeStoreData?.name || settings.storeName || 'وان تولز للعدد اليدوية والكهربائية';
+  const storeName = activeStoreData?.name || (settings as any)?.storeName || (activeStoreData?.settings as any)?.storeName || 'متجري';
+
+  useEffect(() => {
+    document.title = `بوابة الشركاء | ${storeName}`;
+  }, [storeName]);
 
   // Authentication State
   const [authenticatedPartner, setAuthenticatedPartner] = useState<Partner | null>(() => {
@@ -174,6 +190,28 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const [newPinInput, setNewPinInput] = useState('');
   const [isChangingPin, setIsChangingPin] = useState(false);
 
+  // Biometric Authentication State (WebAuthn / Passkeys)
+  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [isPlatformAuthAvailable, setIsPlatformAuthAvailable] = useState(false);
+  const [biometricDeviceName, setBiometricDeviceName] = useState('مستشعر البصمة البيومترية');
+  const [isEnrollingBiometric, setIsEnrollingBiometric] = useState(false);
+  const [isTestingBiometric, setIsTestingBiometric] = useState(false);
+  const [bioTestSuccessMsg, setBioTestSuccessMsg] = useState('');
+
+  // Initial Check: WebAuthn Platform Authenticator availability
+  useEffect(() => {
+    const checkBiometrics = async () => {
+      const sup = isWebAuthnSupported();
+      setIsBiometricSupported(sup);
+      setBiometricDeviceName(detectBiometricDeviceName());
+      if (sup) {
+        const plat = await isPlatformAuthenticatorAvailable();
+        setIsPlatformAuthAvailable(plat);
+      }
+    };
+    checkBiometrics();
+  }, []);
+
   // Auto-login if PIN is provided in URL or if partner has default '0000' and auto=1
   useEffect(() => {
     const urlPin = searchParams.get('pin') || searchParams.get('code') || '';
@@ -193,6 +231,12 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
       if (match) {
         setSelectedPartnerId(match.id);
+        const requiresEmailOtp = Boolean(match.requireEmailOtp || (settings as any)?.enforcePartnerOtp);
+        if (requiresEmailOtp) {
+          // Strict security: require Email OTP verification, do not auto-login via URL params
+          return;
+        }
+
         const correctPin = String(match.passcode || '0000').trim();
         if (urlPin && urlPin.trim() === correctPin) {
           setAuthenticatedPartner(match);
@@ -433,6 +477,96 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     showToast('تم تغيير رمز PIN السري بنجاح', 'success');
     setNewPinInput('');
     setIsChangingPin(false);
+  };
+
+  // Enroll new biometric passkey for this partner
+  const handleEnrollBiometric = async () => {
+    if (!livePartner) return;
+    setIsEnrollingBiometric(true);
+    setBioTestSuccessMsg('');
+    try {
+      const res = await registerBiometricCredential({
+        userId: livePartner.id,
+        userName: livePartner.email || livePartner.name,
+        userDisplayName: livePartner.name,
+        rpName: storeName || 'بوابة الشركاء',
+        deviceName: biometricDeviceName
+      });
+
+      if (res.success && res.credential) {
+        saveStoredBiometric(livePartner.id, res.credential, false);
+        const existingCreds = livePartner.biometricCredentials || [];
+        const updatedCreds = [
+          res.credential,
+          ...existingCreds.filter(c => c.id !== res.credential?.id)
+        ];
+        const updatedPartners = partners.map(p => 
+          p.id === livePartner.id ? { ...p, biometricCredentials: updatedCreds, allowBiometricAuth: true } : p
+        );
+        updateSettings({ ...settings, partners: updatedPartners });
+        if (effectiveStoreId) {
+          db.getStoreData(effectiveStoreId).then(cur => {
+            if (cur) {
+              db.saveStoreData({ id: effectiveStoreId, name: storeName } as any, {
+                ...cur,
+                settings: { ...cur.settings, partners: updatedPartners }
+              });
+            }
+          });
+        }
+        showToast('🎉 تم تسجيل وتفعيل بصمة هذا الجهاز (WebAuthn Passkey) بنجاح!', 'success');
+      } else {
+        showToast(res.error || 'تعذر تسجيل البصمة على هذا الجهاز', 'error');
+      }
+    } catch (err: any) {
+      showToast('خطأ أثناء تسجيل البصمة: ' + err.message, 'error');
+    } finally {
+      setIsEnrollingBiometric(false);
+    }
+  };
+
+  // Test Biometric Sensor
+  const handleTestBiometric = async () => {
+    if (!livePartner) return;
+    setIsTestingBiometric(true);
+    setBioTestSuccessMsg('');
+    try {
+      const stored = getStoredBiometrics(livePartner.id);
+      const allCreds = [...(livePartner.biometricCredentials || []), ...stored];
+      const res = await authenticateBiometricCredential(allCreds.length > 0 ? allCreds : undefined, storeName);
+      if (res.success) {
+        setBioTestSuccessMsg('تم التحقق بنجاح! مستشعر البصمة يعمل بكفاءة وأمان 100%');
+        showToast('✨ تم مسح البصمة ومطابقتها بنجاح!', 'success');
+      } else {
+        showToast(res.error || 'فشل فحص البصمة', 'error');
+      }
+    } catch (err: any) {
+      showToast('خطأ أثناء فحص البصمة: ' + err.message, 'error');
+    } finally {
+      setIsTestingBiometric(false);
+    }
+  };
+
+  // Remove Biometric Passkey
+  const handleRemoveBiometric = (credId: string) => {
+    if (!livePartner) return;
+    removeStoredBiometric(livePartner.id, credId, false);
+    const updatedCreds = (livePartner.biometricCredentials || []).filter(c => c.id !== credId);
+    const updatedPartners = partners.map(p => 
+      p.id === livePartner.id ? { ...p, biometricCredentials: updatedCreds } : p
+    );
+    updateSettings({ ...settings, partners: updatedPartners });
+    if (effectiveStoreId) {
+      db.getStoreData(effectiveStoreId).then(cur => {
+        if (cur) {
+          db.saveStoreData({ id: effectiveStoreId, name: storeName } as any, {
+            ...cur,
+            settings: { ...cur.settings, partners: updatedPartners }
+          });
+        }
+      });
+    }
+    showToast('تم إلغاء وحذف مفتاح البصمة المحدد', 'success');
   };
 
   // Comprehensive Partner Calculations
@@ -1804,6 +1938,128 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Biometric Authentication (WebAuthn / Passkeys) Card */}
+              <div className="md:col-span-2 bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+                      <Fingerprint size={26} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-black text-base text-slate-900">المصادقة الحيوية المشفرة (WebAuthn / Passkeys)</h3>
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          FIDO2 Ready
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        تسجيل الدخول الفوري بلمسة واحدة عبر بصمة الإصبع أو Face ID لهذا الجهاز
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Device Detection Status Badge */}
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-mono shrink-0">
+                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span className="text-[11px] font-bold">{biometricDeviceName}</span>
+                  </div>
+                </div>
+
+                {/* Test Success Feedback */}
+                {bioTestSuccessMsg && (
+                  <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                    <span>{bioTestSuccessMsg}</span>
+                  </div>
+                )}
+
+                {/* Enrolled Biometrics List */}
+                {((livePartner.biometricCredentials && livePartner.biometricCredentials.length > 0) || getStoredBiometrics(livePartner.id).length > 0) ? (
+                  <div className="space-y-3">
+                    <div className="text-xs font-black text-slate-800 flex items-center justify-between">
+                      <span>الأجهزة ومفاتيح الأمان المسجلة ({[...(livePartner.biometricCredentials || []), ...getStoredBiometrics(livePartner.id)].length}):</span>
+                      <span className="text-[11px] text-emerald-600 font-bold">الدخول الحيوي مفعل ونشط</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[...(livePartner.biometricCredentials || []), ...getStoredBiometrics(livePartner.id)].map((cred, idx) => (
+                        <div key={cred.id + idx} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-emerald-600">
+                              <Fingerprint size={18} />
+                            </div>
+                            <div>
+                              <div className="font-black text-xs text-slate-900">{cred.name || 'مستشعر بيومتري معتمد'}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                تاريخ التسجيل: {new Date(cred.createdAt).toLocaleDateString('ar-EG')}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBiometric(cred.id)}
+                            title="إلغاء وحذف مفتاح البصمة"
+                            className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all cursor-pointer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-dashed border-slate-300 text-center space-y-1.5">
+                    <Fingerprint size={28} className="mx-auto text-slate-400" />
+                    <p className="text-xs font-bold text-slate-700">لم تقم بتسجيل بصمة هذا الجهاز لحسابك بعد</p>
+                    <p className="text-[11px] text-slate-400 max-w-md mx-auto">
+                      تفعيل البصمة يمكنك من تسجيل الدخول الفوري إلى بوابتك المالية بلمسة إصبع واحدة فقط من هذا المتصفح دون كتابة رمز PIN أو انتظار كود البريد.
+                    </p>
+                  </div>
+                )}
+
+                {/* Actions Toolbar */}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleEnrollBiometric}
+                    disabled={isEnrollingBiometric}
+                    className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black shadow-sm transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isEnrollingBiometric ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>جاري مسح وتسجيل البصمة...</span>
+                      </>
+                    ) : (
+                      <>
+                        <PlusCircle size={15} />
+                        <span>تسجيل بصمة هذا الجهاز (Touch ID / Face ID)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleTestBiometric}
+                    disabled={isTestingBiometric}
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-slate-200 disabled:opacity-50"
+                  >
+                    {isTestingBiometric ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        <span>جاري فحص المستشعر...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Scan size={15} className="text-emerald-600" />
+                        <span>اختبار مستشعر البصمة الآن</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
             </div>

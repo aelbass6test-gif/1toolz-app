@@ -20,6 +20,7 @@ export interface SendOtpEmailOptions {
   otpCode: string;
   deviceInfo?: string;
   ipAddress?: string;
+  storeName?: string;
 }
 
 export interface SendActivationEmailOptions {
@@ -46,6 +47,23 @@ export interface SendNotificationEmailOptions {
   actionText?: string;
   actionUrl?: string;
   badge?: string;
+}
+
+export interface RecoveredStoreItem {
+  id: string;
+  name: string;
+  userType: 'owner' | 'employee'; // التمييز الصريح بين المالك والموظف
+  roleLabel: string;
+  details?: string;
+  ordersCount?: number;
+}
+
+export interface SendStoreCodeRecoveryEmailOptions {
+  toEmail: string;
+  userName?: string;
+  stores: RecoveredStoreItem[];
+  loginUrl?: string;
+  ownerLoginUrl?: string;
 }
 
 export interface SmtpSettings {
@@ -590,11 +608,13 @@ function renderEmailShell({
  */
 export async function sendOtpByEmail({
   toEmail,
-  userName = 'التاجر العزيز',
+  userName = 'العميل العزيز',
   otpCode,
-  deviceInfo
+  deviceInfo,
+  storeName
 }: SendOtpEmailOptions): Promise<MailDeliveryResult> {
-  const emailSubject = `🔐 رمز التحقق الأمني: ${otpCode} - عبدو ميديا برايم`;
+  const brandTitle = storeName || 'عبدو ميديا برايم';
+  const emailSubject = `🔐 رمز التحقق الأمني: ${otpCode} - ${brandTitle}`;
   const cleanCode = (otpCode || '').trim();
   const digits = cleanCode.split('');
 
@@ -603,13 +623,13 @@ export async function sendOtpByEmail({
   const contentHtml = `
     <div style="margin-bottom: 24px;">
       <div style="display: inline-block; padding: 6px 14px; background-color: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; color: #34d399; font-size: 12px; font-weight: 800; margin-bottom: 14px;">
-        🔒 مصادقة تسجيل الدخول الثنائية (2FA)
+        🔒 رمز التحقق الأمني (OTP)
       </div>
       <h2 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 900; color: #ffffff; font-family: 'Cairo', sans-serif;">
         مرحباً ${userName} 👋
       </h2>
       <p style="margin: 0; font-size: 14px; color: #9ca3af; line-height: 1.7; font-family: 'Cairo', sans-serif;">
-        تم استلام طلب لتسجيل الدخول إلى حسابك في منظومة <strong>عبدو ميديا برايم</strong>. يرجى إدخال رمز التحقق الأمني التالي لإتمام تسجيل الدخول:
+        تم استلام طلب لتسجيل الدخول / تأكيد حسابك في <strong>${brandTitle}</strong>. يرجى إدخال رمز التحقق الأمني التالي لإتمام الدخول ومتابعة طلباتك:
       </p>
     </div>
 
@@ -637,7 +657,7 @@ export async function sendOtpByEmail({
 
     <div style="border-right: 4px solid #ef4444; background-color: rgba(239, 68, 68, 0.08); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
       <p style="margin: 0; font-size: 12px; font-weight: 700; color: #fca5a5; line-height: 1.6; font-family: 'Cairo', sans-serif;">
-        ⚠️ <strong>تنبيه هام جداً:</strong> لا تشارك رمز التحقق هذا مع أي شخص، بما في ذلك فريق الدعم الفني، لحماية بيانات عملائك وأرباحك.
+        ⚠️ <strong>تنبيه أمان:</strong> لا تشارك رمز التحقق هذا مع أي شخص، لحماية خصوصية بياناتك وطلباتك.
       </p>
     </div>
   `;
@@ -647,9 +667,9 @@ export async function sendOtpByEmail({
     userName,
     subject: emailSubject,
     htmlContent: renderEmailShell({
-      preheader: `رمز التحقق الأمني الخاص بك لتسجيل الدخول إلى عبدو ميديا برايم هو ${otpCode}`,
+      preheader: `رمز التحقق الأمني الخاص بك لتسجيل الدخول إلى ${brandTitle} هو ${otpCode}`,
       contentHtml,
-      footerNote: 'إذا لم تكن قد طلبت تسجيل الدخول، يرجى تغيير كلمة مرورك فوراً.'
+      footerNote: `رسالة تلقائية لحماية حسابك لدى ${brandTitle}.`
     })
   });
 }
@@ -875,3 +895,168 @@ export async function sendNotificationEmail({
     })
   });
 }
+
+/**
+ * Send Store Code Recovery Email (استرجاع كود المتجر مع التمييز التام بين المالك والموظف)
+ */
+export async function sendStoreCodeRecoveryEmail({
+  toEmail,
+  userName = 'العميل العزيز',
+  stores = [],
+  loginUrl,
+  ownerLoginUrl
+}: SendStoreCodeRecoveryEmailOptions): Promise<MailDeliveryResult> {
+  const brandTitle = 'عبدو ميديا برايم';
+  const primaryStoreName = stores.length > 0 ? stores[0].name : 'متجرك';
+  const emailSubject = `🏬 تفاصيل وأكواد المتاجر الخاصة بك: ${primaryStoreName} - ${brandTitle}`;
+
+  const ownedStores = stores.filter(s => s.userType === 'owner');
+  const employeeStores = stores.filter(s => s.userType === 'employee');
+
+  const renderStoreCard = (s: RecoveredStoreItem, isOwner: boolean) => {
+    const storeLoginUrl = loginUrl ? `${loginUrl.split('?')[0]}?storeId=${encodeURIComponent(s.id)}` : '';
+    const directOwnerUrl = ownerLoginUrl || `${(loginUrl || '').split('/employee-login')[0]}/owner-login`;
+    const borderColor = isOwner ? '#f59e0b' : '#10b981';
+    const badgeBg = isOwner ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+    const badgeBorder = isOwner ? 'rgba(245, 158, 11, 0.4)' : 'rgba(16, 185, 129, 0.4)';
+    const badgeText = isOwner ? '#fbbf24' : '#34d399';
+    const badgeIcon = isOwner ? '👑' : '💼';
+
+    return `
+      <div style="background: radial-gradient(circle at top right, ${isOwner ? '#1c1708' : '#0e1c16'}, #090d14); border: 1.5px solid ${borderColor}; border-radius: 18px; padding: 20px; margin-bottom: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td style="text-align: right; vertical-align: top;">
+              <div style="display: inline-block; padding: 5px 12px; background-color: ${badgeBg}; border: 1px solid ${badgeBorder}; border-radius: 8px; color: ${badgeText}; font-size: 11px; font-weight: 800; margin-bottom: 8px;">
+                ${badgeIcon} ${s.roleLabel || (isOwner ? 'مالك المتجر (Store Owner)' : 'موظف معتمد')}
+              </div>
+              <h3 style="margin: 0 0 4px 0; font-size: 19px; font-weight: 900; color: #ffffff; font-family: 'Cairo', sans-serif;">
+                ${s.name}
+              </h3>
+              <p style="margin: 0 0 12px 0; font-size: 12px; color: #94a3b8; font-family: 'Cairo', sans-serif;">
+                ${s.details || (isOwner ? 'مسجل كمالك معتمد في النظام' : 'مسجل في طاقم العمل والعمليات')}
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Store Code Box -->
+        <div style="background-color: ${isOwner ? '#181204' : '#04160d'}; border: 2px dashed ${borderColor}; border-radius: 14px; padding: 14px; text-align: center; margin: 10px 0;">
+          <span style="display: block; font-size: 11px; font-weight: 800; color: ${badgeText}; margin-bottom: 4px; font-family: 'Cairo', sans-serif;">
+            كود المتجر التعريفي (Store Code):
+          </span>
+          <div style="display: inline-block; background-color: #0b0f19; border: 1px solid ${borderColor}; border-radius: 10px; padding: 7px 22px; font-family: monospace, Courier, sans-serif; font-size: 23px; font-weight: 900; color: #ffffff; letter-spacing: 2px;" dir="ltr">
+            ${s.id}
+          </div>
+        </div>
+
+        <!-- Direct Actions -->
+        <div style="text-align: center; margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+          ${isOwner ? `
+            <a href="${directOwnerUrl}" style="display: inline-block; width: 90%; max-width: 320px; margin: 4px auto; padding: 11px 18px; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff; text-decoration: none; font-weight: 900; font-size: 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(217, 119, 6, 0.3); font-family: 'Cairo', sans-serif;">
+              👑 الدخول المباشر كمسؤول ومالك للمتجر (Owner Portal)
+            </a>
+          ` : ''}
+          ${storeLoginUrl ? `
+            <a href="${storeLoginUrl}" style="display: inline-block; width: 90%; max-width: 320px; margin: 4px auto; padding: 11px 18px; background: linear-gradient(135deg, #00c48c, #009d70); color: #051a11; text-decoration: none; font-weight: 900; font-size: 12px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 196, 140, 0.25); font-family: 'Cairo', sans-serif;">
+              💼 الدخول للوردية بهذا الكود (Employee Shift)
+            </a>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  };
+
+  let sectionsHtml = '';
+
+  if (ownedStores.length > 0) {
+    sectionsHtml += `
+      <div style="margin-bottom: 28px;">
+        <div style="background-color: rgba(245, 158, 11, 0.08); border-right: 4px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;">
+          <h4 style="margin: 0; font-size: 14px; font-weight: 900; color: #fbbf24; font-family: 'Cairo', sans-serif;">
+            👑 المتاجر التي تملكها (بصفتك مالك المتجر - Store Owner)
+          </h4>
+          <p style="margin: 3px 0 0 0; font-size: 11px; color: #d1d5db; font-family: 'Cairo', sans-serif;">
+            لديك كامل الصلاحيات لإدارة هذه المتاجر عبر لوحة المالك، أو استخدام الكود في بوابة العمليات:
+          </p>
+        </div>
+        ${ownedStores.map(s => renderStoreCard(s, true)).join('')}
+      </div>
+    `;
+  }
+
+  if (employeeStores.length > 0) {
+    sectionsHtml += `
+      <div style="margin-bottom: 28px;">
+        <div style="background-color: rgba(16, 185, 129, 0.08); border-right: 4px solid #10b981; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;">
+          <h4 style="margin: 0; font-size: 14px; font-weight: 900; color: #34d399; font-family: 'Cairo', sans-serif;">
+            💼 المتاجر التي تعمل بها (بصفتك موظف معتمد - Employee / Staff)
+          </h4>
+          <p style="margin: 3px 0 0 0; font-size: 11px; color: #d1d5db; font-family: 'Cairo', sans-serif;">
+            أنت مسجل في طاقم العمل والعمليات. استخدم كود المتجر المخصص لبدء ورديتك:
+          </p>
+        </div>
+        ${employeeStores.map(s => renderStoreCard(s, false)).join('')}
+      </div>
+    `;
+  }
+
+  if (stores.length === 0) {
+    sectionsHtml = `
+      <div style="background-color: #1e1b18; border: 1px solid #d97706; border-radius: 14px; padding: 18px; text-align: center; margin: 16px 0;">
+        <p style="margin: 0; font-size: 13px; font-weight: 800; color: #fde68a; font-family: 'Cairo', sans-serif;">
+          لم يتم العثور على متجر خاص مرتبط بهذا البريد، يمكنك استخدام الكود الافتراضي: <code>store-0</code> أو التواصل مع إدارة متجرك.
+        </p>
+      </div>
+    `;
+  }
+
+  const contentHtml = `
+    <div style="margin-bottom: 24px;">
+      <div style="display: inline-block; padding: 6px 14px; background-color: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 999px; color: #34d399; font-size: 12px; font-weight: 800; margin-bottom: 14px;">
+        🏬 استرجاع وتصنيف أكواد المتاجر التعريفيّة
+      </div>
+      <h2 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 900; color: #ffffff; font-family: 'Cairo', sans-serif;">
+        مرحباً ${userName} 👋
+      </h2>
+      <p style="margin: 0; font-size: 14px; color: #9ca3af; line-height: 1.8; font-family: 'Cairo', sans-serif;">
+        وصلنا طلب لاسترجاع كود المتجر المسجل لبريدك الإلكتروني (<strong>${toEmail}</strong>). فيما يلي بيان مفصل بالمتاجر التابعة لك مع التمييز التام بين صفة <strong>المالك</strong> وصفة <strong>الموظف</strong>:
+      </p>
+    </div>
+
+    <!-- Sections (Separated Owned vs Employee) -->
+    <div style="margin: 20px 0;">
+      ${sectionsHtml}
+    </div>
+
+    <!-- Usage Guide -->
+    <div style="background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 16px; padding: 18px 20px; margin-bottom: 22px;">
+      <h4 style="margin: 0 0 10px 0; font-size: 13px; font-weight: 900; color: #38bdf8; font-family: 'Cairo', sans-serif;">
+        💡 الفرق بين بوابة المالك وبوابة الموظف:
+      </h4>
+      <ul style="margin: 0; padding-right: 18px; font-size: 12px; color: #cbd5e1; line-height: 1.9; font-family: 'Cairo', sans-serif;">
+        <li><strong>بوابة المالك (Owner Portal):</strong> مخصصة لإدارة المنتجات، الإعدادات، الحسابات، وصلاحيات الموظفين.</li>
+        <li><strong>بوابة الموظف (Employee Shift):</strong> مخصصة للورديات التشغيلية لتأكيد الطلبات، الشحن، وخدمة العملاء باستخدام كود المتجر.</li>
+      </ul>
+    </div>
+
+    <!-- Security Warning -->
+    <div style="border-right: 4px solid #f59e0b; background-color: rgba(245, 158, 11, 0.08); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;">
+      <p style="margin: 0; font-size: 12px; font-weight: 700; color: #fde68a; line-height: 1.6; font-family: 'Cairo', sans-serif;">
+        🔒 <strong>ملاحظة أمان وسرية:</strong> تم إرسال هذه الأكواد حصرياً إلى بريدك الإلكتروني الشخصي ولن تظهر في الشاشات العامة، لحماية خصوصية متجرك.
+      </p>
+    </div>
+  `;
+
+  return dispatchEmail({
+    toEmail,
+    userName,
+    subject: emailSubject,
+    htmlContent: renderEmailShell({
+      preheader: `بيان أكواد المتاجر الخاصة بحسابك لدى ${brandTitle} (${ownedStores.length} كمالك - ${employeeStores.length} كموظف)`,
+      contentHtml,
+      footerNote: `رسالة دعم تلقائية لاسترجاع بيانات المتجر لدى ${brandTitle}.`
+    })
+  });
+}
+

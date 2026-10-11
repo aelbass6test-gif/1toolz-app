@@ -193,6 +193,7 @@ export interface Product {
   id: string;
   sku: string;
   name: string;
+  slug?: string;
   description?: string;
   price: number;
   weight: number;
@@ -204,6 +205,7 @@ export interface Product {
   stockQuantity: number | null;
   warehouseStock?: Record<string, number>; // New field for multi-warehouse stock
   collectionId?: string; 
+  category?: string;
   hasVariants: boolean;
   options: string[];
   variants: ProductVariant[];
@@ -558,6 +560,16 @@ export interface PartnerPortalPermissions {
   canChangeSecurity?: boolean; // تغيير رمز PIN وكلمة المرور
 }
 
+export interface BiometricCredentialRecord {
+  id: string; // Base64 or string ID of credential
+  rawId?: string;
+  name: string; // Device friendly name, e.g. "Apple Face ID", "Windows Hello", "Android Biometric"
+  createdAt: string;
+  lastUsedAt?: string;
+  transports?: string[];
+  algorithm?: string;
+}
+
 export interface Partner {
   id: string;
   name: string;
@@ -586,6 +598,9 @@ export interface Partner {
   emailVerifiedAt?: string; // تاريخ تأكيد البريد
   lastLoginAt?: string; // تاريخ آخر دخول
   employeeId?: string; // ربط بحساب الموظف
+  requireEmailOtp?: boolean; // فرض الدخول برمز تحقق OTP على البريد الإلكتروني
+  biometricCredentials?: BiometricCredentialRecord[]; // بصمات الأجهزة المسجلة (WebAuthn / Passkeys)
+  allowBiometricAuth?: boolean; // تفعيل الدخول الحيوي بالبصمة
 }
 
 export interface PartnerTransaction {
@@ -903,16 +918,43 @@ export interface AkkedIntegrationConfig {
   };
 }
 
+export interface MoneyHashMethodConfig {
+  id: string; // e.g. 'cards', 'vodafone_cash', 'instapay', 'fawry', 'valu', 'tabby', 'tamara', 'meeza', 'apple_pay', 'souhoola', 'sympl', 'aman'
+  name: string;
+  category: 'card' | 'wallet' | 'bnpl' | 'kiosk' | 'instant_transfer';
+  enabled: boolean;
+  minAmount?: number;
+  maxAmount?: number;
+  icon?: string;
+  description?: string;
+}
+
+export interface MoneyHashConfig {
+  isActive: boolean;
+  mode: 'test' | 'live';
+  apiKey: string; // MoneyHash Secret API Key (mh_sec_...)
+  publicApiKey?: string; // MoneyHash Public Key (mh_pub_...)
+  accountKey?: string; // MoneyHash Account Key
+  webhookSecret?: string;
+  currency?: string; // e.g. 'EGP', 'SAR', 'AED', 'USD'
+  selectedMethods: Record<string, boolean>; // e.g. { cards: true, vodafone_cash: true, instapay: true, fawry: true, valu: true, tabby: true, tamara: true, meeza: true, apple_pay: true }
+  methodsConfig?: MoneyHashMethodConfig[];
+  autoRedirectOnSuccess?: boolean;
+  testModeNotes?: string;
+}
+
 export interface Settings {
   id?: string;
   storeName?: string;
   partnerRequests?: any[];
+  enforcePartnerOtp?: boolean; // إلزام الشركاء بالتحقق عبر رمز البريد OTP
   defaultWarehouseId?: string;
   data?: any; // For flexible local storage
   storeBranches?: any[];
   companyNames?: string[];
   enableGlobalFinancials: boolean; 
   akkedIntegration?: AkkedIntegrationConfig;
+  moneyHashConfig?: MoneyHashConfig;
   webhookIntegrations?: WebhookIntegration[];
   storeWebhooks?: WebhookSubscription[];
   supabaseUrl?: string;
@@ -1381,11 +1423,14 @@ export interface OrderItem {
   cost: number;
   weight: number;
   thumbnail?: string;
+  image?: string;
   variantId?: string;
+  variantName?: string;
   variantDescription?: string;
   description?: string;
   discountValue?: number;
   discountType?: 'amount' | 'percentage';
+  discount?: number;
 }
 
 export interface ConfirmationLog {
@@ -1559,6 +1604,7 @@ export interface Order {
   customerName: string;
   customerPhone: string;
   customerPhone2?: string;
+  customerEmail?: string;
   customerAddress: string;
   city?: string;
   customerCity?: string;
@@ -1578,12 +1624,19 @@ export interface Order {
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   paymentMethod?: string;
+  moneyHashIntentId?: string;
+  moneyHashPayUrl?: string;
+  moneyHashMethod?: string;
+  moneyHashStatus?: string;
+  paymentReference?: string;
   productName: string; 
   productPrice: number; 
   productCost: number; 
   totalPrice?: number;
   insuranceFee?: number;
   inspectionFee?: number;
+  vatValue?: number;
+  shippingVatRate?: number;
   weight: number; 
   discount: number;
   discountAffectsInsurance?: boolean;
@@ -1632,6 +1685,8 @@ export interface Order {
   compensationNotes?: string;
   compensationDate?: string;
   compensationTreasuryAccountId?: string;
+  quotationNumber?: string;
+  quotationId?: string;
   lockedBy?: string;
   lockedByName?: string;
   lockedAt?: string;
@@ -1699,6 +1754,12 @@ export interface TreasuryAccount {
   bankName?: string;
   walletNumber?: string;
   walletName?: string;
+  isDefault?: boolean;
+  responsiblePerson?: string;
+  location?: string;
+  maxLimit?: number;
+  minLimit?: number;
+  lastAuditedAt?: string;
 }
 
 export interface TreasuryTransaction {
@@ -1713,6 +1774,8 @@ export interface TreasuryTransaction {
   category?: TransactionCategory;
   orderId?: string;
   orderNumber?: string;
+  operatorName?: string;
+  reconciliationDiff?: number;
 }
 
 export interface Treasury {
@@ -1720,6 +1783,69 @@ export interface Treasury {
   data?: any;
   accounts: TreasuryAccount[];
   transactions: TreasuryTransaction[];
+}
+
+export type QuotationStatus = 
+  | 'مسودة'
+  | 'قيد_الانتظار'
+  | 'تمت_الموافقة'
+  | 'محول_لطلب_شحن'
+  | 'ملغي'
+  | 'منتهي_الصلاحية';
+
+export interface Quotation {
+  id: string;
+  storeId?: string;
+  quotationNumber: string;
+  createdAt: string;
+  validUntil: string;
+  status: QuotationStatus;
+  
+  customerName: string;
+  customerPhone: string;
+  customerPhone2?: string;
+  customerEmail?: string;
+  customerAddress: string;
+  customerCity?: string;
+  governorate?: string;
+  city?: string;
+  buildingNumber?: string;
+  floorNumber?: string;
+  apartmentNumber?: string;
+  
+  items: OrderItem[];
+  subtotal: number;
+  discount: number;
+  shippingFee: number;
+  tax?: number;
+  total: number;
+  advancePayment?: number;
+  remainingAmount?: number;
+  
+  shippingCompany?: string;
+  shippingArea?: string;
+  includeInspectionFee?: boolean;
+  inspectionFee?: number;
+  isInsured?: boolean;
+  insuranceFee?: number;
+  vatRate?: number;
+  vatValue?: number;
+  codFee?: number;
+  companyFeesTotal?: number;
+  roundingAdjustment?: number;
+  combineShippingFeesInPrint?: boolean;
+  allowOpenShipment?: boolean;
+  notes?: string;
+  terms?: string;
+  createdBy?: string;
+  
+  convertedOrderId?: string;
+  convertedOrderNumber?: string;
+  convertedAt?: string;
+  approvedAt?: string;
+  approvedByCustomer?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string;
 }
 
 export interface StoreData {
@@ -1730,11 +1856,13 @@ export interface StoreData {
   treasury?: Treasury;
   cart: OrderItem[];
   customers: CustomerProfile[]; // Added customers to StoreData
+  quotations?: Quotation[];
 }
 
 export interface PlaceOrderData {
     customerName: string;
     customerPhone: string;
+    customerEmail?: string;
     customerAddress: string;
     buildingNumber?: string;
     floorNumber?: string;
@@ -1788,6 +1916,8 @@ export interface User {
   migrationStatus?: 'legacy' | 'migrated' | 'verified';
   migratedAt?: string;
   legacyVerified?: boolean;
+  biometricCredentials?: BiometricCredentialRecord[];
+  allowBiometricAuth?: boolean;
 }
 
 export interface Invitation {

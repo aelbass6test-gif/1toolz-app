@@ -92,6 +92,7 @@ import {
   Employee,
   User,
   AuditLog,
+  Quotation,
 } from "../types";
 import {
   ORDER_STATUSES,
@@ -190,6 +191,8 @@ interface OrdersListProps {
   treasury?: any;
   setTreasury?: (updater: any) => void;
   defaultShowAdd?: boolean;
+  quotations?: Quotation[];
+  setQuotations?: (updater: any) => void;
 }
 
 interface NewOrderState extends Partial<Omit<Order, "id">> {
@@ -363,6 +366,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   treasury,
   setTreasury,
   defaultShowAdd,
+  quotations,
+  setQuotations,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -2436,6 +2441,26 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     setOrders((prevOrders) =>
       prevOrders.filter((o) => o.id !== orderIdToDelete),
     );
+
+    // If order was converted from a quotation, safely restore the quotation back to 'تمت_الموافقة' (approved) so the user does not lose it and can re-convert or edit it
+    if (setQuotations && (orderToDelete.quotationNumber || (orderToDelete as any).quotationId)) {
+      const qNum = orderToDelete.quotationNumber;
+      const oId = orderToDelete.id;
+      setQuotations((prev: Quotation[]) =>
+        (prev || []).map((q) => {
+          if (q.quotationNumber === qNum || q.convertedOrderId === oId) {
+            return {
+              ...q,
+              status: 'تمت_الموافقة',
+              convertedOrderId: undefined,
+              convertedOrderNumber: undefined,
+              convertedAt: undefined,
+            };
+          }
+          return q;
+        })
+      );
+    }
 
     // 2. Remove associated transactions from Wallet
     setWallet((prevWallet) => {
@@ -6407,7 +6432,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       {orderToDelete && (
         <ConfirmationModal
           title="حذف الطلب؟"
-          description={`هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟`}
+          description={
+            orderToDelete.quotationNumber
+              ? `هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟\n\n💡 ملاحظة: هذا الطلب تم تحويله من عرض السعر #${orderToDelete.quotationNumber}. حذف هذا الطلب لن يحذف عرض السعر إطلاقاً، بل سيعود عرض السعر تلقائياً لحالة (معمد ومقبول) في صفحة عروض الأسعار لتتمكن من مراجعته أو إعادة تحويله لاحقاً.`
+              : `هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟`
+          }
           onConfirm={handleDeleteOrder}
           onCancel={() => setOrderToDelete(null)}
           checkboxLabel={
@@ -9079,6 +9108,11 @@ const OrderRow = ({
               {isPosOrder && displayTotal === 0 && (
                 <div className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30">
                   مدفوع بالكامل (كاشير)
+                </div>
+              )}
+              {!isPosOrder && displayTotal === 0 && (
+                <div className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30">
+                  {order.quotationNumber ? `عرض أسعار #${order.quotationNumber} (تحصيل 0)` : 'مدفوع مسبقاً (تحصيل 0)'}
                 </div>
               )}
               {safeTax > 0 && (
