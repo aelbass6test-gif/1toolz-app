@@ -90,14 +90,44 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
     });
   };
 
-  // Credentials stay on the backend; only safe store configuration is checked here.
+  // Test MoneyHash API Connection
   const handleTestMoneyHashConnection = async () => {
     setIsTesting(true);
-    await new Promise(resolve => setTimeout(resolve, 250));
-    setTestResult({ success: Boolean(mhConfig.accountKey), message: mhConfig.accountKey
-      ? 'تم حفظ معرف حساب المتجر. يتم اختبار الاتصال الفعلي عند إنشاء طلب.'
-      : 'يجب ربط حساب MoneyHash الخاص بهذا المتجر من الخادم قبل تفعيل الدفع.' });
-    setIsTesting(false);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/moneyhash/create-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: 10,
+          currency: mhConfig.currency || 'EGP',
+          orderNumber: 'TEST_INIT',
+          customerName: 'تجربة اتصال',
+          mode: mhConfig.mode,
+          apiKey: mhConfig.apiKey,
+          publicApiKey: mhConfig.publicApiKey
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTestResult({
+          success: true,
+          message: `تم الاختبار بنجاح 🟢 (${mhConfig.mode === 'test' ? 'بيئة المعاينة والاختبار Sandbox' : 'البيئة الحية والمباشرة Live'}). الإرسال والاستقبال جاهز!`
+        });
+      } else {
+        setTestResult({
+          success: false,
+          message: data.error || 'تعذر الاتصال بـ MoneyHash. يرجى مراجعة المفتاح السري (API Key).'
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        success: false,
+        message: 'خطأ في الاتصال بالخادم: ' + (err.message || 'حاول مرة أخرى')
+      });
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   // Save MoneyHash Config
@@ -307,6 +337,31 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
                   </select>
                 </div>
 
+                {/* Secret Key */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">المفتاح السري (Secret API Key) *</label>
+                  <input
+                    type="password"
+                    placeholder="mh_sec_live_... أو mh_sec_test_..."
+                    value={mhConfig.apiKey}
+                    onChange={(e) => setMhConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">يُحفظ بأمان في سيرفر الخادم لاستدعاء إنشاء نيات الدفع (Payment Intents).</span>
+                </div>
+
+                {/* Public API Key */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">المفتاح العام (Public Key / Public API Key)</label>
+                  <input
+                    type="text"
+                    placeholder="mh_pub_..."
+                    value={mhConfig.publicApiKey || ''}
+                    onChange={(e) => setMhConfig(prev => ({ ...prev, publicApiKey: e.target.value }))}
+                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
+                  />
+                </div>
+
                 {/* Account Key / Sub-Account ID with Create Button */}
                 <div>
                   <div className="flex justify-between items-center mb-1">
@@ -332,8 +387,19 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
                   />
                 </div>
 
-                <div className="sm:col-span-2 p-3 rounded-xl bg-amber-50 text-amber-800 text-xs font-bold">مفاتيح MoneyHash السرية وتوقيع الـWebhook محفوظة في الخادم فقط ولا تُعرض في المتصفح.</div>
+                {/* Webhook Secret */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">توقيع الويب هوك (Webhook Secret)</label>
+                  <input
+                    type="text"
+                    placeholder="mh_wh_..."
+                    value={mhConfig.webhookSecret || ''}
+                    onChange={(e) => setMhConfig(prev => ({ ...prev, webhookSecret: e.target.value }))}
+                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
+                  />
+                </div>
               </div>
+
               {/* Test Action */}
               <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
                 <button
