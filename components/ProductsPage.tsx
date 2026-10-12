@@ -3237,12 +3237,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             className="text-xs font-bold text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm disabled:opacity-60 disabled:cursor-wait"
                                         >
                                             {isUploadingProductImages ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
-                                            {isUploadingProductImages ? 'جاري رفع الصور...' : 'رفع صور المنتج على المنصة'}
+                                            {isUploadingProductImages ? 'جاري رفع الصور...' : 'رفع عدة صور دفعة واحدة'}
                                         </button>
                                     </div>
                                 </div>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    تُخزّن الصور المرفوعة على المنصة وتُعرض بروابط تبدأ بـ https://abdomedi.com/images/ (بحد أقصى 10 ميجابايت للصورة).
+                                    حدّد حتى 20 صورة مرة واحدة لرفعها إلى المنصة؛ كل صورة بحد أقصى 10 ميجابايت، وروابطها تبدأ بـ https://abdomedi.com/images/.
                                 </p>
 
                                 {showUrlInput && (
