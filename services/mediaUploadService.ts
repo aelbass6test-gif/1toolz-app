@@ -11,7 +11,7 @@ export interface ProductImageUploadResult {
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 function mediaApiBase(): string {
-  return (import.meta.env.VITE_MEDIA_API_URL || '').replace(/\/$/, '');
+  return (import.meta.env.VITE_MEDIA_API_URL || 'https://app.abdomedi.com').replace(/\/$/, '');
 }
 
 export async function uploadProductImages(

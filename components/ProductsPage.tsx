@@ -2516,6 +2516,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const [activeStep, setActiveStep] = useState<number>(0);
     const [showUrlInput, setShowUrlInput] = useState(false);
     const [newImageUrl, setNewImageUrl] = useState('');
+    const [isUploadingProductImages, setIsUploadingProductImages] = useState(false);
 
     const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2644,6 +2645,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
+        setIsUploadingProductImages(true);
         try {
             if (!activeStoreId) throw new Error('لا يوجد متجر نشط لرفع الصورة إليه');
             const uploaded = await uploadProductImages(Array.from(files), {
@@ -2660,6 +2662,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
             alert(error instanceof Error ? error.message : "حدث خطأ أثناء رفع الصورة.");
         } finally {
             e.target.value = '';
+            setIsUploadingProductImages(false);
         }
     };
 
@@ -3230,12 +3233,17 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                         <button 
                                             type="button" 
                                             onClick={() => galleryInputRef.current?.click()}
-                                            className="text-xs font-bold text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm"
+                                            disabled={isUploadingProductImages}
+                                            className="text-xs font-bold text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm disabled:opacity-60 disabled:cursor-wait"
                                         >
-                                            <Upload size={14} /> رفع من الجهاز
+                                            {isUploadingProductImages ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
+                                            {isUploadingProductImages ? 'جاري رفع الصور...' : 'رفع صور المنتج على المنصة'}
                                         </button>
                                     </div>
                                 </div>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    تُخزّن الصور المرفوعة على المنصة وتُعرض بروابط تبدأ بـ https://abdomedi.com/images/ (بحد أقصى 10 ميجابايت للصورة).
+                                </p>
 
                                 {showUrlInput && (
                                     <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 flex gap-2 animate-in slide-in-from-top-2 duration-200">

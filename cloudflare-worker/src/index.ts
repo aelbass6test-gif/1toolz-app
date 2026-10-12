@@ -110,7 +110,9 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname.startsWith('/images/')) {
     if (request.method !== 'GET' && request.method !== 'HEAD') return json(request, env, { success: false, error: 'طريقة الطلب غير مدعومة' }, 405);
-    const key = decodeURIComponent(url.pathname.slice('/images/'.length)).replace(/^\/+/, '');
+    // Uploaded objects are stored with the "images/" prefix, so keep it in
+    // the R2 key when resolving the public /images/... URL.
+    const key = decodeURIComponent(url.pathname.slice(1)).replace(/^\/+/, '');
     if (!key || key.includes('..')) return json(request, env, { success: false, error: 'مسار صورة غير صالح' }, 400);
     const object = await env.R2_IMAGES.get(key);
     if (!object) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
@@ -143,7 +145,8 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' },
       customMetadata: { storeId, productId, originalName: file.name }
     });
-    images.push({ key, url: `https://abdomedi.com/${key}`, filename, contentType: file.type, size: file.size });
+    const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || 'https://abdomedi.com').replace(/\/$/, '');
+    images.push({ key, url: `${publicOrigin}/${key}`, filename, contentType: file.type, size: file.size });
   }
   return json(request, env, { success: true, images });
 }
