@@ -859,7 +859,10 @@ const ProductDetailModal: React.FC<{
 }) => {
   const [isAdded, setIsAdded] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const images = [product.thumbnail, ...(product.images || [])].filter(Boolean) as string[];
+  const images = useMemo(() => {
+    const all = [product.thumbnail, ...(product.images || [])].filter(Boolean) as string[];
+    return Array.from(new Set(all));
+  }, [product.thumbnail, product.images]);
   const productReviews = allReviews.filter(r => r.productId === product.id && r.status === 'approved');
   const averageRating = productReviews.length > 0 
     ? productReviews.reduce((acc, r) => acc + r.rating, 0) / productReviews.length 

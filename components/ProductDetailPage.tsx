@@ -85,7 +85,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
   const images = useMemo(() => {
     if (!product) return [];
-    return [product.thumbnail, ...(product.images || [])].filter(Boolean) as string[];
+    const all = [product.thumbnail, ...(product.images || [])].filter(Boolean) as string[];
+    return Array.from(new Set(all));
   }, [product]);
 
   const productReviews = useMemo(() => {

@@ -849,8 +849,13 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
     }
     
     const finalThumbnail = productData.thumbnail || (productData.images && productData.images[0]) || '';
-    const finalImages = (productData.images && productData.images.length > 0)
-        ? productData.images
+    // Filter and deduplicate images list, excluding duplicate occurrences of thumbnail
+    const rawImages = (productData.images || []).filter(Boolean);
+    const uniqueRawImages = Array.from(new Set(rawImages));
+    // If user has other gallery images, keep them without repeating the thumbnail
+    // If no images exist at all, set empty or finalThumbnail
+    const finalImages = uniqueRawImages.length > 0 
+        ? uniqueRawImages 
         : (finalThumbnail ? [finalThumbnail] : []);
 
     const productToSave: Product = {
@@ -2722,12 +2727,10 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
             if (target === 'thumbnail') {
                 const thumbUrl = uploaded[0]?.url || '';
                 setProductData((prev: Product) => {
-                    const prevImages = prev.images || [];
-                    const nextImages = prevImages.includes(thumbUrl) ? prevImages : (thumbUrl ? [thumbUrl, ...prevImages] : prevImages);
                     return {
                         ...prev,
                         thumbnail: thumbUrl,
-                        images: nextImages
+                        images: prev.images || []
                     };
                 });
             } else {
