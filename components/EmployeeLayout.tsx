@@ -29,7 +29,8 @@ import {
   FileText,
   FileSpreadsheet,
   X,
-  Bell
+  Bell,
+  Users2
 } from 'lucide-react';
 import FloatingChat, { FloatingChatHandles } from './FloatingChat';
 import IosInstallPrompt from './IosInstallPrompt';
@@ -400,6 +401,16 @@ export const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({
                             <History size={15} />
                             <span>سجل أدائي</span>
                         </NavLink>
+
+                        {Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('CUSTOMERS_VIEW')) && (
+                            <NavLink 
+                                to="/employee/customers" 
+                                className={({ isActive }) => `flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isActive ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
+                            >
+                                <Users2 size={15} />
+                                <span>قاعدة العملاء</span>
+                            </NavLink>
+                        )}
                     </nav>
 
                     {/* Active Store Switcher (if multi-store) */}
@@ -810,6 +821,16 @@ export const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({
                     <History size={18} />
                     <span>أدائي</span>
                 </NavLink>
+
+                {Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('CUSTOMERS_VIEW')) && (
+                    <NavLink 
+                        to="/employee/customers" 
+                        className={({ isActive }) => `flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition text-[10px] font-bold ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}
+                    >
+                        <Users2 size={18} />
+                        <span>العملاء</span>
+                    </NavLink>
+                )}
 
                 <NavLink 
                     to="/employee/account-settings" 

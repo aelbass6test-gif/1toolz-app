@@ -456,6 +456,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
                             address: updatedOrder.customerAddress || c.address,
                             governorate: updatedOrder.governorate || updatedOrder.shippingArea || c.governorate,
                             city: updatedOrder.city || c.city,
+                            phone2: updatedOrder.customerPhone2 || c.phone2,
                             shippingFee: (typeof updatedOrder.shippingFee === 'number' && updatedOrder.shippingFee > 0) ? updatedOrder.shippingFee : c.shippingFee,
                             lastOrderDate: new Date().toISOString()
                         } : c);

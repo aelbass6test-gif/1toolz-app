@@ -127,6 +127,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             title: 'المالية والشركاء والرواتب',
             links: [
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
+                { to: `${storePrefix}/merchant-settlement`, label: 'تسوية حسابات الموكلين والبضائع 📄', icon: <Receipt size={18} />, badge: { text: "جديد", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px]" } },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
                 { to: `${storePrefix}/wallet`, label: 'محفظة عمولات المتجر', icon: <WalletIcon size={18} /> },
                 { to: `${storePrefix}/partners`, label: 'إدارة الشركاء والمسوقين', icon: <Users size={18} /> },

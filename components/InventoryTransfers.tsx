@@ -19,6 +19,8 @@ import {
   ArrowLeft,
   Package
 } from 'lucide-react';
+import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
+import { StockVoucherModal } from './StockVoucherModal';
 import { Settings, Warehouse, Product, StockTransfer, StockTransferItem, ProductVariant } from '../types';
 
 interface InventoryTransfersProps {
@@ -31,6 +33,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'history' | 'create'>('history');
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
+  const [voucherTransfer, setVoucherTransfer] = useState<StockTransfer | null>(null);
 
   // New Transfer Form State
   const [newTransfer, setNewTransfer] = useState<Partial<StockTransfer>>({
@@ -41,6 +44,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
     status: 'completed'
   });
 
+  const [transferAttachments, setTransferAttachments] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [itemSearch, setItemSearch] = useState('');
 
@@ -214,7 +218,8 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
       items: newTransfer.items!,
       status: 'completed',
       notes: newTransfer.notes,
-      performedBy: currentUser?.fullName || currentUser?.email || 'System'
+      performedBy: currentUser?.fullName || currentUser?.email || 'System',
+      attachments: transferAttachments.length > 0 ? transferAttachments : undefined
     };
 
     // Update product stocks
@@ -273,6 +278,7 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
       notes: '',
       status: 'completed'
     });
+    setTransferAttachments([]);
     setActiveTab('history');
     alert('تم تنفيذ عملية النقل وتحديث المخزون بنجاح');
   };
@@ -388,6 +394,14 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
                         </div>
                         
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setVoucherTransfer(transfer); }}
+                            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl transition-colors cursor-pointer"
+                            title="طباعة إذن التسليم والتحويل المخزني الرسمي"
+                          >
+                            <FileText size={16} />
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => handleDeleteTransfer(transfer.id, e)}
@@ -646,6 +660,14 @@ const InventoryTransfers: React.FC<InventoryTransfersProps> = ({ settings, updat
           </motion.div>
         )}
       </AnimatePresence>
+
+      {voucherTransfer && (
+        <StockVoucherModal
+          transfer={voucherTransfer}
+          settings={settings}
+          onClose={() => setVoucherTransfer(null)}
+        />
+      )}
     </div>
   );
 };

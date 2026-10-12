@@ -1,0 +1,1 @@
+import { db } from "./services/firebaseClient"; import { collection, getDocs } from "firebase/firestore"; async function run() { const snap = await getDocs(collection(db, "stores_data")); console.log(JSON.stringify(snap.docs.map(d => ({ id: d.id, ...d.data() })), null, 2)); } run().catch(console.error);

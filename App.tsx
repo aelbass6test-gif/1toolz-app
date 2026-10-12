@@ -19,6 +19,7 @@ import { audioSynth } from './utils/audioSynth';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import GlobalLoader from './components/GlobalLoader';
 import WelcomeLoader from './components/WelcomeLoader';
+import { computeEnrichedCustomers } from './components/crm/crmUtils';
 
 const getAuthOtpApiBase = () => {
     if (import.meta.env.VITE_AUTH_API_URL) {
@@ -86,6 +87,7 @@ const EmployeesPage = lazyWithRetry(() => import('./components/EmployeesPage'));
 const EmployeesPayrollPage = lazyWithRetry(() => import('./components/EmployeesPayrollPage'));
 const ReportsPage = lazyWithRetry(() => import('./components/ReportsPage'));
 const InventoryTransfers = lazyWithRetry(() => import('./components/InventoryTransfers'));
+const MerchantSettlementPage = lazyWithRetry(() => import('./components/MerchantSettlementPage').then(m => ({ default: m.MerchantSettlementPage })));
 const OrderReturnsPage = lazyWithRetry(() => import('./components/OrderReturnsPage'));
 const PurchaseReturnsPage = lazyWithRetry(() => import('./components/PurchaseReturnsPage'));
 const POSPage = lazyWithRetry(() => import('./components/POSPage'));
@@ -1016,6 +1018,11 @@ export const AppComponent = () => {
     }, [cart]);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
     const [isEmployeeSession, setIsEmployeeSession] = useState<boolean>(false);
+    const enrichedCustomers = useMemo(() => {
+        if (!activeStoreId || !allStoresData[activeStoreId]) return [];
+        const store = allStoresData[activeStoreId];
+        return computeEnrichedCustomers(store.orders || [], {}, store.customers || []);
+    }, [activeStoreId, allStoresData]);
     const [theme, setTheme] = useState<string>(() => localStorage.getItem('theme') || 'light');
     const [showCongratsModal, setShowCongratsModal] = useState<boolean>(false);
     const [welcomeScreenShown, setWelcomeScreenShownState] = useState<boolean>(() => {
@@ -3350,7 +3357,7 @@ export const AppComponent = () => {
         saveStatus,
         saveMessage,
         onRefresh: async () => { if (activeStoreId) await refreshStoreData(activeStoreId); },
-        customers: activeStoreId ? allStoresData[activeStoreId]?.customers || [] : [],
+        customers: enrichedCustomers,
         setCustomers: (updater: any) => {
             if(activeStoreId) {
                 setAllStoresData(p => {
@@ -3368,6 +3375,48 @@ export const AppComponent = () => {
                     };
                 });
             }
+        },
+        onUpdateCustomer: (phone: string, updates: Partial<CustomerProfile>) => {
+          const normalizedPhone = normalizePhone(phone);
+          if (!normalizedPhone || !activeStoreId) return;
+          
+          setAllStoresData(p => {
+              const store = p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] };
+              const currentCustomers = store.customers || [];
+              const exists = currentCustomers.some(customer => normalizePhone(customer.phone) === normalizedPhone);
+              
+              let newCustomers: CustomerProfile[];
+              if (exists) {
+                newCustomers = currentCustomers.map(customer => normalizePhone(customer.phone) === normalizedPhone ? { ...customer, ...updates } : customer);
+              } else {
+                const savedCustomer = currentCustomers.find((customer: CustomerProfile) => normalizePhone(customer.phone) === normalizedPhone);
+                const sourceOrder = store.orders.find((order: Order) => normalizePhone(order.customerPhone) === normalizedPhone);
+                const baseCustomer: CustomerProfile = {
+                  id: savedCustomer?.id || normalizedPhone,
+                  name: savedCustomer?.name || sourceOrder?.customerName || '',
+                  phone: savedCustomer?.phone || sourceOrder?.customerPhone || phone,
+                  address: savedCustomer?.address || sourceOrder?.customerAddress || '',
+                  totalOrders: savedCustomer?.totalOrders || 0,
+                  successfulOrders: savedCustomer?.successfulOrders || 0,
+                  returnedOrders: savedCustomer?.returnedOrders || 0,
+                  totalSpent: savedCustomer?.totalSpent || 0,
+                  lastOrderDate: savedCustomer?.lastOrderDate || sourceOrder?.date || new Date().toISOString(),
+                  firstOrderDate: savedCustomer?.firstOrderDate || sourceOrder?.date || new Date().toISOString(),
+                  averageOrderValue: savedCustomer?.averageOrderValue || 0,
+                  loyaltyPoints: savedCustomer?.loyaltyPoints || 0,
+                  ...updates
+                };
+                newCustomers = [...currentCustomers, baseCustomer];
+              }
+
+              return {
+                ...p,
+                [activeStoreId]: {
+                  ...store,
+                  customers: newCustomers
+                }
+              };
+          });
         },
         quotations: activeStoreId ? allStoresData[activeStoreId]?.quotations || [] : [],
         setQuotations: (updater: any) => {
@@ -3654,9 +3703,9 @@ export const AppComponent = () => {
                     <Route path="/" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                    <Route path="/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                    <Route path="/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                    <Route path="/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
+                    <Route path="/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
+                    <Route path="/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
                     <Route path="/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                     <Route path="/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
@@ -3723,6 +3772,17 @@ export const AppComponent = () => {
                     } />
                     <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
                     <Route path="my-activity" element={<EmployeeActivityPage currentUser={currentUser} orders={pageProps.orders} />} />
+                    <Route path="customers" element={
+                        <EmployeePermissionRoute currentUser={currentUser} permission="CUSTOMERS_VIEW">
+                            <CustomersPage 
+                                orders={pageProps.orders} 
+                                loyaltyData={{}} 
+                                customers={pageProps.customers}
+                                settings={pageProps.settings}
+                                onUpdateCustomer={pageProps.onUpdateCustomer}
+                            />
+                        </EmployeePermissionRoute>
+                    } />
                     <Route path="account-settings" element={<EmployeeAccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
 
@@ -3803,6 +3863,7 @@ export const AppComponent = () => {
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
                     <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
+                    <Route path="merchant-settlement" element={<MerchantSettlementPage orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
                     <Route path="dropshipping/new" element={<CreateDropshippingOrderPage {...pageProps} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />} />
@@ -3818,37 +3879,8 @@ export const AppComponent = () => {
                         orders={pageProps.orders} 
                         loyaltyData={{}} 
                         customers={pageProps.customers}
-                        onUpdateCustomer={(phone, updates) => {
-                          const normalizedPhone = normalizePhone(phone);
-                          if (!normalizedPhone) return;
-                          pageProps.setCustomers((prev: CustomerProfile[]) => {
-                            const exists = prev.some(customer => normalizePhone(customer.phone) === normalizedPhone);
-                            if (exists) {
-                              return prev.map(customer => normalizePhone(customer.phone) === normalizedPhone ? { ...customer, ...updates } : customer);
-                            }
-
-                            const savedCustomer = pageProps.customers.find((customer: CustomerProfile) => normalizePhone(customer.phone) === normalizedPhone);
-                            const sourceOrder = pageProps.orders.find((order: Order) => normalizePhone(order.customerPhone) === normalizedPhone);
-                            const now = new Date().toISOString();
-                            const baseCustomer: CustomerProfile = {
-                              id: savedCustomer?.id || normalizedPhone,
-                              name: savedCustomer?.name || sourceOrder?.customerName || '',
-                              phone: savedCustomer?.phone || sourceOrder?.customerPhone || phone,
-                              address: savedCustomer?.address || sourceOrder?.customerAddress || '',
-                              totalOrders: savedCustomer?.totalOrders || 0,
-                              successfulOrders: savedCustomer?.successfulOrders || 0,
-                              returnedOrders: savedCustomer?.returnedOrders || 0,
-                              totalSpent: savedCustomer?.totalSpent || 0,
-                              lastOrderDate: savedCustomer?.lastOrderDate || sourceOrder?.date || now,
-                              firstOrderDate: savedCustomer?.firstOrderDate || sourceOrder?.date || now,
-                              averageOrderValue: savedCustomer?.averageOrderValue || 0,
-                              loyaltyPoints: savedCustomer?.loyaltyPoints || 0,
-                              ...savedCustomer,
-                              ...updates,
-                            };
-                            return [...prev, baseCustomer];
-                          });
-                        }}
+                        settings={pageProps.settings}
+                        onUpdateCustomer={pageProps.onUpdateCustomer}
                       />
                     } />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
@@ -3948,9 +3980,9 @@ export const AppComponent = () => {
 
                 <Route path="store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
@@ -3958,9 +3990,9 @@ export const AppComponent = () => {
                 {/* Path with store ID */}
                 <Route path="/store/:storeId/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/store/:storeId/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/store/:storeId/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/store/:storeId/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="/store/:storeId/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
+                <Route path="/store/:storeId/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="/store/:storeId/cart" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="/store/:storeId/order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />

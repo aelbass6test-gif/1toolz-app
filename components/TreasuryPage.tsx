@@ -36,13 +36,16 @@ import {
   Check,
   Percent,
   SlidersHorizontal,
-  FileText
+  FileText,
+  Eye,
+  Paperclip
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Settings, Treasury, TreasuryAccount, TreasuryTransaction, Order } from '../types';
 import { calculateOrderProfitLoss, getVirtualOrderHandovers } from '../utils/financials';
 import { inAppConfirm } from '../utils/inAppAlert';
 import { generateSafeId } from '../utils/idUtils';
+import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 
 interface TreasuryPageProps {
   settings: Settings;
@@ -110,6 +113,8 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
   const [toAccount, setToAccount] = useState('');
   const [transDesc, setTransDesc] = useState('');
   const [operatorName, setOperatorName] = useState('');
+  const [transAttachments, setTransAttachments] = useState<string[]>([]);
+  const [previewAttachmentUrl, setPreviewAttachmentUrl] = useState<string | null>(null);
 
   // Editing state for accounts
   const [editingAccount, setEditingAccount] = useState<TreasuryAccount | null>(null);
@@ -614,7 +619,9 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
       fromAccountId,
       toAccountId,
       operatorName: operatorName.trim() || 'المسؤول المالي',
-      reference: `TRX-${Date.now().toString().slice(-6)}`
+      reference: `TRX-${Date.now().toString().slice(-6)}`,
+      attachmentUrl: transAttachments[0] || undefined,
+      attachments: transAttachments.length > 0 ? transAttachments : undefined
     };
 
     if (setTreasury) {
@@ -676,6 +683,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
     setFromAccount('');
     setToAccount('');
     setOperatorName('');
+    setTransAttachments([]);
   };
 
   // Reconcile and Save Smart Cash Count
@@ -1698,6 +1706,16 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
                                 مرجع: {tx.reference}
                               </span>
                             )}
+                            {(tx.attachments?.[0] || tx.attachmentUrl) && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewAttachmentUrl(tx.attachments?.[0] || tx.attachmentUrl || null)}
+                                className="inline-flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline mt-1 cursor-pointer font-extrabold"
+                              >
+                                <Paperclip size={10} />
+                                <span>معاينة المستند المرفق</span>
+                              </button>
+                            )}
                           </td>
                           <td className="p-4 text-slate-600 dark:text-slate-300 font-sans">{fromAcc}</td>
                           <td className="p-4 text-slate-600 dark:text-slate-300 font-sans">{toAcc}</td>
@@ -2140,6 +2158,20 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
                 />
               </div>
 
+              {/* Transaction Attachment Uploader */}
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+                <InvoiceAttachmentUploader
+                  label="صورة الإيصال / مستند الحركة (اختياري)"
+                  helperText="يمكنك التقاط صورة الإيصال أو المستند بالكاميرا أو رفعه للتأكيد"
+                  attachments={transAttachments}
+                  onChange={setTransAttachments}
+                  activeStoreId="store-treasury"
+                  folderCategory="expenses"
+                  maxFiles={4}
+                  compact
+                />
+              </div>
+
               <div className="flex gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <button 
                   type="submit"
@@ -2381,6 +2413,50 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
                 className="px-5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs cursor-pointer"
               >
                 إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Attachment Modal */}
+      {previewAttachmentUrl && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-4 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h3 className="font-black text-sm text-slate-800 dark:text-white flex items-center gap-2">
+                <Paperclip size={16} className="text-indigo-500" />
+                معاينة إيصال / مستند الحركة
+              </h3>
+              <button
+                onClick={() => setPreviewAttachmentUrl(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-auto rounded-2xl bg-slate-950/5 dark:bg-slate-950 flex items-center justify-center p-2">
+              <img
+                src={previewAttachmentUrl}
+                alt="معاينة المرفق"
+                className="max-w-full max-h-[65vh] object-contain rounded-xl"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <div className="flex justify-between items-center pt-2">
+              <a
+                href={previewAttachmentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+              >
+                فتح المستند في نافذة مستقلة ↗
+              </a>
+              <button
+                onClick={() => setPreviewAttachmentUrl(null)}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl"
+              >
+                إغلاق
               </button>
             </div>
           </div>

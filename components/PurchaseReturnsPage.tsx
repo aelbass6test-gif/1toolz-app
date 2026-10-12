@@ -19,6 +19,7 @@ import {
   AlertCircle,
   ArrowLeft
 } from 'lucide-react';
+import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 import { Settings, PurchaseReturn, PurchaseReturnItem, Product, ProductVariant } from '../types';
 
 interface PurchaseReturnsPageProps {
@@ -40,6 +41,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
     status: 'completed'
   });
 
+  const [returnAttachments, setReturnAttachments] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [itemSearch, setItemSearch] = useState('');
 
@@ -103,7 +105,8 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
       warehouseId: newReturn.warehouseId!,
       status: 'completed',
       notes: newReturn.notes,
-      performedBy: currentUser?.fullName || currentUser?.email || 'System'
+      performedBy: currentUser?.fullName || currentUser?.email || 'System',
+      attachments: returnAttachments.length > 0 ? returnAttachments : undefined
     };
 
     // Update product stocks
@@ -159,6 +162,7 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
       notes: '',
       status: 'completed'
     });
+    setReturnAttachments([]);
     setActiveTab('history');
     alert('تم تنفيذ مرتجع المشتريات وتحديث المخزون بنجاح');
   };
@@ -423,7 +427,16 @@ const PurchaseReturnsPage: React.FC<PurchaseReturnsPageProps> = ({ settings, upd
                    </div>
                  )}
 
-                 <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
+                 <div className="pt-6 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                    <InvoiceAttachmentUploader
+                      label="صورة إيصال مرتجع المشتريات / بوليصة الشحن"
+                      helperText="يمكنك تصوير مستند إرجاع البضاعة للمورد أو إيصال السداد وإرفاقه"
+                      attachments={returnAttachments}
+                      onChange={setReturnAttachments}
+                      activeStoreId="store-purchase-returns"
+                      folderCategory="suppliers"
+                      maxFiles={4}
+                    />
                     <button 
                       onClick={handleExecuteReturn}
                       className="w-full bg-amber-500 text-white h-14 rounded-2xl font-black shadow-xl shadow-amber-500/20 hover:scale-[1.01] active:scale-[0.99] transition-all flex items-center justify-center gap-3"

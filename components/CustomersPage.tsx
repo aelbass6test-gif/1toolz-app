@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Order, CustomerProfile } from '../types';
+import { Order, CustomerProfile, Settings } from '../types';
 import { 
   Search, User, Phone, MapPin, ShoppingBag, TrendingUp, AlertTriangle, Star, 
   LayoutList, X, Save, DollarSign, Plus, FileSpreadsheet, MessageCircle, 
   PhoneCall, Filter, ArrowUpDown, Eye, Award, CheckCircle2, BarChart3, 
-  Users, Sparkles, RefreshCw, LayoutGrid, Layers, ChevronDown
+  Users, Sparkles, RefreshCw, LayoutGrid, Layers, ChevronDown, FileText
 } from 'lucide-react';
+import { CustomerStatementModal } from './CustomerStatementModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { computeEnrichedCustomers, exportCustomersToExcel, getSegmentLabel, EnrichedCustomerProfile } from './crm/crmUtils';
 import { AddCustomerModal } from './crm/AddCustomerModal';
@@ -31,10 +32,11 @@ interface CustomersPageProps {
   orders: Order[];
   loyaltyData: Record<string, number>;
   customers?: CustomerProfile[];
+  settings?: Settings;
   onUpdateCustomer?: (phone: string, updates: Partial<CustomerProfile>) => void;
 }
 
-const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, customers: savedCustomers, onUpdateCustomer }) => {
+const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, customers: savedCustomers, settings, onUpdateCustomer }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSegment, setSelectedSegment] = useState<string>('all');
   const [selectedGov, setSelectedGov] = useState<string>('all');
@@ -44,6 +46,7 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
   
   // Modals state
   const [selectedCustomer, setSelectedCustomer] = useState<EnrichedCustomerProfile | null>(null);
+  const [statementCustomer, setStatementCustomer] = useState<EnrichedCustomerProfile | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   // Compute Enriched Customers
@@ -164,6 +167,20 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
           </div>
 
           <div className="flex items-center gap-3 flex-wrap w-full md:w-auto">
+            <button
+              onClick={() => {
+                if (settings?.onRefresh) {
+                  settings.onRefresh();
+                } else {
+                  window.location.reload();
+                }
+              }}
+              className="px-4 py-3.5 bg-white/10 hover:bg-white/20 text-white font-black rounded-2xl border border-white/10 transition-all flex items-center justify-center gap-2 text-xs"
+              title="تحديث البيانات من السحاب"
+            >
+              <RefreshCw size={18} className="text-blue-400" />
+            </button>
+
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="flex-1 md:flex-none px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-600/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2 text-xs md:text-sm"
@@ -516,6 +533,14 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
                                 <Eye size={15} />
                               </button>
 
+                              <button
+                                onClick={() => setStatementCustomer(customer)}
+                                className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-600 text-indigo-600 hover:text-white transition-colors"
+                                title="عرض كشف حساب تفصيلي"
+                              >
+                                <FileText size={15} />
+                              </button>
+
                               <a
                                 href={`https://wa.me/2${customer.phone.replace(/^0+/, '0')}`}
                                 target="_blank"
@@ -570,6 +595,16 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
         onClose={() => setSelectedCustomer(null)}
         onSave={handleSaveCustomer}
       />
+
+      {statementCustomer && (
+        <CustomerStatementModal
+          customer={statementCustomer}
+          orders={orders}
+          settings={settings || { storeName: 'المتجر' } as any}
+          onClose={() => setStatementCustomer(null)}
+          onAddTransaction={handleSaveCustomer}
+        />
+      )}
 
       <AddCustomerModal
         isOpen={isAddModalOpen}

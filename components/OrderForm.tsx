@@ -67,7 +67,9 @@ import {
   Edit3,
   Lock,
   Unlock,
-  Store
+  Store,
+  PieChart,
+  Megaphone
 } from "lucide-react";
 import {
   Order,
@@ -120,6 +122,13 @@ export interface NewOrderState extends Partial<Omit<Order, "id">> {
   recordedAsDebt?: boolean;
   originalOrderItems?: any[];
   exchangedItems?: any[];
+  
+  // Merchant / Agency Fulfillment Fields
+  merchantId?: string;
+  merchantName?: string;
+  merchantItemCost?: number;
+  serviceFeePerOrder?: number;
+  marketingFeePerOrder?: number;
 }
 
 const OrderFormEditTotalModal: React.FC<{
@@ -616,6 +625,29 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     }
   };
 
+  const merchantsList = useMemo(() => {
+    const list: Array<{ id: string; name: string; phone?: string }> = [];
+    const seen = new Set<string>();
+
+    // 1. From Suppliers
+    (settings.suppliers || []).forEach(s => {
+      if (!seen.has(s.id)) {
+        seen.add(s.id);
+        list.push({ id: s.id, name: s.name, phone: s.phone });
+      }
+    });
+
+    // 2. From Customers (if any merchants tagged)
+    (customers || []).forEach(c => {
+      if (!seen.has(c.phone) && c.name && (c.customerSegment === 'merchant' || (c.tags || []).includes('موكل'))) {
+        seen.add(c.phone);
+        list.push({ id: c.phone, name: c.name, phone: c.phone });
+      }
+    });
+
+    return list;
+  }, [settings.suppliers, customers]);
+
   const activeCompanies = useMemo(() => {
     // Both Bosta and Turbo are connected as integrated API carriers by default
     const defaultApiCarriers = ["بوسطة", "تربو"];
@@ -862,11 +894,133 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     orderData.isManualShippingOverride,
   ]);
 
+  const itemDiscounts = useMemo(
+    () =>
+      getArray(orderData.items).reduce((sum, item) => {
+        let discount = 0;
+        if (item.discountValue) {
+          if (item.discountType === "percentage") {
+            discount =
+              (item.price || 0) *
+              (item.quantity || 1) *
+              (item.discountValue / 100);
+          } else {
+            discount = item.discountValue * (item.quantity || 1);
+          }
+        }
+        return sum + discount;
+      }, 0),
+    [orderData.items]
+  );
+
+  const subtotal = useMemo(() => {
+    return getArray(orderData.items).reduce(
+      (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+      0
+    );
+  }, [orderData.items]);
+
+  // --- NEW: Automate Fee Syncing for Insurance, COD, Inspection, and VAT ---
+  useEffect(() => {
+    const company = orderData.shippingCompany;
+    if (!company) return;
+
+    const compFees = settings.companySpecificFees?.[company];
+    const useCustom = compFees?.useCustomFees ?? false;
+
+    // 1. Inspection Fee
+    let calculatedInspection = 0;
+    if (orderData.includeInspectionFee !== false && orderData.allowOpenShipment !== false) {
+      calculatedInspection = useCustom
+        ? compFees?.inspectionFee || 0
+        : (settings.enableInspection ? settings.inspectionFee : 0);
+    }
+    if (calculatedInspection !== orderData.inspectionFee) {
+      handleFieldChange("inspectionFee", calculatedInspection);
+    }
+
+    // 2. Insurance Fee
+    let calculatedInsurance = 0;
+    if (orderData.isInsured !== false) {
+      const insuranceRate = useCustom
+        ? (compFees?.insuranceFeePercent ?? 0)
+        : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+      
+      const valueForInsurance = Number(
+        orderData.maintenanceItemValue || orderData.returnProductValue || 0
+      );
+      
+      calculatedInsurance = calculateInsuranceFee(
+        {
+          ...(orderData as any),
+          productPrice: valueForInsurance > 0 
+            ? valueForInsurance 
+            : (isMaintenance ? (Number(orderData.maintenanceCost) || 0) : (subtotal - itemDiscounts)),
+        },
+        insuranceRate,
+        settings
+      );
+    }
+    if (calculatedInsurance !== orderData.insuranceFee) {
+      handleFieldChange("insuranceFee", calculatedInsurance);
+    }
+
+    // 3. COD Fee
+    const calculatedCod = calculateCodFee(orderData as Order, settings);
+    if (calculatedCod !== orderData.codFee) {
+      handleFieldChange("codFee", calculatedCod);
+    }
+
+    // 4. VAT Amount
+    const calculatedVat = calculateBostaVat(orderData as Order, calculatedInsurance, settings);
+    if (calculatedVat !== orderData.vatValue) {
+      handleFieldChange("vatValue", calculatedVat);
+    }
+
+    // 5. Merchant Item Cost (Total Merchant Goods Due)
+    // If merchant mode is active and merchantItemCost is not manually set, auto-calculate from items
+    if (orderData.merchantId) {
+      const itemsCost = getArray(orderData.items).reduce((sum, item) => {
+        const cost = getLatestProductCost(item.productId, settings);
+        return sum + (cost * (item.quantity || 1));
+      }, 0);
+
+      // Only auto-fill if the current value is 0 or undefined, or if it was previously auto-filled
+      // We'll assume if it's 0 it should be auto-filled from catalog
+      if (itemsCost > 0 && (!orderData.merchantItemCost || orderData.merchantItemCost === 0)) {
+         handleFieldChange("merchantItemCost", itemsCost);
+      }
+    }
+
+  }, [
+    orderData.shippingCompany,
+    orderData.governorate,
+    orderData.shippingArea,
+    orderData.city,
+    orderData.items,
+    orderData.productPrice,
+    orderData.isInsured,
+    orderData.includeInspectionFee,
+    orderData.allowOpenShipment,
+    orderData.merchantId,
+    orderData.merchantItemCost,
+    orderData.maintenanceCost,
+    orderData.maintenanceItemValue,
+    orderData.returnProductValue,
+    orderData.discount,
+    orderData.advancePayment,
+    orderData.totalAmountOverride,
+    subtotal,
+    itemDiscounts,
+    settings,
+  ]);
+
   const handleCustomerSelect = (customer: CustomerProfile) => {
     setOrderData((prev: any) => ({
       ...prev,
       customerName: customer.name,
       customerPhone: customer.phone,
+      customerPhone2: customer.phone2 || prev.customerPhone2 || "",
       customerAddress: customer.address,
       governorate: customer.governorate || prev.governorate || "",
       shippingArea: customer.governorate || prev.shippingArea || "",
@@ -1076,31 +1230,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     );
   };
 
-  const itemDiscounts = useMemo(
-    () =>
-      getArray(orderData.items).reduce((sum, item) => {
-        let discount = 0;
-        if (item.discountValue) {
-          if (item.discountType === "percentage") {
-            discount =
-              (item.price || 0) *
-              (item.quantity || 1) *
-              (item.discountValue / 100);
-          } else {
-            discount = item.discountValue * (item.quantity || 1);
-          }
-        }
-        return sum + discount;
-      }, 0),
-    [orderData.items]
-  );
 
-  const subtotal = useMemo(() => {
-    return getArray(orderData.items).reduce(
-      (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
-      0
-    );
-  }, [orderData.items]);
 
   const totalWeight = useMemo(() => {
     return getArray(orderData.items).reduce(
@@ -1841,7 +1971,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
             <input
               type="text"
               placeholder="مثال: شارع النهضة، عمارة 15، الدور الثالث، شقة 8، بجوار صيدلية..."
-              value={(orderData.customerAddress || "").replace(/,\s*-\s*undefined\s*-?/gi, "").replace(/\bundefined\b/gi, "").trim()}
+              value={(orderData.customerAddress || "").replace(/,\s*-\s*undefined\s*-?/gi, "").replace(/\bundefined\b/gi, "")}
               onChange={(e) => handleFieldChange("customerAddress", e.target.value)}
               className="w-full p-3.5 bg-slate-50/80 dark:bg-slate-800/80 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl text-sm font-bold text-slate-900 dark:text-white focus:bg-white dark:focus:bg-slate-900 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all"
             />
@@ -2345,6 +2475,190 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
     return (
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+        {/* Agency Fulfillment & Merchant Settings */}
+        <div className="bg-gradient-to-br from-emerald-600/5 via-teal-600/5 to-transparent backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border-2 border-emerald-500/20 dark:border-emerald-500/10 shadow-md space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-black text-lg shadow-lg shadow-emerald-500/25">
+                <Users size={22} />
+              </div>
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">تشغيل الوكالة والموكلين (اختياري)</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">تفعيل هذا الخيار للأوردرات التي تتم لحساب عملاء الوكالة (دروب شيبينغ)</p>
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={!!orderData.merchantId}
+                onChange={(e) => {
+                  if (!e.target.checked) {
+                    handleFieldChange("merchantId", undefined);
+                    handleFieldChange("merchantName", undefined);
+                    handleFieldChange("serviceFeePerOrder", undefined);
+                  } else {
+                    handleFieldChange("merchantId", "pending"); // Triggering the UI to show selection
+                    handleFieldChange("serviceFeePerOrder", 10);
+                  }
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-14 h-7 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all dark:border-slate-600 peer-checked:bg-emerald-600"></div>
+            </label>
+          </div>
+
+          {orderData.merchantId && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-emerald-500/10 animate-in slide-in-from-top-2 duration-300">
+              <div className="col-span-full space-y-2">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">اختر صاحب البضاعة / الموكل *</label>
+                <select
+                  value={orderData.merchantId === "pending" ? "" : orderData.merchantId}
+                  onChange={(e) => {
+                    const mId = e.target.value;
+                    const merchant = merchantsList.find(m => m.id === mId);
+                    handleFieldChange("merchantId", mId);
+                    handleFieldChange("merchantName", merchant?.name);
+                    
+                    // Auto-fill default marketing fee if available
+                    const supplier = settings.suppliers?.find(s => s.id === mId);
+                    if (supplier?.defaultMarketingFeePerOrder) {
+                      handleFieldChange("marketingFeePerOrder", supplier.defaultMarketingFeePerOrder);
+                    }
+                  }}
+                  className="w-full p-3.5 bg-white dark:bg-slate-900 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl text-xs font-bold focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all cursor-pointer"
+                >
+                  <option value="">-- اختر من القائمة --</option>
+                  {merchantsList.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} {m.phone ? `(${m.phone})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="col-span-full space-y-3 py-2">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">نظام المحاسبة مع الموكل</label>
+                <div className="flex flex-wrap gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("merchantSettlementMode", "fixed_fee");
+                      if (orderData.serviceFeePerOrder === 0) {
+                        handleFieldChange("serviceFeePerOrder", 10);
+                      }
+                    }}
+                    className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
+                      (orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee'
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-500/20"
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
+                    }`}
+                  >
+                    <CheckCircle size={14} />
+                    <span>عمولة ثابتة (Fixed Fee)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFieldChange("merchantSettlementMode", "profit_share");
+                      if (!orderData.merchantProfitSharePercent) {
+                        handleFieldChange("merchantProfitSharePercent", 50);
+                      }
+                      handleFieldChange("serviceFeePerOrder", 0);
+                    }}
+                    className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
+                      orderData.merchantSettlementMode === 'profit_share'
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20"
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
+                    }`}
+                  >
+                    <PieChart size={14} />
+                    <span>مشاركة أرباح (Profit Share)</span>
+                  </button>
+                </div>
+              </div>
+
+              {(orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee' ? (
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">عمولة الوكالة (إنشاء بوليصة + تأكيد) ج.م</label>
+                  <div className="relative">
+                    <DollarSign size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500" />
+                    <input
+                      type="number"
+                      value={orderData.serviceFeePerOrder !== undefined ? orderData.serviceFeePerOrder : 10}
+                      onChange={(e) => handleFieldChange("serviceFeePerOrder", parseFloat(e.target.value) || 0)}
+                      className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl text-sm font-black font-mono text-emerald-600 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all text-center"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">نسبة الموكل من صافي الربح (%)</label>
+                  <div className="relative">
+                    <Percent size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+                    <input
+                      type="number"
+                      value={orderData.merchantProfitSharePercent || 50}
+                      onChange={(e) => handleFieldChange("merchantProfitSharePercent", parseFloat(e.target.value) || 0)}
+                      className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-800 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-bold px-1">سيتم تقسيم الربح (السعر - التكلفة - المصاريف) بالنسبة المحددة.</p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                  {orderData.merchantSettlementMode === 'profit_share' 
+                    ? "تكلفة البضاعة للموكل (سعر التكلفة) ج.م" 
+                    : "إجمالي مستحقات البضاعة للموكل (ج.م)"}
+                </label>
+                <div className="relative">
+                  <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+                  <input
+                    type="number"
+                    value={orderData.merchantItemCost || ''}
+                    onChange={(e) => handleFieldChange("merchantItemCost", parseFloat(e.target.value) || 0)}
+                    placeholder={orderData.merchantSettlementMode === 'profit_share' ? "ادخل سعر التكلفة ليتم خصمه من الربح" : "سيتم استخدام تكلفة الأصناف تلقائياً"}
+                    className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900/50 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 font-bold px-1">
+                  {orderData.merchantSettlementMode === 'profit_share' 
+                    ? "في نظام مشاركة الأرباح، يتم وضع 'سعر التكلفة' هنا ليقوم النظام بخصمه من الإيراد قبل تقسيم الربح."
+                    : "هذا هو المبلغ الذي سيستلمه الموكل عن هذا الأوردر. (يتم السحب تلقائياً من تكلفة الأصناف في المخزن إذا تُرِكت فارغة)."}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-700 dark:text-slate-300">مصاريف الإعلانات المخصصة للأوردر (ج.م)</label>
+                <div className="relative">
+                  <Megaphone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-orange-500" />
+                  <input
+                    type="number"
+                    value={orderData.marketingFeePerOrder || ''}
+                    onChange={(e) => handleFieldChange("marketingFeePerOrder", parseFloat(e.target.value) || 0)}
+                    placeholder="مثلاً 30 ج.م"
+                    className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-orange-100 dark:border-orange-900/50 rounded-2xl text-sm font-black font-mono text-orange-600 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-center"
+                  />
+                </div>
+              </div>
+
+              {orderData.merchantSettlementMode === 'profit_share' && (
+                <div className="col-span-full bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/30">
+                   <div className="flex gap-3">
+                     <ShieldCheck size={18} className="text-indigo-600 shrink-0 mt-0.5" />
+                     <div className="space-y-1">
+                       <p className="text-xs font-black text-indigo-900 dark:text-indigo-100">ملاحظة حول نظام مشاركة الأرباح:</p>
+                       <p className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-bold">
+                         سيتم خصم (مصاريف الشحن، التأمين، الضريبة، المعاينة، الـ COD، والإعلانات) من إجمالي تحصيل الأوردر.
+                         الصافي المتبقي بعد خصم "تكلفة البضاعة" سيتم تقسيمه بالنسبة المحددة. في حالة المرتجع، يتم تقاسم الخسارة (المصاريف) بنفس النسبة.
+                       </p>
+                     </div>
+                   </div>
+                </div>
+              )}
+            </div>
+          )}",
+        </div>
+
         {/* Warehouse & Fulfillment Banner */}
         <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 sm:p-8 rounded-[32px] border border-slate-200/80 dark:border-slate-800 shadow-md space-y-6">
           <div className="flex items-center justify-between pb-5 border-b border-slate-200/80 dark:border-slate-800">
@@ -4240,9 +4554,24 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   </div>
                 )}
 
+                {orderData.codFee !== undefined && orderData.codFee > 0 && (
+                  <div className="flex justify-between items-center pt-2.5">
+                    <div className="flex items-center gap-1.5">
+                       <span className="text-slate-600 dark:text-slate-400">مصاريف التحصيل النقدي (COD Fee):</span>
+                       <span className="text-[10px] font-black px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-md border border-slate-200 dark:border-slate-700 uppercase">Auto</span>
+                    </div>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(orderData.codFee ?? 0).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
                 {activeVatAmount > 0 && (
                   <div className="flex justify-between items-center pt-2.5">
-                    <span className="text-slate-600 dark:text-slate-400">ضريبة القيمة المضافة (VAT 14%):</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-600 dark:text-slate-400">ضريبة القيمة المضافة (VAT):</span>
+                      <span className="text-[10px] font-black px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-md border border-slate-200 dark:border-slate-700 uppercase">Auto</span>
+                    </div>
                     <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
                       +{(activeVatAmount ?? 0).toLocaleString("ar-EG")} ج.م
                     </span>

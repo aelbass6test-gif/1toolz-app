@@ -6,7 +6,7 @@ import {
   Edit2, Eye, EyeOff, X, Phone, Percent, AlertCircle, Coins, Clock, Check, ArrowRight, 
   ChevronDown, ChevronUp, Warehouse, Activity, Briefcase, TrendingUp, TrendingDown, BarChart2, 
   PieChart as LucidePieChart, Download, Printer, Layers, HelpCircle, CheckCircle2,
-  Search, Info, RotateCw
+  Search, Info, RotateCw, FileText
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, 
@@ -20,6 +20,7 @@ import { applyCustodyPayments, validateCustodyPayments } from '../utils/custodyL
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplyOrderModal } from './SupplyOrderModal';
+import { SupplierStatementModal } from './SupplierStatementModal';
 import { WarehousesTab } from './WarehousesTab';
 import { SuppliersTab } from './SuppliersTab';
 
@@ -83,6 +84,7 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [orderReference, setOrderReference] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
+  const [orderAttachments, setOrderAttachments] = useState<string[]>([]);
   const [orderItems, setOrderItems] = useState<SupplyOrderItem[]>([]);
   const [shippingFees, setShippingFees] = useState(0);
   const [shippingFeesNote, setShippingFeesNote] = useState('');
@@ -103,6 +105,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
 
   // Full Order Details & Expand States
   const [viewingOrderDetails, setViewingOrderDetails] = useState<SupplyOrder | null>(null);
+  const [statementSupplier, setStatementSupplier] = useState<Supplier | null>(null);
   const [expandedOrderIds, setExpandedOrderIds] = useState<string[]>([]);
 
   const toggleExpandOrder = (id: string) => {
@@ -837,6 +840,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   partnerPayments: paymentMethod === 'partner' ? partnerPayments : undefined,
                   referenceNumber: orderReference,
                   notes: orderNotes,
+                  attachments: orderAttachments,
                   items: orderItems,
                   totalCost: totalCost,
                   grandTotal: grandTotal,
@@ -866,6 +870,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   date: new Date().toISOString(),
                   referenceNumber: orderReference || `supply_${currentOrderId}`,
                   notes: orderNotes,
+                  attachments: orderAttachments,
                   items: orderItems,
                   totalCost: totalCost,
                   grandTotal: grandTotal,
@@ -1204,6 +1209,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
       setSelectedPartnerId('');
       setOrderReference('');
       setOrderNotes('');
+      setOrderAttachments([]);
       setShippingFees(0);
       setShippingFeesNote('');
       setShippingFeesPaymentMethod('with_order');
@@ -1227,6 +1233,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
       setSelectedPartnerId(order.partnerId || '');
       setOrderReference(order.referenceNumber || '');
       setOrderNotes(order.notes || '');
+      setOrderAttachments(order.attachments || (order.attachmentUrl ? [order.attachmentUrl] : []));
       setShippingFees(order.shippingFees || 0);
       setShippingFeesNote(order.shippingFeesNote || '');
       setShippingFeesPaymentMethod(order.shippingFeesPaymentMethod || 'with_order');
@@ -2302,6 +2309,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               setSelectedSupplierId('');
               setOrderReference('');
               setOrderNotes('');
+              setOrderAttachments([]);
               setOrderItems([]);
               setShippingFees(0);
               setOtherFees(0);
@@ -3489,6 +3497,8 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
         setOrderReference={setOrderReference}
         orderNotes={orderNotes}
         setOrderNotes={setOrderNotes}
+        attachments={orderAttachments}
+        setAttachments={setOrderAttachments}
         shippingFees={shippingFees}
         setShippingFees={setShippingFees}
         shippingFeesNote={shippingFeesNote}
@@ -3521,6 +3531,15 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
         treasuryPayments={treasuryPayments}
         setTreasuryPayments={setTreasuryPayments}
       />
+
+      {statementSupplier && (
+        <SupplierStatementModal
+          supplier={statementSupplier}
+          supplyOrders={settings.supplyOrders || []}
+          settings={settings}
+          onClose={() => setStatementSupplier(null)}
+        />
+      )}
 
       {/* Return Products from Purchase Invoice Modal Dialog */}
       {showReturnModal && selectedOrderForReturn && (
@@ -4134,6 +4153,43 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                         {viewingOrderDetails.notes && <p className="text-slate-700 dark:text-slate-300 font-medium">• ملاحظات الفاتورة: {viewingOrderDetails.notes}</p>}
                         {viewingOrderDetails.shippingFeesNote && <p className="text-slate-700 dark:text-slate-300 font-medium">• ملاحظة الشحن: {viewingOrderDetails.shippingFeesNote}</p>}
                         {viewingOrderDetails.otherFeesNote && <p className="text-slate-700 dark:text-slate-300 font-medium">• ملاحظة المصاريف الأخرى: {viewingOrderDetails.otherFeesNote}</p>}
+                      </div>
+                    )}
+
+                    {/* Invoice Attachments Preview Section */}
+                    {((viewingOrderDetails.attachments && viewingOrderDetails.attachments.length > 0) || viewingOrderDetails.attachmentUrl) && (
+                      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <FileText size={15} className="text-indigo-600 dark:text-indigo-400" />
+                            صور ومستندات الفاتورة المرفقة
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold">
+                            {(viewingOrderDetails.attachments || [viewingOrderDetails.attachmentUrl]).filter(Boolean).length} مرفقات
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {Array.from(new Set([...(viewingOrderDetails.attachments || []), viewingOrderDetails.attachmentUrl].filter(Boolean))).map((imgUrl: any, imgIdx: number) => (
+                            <a
+                              key={imgIdx}
+                              href={imgUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group relative aspect-4/3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 block shadow-xs hover:border-indigo-400 transition-all"
+                            >
+                              <img
+                                src={imgUrl}
+                                alt={`مستند فاتورة ${imgIdx + 1}`}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                referrerPolicy="no-referrer"
+                              />
+                              <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-black gap-1">
+                                <Eye size={12} />
+                                عرض مكبر
+                              </div>
+                            </a>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

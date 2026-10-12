@@ -23,6 +23,7 @@ import {
   ShoppingCart,
   ArrowRight
 } from 'lucide-react';
+import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 import { Settings, Order, OrderReturn, OrderReturnItem, OrderItem } from '../types';
 
 interface OrderReturnsPageProps {
@@ -41,6 +42,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
   const [searchOrderQuery, setSearchOrderQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [returnItems, setReturnItems] = useState<OrderReturnItem[]>([]);
+  const [returnAttachments, setReturnAttachments] = useState<string[]>([]);
   const [returnDetail, setReturnDetail] = useState({
     reason: '',
     warehouseId: '',
@@ -133,7 +135,8 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
       warehouseId: returnDetail.warehouseId,
       restockItems: returnDetail.restockItems,
       status: 'completed',
-      performedBy: currentUser?.fullName || currentUser?.email || 'System'
+      performedBy: currentUser?.fullName || currentUser?.email || 'System',
+      attachments: returnAttachments.length > 0 ? returnAttachments : undefined
     };
 
     // Update product stocks if needed
@@ -205,6 +208,7 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
 
     setSelectedOrder(null);
     setReturnItems([]);
+    setReturnAttachments([]);
     setActiveTab('history');
     alert('تم إصدار فاتورة المرتجع وتحديث المخزون بنجاح');
   };
@@ -466,6 +470,18 @@ const OrderReturnsPage: React.FC<OrderReturnsPageProps> = ({ settings, updateSet
                              >
                                 <div className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-sm transition-all duration-300 ${returnDetail.restockItems ? 'right-7' : 'right-1'}`} />
                              </button>
+                          </div>
+
+                          <div className="pt-2">
+                            <InvoiceAttachmentUploader
+                              label="صورة إيصال المرتجع / المستند الورقي"
+                              helperText="يمكنك تصوير بوليصة إرجاع الشحنة أو إيصال استلام المرتجع وتثبيته بالفاتورة"
+                              attachments={returnAttachments}
+                              onChange={setReturnAttachments}
+                              activeStoreId="store-returns"
+                              folderCategory="returns"
+                              maxFiles={4}
+                            />
                           </div>
                        </div>
 

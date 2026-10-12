@@ -102,7 +102,14 @@
         "flexShipFee": { "type": "number" },
         "flexShipCompanyFee": { "type": "number" },
         "flexShipFeePaidByCustomer": { "type": "boolean" },
-        "notes": { "type": "string" }
+        "notes": { "type": "string" },
+        "merchantId": { "type": "string" },
+        "merchantName": { "type": "string" },
+        "merchantItemCost": { "type": "number" },
+        "serviceFeePerOrder": { "type": "number" },
+        "marketingFeePerOrder": { "type": "number" },
+        "settlementStatus": { "type": "string", "enum": ["pending", "settled"] },
+        "settlementId": { "type": "string" }
       }
     },
     "Customer": {

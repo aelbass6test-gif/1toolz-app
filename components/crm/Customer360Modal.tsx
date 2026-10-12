@@ -37,6 +37,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
   const [selectedTags, setSelectedTags] = useState<string[]>(customer.tags || []);
   const [customTag, setCustomTag] = useState('');
   const [notes, setNotes] = useState(customer.notes || '');
+  const [phone2, setPhone2] = useState(customer.phone2 || '');
   const [loyaltyPoints, setLoyaltyPoints] = useState(customer.loyaltyPoints || 0);
 
   const segInfo = getSegmentLabel(customer.computedSegment);
@@ -106,6 +107,7 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
     onSave(customer.phone, {
       tags: selectedTags,
       notes: notes.trim(),
+      phone2: phone2.trim(),
       loyaltyPoints: Number(loyaltyPoints) || 0
     });
     alert('تم حفظ البيانات والملاحظات بنجاح! ✔️');
@@ -178,6 +180,14 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                       {customer.phone}
                       {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
                     </button>
+
+                    {customer.phone2 && (
+                      <span className="flex items-center gap-1 bg-white/10 px-2.5 py-1 rounded-xl font-mono font-bold text-amber-400">
+                        <Phone size={12} />
+                        {customer.phone2}
+                        <span className="text-[10px] opacity-70">(بديل)</span>
+                      </span>
+                    )}
 
                     {(customer.governorate || customer.city || customer.address) && (
                       <span className="flex items-center gap-1 text-slate-300">
@@ -638,6 +648,20 @@ export const Customer360Modal: React.FC<Props> = ({ customer, onClose, onSave })
                     />
                     <span className="text-xs font-black text-amber-800 dark:text-amber-300 whitespace-nowrap">نقطة متاحة</span>
                   </div>
+                </div>
+
+                {/* Additional Phone */}
+                <div className="p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-3">
+                  <label className="block text-sm font-black text-slate-800 dark:text-white flex items-center gap-2">
+                    <Phone size={18} className="text-indigo-500" /> رقم الهاتف الإضافي (البديل)
+                  </label>
+                  <input 
+                    type="tel" 
+                    placeholder="01xxxxxxxxx"
+                    value={phone2}
+                    onChange={e => setPhone2(e.target.value)}
+                    className="w-full p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-800 dark:text-white font-mono font-bold transition-all text-right dir-ltr"
+                  />
                 </div>
 
                 {/* Internal Notes */}

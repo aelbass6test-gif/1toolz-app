@@ -30,6 +30,8 @@ import CartSidebar from './CartSidebar';
 import { generateSlug, getProductUrl } from '../utils/slugUtils';
 import { ProductImage } from './ProductImage';
 
+import { QuickCheckoutModal } from './QuickCheckoutModal';
+
 interface ProductDetailPageProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
@@ -38,6 +40,7 @@ interface ProductDetailPageProps {
   onAddToCart: (product: Product, quantity?: number) => void;
   onUpdateCartQuantity: (productId: string, quantity: number) => void;
   onRemoveFromCart: (productId: string) => void;
+  onPlaceOrder?: (data: any) => string;
 }
 
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
@@ -47,7 +50,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   cart,
   onAddToCart,
   onUpdateCartQuantity,
-  onRemoveFromCart
+  onRemoveFromCart,
+  onPlaceOrder
 }) => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -57,6 +61,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const [quantity, setQuantity] = useState(1);
   const [isAdded, setIsAdded] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isQuickCheckoutOpen, setIsQuickCheckoutOpen] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+
+  // Zoom on hover state
+  const [isZooming, setIsZooming] = useState(false);
+  const [zoomPosition, setZoomPosition] = useState({ x: 50, y: 50 });
 
   // Review submission states
   const [reviewName, setReviewName] = useState('');
@@ -114,17 +124,47 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
   const storeHomeUrl = isNestedStorePath ? `/store/${activeStore?.id}/store` : '/store';
   const checkoutUrl = isNestedStorePath ? `/store/${activeStore?.id}/checkout` : '/checkout';
 
+  // Compute selected variant if product has variants
+  const selectedVariant = useMemo(() => {
+    if (!product || !product.hasVariants || !product.variants || product.variants.length === 0) return null;
+    return product.variants.find(v => v.id === selectedVariantId) || product.variants[0] || null;
+  }, [product, selectedVariantId]);
+
+  // When variant changes and has specific image, switch gallery preview
+  useEffect(() => {
+    if (selectedVariant?.image) {
+      const idx = images.indexOf(selectedVariant.image);
+      if (idx !== -1) {
+        setSelectedImageIndex(idx);
+      }
+    }
+  }, [selectedVariant, images]);
+
+  const activePrice = selectedVariant?.price ?? product?.price ?? 0;
+
   const handleAddToCartClick = () => {
     if (!product) return;
-    onAddToCart(product, quantity);
+    const itemToAdd = {
+      ...product,
+      price: activePrice
+    };
+    onAddToCart(itemToAdd, quantity);
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2500);
   };
 
   const handleBuyNow = () => {
     if (!product) return;
-    onAddToCart(product, quantity);
-    navigate(checkoutUrl);
+    if (onPlaceOrder) {
+      setIsQuickCheckoutOpen(true);
+    } else {
+      const itemToAdd = {
+        ...product,
+        price: activePrice
+      };
+      onAddToCart(itemToAdd, quantity);
+      navigate(checkoutUrl);
+    }
   };
 
   const handleShare = () => {
@@ -244,18 +284,46 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
           {/* Gallery Images Column (6 of 12) */}
           <div className="lg:col-span-6 space-y-4">
-            <div className="relative aspect-square w-full bg-white rounded-3xl border border-slate-200/80 shadow-sm p-4 sm:p-8 flex items-center justify-center overflow-hidden">
+            <div 
+              className="relative aspect-square w-full bg-white rounded-3xl border border-slate-200/80 shadow-sm p-4 sm:p-8 flex items-center justify-center overflow-hidden cursor-crosshair group/zoom"
+              onMouseEnter={() => setIsZooming(true)}
+              onMouseLeave={() => setIsZooming(false)}
+              onMouseMove={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+                setZoomPosition({ x, y });
+              }}
+            >
               <ProductImage
                 src={images[selectedImageIndex] || product.thumbnail}
                 alt={product.name}
-                containerClassName="w-full h-full max-h-[460px] drop-shadow-md flex items-center justify-center"
+                containerClassName="w-full h-full max-h-[460px] drop-shadow-md flex items-center justify-center transition-transform duration-150"
                 className="w-full h-full object-contain"
                 aspectRatio="square"
                 priority={true}
               />
-              <span className="absolute top-4 right-4 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
+
+              {/* Magnified Zoom Overlay Lens */}
+              {isZooming && (images[selectedImageIndex] || product.thumbnail) && (
+                <div 
+                  className="absolute inset-0 pointer-events-none rounded-3xl overflow-hidden z-20 hidden sm:block bg-white"
+                  style={{
+                    backgroundImage: `url(${images[selectedImageIndex] || product.thumbnail})`,
+                    backgroundPosition: `${zoomPosition.x}% ${zoomPosition.y}%`,
+                    backgroundSize: '250%',
+                    backgroundRepeat: 'no-repeat'
+                  }}
+                />
+              )}
+
+              <span className="absolute top-4 right-4 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 z-10 pointer-events-none">
                 <Sparkles size={13} className="text-emerald-600" />
                 منتج أصلي معتمد
+              </span>
+
+              <span className="absolute bottom-4 left-4 bg-black/60 backdrop-blur-md text-white text-[10px] font-bold px-2.5 py-1 rounded-full opacity-0 group-hover/zoom:opacity-100 transition-opacity pointer-events-none z-10 hidden sm:block">
+                مرر للتكبير 🔍
               </span>
             </div>
 
@@ -320,7 +388,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   <span className="text-[11px] text-slate-400 font-bold block mb-0.5">السعر الحالي:</span>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-3xl sm:text-4xl font-black text-emerald-700 font-mono">
-                      {(product.price ?? 0).toLocaleString()}
+                      {(activePrice).toLocaleString()}
                     </span>
                     <span className="text-sm font-black text-slate-500">ج.م</span>
                   </div>
@@ -333,6 +401,49 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </span>
                 </div>
               </div>
+
+              {/* Product Variants Selector (Colors / Options) */}
+              {product.hasVariants && product.variants && product.variants.length > 0 && (
+                <div className="space-y-3 p-4 bg-slate-50/70 rounded-2xl border border-slate-200/70">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    اختر اللون أو الخيار المفضل:
+                  </label>
+                  <div className="flex flex-wrap gap-2.5">
+                    {product.variants.map((v) => {
+                      const isSelected = selectedVariant?.id === v.id;
+                      const title = Object.values(v.options).join(' - ') || v.sku;
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVariantId(v.id);
+                            if (v.image) {
+                              const imgIndex = images.indexOf(v.image);
+                              if (imgIndex !== -1) setSelectedImageIndex(imgIndex);
+                            }
+                          }}
+                          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all border-2 cursor-pointer ${
+                            isSelected
+                              ? 'bg-purple-600 text-white border-purple-600 shadow-md shadow-purple-600/20 scale-102'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-purple-300'
+                          }`}
+                        >
+                          {v.image && (
+                            <img src={v.image} alt="" className="w-5 h-5 rounded-md object-cover" />
+                          )}
+                          <span>{title}</span>
+                          {v.price && v.price !== product.price && (
+                            <span className={`text-[10px] font-mono ${isSelected ? 'text-purple-200' : 'text-slate-400'}`}>
+                              ({v.price.toLocaleString()} ج.م)
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Quantity Selector */}
               <div className="space-y-2">
@@ -357,7 +468,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                   </div>
 
                   <span className="text-xs text-slate-400 font-medium">
-                    الإجمالي: <strong className="text-slate-900 font-mono">{(product.price * quantity).toLocaleString()} ج.م</strong>
+                    الإجمالي: <strong className="text-slate-900 font-mono">{(activePrice * quantity).toLocaleString()} ج.م</strong>
                   </span>
                 </div>
               </div>
@@ -553,6 +664,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
           </section>
         )}
       </main>
+
+      {/* Quick 1-Click Checkout Modal */}
+      {isQuickCheckoutOpen && product && onPlaceOrder && (
+        <QuickCheckoutModal
+          isOpen={isQuickCheckoutOpen}
+          onClose={() => setIsQuickCheckoutOpen(false)}
+          product={product}
+          selectedVariant={selectedVariant}
+          settings={settings}
+          onPlaceOrder={onPlaceOrder}
+        />
+      )}
 
       {/* Cart Drawer */}
       <CartSidebar

@@ -186,6 +186,7 @@ export interface ProductVariant {
   lastAudited?: Record<string, string>; // New field for audit tracking per warehouse
   minStockLevel?: number; // Minimum stock before alert
   expiryDate?: string; // Product expiry date
+  image?: string; // Specific image URL for this variant (color/style)
   options: { [optionName: string]: string };
 }
 
@@ -268,6 +269,8 @@ export interface Transaction {
   orderId?: string;
   orderNumber?: string;
   service?: string;
+  attachmentUrl?: string; // Image/receipt of the transaction/expense
+  attachments?: string[]; // Multiple receipt/invoice images
   details?: any; // Keep details for generic extra data
 }
 
@@ -493,6 +496,7 @@ export interface CustomerProfile {
   id: string; 
   name: string;
   phone: string;
+  phone2?: string;
   address: string;
   totalOrders: number;
   successfulOrders: number;
@@ -632,6 +636,7 @@ export interface Supplier {
   bankAccount?: string; // الآيبان أو الحساب البنكي
   rating?: 1 | 2 | 3 | 4 | 5; // تقييم المورد
   tier?: 'vip' | 'gold' | 'standard'; // مستوى الشراكة
+  defaultMarketingFeePerOrder?: number; // مصاريف الإعلانات الافتراضية لكل أوردر
 }
 
 export interface SupplyOrderItem {
@@ -694,6 +699,7 @@ export interface SupplyOrder {
   taxAmount?: number;
   grandTotal?: number;
   attachmentUrl?: string;
+  attachments?: string[]; // Multiple invoice/delivery receipt images
   treasuryAccountId?: string;
   warehouseId?: string; // New field for warehouse allocation
   recordExpensesFormally?: boolean;
@@ -946,6 +952,7 @@ export interface MoneyHashConfig {
 export interface Settings {
   id?: string;
   storeName?: string;
+  onRefresh?: () => void;
   partnerRequests?: any[];
   enforcePartnerOtp?: boolean; // إلزام الشركاء بالتحقق عبر رمز البريد OTP
   defaultWarehouseId?: string;
@@ -1066,6 +1073,7 @@ export interface Settings {
   posSales?: POSSale[];
   cashHolders?: CashHolder[];
   cashHandovers?: CashHandover[];
+  merchantSettlements?: MerchantSettlement[]; // كشوف تسوية الموكلين وأصحاب البضاعة
   auditAlertDays?: number; // Days between manual audits before alert
   confettiSettings?: {
     particleCount: number;
@@ -1229,9 +1237,10 @@ export interface PurchaseReturn {
   items: PurchaseReturnItem[];
   totalRefundAmount: number;
   warehouseId: string;
-  status: 'completed' | 'cancelled';
   notes?: string;
   performedBy: string;
+  attachments?: string[];
+  status?: 'completed' | 'draft' | 'cancelled';
 }
 
 export interface StockTransferItem {
@@ -1252,6 +1261,7 @@ export interface StockTransfer {
   status: 'completed' | 'draft' | 'cancelled';
   notes?: string;
   performedBy: string;
+  attachments?: string[];
   cancelledAt?: string;
   cancelledBy?: string;
   cancellationReason?: string;
@@ -1280,6 +1290,7 @@ export interface OrderReturn {
   status: 'completed' | 'cancelled';
   performedBy: string;
   notes?: string;
+  attachments?: string[];
 }
 
 export type SharedAuditProtocol = 'standard' | 'blind' | 'fast' | 'periodic' | 'location' | 'double' | 'audit';
@@ -1629,12 +1640,16 @@ export interface Order {
   moneyHashMethod?: string;
   moneyHashStatus?: string;
   paymentReference?: string;
+  paymentReceiptUrl?: string; // Customer transfer / payment receipt screenshot
+  returnReceiptUrl?: string; // Waybill / defective product return image
+  attachments?: string[]; // Multiple invoice/receipt files
   productName: string; 
   productPrice: number; 
   productCost: number; 
   totalPrice?: number;
   insuranceFee?: number;
   inspectionFee?: number;
+  codFee?: number;
   vatValue?: number;
   shippingVatRate?: number;
   weight: number; 
@@ -1741,6 +1756,40 @@ export interface Order {
   insuranceBaseValue?: number;
   insurancePackageId?: string;
   insurancePackageName?: string;
+
+  // Merchant / Dropship Client Fulfillment Fields
+  merchantId?: string;             // معرّف العميل صاحب البضاعة (الموكل)
+  merchantName?: string;           // اسم العميل صاحب البضاعة
+  merchantItemCost?: number;       // تكلفة قطعة العميل (سعر البضاعة فقط)
+  serviceFeePerOrder?: number;     // عمولتك ورسوم خدمتك المسطحة على الأوردر (مثلاً 50 ج.م/أوردر)
+  marketingFeePerOrder?: number;   // مصاريف الإعلانات المخصصة للأوردر
+  merchantSettlementMode?: 'fixed_fee' | 'profit_share'; // نظام المحاسبة (عمولة ثابتة أو نسبة من الربح)
+  merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
+  settlementStatus?: 'pending' | 'settled'; // حالة التسوية المالية مع صاحب البضاعة
+  settlementId?: string;           // رقم كشف التسوية المرتبط
+}
+
+export interface MerchantSettlement {
+  id: string;
+  settlementNumber: string;         // رقم كشف التسوية (SETT-00001)
+  merchantId: string;               // معرّف صاحب البضاعة
+  merchantName: string;             // اسم صاحب البضاعة
+  date: string;                     // تاريخ التسوية
+  ordersCount: number;              // عدد الأوردرات المسواة
+  totalCollected: number;           // إجمالي التحصيل من شركات الشحن (الشحنات الناجحة)
+  totalMerchantGoodsCost: number;   // مستحقات البضاعة لصاحبها (تكلفة البضاعة)
+  totalServiceFees: number;         // إجمالي عمولتك على الأوردرات
+  totalShippingCosts: number;       // إجمالي مصاريف الشحن واللوجستيات المخصومة
+  totalMarketingCosts: number;      // إجمالي مصاريف الإعلانات والتسويق المخصومة
+  totalReturnFees: number;         // مصاريف شحن المرتجعات المخصومة
+  totalCollectionFees: number;     // عمولات التحصيل النقدية (COD Fees)
+  netPayoutToMerchant: number;      // الصافي المستحق للتحويل لصاحب البضاعة
+  status: 'draft' | 'paid';         // حالة التسوية (مسودة / تم تحويل المبالغ)
+  paidFromTreasuryAccountId?: string;// الخزينة التي تم الصرف منها
+  paidFromTreasuryAccountName?: string;
+  notes?: string;                   // ملاحظات التسوية
+  performedBy?: string;             // المسند إليه أو القائم بالتسوية
+  attachments?: string[];           // صور إيصالات التحويل النقدي البنكي/الفودافون كاش
 }
 
 export interface TreasuryAccount {
@@ -1776,6 +1825,8 @@ export interface TreasuryTransaction {
   orderNumber?: string;
   operatorName?: string;
   reconciliationDiff?: number;
+  attachmentUrl?: string;
+  attachments?: string[];
 }
 
 export interface Treasury {
@@ -1837,6 +1888,7 @@ export interface Quotation {
   allowOpenShipment?: boolean;
   notes?: string;
   terms?: string;
+  attachments?: string[];
   createdBy?: string;
   
   convertedOrderId?: string;
@@ -1867,13 +1919,14 @@ export interface PlaceOrderData {
     buildingNumber?: string;
     floorNumber?: string;
     apartmentNumber?: string;
-    shippingCompany: string;
-    shippingArea: string;
-    shippingFee: number;
-    paymentMethod: string;
+    shippingCompany?: string;
+    shippingArea?: string;
+    shippingFee?: number;
+    paymentMethod?: string;
     notes?: string;
-    redeemedPoints: number;
-    discount: number;
+    redeemedPoints?: number;
+    discount?: number;
+    items?: OrderItem[];
 }
 
 export interface Store {

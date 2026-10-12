@@ -2,14 +2,14 @@ import { Permission, PERMISSIONS } from '../types';
 
 export const ROLES: Record<string, { name: string; icon: string; permissions: Permission[] }> = {
   FULL_MANAGER: { name: 'مدير عام', icon: '👑', permissions: Object.keys(PERMISSIONS) as Permission[] },
-  CONFIRMATION: { name: 'تأكيد الطلبات', icon: '✅', permissions: ['ORDERS_VIEW', 'PRODUCTS_VIEW'] },
-  ACCOUNTANT: { name: 'محاسب', icon: '💰', permissions: ['DASHBOARD_VIEW', 'REPORTS_VIEW', 'WALLET_VIEW', 'WALLET_MANAGE', 'CASH_MANAGE', 'EXPENSES_MANAGE', 'ORDERS_VIEW', 'RETURNS_MANAGE'] },
+  CONFIRMATION: { name: 'تأكيد الطلبات', icon: '✅', permissions: ['ORDERS_VIEW', 'PRODUCTS_VIEW', 'CUSTOMERS_VIEW'] },
+  ACCOUNTANT: { name: 'محاسب', icon: '💰', permissions: ['DASHBOARD_VIEW', 'REPORTS_VIEW', 'WALLET_VIEW', 'WALLET_MANAGE', 'CASH_MANAGE', 'EXPENSES_MANAGE', 'ORDERS_VIEW', 'RETURNS_MANAGE', 'CUSTOMERS_VIEW'] },
   CUSTOMER_SERVICE: { name: 'خدمة عملاء', icon: '📞', permissions: ['DASHBOARD_VIEW', 'ORDERS_VIEW', 'ORDERS_MANAGE', 'RETURNS_MANAGE', 'PRODUCTS_VIEW', 'CUSTOMERS_VIEW', 'CUSTOMERS_MANAGE', 'REVIEWS_MANAGE'] },
   STOCK_MANAGER: { name: 'مدير مخزون', icon: '📦', permissions: ['PRODUCTS_VIEW', 'PRODUCTS_MANAGE', 'INVENTORY_MANAGE', 'COLLECTIONS_MANAGE', 'ORDERS_VIEW', 'RETURNS_MANAGE'] },
   MARKETER: { name: 'مسوق', icon: '🚀', permissions: ['DASHBOARD_VIEW', 'REPORTS_VIEW', 'CUSTOMERS_VIEW', 'MARKETING_MANAGE', 'DISCOUNTS_MANAGE', 'PRODUCTS_VIEW', 'APPS_MANAGE'] },
-  CASHIER: { name: 'كاشير (POS)', icon: '🏪', permissions: ['POS_VIEW', 'POS_MANAGE', 'PRODUCTS_VIEW', 'ORDERS_VIEW'] },
+  CASHIER: { name: 'كاشير (POS)', icon: '🏪', permissions: ['POS_VIEW', 'POS_MANAGE', 'PRODUCTS_VIEW', 'ORDERS_VIEW', 'CUSTOMERS_VIEW'] },
   DELIVERY_EMPLOYEE: { name: 'موظف توصيل', icon: '🚴', permissions: ['ORDERS_VIEW', 'CASH_MANAGE'] },
-  COURIER: { name: 'مندوب', icon: '👤', permissions: ['ORDERS_VIEW', 'CASH_MANAGE'] },
+  COURIER: { name: 'مندوب', icon: '👤', permissions: ['ORDERS_VIEW', 'CASH_MANAGE', 'CUSTOMERS_VIEW'] },
 };
 
 export const getRoleName = (permissions: Permission[]): string => {

@@ -10,37 +10,44 @@ export interface EnrichedCustomerProfile extends CustomerProfile {
 }
 
 export function computeEnrichedCustomers(
-  orders: Order[],
-  loyaltyData: Record<string, number>,
-  savedCustomers?: CustomerProfile[]
+  orders: Order[] = [],
+  loyaltyData: Record<string, number> = {},
+  savedCustomers: CustomerProfile[] = []
 ): EnrichedCustomerProfile[] {
   const computedMap = new Map<string, EnrichedCustomerProfile>();
   const ordersByPhone = new Map<string, Order[]>();
 
+  const safeOrders = Array.isArray(orders) ? orders.filter(Boolean) : [];
+  const safeSavedCustomers = Array.isArray(savedCustomers) ? savedCustomers.filter(Boolean) : [];
+
   // Process orders
-  orders.forEach(order => {
-    const cleanPhone = normalizePhone(order.customerPhone);
-    if (!cleanPhone) return;
+  safeOrders.forEach(order => {
+    const rawPhone = order.customerPhone || order.customerPhone2 || '';
+    const cleanPhone = normalizePhone(rawPhone);
+    const fallbackId = cleanPhone || `name-${(order.customerName || 'unknown').trim().toLowerCase()}`;
+    
+    if (!fallbackId) return;
 
-    if (!ordersByPhone.has(cleanPhone)) {
-      ordersByPhone.set(cleanPhone, []);
+    if (!ordersByPhone.has(fallbackId)) {
+      ordersByPhone.set(fallbackId, []);
     }
-    ordersByPhone.get(cleanPhone)!.push(order);
+    ordersByPhone.get(fallbackId)!.push(order);
 
-    if (!computedMap.has(cleanPhone)) {
-      computedMap.set(cleanPhone, {
-        id: cleanPhone,
+    if (!computedMap.has(fallbackId)) {
+      computedMap.set(fallbackId, {
+        id: fallbackId,
         name: order.customerName || 'عميل بدون اسم',
         phone: order.customerPhone || '',
+        phone2: order.customerPhone2 || '',
         address: order.customerAddress || '',
         totalOrders: 0,
         successfulOrders: 0,
         returnedOrders: 0,
         totalSpent: 0,
-        lastOrderDate: order.date,
-        firstOrderDate: order.date,
+        lastOrderDate: order.date || new Date().toISOString(),
+        firstOrderDate: order.date || new Date().toISOString(),
         averageOrderValue: 0,
-        loyaltyPoints: loyaltyData[cleanPhone] || 0,
+        loyaltyPoints: loyaltyData[fallbackId] || (cleanPhone ? loyaltyData[cleanPhone] : 0) || 0,
         governorate: order.governorate || order.shippingArea || '',
         city: order.city || '',
         shippingFee: order.shippingFee || 0,
@@ -55,19 +62,26 @@ export function computeEnrichedCustomers(
       });
     }
 
-    const customer = computedMap.get(cleanPhone)!;
+    const customer = computedMap.get(fallbackId)!;
     customer.totalOrders += 1;
 
-    if (new Date(order.date) > new Date(customer.lastOrderDate)) {
-      customer.name = order.customerName || customer.name;
-      customer.address = order.customerAddress || customer.address;
-      customer.governorate = order.governorate || order.shippingArea || customer.governorate;
-      customer.city = order.city || customer.city;
-      customer.shippingFee = order.shippingFee || customer.shippingFee;
-      customer.lastOrderDate = order.date;
-    }
-    if (new Date(order.date) < new Date(customer.firstOrderDate)) {
-      customer.firstOrderDate = order.date;
+    const orderDate = order.date ? new Date(order.date) : new Date();
+    const lastDate = new Date(customer.lastOrderDate);
+    const firstDate = new Date(customer.firstOrderDate);
+
+    if (!isNaN(orderDate.getTime())) {
+      if (isNaN(lastDate.getTime()) || orderDate > lastDate) {
+        customer.name = order.customerName || customer.name;
+        customer.address = order.customerAddress || customer.address;
+        if (order.customerPhone2) customer.phone2 = order.customerPhone2;
+        customer.governorate = order.governorate || order.shippingArea || customer.governorate;
+        customer.city = order.city || customer.city;
+        customer.shippingFee = order.shippingFee || customer.shippingFee;
+        customer.lastOrderDate = order.date;
+      }
+      if (isNaN(firstDate.getTime()) || orderDate < firstDate) {
+        customer.firstOrderDate = order.date;
+      }
     }
 
     if (
@@ -77,7 +91,7 @@ export function computeEnrichedCustomers(
       order.status === 'مدفوعة'
     ) {
       customer.successfulOrders += 1;
-      const orderTotal = (order.productPrice || 0) + (order.shippingFee || 0) - (order.discount || 0);
+      const orderTotal = (order.totalPrice !== undefined ? order.totalPrice : ((order.productPrice || 0) + (order.shippingFee || 0) - (order.discount || 0)));
       customer.totalSpent += Math.max(0, orderTotal);
     } else if (
       order.status === 'مرتجع' ||
@@ -89,7 +103,7 @@ export function computeEnrichedCustomers(
   });
 
   // Merge saved customers
-  (savedCustomers || []).forEach(savedC => {
+  safeSavedCustomers.forEach(savedC => {
     const cleanPhone = normalizePhone(savedC.phone);
     if (!cleanPhone) return;
 
@@ -108,6 +122,7 @@ export function computeEnrichedCustomers(
       if (savedC.governorate) compC.governorate = savedC.governorate;
       if (savedC.city) compC.city = savedC.city;
       if (savedC.address) compC.address = savedC.address;
+      if (savedC.phone2) compC.phone2 = savedC.phone2;
       if (savedC.name) compC.name = savedC.name;
     } else {
       computedMap.set(cleanPhone, {

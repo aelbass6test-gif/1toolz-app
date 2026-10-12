@@ -123,7 +123,7 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
         return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل حذف الصور' }, 401);
       }
       try {
-        await env.R2_IMAGES.delete(key);
+        await (env.R2_IMAGES as any).delete(key);
         return json(request, env, { success: true, message: 'تم حذف الصورة من مساحة التخزين بنجاح', key });
       } catch (err: any) {
         return json(request, env, { success: false, error: err?.message || 'فشل حذف الصورة من التخزين' }, 500);
@@ -194,9 +194,9 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
 
     try {
       if (cleanedKeys.length === 1) {
-        await env.R2_IMAGES.delete(cleanedKeys[0]);
+        await (env.R2_IMAGES as any).delete(cleanedKeys[0]);
       } else {
-        await env.R2_IMAGES.delete(cleanedKeys);
+        await (env.R2_IMAGES as any).delete(cleanedKeys);
       }
       return json(request, env, { 
         success: true, 

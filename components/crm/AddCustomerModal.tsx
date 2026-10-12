@@ -23,6 +23,7 @@ const COMMON_TAGS = [
 export const AddCustomerModal: React.FC<Props> = ({ isOpen, onClose, onSave }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [phone2, setPhone2] = useState('');
   const [governorate, setGovernorate] = useState('');
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
@@ -64,6 +65,7 @@ export const AddCustomerModal: React.FC<Props> = ({ isOpen, onClose, onSave }) =
       id: cleanPhone,
       name: name.trim(),
       phone: cleanPhone,
+      phone2: phone2.trim(),
       governorate: governorate.trim(),
       city: city.trim(),
       address: address.trim(),
@@ -158,6 +160,20 @@ export const AddCustomerModal: React.FC<Props> = ({ isOpen, onClose, onSave }) =
                     placeholder="01xxxxxxxxx"
                     value={phone}
                     onChange={e => { setPhone(e.target.value); setError(''); }}
+                    className="w-full pr-11 pl-4 py-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-800 dark:text-white font-mono font-bold transition-all text-right dir-ltr"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-slate-500 dark:text-slate-400 uppercase mb-2">رقم الهاتف الإضافي (اختياري)</label>
+                <div className="relative">
+                  <Phone className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="tel" 
+                    placeholder="01xxxxxxxxx"
+                    value={phone2}
+                    onChange={e => setPhone2(e.target.value)}
                     className="w-full pr-11 pl-4 py-3.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-800 dark:text-white font-mono font-bold transition-all text-right dir-ltr"
                   />
                 </div>

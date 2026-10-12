@@ -418,15 +418,33 @@ export const calculateCodFee = (order: Order, settings: Settings): number => {
     return Math.round(result * 100) / 100;
 };
 
-export const getLatestProductCost = (productId: string, settings: Settings): number => {
+export const getLatestProductCost = (productId: string, settings: Settings, method?: 'catalog' | 'last_purchase' | 'weighted_average'): number => {
     if (!settings) return 0;
-    const latestItem = (settings.supplyOrders || [])
+    
+    const completedSupplyItems = (settings.supplyOrders || [])
         .filter(so => so && so.status === 'completed')
         .flatMap(so => (so.items || []).map(item => ({ ...item, date: so.date })))
-        .filter(item => item && item.productId === productId)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-    
-    if (latestItem) {
+        .filter(item => item && item.productId === productId);
+
+    // System 1: Catalog Cost (Fixed in product settings)
+    const getCatalogCost = () => {
+        const parentProduct = settings.products?.find(p => p.id === productId || p.variants?.some(v => v.id === productId));
+        if (parentProduct) {
+            if (parentProduct.id !== productId) {
+                const variant = parentProduct.variants?.find(v => v.id === productId);
+                if (variant && variant.costPrice !== undefined && variant.costPrice !== null) {
+                    return variant.costPrice;
+                }
+            }
+            return parentProduct.costPrice || 0;
+        }
+        return 0;
+    };
+
+    // System 2: Latest Purchase Cost
+    const getLastPurchaseCost = () => {
+        if (completedSupplyItems.length === 0) return 0;
+        const latestItem = [...completedSupplyItems].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
         let cost = latestItem.cost;
         if (latestItem.discountValue) {
             if (latestItem.discountType === 'percentage') {
@@ -436,19 +454,38 @@ export const getLatestProductCost = (productId: string, settings: Settings): num
             }
         }
         return cost;
-    }
-    
-    const parentProduct = settings.products?.find(p => p.id === productId || p.variants?.some(v => v.id === productId));
-    if (parentProduct) {
-        if (parentProduct.id !== productId) {
-            const variant = parentProduct.variants?.find(v => v.id === productId);
-            if (variant && variant.costPrice !== undefined && variant.costPrice !== null) {
-                return variant.costPrice;
+    };
+
+    // System 3: Weighted Average Cost
+    const getWeightedAverageCost = () => {
+        if (completedSupplyItems.length === 0) return 0;
+        let totalCost = 0;
+        let totalQty = 0;
+        completedSupplyItems.forEach(item => {
+            let itemCost = item.cost;
+            if (item.discountValue) {
+                if (item.discountType === 'percentage') {
+                    itemCost = itemCost * (1 - item.discountValue / 100);
+                } else {
+                    itemCost = itemCost - item.discountValue;
+                }
             }
-        }
-        return parentProduct.costPrice || 0;
-    }
-    return 0;
+            totalCost += itemCost * (item.quantity || 1);
+            totalQty += (item.quantity || 1);
+        });
+        return totalQty > 0 ? totalCost / totalQty : 0;
+    };
+
+    if (method === 'catalog') return getCatalogCost();
+    if (method === 'last_purchase') return getLastPurchaseCost() || getCatalogCost();
+    if (method === 'weighted_average') return getWeightedAverageCost() || getCatalogCost();
+
+    // Default: Try Weighted Average -> Last Purchase -> Catalog
+    const wa = getWeightedAverageCost();
+    if (wa > 0) return wa;
+    const lp = getLastPurchaseCost();
+    if (lp > 0) return lp;
+    return getCatalogCost();
 };
 
 export const calculateOrderProfitLoss = (order: Order, settings: Settings): { 

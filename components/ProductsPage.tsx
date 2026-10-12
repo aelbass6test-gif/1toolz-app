@@ -12,6 +12,8 @@ import { SmartInventoryHubNav, SmartInventoryHubContent, InventoryHubTab } from 
 import { ProductSalesLogModal } from './ProductSalesLogModal';
 import { generateSlug, getProductUrl } from '../utils/slugUtils';
 import { ProductImage } from './ProductImage';
+import { MediaLibraryModal } from './MediaLibraryModal';
+import { Images } from 'lucide-react';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -111,6 +113,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const [newProduct, setNewProduct] = useState<Partial<Product>>({ sku: '', name: '', price: 0, weight: 1, costPrice: 0, stockQuantity: 10, collectionId: '', description: '', images: [], thumbnail: '', hasVariants: false, options: [], variants: [], profitMode: 'manual', profitPercentage: 0, basePrice: 0, commissionPercentage: 0 });
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | 'idle', message: string | null }>({ type: 'idle', message: null });
   const [lastSync, setLastSync] = useState<Date | null>(() => {
     const saved = localStorage.getItem('lastProductSync');
@@ -1447,6 +1450,9 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             <button onClick={() => setIsImportModalOpen(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
                 <FileUp size={14} /> استيراد
             </button>
+            <button onClick={() => setIsMediaLibraryOpen(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg font-bold text-[10px] sm:text-xs text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 transition-all shadow-xs">
+                <Images size={14} className="text-indigo-600 dark:text-indigo-400" /> مكتبة الوسائط والتخزين (R2)
+            </button>
             <button onClick={handleExportCSV} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
                 <Download size={14} /> تصدير CSV
             </button>
@@ -2328,6 +2334,17 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             setSelectedIds={setSelectedProductIds}
             onConfirm={handleImportSelected}
             isSyncing={isSyncing}
+        />
+      )}
+
+      {/* Centralized Cloudflare R2 Media Library Modal */}
+      {isMediaLibraryOpen && (
+        <MediaLibraryModal
+          isOpen={isMediaLibraryOpen}
+          onClose={() => setIsMediaLibraryOpen(false)}
+          settings={settings}
+          setSettings={setSettings}
+          activeStoreId={activeStoreId}
         />
       )}
 
@@ -3788,19 +3805,52 @@ const VariantManager = ({ productData, setProductData, settings }: any) => {
                         <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                             {productData.variants.map((variant: ProductVariant) => (
                                 <div key={variant.id} className="p-3.5 bg-white dark:bg-slate-800/90 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-sm space-y-2.5 hover:border-purple-300 transition-all">
-                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-center">
-                                        <div className="font-extrabold text-sm text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 px-3 py-1.5 rounded-xl border border-purple-200 dark:border-purple-800/60 text-center truncate">
-                                            {Object.values(variant.options).join(' - ')}
+                                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                                        <div className="sm:col-span-3 flex items-center gap-2">
+                                            {/* Variant Specific Image Picker */}
+                                            <div className="relative group/vimg shrink-0">
+                                                {variant.image ? (
+                                                    <div className="w-10 h-10 rounded-xl overflow-hidden border border-purple-300 dark:border-purple-700 relative">
+                                                        <img src={variant.image} alt="" className="w-full h-full object-cover" />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => updateVariant(variant.id, 'image', '')}
+                                                            className="absolute inset-0 bg-red-600/80 text-white flex items-center justify-center opacity-0 group-hover/vimg:opacity-100 transition-opacity"
+                                                            title="إلغاء صورة التنوع"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 flex items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-900">
+                                                        <ImageIcon size={16} />
+                                                    </div>
+                                                )}
+                                                <select
+                                                    value={variant.image || ''}
+                                                    onChange={e => updateVariant(variant.id, 'image', e.target.value)}
+                                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                                    title="اختر صورة لهذا التنوع من صور المنتج"
+                                                >
+                                                    <option value="">بدون صورة محددة</option>
+                                                    {Array.from(new Set([productData.thumbnail, ...(productData.images || [])].filter(Boolean))).map((u, ui) => (
+                                                        <option key={ui} value={u}>صورة #{ui + 1}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div className="min-w-0 flex-1 font-extrabold text-xs text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 px-2.5 py-2 rounded-xl border border-purple-200 dark:border-purple-800/60 text-center truncate" title={Object.values(variant.options).join(' - ')}>
+                                                {Object.values(variant.options).join(' - ')}
+                                            </div>
                                         </div>
-                                        <div className="relative">
+                                        <div className="sm:col-span-3 relative">
                                             <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">SKU</span>
                                             <input type="text" value={variant.sku} onChange={e => updateVariant(variant.id, 'sku', e.target.value)} placeholder="SKU" className="w-full text-xs font-bold pr-10 pl-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-purple-500" />
                                         </div>
-                                        <div className="relative">
+                                        <div className="sm:col-span-3 relative">
                                             <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">السعر</span>
                                             <input type="number" value={variant.price} onChange={e => updateVariant(variant.id, 'price', Number(e.target.value))} placeholder="السعر" className="w-full text-xs font-black pr-11 pl-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-purple-500" />
                                         </div>
-                                        <div className="relative">
+                                        <div className="sm:col-span-3 relative">
                                             <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-bold">الكمية</span>
                                             <input type="number" value={variant.stockQuantity === null || variant.stockQuantity === undefined ? '' : variant.stockQuantity} onChange={e => updateVariant(variant.id, 'stockQuantity', e.target.value === '' ? null : Number(e.target.value))} placeholder="الكمية" className="w-full text-xs font-black pr-11 pl-3 py-2 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 outline-none focus:border-purple-500" />
                                         </div>

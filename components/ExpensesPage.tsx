@@ -5,6 +5,8 @@ import { DollarSign, Plus, TrendingDown, PieChart as PieChartIcon, Calendar, Tra
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
 import { generateSafeId } from '../utils/idUtils';
+import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
+import { Paperclip, Eye } from 'lucide-react';
 
 interface ExpensesPageProps {
   wallet: Wallet;
@@ -137,6 +139,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
       ? (settings.expenseCategories[0] as TransactionCategory) 
       : 'expense_ads'
   );
+  const [expenseAttachments, setExpenseAttachments] = useState<string[]>([]);
+  const [previewAttachmentUrl, setPreviewAttachmentUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accountId) {
@@ -510,7 +514,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           note: `مصروف (بواسطة ${partner.name}): ${description || 'مصروف جديد'}`,
           category: category,
           status: 'completed',
-          details: { paidByPartnerId: selectedPartnerId }
+          attachmentUrl: expenseAttachments[0] || undefined,
+          attachments: expenseAttachments.length > 0 ? expenseAttachments : undefined,
+          details: { paidByPartnerId: selectedPartnerId, attachments: expenseAttachments }
       };
 
       setWallet(prev => ({
@@ -544,7 +550,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
          amount: numAmount,
          date: dateStr,
          notes: `سداد مصروف من العهدة: ${description || 'مصروف عام'}`,
-         status: 'completed'
+         status: 'completed',
+         attachments: expenseAttachments
       };
 
       updateSettings({
@@ -561,7 +568,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           note: `مصروف (بواسطة عهدة ${holder.userName}): ${description || 'مصروف جديد'}`,
           category: category,
           status: 'completed',
-          details: { expensePaidBy: holder.userName, cashHolderId: selectedCustodyId, custodyHandoverId: handoverId }
+          attachmentUrl: expenseAttachments[0] || undefined,
+          attachments: expenseAttachments.length > 0 ? expenseAttachments : undefined,
+          details: { expensePaidBy: holder.userName, cashHolderId: selectedCustodyId, custodyHandoverId: handoverId, attachments: expenseAttachments }
       };
 
       setWallet(prev => ({
@@ -582,7 +591,9 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           note: description || 'مصروف جديد',
           category: category,
           status: 'completed',
-          details: { treasuryAccountId: accountId }
+          attachmentUrl: expenseAttachments[0] || undefined,
+          attachments: expenseAttachments.length > 0 ? expenseAttachments : undefined,
+          details: { treasuryAccountId: accountId, attachments: expenseAttachments }
       };
 
       setWallet(prevWallet => {
@@ -624,6 +635,7 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
     setDescription('');
     setSelectedPartnerId('');
     setSelectedCustodyId('');
+    setExpenseAttachments([]);
   };
 
   const handlePrint = () => {
@@ -1410,7 +1422,20 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                   return (
                     <tr key={exp.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-850/50 transition-colors group">
                       <td className="px-6 py-4.5">
-                        <div className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">{exp.note}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-extrabold text-slate-800 dark:text-slate-200 text-sm">{exp.note}</div>
+                          {(exp.attachmentUrl || exp.attachments?.[0] || exp.details?.attachments?.[0]) && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewAttachmentUrl(exp.attachmentUrl || exp.attachments?.[0] || exp.details?.attachments?.[0])}
+                              className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 text-[10px] font-bold flex items-center gap-1 transition-colors"
+                              title="عرض صورة الفاتورة المرفقة"
+                            >
+                              <Paperclip size={11} />
+                              <span>فاتورة مرفقة 📄</span>
+                            </button>
+                          )}
+                        </div>
                         {exp.details?.note && exp.details.note !== exp.note && (
                           <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1 mt-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md w-max">
                             <Info size={11} />
@@ -1766,6 +1791,19 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
                 />
               </div>
 
+              {/* Invoice & Receipt Attachments */}
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl border border-slate-200/80 dark:border-slate-700/60">
+                <InvoiceAttachmentUploader
+                  label="صورة الفاتورة أو إيصال السداد (إن وجد)"
+                  helperText="يمكنك تصوير الفاتورة الورقية بالكاميرا أو رفعها من الجهاز لتسهيل التدقيق المالي والمحاسبي"
+                  attachments={expenseAttachments}
+                  onChange={setExpenseAttachments}
+                  activeStoreId="store-expenses"
+                  folderCategory="expenses"
+                  maxFiles={4}
+                />
+              </div>
+
               {/* Submit / Cancel Footer */}
               <div className="flex gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button 
@@ -1930,6 +1968,46 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
           </div>
         </div>
       )}
+      {/* Invoice Attachment Lightbox Modal */}
+      {previewAttachmentUrl && (
+        <div 
+          className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+          onClick={() => setPreviewAttachmentUrl(null)}
+        >
+          <div className="relative max-w-3xl max-h-[90vh] bg-white dark:bg-slate-900 p-3 rounded-3xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <span className="text-xs font-black text-slate-800 dark:text-white flex items-center gap-1.5">
+                <Paperclip size={14} className="text-indigo-600" />
+                معاينة أصل فاتورة المصروف
+              </span>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewAttachmentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold hover:bg-indigo-100 transition-colors"
+                >
+                  فتح بحجم كامل ↗
+                </a>
+                <button 
+                  onClick={() => setPreviewAttachmentUrl(null)}
+                  className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="p-2 flex items-center justify-center bg-slate-50 dark:bg-slate-950/40 rounded-2xl overflow-hidden">
+              <img 
+                src={previewAttachmentUrl} 
+                alt="فاتورة المصروف" 
+                className="max-w-full max-h-[75vh] object-contain rounded-xl" 
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

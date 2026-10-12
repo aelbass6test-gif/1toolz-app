@@ -2,9 +2,10 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Package, X, Plus, Trash2, Edit2, Percent, Coins, AlertCircle, CheckCircle2, User, Building2, Wallet, 
   CreditCard, DollarSign, ArrowRight, ArrowLeft, Check, Sparkles, Layers, ListChecks, Receipt, ShieldCheck, 
-  RefreshCw, HelpCircle, Calendar, Hash, Truck, Tag, Info, Sliders, Box, Layers3, Flame, TrendingUp, Search, 
-  AlertTriangle, FileText, RotateCw, CheckSquare, Square
+  RefreshCw, HelpCircle, Calendar, Hash, Truck, Tag, Info, Sliders, Box, Layers3, Flame, TrendingUp, Search,
+  AlertTriangle, FileText, RotateCw, CheckSquare, Square, Paperclip 
 } from 'lucide-react';
+import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 
 export interface SupplyOrderModalProps {
   isOpen: boolean;
@@ -30,6 +31,8 @@ export interface SupplyOrderModalProps {
   setOrderReference: (val: string) => void;
   orderNotes: string;
   setOrderNotes: (val: string) => void;
+  attachments?: string[];
+  setAttachments?: (urls: string[]) => void;
   shippingFees: number;
   setShippingFees: (val: number) => void;
   shippingFeesNote: string;
@@ -193,6 +196,8 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
   setOrderReference,
   orderNotes,
   setOrderNotes,
+  attachments = [],
+  setAttachments = () => {},
   shippingFees,
   setShippingFees,
   shippingFeesNote,
@@ -866,6 +871,19 @@ export const SupplyOrderModal: React.FC<SupplyOrderModalProps> = ({
                     className="w-full p-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none font-bold text-xs dark:text-white shadow-sm" 
                   />
                 </div>
+              </div>
+
+              {/* Supplier Invoice & Waybill Attachments */}
+              <div className="p-4 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl border border-slate-200/80 dark:border-slate-700/60">
+                <InvoiceAttachmentUploader
+                  label="صورة فاتورة الشراء أو إيصال استلام البضاعة من المورد"
+                  helperText="التقط صورة الفاتورة الورقية أو بوليصة الشحن بكاميرا الموبايل لتثبيتها في سجلات التوريد"
+                  attachments={attachments}
+                  onChange={setAttachments}
+                  activeStoreId="store-suppliers"
+                  folderCategory="suppliers"
+                  maxFiles={6}
+                />
               </div>
 
               {viewMode === 'stepper' && (

@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Order, Settings, Wallet, Store, Treasury } from '../types';
 import { FileText, TrendingUp, Package, Truck, DollarSign, ArrowUp, ArrowDown, PieChart as PieChartIcon, Printer, AlertTriangle, MapPin, Calendar, Wallet as WalletIcon, Download, Loader2, ArrowUpLeft, ArrowDownRight, X, Eye, EyeOff, Coins, Monitor, ShoppingBasket, Users, Info, Percent, CheckCircle, Settings as SettingsIcon, Share2, Link as LinkIcon, Copy, Check, Search, Filter, Sparkles, Calculator, Grid, List, ShieldCheck, Lock, LogOut, BookOpen } from 'lucide-react';
+import { FinancialPnLDashboard } from './FinancialPnLDashboard';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { PeriodClosingModal } from './PeriodClosingModal';
 import { PartnerExitModal } from './PartnerExitModal';
@@ -5746,7 +5747,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             </div>
         );
     }
-    const [activeTab, setActiveTab] = useState<'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting' | 'pos' | 'custody'>('summary');
+    const [activeTab, setActiveTab] = useState<'pnl' | 'summary' | 'losses' | 'comprehensive' | 'final' | 'partners' | 'inventory' | 'accounting' | 'pos' | 'custody'>('pnl');
     const [dateRangeType, setDateRangeType] = useState<string>(() => settings?.activePeriodStartDate ? 'activePeriod' : 'all');
     const [customStartDate, setCustomStartDate] = useState<string>('');
     const [customEndDate, setCustomEndDate] = useState<string>('');
@@ -6003,6 +6004,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             </div>
 
             <div className="flex gap-2 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar scroll-smooth w-full sm:w-fit">
+                <button onClick={() => setActiveTab('pnl')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'pnl' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 dark:shadow-none' : 'text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30'}`}>الأرباح والخسائر P&L ✨</button>
                 <button onClick={() => setActiveTab('summary')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'summary' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>ملخص المبيعات</button>
                 <button onClick={() => setActiveTab('losses')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'losses' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الخسائر</button>
                 <button onClick={() => setActiveTab('pos')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'pos' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الكاشير (POS)</button>
@@ -6014,6 +6016,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                 <button onClick={() => setActiveTab('accounting')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'accounting' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 dark:shadow-none' : 'text-purple-600 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50'}`}>الحسابات الختامية 📊</button>
             </div>
             <div className="relative min-h-[calc(100vh-200px)] mt-6 animate-in fade-in-5 duration-300">
+                {activeTab === 'pnl' && <FinancialPnLDashboard orders={filteredData.orders} settings={filteredData.settings} treasury={treasury} wallet={filteredData.wallet} />}
                 {activeTab === 'summary' && <SalesSummaryReport orders={filteredData.orders} settings={filteredData.settings} wallet={filteredData.wallet} />}
                 {activeTab === 'losses' && <LossesReport orders={filteredData.orders} settings={filteredData.settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
                 {activeTab === 'pos' && <POSSalesReport orders={filteredData.orders} settings={filteredData.settings} activeStore={activeStore} dateRangeText={dateRangeText} />}
