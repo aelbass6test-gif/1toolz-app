@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './databaseService';
+import { auth } from './firebaseClient';
 
 export interface ProductImageUploadResult {
   key: string;
@@ -84,10 +84,11 @@ export async function uploadProductImages(
     form.append('files', file, file.name);
   }
 
-  const headers: Record<string, string> = {};
-  const supabase = getSupabaseClient();
-  const session = (await supabase?.auth.getSession())?.data.session;
-  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  await auth.authStateReady();
+  const firebaseUser = auth.currentUser;
+  const accessToken = await firebaseUser?.getIdToken();
+  if (!accessToken) throw new Error('يجب تسجيل الدخول قبل رفع الصور');
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
 
   return new Promise<ProductImageUploadResult[]>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
