@@ -80,7 +80,7 @@ export const CustomerOrderActionPage: React.FC<CustomerOrderActionPageProps> = (
 
       let targetOrder: any = null;
       let foundStoreId: string | null = null;
-      let foundStoreName: string = activeStore?.name || 'وان تولز للعدد اليدوية والكهربائية';
+      let foundStoreName: string = activeStore?.name || 'عبده ميديا برايم';
 
       const checkPhoneMatch = (pField: any) => {
         if (!qPhoneCore || qPhoneCore.length < 6) return false;

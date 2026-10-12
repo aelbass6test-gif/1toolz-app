@@ -474,7 +474,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 sm:px-8 lg:px-12">
           <Link to="/owner-login" className="flex items-center gap-3" aria-label="العودة إلى الصفحة الرئيسية">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"><Store size={21} /></span>
-            <span><strong className="block text-lg font-black tracking-tight">عبدو ميديا برايم</strong><span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • منظومة التجارة والتسويق</span></span>
+            <span><strong className="block text-lg font-black tracking-tight">عبده ميديا برايم</strong><span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • منظومة التجارة والتسويق</span></span>
           </Link>
           <div className="flex items-center gap-2">
             <button

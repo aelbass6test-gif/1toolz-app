@@ -915,7 +915,7 @@ export default function TurboSystemPortal({
             {(() => {
               const target = orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId) as any;
               if (!target) return null;
-              const sender = target.merchantBrandName || target.subSenderName || target.storeName || secondClient || 'وان تولز';
+              const sender = target.merchantBrandName || target.subSenderName || target.storeName || secondClient || 'عبده ميديا برايم';
               const nts = [target.shippingNotes, target.deliveryNotes, target.notes].filter(Boolean).filter(n => n !== "شحنة متجر تربو" && !n.includes("رقم الفاتورة") && !n.includes("رقم الفاتوره")).join(' | ') || 'بدون ملاحظات إضافية';
               const flexAmt = Number(target.flexShipFee !== undefined && target.flexShipFee !== null && Number(target.flexShipFee) > 0 ? target.flexShipFee : target.flexShipCompanyFee || target.returnAmount || 0);
               const itemsList = Array.isArray(target.items) ? target.items : [];

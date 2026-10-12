@@ -4,13 +4,14 @@ import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
-import { compressProductImages, uploadProductImages } from '../services/mediaUploadService';
+import { compressProductImages, uploadProductImages, deleteProductImage, deleteProductImages } from '../services/mediaUploadService';
 import { getLatestProductCost } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { SmartInventoryHubNav, SmartInventoryHubContent, InventoryHubTab } from './inventory/SmartInventoryHub';
 import { ProductSalesLogModal } from './ProductSalesLogModal';
 import { generateSlug, getProductUrl } from '../utils/slugUtils';
+import { ProductImage } from './ProductImage';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -35,9 +36,10 @@ interface ProductsPageProps {
   orders: Order[];
   activeStoreId: string | null;
   onRefresh?: () => void;
+  forceSync?: (customStoreData?: any, customUsers?: any) => Promise<any>;
 }
 
-const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSettings, orders, activeStoreId, onRefresh }) => {
+const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSettings, orders, activeStoreId, onRefresh, forceSync }) => {
   const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
   const [activeTab, setActiveTab] = useState<InventoryHubTab>('catalog');
   const [searchTerm, setSearchTerm] = useState('');
@@ -846,6 +848,11 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         finalStock = productData.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
     }
     
+    const finalThumbnail = productData.thumbnail || (productData.images && productData.images[0]) || '';
+    const finalImages = (productData.images && productData.images.length > 0)
+        ? productData.images
+        : (finalThumbnail ? [finalThumbnail] : []);
+
     const productToSave: Product = {
         id: productData.id || `prod-${Date.now()}`,
         sku: productData.sku || `SKU-${Date.now()}`,
@@ -859,8 +866,8 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         minStockLevel: productData.minStockLevel || 0,
         collectionId: productData.collectionId || undefined,
         description: productData.description || '',
-        images: productData.images || [],
-        thumbnail: productData.thumbnail || '',
+        images: finalImages,
+        thumbnail: finalThumbnail,
         hasVariants: productData.hasVariants || false,
         options: productData.hasVariants ? (productData.options || []) : [],
         variants: productData.hasVariants ? (productData.variants || []) : [],
@@ -887,6 +894,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         triggerCelebration('add_product', settings);
         showAlert("تمت الإضافية", "تم إضافة المنتج الجديد إلى القائمة بنجاح!", "success");
     }
+
+    if (forceSync) {
+        forceSync();
+    }
   };
 
   const confirmDelete = () => {
@@ -905,6 +916,18 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             return;
         }
 
+        // Free storage space by deleting all images associated with this product
+        const imagesToDelete = [
+            productToDelete.thumbnail,
+            ...(productToDelete.images || [])
+        ].filter((img): img is string => Boolean(img));
+
+        if (imagesToDelete.length > 0) {
+            deleteProductImages(imagesToDelete).catch((err) => {
+                console.warn('[STORAGE] Failed to delete product images on delete:', err);
+            });
+        }
+
         setSettings({
             ...settings,
             products: settings.products.filter(p => p.id !== productToDelete.id)
@@ -912,7 +935,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         setProductToDelete(null);
         // تشغيل الاحتفالات والسمعيات لحذف منتج
         triggerCelebration('delete_product', settings);
-        showAlert("تم الحذف", "تم إزالة المنتج من القائمة بنجاح.", "success");
+        showAlert("تم الحذف", "تم إزالة المنتج من القائمة وتفريغ صوره من مساحة التخزين بنجاح.", "success");
     }
   };
 
@@ -1177,7 +1200,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             
             <div class="footer">
                 <button onclick="window.print()" style="padding: 12px 24px; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; margin-bottom: 20px;">🖨️ طباعة التقرير</button>
-                <p>تم استخراج هذا التقرير من منظومة عبدو ميديا برايم | AbdoMedia Prime</p>
+                <p>تم استخراج هذا التقرير من منظومة عبده ميديا برايم | AbdoMedia Prime</p>
             </div>
             
             <script>
@@ -1702,13 +1725,12 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                   <React.Fragment key={product.id}>
                     <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${isExpanded ? 'bg-indigo-50/20 dark:bg-indigo-900/10' : ''} ${isDuplicate ? 'bg-amber-50/30 dark:bg-amber-900/10' : ''}`}>
                       <td className="px-6 py-2">
-                        {product.thumbnail ? (
-                          <img src={product.thumbnail} alt={product.name} className="w-12 h-12 rounded-lg object-cover border-2 border-slate-200 dark:border-slate-700" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
-                            <ImageIcon size={20} />
-                          </div>
-                        )}
+                        <ProductImage 
+                          src={product.thumbnail || product.images?.[0]} 
+                          alt={product.name} 
+                          containerClassName="w-12 h-12 rounded-lg border-2 border-slate-200 dark:border-slate-700 shadow-xs" 
+                          fallbackIconSize={20} 
+                        />
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
@@ -1799,6 +1821,20 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                           >
                             <ExternalLink size={18} />
                           </button>
+                          {(product.thumbnail || product.images?.[0]) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const imgUrl = product.thumbnail || product.images?.[0] || '';
+                                navigator.clipboard.writeText(imgUrl);
+                                showAlert("تم النسخ", `تم نسخ رابط صورة المنتج المباشر بنجاح:\n${imgUrl}`, "success");
+                              }}
+                              className="p-2 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-all cursor-pointer"
+                              title="نسخ رابط صورة المنتج السحابي"
+                            >
+                              <Copy size={18} />
+                            </button>
+                          )}
                           <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all" title="إنشاء منشور تسويقي">
                             <Wand2 size={18} />
                           </button>
@@ -1987,13 +2023,12 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                 <div key={product.id} className={`bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-3 shadow-sm text-right ${isDuplicate ? 'border-amber-400 bg-amber-50/10 dark:border-amber-900/50 dark:bg-amber-900/10' : ''}`} dir="rtl">
                   <div className="flex gap-3">
                      <div className="relative flex-shrink-0">
-                        {product.thumbnail ? (
-                          <img src={product.thumbnail} alt={product.name} className="w-16 h-16 rounded-lg object-cover border border-slate-200 dark:border-slate-700" />
-                        ) : (
-                          <div className="w-16 h-16 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
-                            <ImageIcon size={20} />
-                          </div>
-                        )}
+                        <ProductImage 
+                          src={product.thumbnail || product.images?.[0]} 
+                          alt={product.name} 
+                          containerClassName="w-16 h-16 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs" 
+                          fallbackIconSize={22} 
+                        />
                         {isDuplicate && (
                             <div className="absolute -top-2 -left-2 bg-amber-500 text-white rounded-full p-1 shadow-md z-1">
                                 <AlertCircle size={12} />
@@ -2122,6 +2157,20 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                        <button onClick={() => handleGeneratePost(product)} disabled={isGenerating} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all" title="منشور تسويقي">
                         <Wand2 size={16} />
                        </button>
+                       {(product.thumbnail || product.images?.[0]) && (
+                         <button 
+                           type="button"
+                           onClick={() => {
+                             const imgUrl = product.thumbnail || product.images?.[0] || '';
+                             navigator.clipboard.writeText(imgUrl);
+                             showAlert("تم النسخ", `تم نسخ رابط صورة المنتج المباشر بنجاح:\n${imgUrl}`, "success");
+                           }}
+                           className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all" 
+                           title="نسخ رابط صورة المنتج السحابي"
+                         >
+                           <Copy size={16} />
+                         </button>
+                       )}
                        <button 
                          type="button"
                          onClick={() => setExpandedProductId(isExpanded ? null : product.id)}
@@ -2521,6 +2570,15 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const [uploadProgress, setUploadProgress] = useState(0);
     const [isPreparingImages, setIsPreparingImages] = useState(false);
     const [draggedGalleryImageIndex, setDraggedGalleryImageIndex] = useState<number | null>(null);
+    const [copiedImageUrl, setCopiedImageUrl] = useState<string | null>(null);
+
+    const copyImageUrlToClipboard = (url: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!url) return;
+        navigator.clipboard.writeText(url);
+        setCopiedImageUrl(url);
+        setTimeout(() => setCopiedImageUrl(null), 2500);
+    };
 
     const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2662,9 +2720,27 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                 productId: productData.id || `draft-${Date.now()}`
             }, setUploadProgress);
             if (target === 'thumbnail') {
-                updateField('thumbnail', uploaded[0]?.url || '');
+                const thumbUrl = uploaded[0]?.url || '';
+                setProductData((prev: Product) => {
+                    const prevImages = prev.images || [];
+                    const nextImages = prevImages.includes(thumbUrl) ? prevImages : (thumbUrl ? [thumbUrl, ...prevImages] : prevImages);
+                    return {
+                        ...prev,
+                        thumbnail: thumbUrl,
+                        images: nextImages
+                    };
+                });
             } else {
-                updateField('images', [...(productData.images || []), ...uploaded.map(item => item.url)]);
+                const uploadedUrls = uploaded.map(item => item.url).filter(Boolean);
+                setProductData((prev: Product) => {
+                    const nextImages = [...(prev.images || []), ...uploadedUrls];
+                    const nextThumb = prev.thumbnail || nextImages[0] || '';
+                    return {
+                        ...prev,
+                        images: nextImages,
+                        thumbnail: nextThumb
+                    };
+                });
             }
         } catch (error) {
             console.error("File upload error:", error);
@@ -2679,9 +2755,26 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     };
 
     const removeImage = (index: number) => {
-        const currentImages = [...(productData.images || [])];
-        currentImages.splice(index, 1);
-        updateField('images', currentImages);
+        let removedUrl = '';
+        setProductData((prev: Product) => {
+            const currentImages = [...(prev.images || [])];
+            const removed = currentImages.splice(index, 1)[0];
+            removedUrl = removed || '';
+            let nextThumb = prev.thumbnail;
+            if (nextThumb === removed) {
+                nextThumb = currentImages[0] || '';
+            }
+            return {
+                ...prev,
+                images: currentImages,
+                thumbnail: nextThumb
+            };
+        });
+        if (removedUrl) {
+            deleteProductImage(removedUrl).catch((err) => {
+                console.warn('[STORAGE] Failed to delete image from R2 storage:', err);
+            });
+        }
     };
 
     const reorderGalleryImage = (fromIndex: number, toIndex: number) => {
@@ -2698,7 +2791,16 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
 
     const addImageUrl = () => {
         if (!newImageUrl || !newImageUrl.trim().startsWith('http')) return alert('يرجى إدخال رابط صورة صحيح يبدأ بـ http');
-        updateField('images', [...(productData.images || []), newImageUrl.trim()]);
+        const trimmed = newImageUrl.trim();
+        setProductData((prev: Product) => {
+            const nextImages = [...(prev.images || []), trimmed];
+            const nextThumb = prev.thumbnail || nextImages[0] || '';
+            return {
+                ...prev,
+                images: nextImages,
+                thumbnail: nextThumb
+            };
+        });
         setNewImageUrl('');
         setShowUrlInput(false);
     };
@@ -3359,15 +3461,47 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                     {/* Thumbnail Cover Card */}
                                     <div 
                                         onClick={() => thumbnailInputRef.current?.click()}
-                                        className="aspect-square rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/10 hover:bg-indigo-50/80 transition-all cursor-pointer relative overflow-hidden flex flex-col items-center justify-center p-3 group"
+                                        className="aspect-square rounded-2xl border-2 border-dashed border-indigo-300 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/10 hover:bg-indigo-50/80 transition-all cursor-pointer relative overflow-hidden flex flex-col items-center justify-center p-2 group"
                                     >
                                         {productData.thumbnail ? (
                                             <>
-                                                <img src={productData.thumbnail} className="w-full h-full object-cover rounded-xl" referrerPolicy="no-referrer" />
-                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-black">
+                                                <ProductImage 
+                                                  src={productData.thumbnail} 
+                                                  alt="الصورة الرئيسية" 
+                                                  containerClassName="w-full h-full rounded-xl" 
+                                                  fallbackIconSize={24} 
+                                                />
+                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-black pointer-events-none">
                                                     تغيير الصورة الرئيسية
                                                 </div>
-                                                <span className="absolute bottom-1.5 right-1.5 bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-md shadow">الرئيسية</span>
+                                                <span className="absolute bottom-1.5 right-1.5 bg-indigo-600 text-white text-[9px] font-black px-2 py-0.5 rounded-md shadow z-10">الرئيسية</span>
+                                                <div className="absolute top-1.5 left-1.5 flex gap-1 z-10">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const oldThumb = productData.thumbnail;
+                                                            updateField('thumbnail', '');
+                                                            if (oldThumb) {
+                                                                deleteProductImage(oldThumb).catch((err) => {
+                                                                    console.warn('[STORAGE] Failed to delete thumbnail from R2:', err);
+                                                                });
+                                                            }
+                                                        }}
+                                                        className="w-7 h-7 rounded-lg bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-red-700 shadow-lg"
+                                                        title="حذف الصورة الرئيسية وتفريغها من التخزين"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => copyImageUrlToClipboard(productData.thumbnail!, e)}
+                                                        className="w-7 h-7 rounded-lg bg-black/75 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-indigo-600 shadow-lg"
+                                                        title="نسخ رابط الصورة المباشر"
+                                                    >
+                                                        {copiedImageUrl === productData.thumbnail ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                                    </button>
+                                                </div>
                                             </>
                                         ) : (
                                             <div className="text-center text-indigo-500">
@@ -3402,16 +3536,29 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             title="اسحب لترتيب الصورة"
                                             className={`aspect-square rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 relative overflow-hidden group shadow-sm cursor-grab active:cursor-grabbing transition-all ${draggedGalleryImageIndex === index ? 'opacity-50 scale-95' : ''}`}
                                         >
-                                            <img src={imgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                            <ProductImage 
+                                              src={imgUrl} 
+                                              alt={`صورة المعرض ${index + 1}`} 
+                                              containerClassName="w-full h-full rounded-2xl" 
+                                              fallbackIconSize={20} 
+                                            />
                                             <button 
                                                 type="button" 
                                                 onClick={() => removeImage(index)}
-                                                className="absolute top-1.5 left-1.5 w-7 h-7 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 shadow-lg"
+                                                className="absolute top-1.5 left-1.5 w-7 h-7 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 shadow-lg z-10"
                                                 title="حذف الصورة"
                                             >
                                                 <Trash2 size={13} />
                                             </button>
-                                            <div className="absolute top-1.5 right-1.5 flex gap-1">
+                                            <div className="absolute top-1.5 right-1.5 flex gap-1 z-10">
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => copyImageUrlToClipboard(imgUrl, e)}
+                                                    className="w-7 h-7 rounded-lg bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-indigo-600"
+                                                    title="نسخ رابط الصورة المباشر"
+                                                >
+                                                    {copiedImageUrl === imgUrl ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => moveGalleryImage(index, -1)}
@@ -3434,9 +3581,9 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                                 </button>
                                             </div>
                                             <button 
-                                                type="button"
+                                                type="button" 
                                                 onClick={() => updateField('thumbnail', imgUrl)}
-                                                className="absolute bottom-1.5 inset-x-1.5 py-1 bg-black/70 text-white text-[9px] font-extrabold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-center hover:bg-indigo-600"
+                                                className="absolute bottom-1.5 inset-x-1.5 py-1 bg-black/70 text-white text-[9px] font-extrabold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-center hover:bg-indigo-600 z-10"
                                             >
                                                 تعيين كرئيسية
                                             </button>
@@ -3775,11 +3922,12 @@ const SelectiveSyncModal: React.FC<SelectiveSyncModalProps> = ({
                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${selectedIds.has(product.id) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'}`}>
                   {selectedIds.has(product.id) && <CheckCircle size={14} />}
                 </div>
-                {product.thumbnail ? (
-                  <img src={product.thumbnail} alt={product.name} referrerPolicy="no-referrer" className="w-10 h-10 rounded-lg object-cover" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><ImageIcon size={20}/></div>
-                )}
+                <ProductImage 
+                  src={product.thumbnail || product.images?.[0]} 
+                  alt={product.name} 
+                  containerClassName="w-10 h-10 rounded-lg shrink-0" 
+                  fallbackIconSize={18} 
+                />
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-sm dark:text-white truncate">{product.name}</p>
                   <p className="text-xs text-slate-500">{product.sku}</p>

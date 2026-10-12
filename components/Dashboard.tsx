@@ -1684,7 +1684,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-widest">
             <div className="w-8 h-[1px] bg-current opacity-20" />
-            OneToolz Dashboard v2.0
+            عبده ميديا برايم | AbdoMedia Prime Dashboard v2.0
             <div className="w-8 h-[1px] bg-current opacity-20" />
           </div>
           <p className="text-[10px] text-slate-400 text-center max-w-xs leading-relaxed">

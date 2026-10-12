@@ -28,6 +28,7 @@ import {
 import { Settings, Store, Product, OrderItem, Review } from '../types';
 import CartSidebar from './CartSidebar';
 import { generateSlug, getProductUrl } from '../utils/slugUtils';
+import { ProductImage } from './ProductImage';
 
 interface ProductDetailPageProps {
   settings: Settings;
@@ -243,13 +244,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
           {/* Gallery Images Column (6 of 12) */}
           <div className="lg:col-span-6 space-y-4">
             <div className="relative aspect-square w-full bg-white rounded-3xl border border-slate-200/80 shadow-sm p-4 sm:p-8 flex items-center justify-center overflow-hidden">
-              <img
-                src={images[selectedImageIndex] || `https://picsum.photos/800/800?random=${product.id}`}
+              <ProductImage
+                src={images[selectedImageIndex] || product.thumbnail}
                 alt={product.name}
-                className="w-full h-full object-contain max-h-[460px] drop-shadow-md transition-all duration-300"
-                referrerPolicy="no-referrer"
+                containerClassName="w-full h-full max-h-[460px] drop-shadow-md flex items-center justify-center"
+                className="w-full h-full object-contain"
+                aspectRatio="square"
+                priority={true}
               />
-              <span className="absolute top-4 right-4 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5">
+              <span className="absolute top-4 right-4 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-black px-3 py-1 rounded-full flex items-center gap-1.5 z-10">
                 <Sparkles size={13} className="text-emerald-600" />
                 منتج أصلي معتمد
               </span>
@@ -263,13 +266,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                     key={idx}
                     type="button"
                     onClick={() => setSelectedImageIndex(idx)}
-                    className={`w-20 h-20 rounded-2xl bg-white border-2 p-1.5 shrink-0 transition-all cursor-pointer ${
+                    className={`w-20 h-20 rounded-2xl bg-white border-2 p-1.5 shrink-0 transition-all cursor-pointer overflow-hidden ${
                       selectedImageIndex === idx
                         ? 'border-emerald-600 shadow-md ring-2 ring-emerald-600/20'
                         : 'border-slate-200 opacity-70 hover:opacity-100'
                     }`}
                   >
-                    <img src={img} alt="" className="w-full h-full object-cover rounded-xl" />
+                    <ProductImage src={img} alt="" containerClassName="w-full h-full rounded-xl" aspectRatio="square" />
                   </button>
                 ))}
               </div>

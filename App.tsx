@@ -98,6 +98,7 @@ const CongratsModal = lazyWithRetry(() => import('./components/CongratsModal'));
 const OrderTrackingPage = lazyWithRetry(() => import('./components/OrderTrackingPage'));
 const CustomerOrderActionPage = lazyWithRetry(() => import('./components/CustomerOrderActionPage'));
 const CustomerQuoteApprovalPage = lazyWithRetry(() => import('./components/CustomerQuoteApprovalPage'));
+const WelcomeLandingPage = lazyWithRetry(() => import('./components/WelcomeLandingPage'));
 const OtpVerificationPage = lazyWithRetry(() => import('./components/OtpVerificationPage'));
 const FirebaseActionPage = lazyWithRetry(() => import('./components/FirebaseActionPage'));
 const IosInstallPrompt = lazyWithRetry(() => import('./components/IosInstallPrompt'));
@@ -744,9 +745,19 @@ function sanitizeData(storeData: StoreData): StoreData {
     let sanitizedSettings = storeData.settings;
     if (sanitizedSettings?.products) {
         const healedProducts = autoHealProducts(sanitizedSettings.products, sanitizedSettings.warehouses || []);
-        if (healedProducts !== sanitizedSettings.products) {
+        let mediaNormalized = false;
+        const normalizedProducts = healedProducts.map(p => {
+            const finalThumb = p.thumbnail || (Array.isArray(p.images) && p.images[0]) || '';
+            const finalImages = (Array.isArray(p.images) && p.images.length > 0) ? p.images : (finalThumb ? [finalThumb] : []);
+            if (p.thumbnail !== finalThumb || (Array.isArray(p.images) && p.images.length !== finalImages.length)) {
+                mediaNormalized = true;
+                return { ...p, thumbnail: finalThumb, images: finalImages };
+            }
+            return p;
+        });
+        if (healedProducts !== sanitizedSettings.products || mediaNormalized) {
             hasChanges = true;
-            sanitizedSettings = { ...sanitizedSettings, products: healedProducts };
+            sanitizedSettings = { ...sanitizedSettings, products: normalizedProducts };
         }
     }
 
@@ -812,7 +823,8 @@ const OwnerLayoutWrapper = ({
     saveStatus,
     saveMessage,
     isShippingCalculatorOpen,
-    setIsShippingCalculatorOpen
+    setIsShippingCalculatorOpen,
+    isInitialLoad
 }: any) => {
     const location = useLocation();
     const { storeId: urlStoreId } = useParams();
@@ -824,7 +836,7 @@ const OwnerLayoutWrapper = ({
     }, [urlStoreId, activeStoreId, handleSetActiveStore]);
 
     useEffect(() => {
-        if (!welcomeScreenShown && settings) {
+        if (!welcomeScreenShown && settings && !isInitialLoad && currentUser) {
             // Preload the sound immediately when settings are available
             const confettiSettings = settings?.confettiSettings;
             const soundMap: any = {
@@ -894,13 +906,27 @@ const OwnerLayoutWrapper = ({
                 }
             };
         }
-    }, [welcomeScreenShown, setWelcomeScreenShown, settings, currentUser]);
+    }, [welcomeScreenShown, setWelcomeScreenShown, settings, currentUser, isInitialLoad]);
 
+    // 1. While initial session load is in progress, show WelcomeLoader smoothly without redirecting prematurely
+    if (isInitialLoad) {
+        return (
+            <WelcomeLoader 
+                userName={currentUser?.fullName || ''} 
+                userRole="جاري تحضير بيئة العمل..."
+                storeName={activeStore?.name}
+                storeSubdomain={activeStore?.subdomain}
+                onFastPass={() => setWelcomeScreenShown(true)}
+            />
+        );
+    }
+
+    // 2. Routing checks after initial session resolution
     if (isEmployeeSession) {
         return <Navigate to="/employee/dashboard" replace />;
     }
     if (!currentUser) {
-        return <Navigate to="/owner-login" replace />;
+        return <Navigate to="/welcome" replace />;
     }
 
     const hasNoStores = !currentUser.stores || currentUser.stores.length === 0;
@@ -919,6 +945,7 @@ const OwnerLayoutWrapper = ({
         );
     }
 
+    // 3. Render WelcomeLoader ONCE per user session
     if (!welcomeScreenShown) {
         return (
             <WelcomeLoader 
@@ -989,9 +1016,26 @@ export const AppComponent = () => {
     }, [cart]);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
     const [isEmployeeSession, setIsEmployeeSession] = useState<boolean>(false);
-    const [theme, setTheme] = useState<string>(localStorage.getItem('theme') || 'system');
+    const [theme, setTheme] = useState<string>(() => localStorage.getItem('theme') || 'light');
     const [showCongratsModal, setShowCongratsModal] = useState<boolean>(false);
-    const [welcomeScreenShown, setWelcomeScreenShown] = useState<boolean>(false);
+    const [welcomeScreenShown, setWelcomeScreenShownState] = useState<boolean>(() => {
+        try {
+            return sessionStorage.getItem('welcomeScreenShown') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const setWelcomeScreenShown = useCallback((shown: boolean) => {
+        setWelcomeScreenShownState(shown);
+        try {
+            if (shown) {
+                sessionStorage.setItem('welcomeScreenShown', 'true');
+            } else {
+                sessionStorage.removeItem('welcomeScreenShown');
+            }
+        } catch (e) {}
+    }, []);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'local_saved' | 'success' | 'pending' | 'error'>('idle');
     const [saveMessage, setSaveMessage] = useState('');
     const [isStandaloneStorefront, setIsStandaloneStorefront] = useState<boolean>(false);
@@ -1659,9 +1703,7 @@ export const AppComponent = () => {
                 return;
             }
 
-            const themeToApply = theme === 'system' 
-                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-                : theme;
+            const themeToApply = theme === 'dark' ? 'dark' : 'light';
 
             if (themeToApply === 'dark') {
                 document.documentElement.classList.add('dark');
@@ -1863,7 +1905,7 @@ export const AppComponent = () => {
                                 setActiveStoreId(storeId);
                                 localStorage.setItem('lastActiveStoreId', storeId);
                                 
-                                const storeData = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
+                                const storeData = await db.getStoreData(storeId, false) as StoreData | null;
                                 if (storeData) {
                                     const sanitizedStoreData = sanitizeData(storeData);
                                     setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
@@ -1916,7 +1958,7 @@ export const AppComponent = () => {
         localStorage.removeItem('lastActiveStoreId');
         localStorage.removeItem('sessionType');
         setWelcomeScreenShown(false);
-        navigate('/owner-login');
+        navigate('/welcome');
     };
 
     const startOtpFlow = async (user: User, sessionInfo: { isEmployee: boolean, storeId: string } | null, password?: string) => {
@@ -3106,7 +3148,7 @@ export const AppComponent = () => {
     }, [activeStoreId, dbSyncMode]); 
 
     if (!authChecked) {
-        return <GlobalLoader />;
+        return <GlobalLoader message="جاري التحقق من أمان الجلسة والربط السحابي..." />;
     }
 
     if (userForOtp) {
@@ -3379,12 +3421,17 @@ export const AppComponent = () => {
                         }
                     }
 
+                    const updatedStoreData = {
+                        ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
+                        settings: newSettings
+                    };
+
+                    // Immediate local persistence ensures quick reloads never lose freshly added products or images
+                    db.saveLocal(activeStoreId, updatedStoreData);
+
                     return {
                         ...p, 
-                        [activeStoreId]: {
-                            ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
-                            settings: newSettings
-                        }
+                        [activeStoreId]: updatedStoreData
                     };
                 });
             }
@@ -3636,6 +3683,8 @@ export const AppComponent = () => {
                 <Route path="/shared-audit/:auditId" element={<WarehouseSubmitPage />} />
                 <Route path="/quote-approval/:id" element={<CustomerQuoteApprovalPage allStoresData={allStoresData} setAllStoresData={setAllStoresData} forceSync={forceSync} />} />
                 <Route path="/quote-approval" element={<CustomerQuoteApprovalPage allStoresData={allStoresData} setAllStoresData={setAllStoresData} forceSync={forceSync} />} />
+                <Route path="/welcome" element={<WelcomeLandingPage />} />
+                <Route path="/landing" element={<WelcomeLandingPage />} />
                 
                 <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
@@ -3702,6 +3751,7 @@ export const AppComponent = () => {
                         unsavedChanges={getUnsavedChanges()}
                         isShippingCalculatorOpen={isShippingCalculatorOpen}
                         setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
+                        isInitialLoad={isInitialLoad}
                     />
                 }>
                     <Route index element={
@@ -3743,6 +3793,7 @@ export const AppComponent = () => {
                         unsavedChanges={getUnsavedChanges()}
                         isShippingCalculatorOpen={isShippingCalculatorOpen}
                         setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
+                        isInitialLoad={isInitialLoad}
                     />
                 }>
                     <Route index element={<Navigate to="dashboard" replace />} />

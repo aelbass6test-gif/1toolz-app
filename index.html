@@ -6,8 +6,7 @@
       (function() {
         try {
           var savedTheme = localStorage.getItem('theme');
-          var systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          if (savedTheme === 'dark' || (savedTheme === 'system' && systemTheme) || (!savedTheme && systemTheme)) {
+          if (savedTheme === 'dark') {
             document.documentElement.classList.add('dark');
           } else {
             document.documentElement.classList.remove('dark');
@@ -17,18 +16,18 @@
     </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>منظومة عبدو ميديا لإدارة الأنشطة التجارية المتكاملة</title>
-    <meta name="description" content="نظام إدارة متكامل لتجارتك، فواتيرك، حسابات الخزينة وعمليات المزامنة والأمان السحابي من أي مكان." />
-    <meta property="og:title" content="منظومة عبدو ميديا لإدارة الأنشطة التجارية المتكاملة" />
-    <meta property="og:description" content="نظام إدارة متكامل لتجارتك، فواتيرك، حسابات الخزينة وعمليات المزامنة والأمان السحابي من أي مكان." />
+    <title>منظومة عبده ميديا برايم لإدارة الأنشطة التجارية والتسويق</title>
+    <meta name="description" content="منظومة عبده ميديا برايم المتكاملة لإدارة تجارتك والمتاجر والمبيعات والحسابات والحملات التسويقية." />
+    <meta property="og:title" content="منظومة عبده ميديا برايم لإدارة الأنشطة التجارية والتسويق" />
+    <meta property="og:description" content="منظومة عبده ميديا برايم المتكاملة لإدارة تجارتك والمتاجر والمبيعات والحسابات والحملات التسويقية." />
 
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="عبدو ميديا برايم">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="عبده ميديا برايم">
     <link rel="apple-touch-icon" href="/logo192.png">
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#1e293b" />
+    <meta name="theme-color" content="#008060" />
     
     <script>
       // Automatically handle dynamic import chunk load errors on new releases

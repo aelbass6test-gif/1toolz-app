@@ -142,7 +142,7 @@ export const DropshippingOrderForm: React.FC<DropshippingOrderFormProps> = ({
                 className="w-full mb-2 p-3 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-200 dark:border-slate-750 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 outline-none cursor-pointer"
               >
                 <option value="">-- اختر من المتاجر المسجلة --</option>
-                {["وان تولز للعدد", "إبداع اكس باور", "العربي للعدد اليدوية", "اكس باور", "دكتور الصنعة"].map((brand) => (
+                {["عبده ميديا برايم", "إبداع اكس باور", "العربي للعدد اليدوية", "اكس باور", "دكتور الصنعة"].map((brand) => (
                   <option key={brand} value={brand}>
                     🏬 {brand}
                   </option>
@@ -151,7 +151,7 @@ export const DropshippingOrderForm: React.FC<DropshippingOrderFormProps> = ({
               <input
                 type="text"
                 required
-                placeholder="مثال: وان تولز للعدد، دكتور الصنعة..."
+                placeholder="مثال: عبده ميديا برايم..."
                 value={orderData.merchantBrandName || ""}
                 onChange={(e) => handleFieldChange("merchantBrandName", e.target.value)}
                 className="w-full p-3.5 bg-slate-50 dark:bg-slate-800/50 border-2 border-slate-200 dark:border-slate-750 rounded-2xl text-sm font-bold text-slate-800 dark:text-slate-100 outline-none hover:border-slate-300 dark:hover:border-slate-600 focus:bg-white dark:focus:bg-slate-900 focus:border-amber-500 dark:focus:border-amber-400 focus:ring-4 focus:ring-amber-500/10 transition-all duration-200"

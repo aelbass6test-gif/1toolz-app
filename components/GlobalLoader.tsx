@@ -1,12 +1,16 @@
 import React from 'react';
 import { Loader2 } from 'lucide-react';
 
-const GlobalLoader: React.FC = () => {
+interface GlobalLoaderProps {
+  message?: string;
+}
+
+const GlobalLoader: React.FC<GlobalLoaderProps> = ({ message = 'جاري التحميل...' }) => {
   return (
-    <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[200] animate-in fade-in-5 slide-in-from-top-5 duration-300">
-      <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 rounded-full shadow-lg border border-slate-200 dark:border-slate-700">
-        <Loader2 className="animate-spin text-indigo-500" size={16} />
-        <span className="font-bold text-sm text-slate-700 dark:text-slate-300">جاري التحميل...</span>
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[300] animate-in fade-in-5 slide-in-from-top-4 duration-300 pointer-events-none">
+      <div className="flex items-center gap-2.5 px-4 py-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-full shadow-lg border border-emerald-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold dir-rtl" dir="rtl">
+        <Loader2 className="animate-spin text-[#008060] dark:text-emerald-400" size={16} />
+        <span>{message}</span>
       </div>
     </div>
   );

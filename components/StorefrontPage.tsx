@@ -44,6 +44,7 @@ import { SmartUpdatesWidget } from './SmartUpdatesWidget';
 import { motion, AnimatePresence } from 'motion/react';
 import { CustomerAuthModal, StoreCustomer } from './storefront/CustomerAuthModal';
 import { generateSlug, getProductUrl } from '../utils/slugUtils';
+import { ProductImage } from './ProductImage';
 
 interface StorefrontPageProps {
   settings: Settings;
@@ -267,12 +268,11 @@ const ProductCard: React.FC<{
     >
       {/* Product Image Box */}
       <div className="relative aspect-[4/4] overflow-hidden bg-slate-50 p-3">
-        <img 
-          src={product.thumbnail || `https://picsum.photos/600/600?random=${product.id}`} 
+        <ProductImage 
+          src={product.thumbnail || product.images?.[0]} 
           alt={product.name} 
-          className="w-full h-full object-cover rounded-2xl transition-transform duration-700 group-hover:scale-105" 
-          loading="lazy" 
-          referrerPolicy="no-referrer" 
+          containerClassName="w-full h-full rounded-2xl transition-transform duration-700 group-hover:scale-105" 
+          aspectRatio="square"
         />
         
         {/* Rating badge */}
@@ -896,11 +896,12 @@ const ProductDetailModal: React.FC<{
 
         {/* Product Image */}
         <div className="w-full md:w-[45%] bg-slate-50 p-6 flex flex-col items-center justify-center">
-          <img 
-            src={images[currentImageIndex] || `https://picsum.photos/600/600?random=${product.id}`} 
+          <ProductImage 
+            src={images[currentImageIndex] || product.thumbnail} 
             alt={product.name}
-            className="w-full max-h-72 object-contain drop-shadow-md rounded-2xl" 
-            referrerPolicy="no-referrer" 
+            containerClassName="w-full max-h-72 drop-shadow-md rounded-2xl flex items-center justify-center" 
+            className="w-full h-full object-contain"
+            aspectRatio="auto"
           />
         </div>
 

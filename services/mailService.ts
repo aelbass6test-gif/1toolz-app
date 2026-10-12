@@ -348,7 +348,7 @@ async function dispatchEmail({
             'Accept': 'application/json'
           },
           body: JSON.stringify({
-            sender: { name: 'عبدو ميديا برايم | AbdoMedia Prime', email: brevoFrom },
+            sender: { name: 'عبده ميديا برايم | AbdoMedia Prime', email: brevoFrom },
             to: [{ email: cleanTo, name: userName }],
             subject: cleanSubject,
             htmlContent: htmlContent,
@@ -455,7 +455,7 @@ function renderEmailShell({
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>عبدو ميديا برايم | AbdoMedia Prime</title>
+  <title>عبده ميديا برايم | AbdoMedia Prime</title>
   <!--[if mso]>
   <style type="text/css">
     body, table, td, a { font-family: Arial, Helvetica, sans-serif !important; }
@@ -548,7 +548,7 @@ function renderEmailShell({
                     </table>
                     <!-- Brand Title -->
                     <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px; font-family: 'Cairo', sans-serif;">
-                      عبدو ميديا برايم
+                      عبده ميديا برايم
                     </h1>
                     <p style="margin: 4px 0 0 0; font-size: 12px; font-weight: 700; color: #10b981; letter-spacing: 1px; text-transform: uppercase;">
                       AbdoMedia Prime • التجارة والتسويق الرقمي
@@ -573,7 +573,7 @@ function renderEmailShell({
                 <tr>
                   <td width="30" valign="top" style="padding-left: 10px; font-size: 20px;">🛡️</td>
                   <td style="font-size: 12px; color: #94a3b8; line-height: 1.6; font-family: 'Cairo', sans-serif;">
-                    <strong style="color: #e2e8f0;">حماية وتشفير متكامل:</strong> هذه الرسالة صادرة آلياً من الخادم المركزي لمنظومة عبدو ميديا برايم ومحمية بأحدث بروتوكولات الأمان.
+                    <strong style="color: #e2e8f0;">حماية وتشفير متكامل:</strong> هذه الرسالة صادرة آلياً من الخادم المركزي لمنظومة عبده ميديا برايم ومحمية بأحدث بروتوكولات الأمان.
                   </td>
                 </tr>
               </table>
@@ -584,7 +584,7 @@ function renderEmailShell({
           <tr>
             <td align="center" style="padding: 24px; background-color: #0b0f19; border-top: 1px solid #1f2937; text-align: center;">
               <p style="margin: 0 0 8px 0; font-size: 12px; font-weight: bold; color: #9ca3af; font-family: 'Cairo', sans-serif;">
-                منظومة عبدو ميديا برايم لإدارة المتاجر والمبيعات والتسويق الإلكتروني
+                منظومة عبده ميديا برايم لإدارة المتاجر والمبيعات والتسويق الإلكتروني
               </p>
               ${footerNote ? `<p style="margin: 0 0 10px 0; font-size: 11px; color: #6b7280;">${footerNote}</p>` : ''}
               <p style="margin: 0; font-size: 11px; color: #4b5563; font-family: monospace;">
@@ -613,7 +613,7 @@ export async function sendOtpByEmail({
   deviceInfo,
   storeName
 }: SendOtpEmailOptions): Promise<MailDeliveryResult> {
-  const brandTitle = storeName || 'عبدو ميديا برايم';
+  const brandTitle = storeName || 'عبده ميديا برايم';
   const emailSubject = `🔐 رمز التحقق الأمني: ${otpCode} - ${brandTitle}`;
   const cleanCode = (otpCode || '').trim();
   const digits = cleanCode.split('');
@@ -685,7 +685,7 @@ export async function sendAccountActivationEmail({
   activationLink = '',
   storeName = 'متجرك الذكي'
 }: SendActivationEmailOptions): Promise<MailDeliveryResult> {
-  const subject = `🎉 مرحباً بك في عبدو ميديا برايم - تم إنشاء حسابك بنجاح!`;
+  const subject = `🎉 مرحباً بك في عبده ميديا برايم - تم إنشاء حسابك بنجاح!`;
 
   const contentHtml = `
     <div style="text-align: right; margin-bottom: 28px;">
@@ -693,10 +693,10 @@ export async function sendAccountActivationEmail({
         ✨ حساب تاجر معتمد وجديد
       </div>
       <h2 style="margin: 0 0 10px 0; font-size: 22px; font-weight: 900; color: #ffffff; font-family: 'Cairo', sans-serif;">
-        أهلاً بك يا ${userName} في منظومة عبدو ميديا برايم 🚀
+        أهلاً بك يا ${userName} في منظومة عبده ميديا برايم 🚀
       </h2>
       <p style="margin: 0; font-size: 14px; color: #9ca3af; line-height: 1.8; font-family: 'Cairo', sans-serif;">
-        يسعدنا انضمامك إلى منصة <strong>عبدو ميديا برايم (AbdoMedia Prime)</strong>. حسابك الآن جاهز لإدارة المتاجر المتعددة، المبيعات، الحملات التسويقية، ومعالجة الطلبات بكل احترافية.
+        يسعدنا انضمامك إلى منصة <strong>عبده ميديا برايم (AbdoMedia Prime)</strong>. حسابك الآن جاهز لإدارة المتاجر المتعددة، المبيعات، الحملات التسويقية، ومعالجة الطلبات بكل احترافية.
       </p>
     </div>
 
@@ -772,7 +772,7 @@ export async function sendAccountActivationEmail({
     userName,
     subject,
     htmlContent: renderEmailShell({
-      preheader: `مرحباً بك يا ${userName} في عبدو ميديا برايم. تم إنشاء حسابك بنجاح.`,
+      preheader: `مرحباً بك يا ${userName} في عبده ميديا برايم. تم إنشاء حسابك بنجاح.`,
       contentHtml,
       footerNote: 'تم إرسال هذا البريد لتأكيد انضمامك إلى المنصة.'
     })
@@ -788,7 +788,7 @@ export async function sendPasswordResetEmail({
   resetCode = '',
   resetLink = ''
 }: SendPasswordResetEmailOptions): Promise<MailDeliveryResult> {
-  const subject = `🔑 استعادة كلمة المرور - عبدو ميديا برايم`;
+  const subject = `🔑 استعادة كلمة المرور - عبده ميديا برايم`;
 
   const contentHtml = `
     <div style="text-align: right; margin-bottom: 24px;">
@@ -799,7 +799,7 @@ export async function sendPasswordResetEmail({
         مرحباً ${userName} 👋
       </h2>
       <p style="margin: 0; font-size: 14px; color: #9ca3af; line-height: 1.7; font-family: 'Cairo', sans-serif;">
-        تلقينا طلباً لإعادة تعيين كلمة المرور لحسابك في <strong>عبدو ميديا برايم</strong>.
+        تلقينا طلباً لإعادة تعيين كلمة المرور لحسابك في <strong>عبده ميديا برايم</strong>.
       </p>
     </div>
 
@@ -837,7 +837,7 @@ export async function sendPasswordResetEmail({
     userName,
     subject,
     htmlContent: renderEmailShell({
-      preheader: `طلب استعادة كلمة المرور لحسابك في عبدو ميديا برايم`,
+      preheader: `طلب استعادة كلمة المرور لحسابك في عبده ميديا برايم`,
       contentHtml,
       footerNote: 'إذا واجهت أي صعوبة، يرجى التواصل مع فريق الدعم الفني.'
     })
@@ -856,7 +856,7 @@ export async function sendNotificationEmail({
   actionUrl,
   badge = 'إشعار من النظام'
 }: SendNotificationEmailOptions): Promise<MailDeliveryResult> {
-  const subject = `📢 ${title} - عبدو ميديا برايم`;
+  const subject = `📢 ${title} - عبده ميديا برايم`;
 
   const contentHtml = `
     <div style="text-align: right; margin-bottom: 24px;">
@@ -906,7 +906,7 @@ export async function sendStoreCodeRecoveryEmail({
   loginUrl,
   ownerLoginUrl
 }: SendStoreCodeRecoveryEmailOptions): Promise<MailDeliveryResult> {
-  const brandTitle = 'عبدو ميديا برايم';
+  const brandTitle = 'عبده ميديا برايم';
   const primaryStoreName = stores.length > 0 ? stores[0].name : 'متجرك';
   const emailSubject = `🏬 تفاصيل وأكواد المتاجر الخاصة بك: ${primaryStoreName} - ${brandTitle}`;
 

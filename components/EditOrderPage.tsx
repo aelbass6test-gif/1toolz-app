@@ -92,7 +92,7 @@ const EditOrderPage: React.FC<EditOrderPageProps> = ({
         if (order) {
             const normalized = normalizeSyncedOrder({ ...order });
             if (!normalized.merchantBrandName) {
-                normalized.merchantBrandName = activeStore?.name || settings?.storeName || 'وان تولز للعدد';
+                normalized.merchantBrandName = activeStore?.name || settings?.storeName || 'عبده ميديا برايم';
             }
             setEditingOrder(normalized);
         }

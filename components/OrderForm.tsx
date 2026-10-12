@@ -759,7 +759,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const brandsSet = new Set<string>();
 
     // Standard store brands from workspace
-    ["وان تولز للعدد", "إبداع اكس باور", "العربي للعدد اليدوية", "اكس باور", "دكتور الصنعة"].forEach(b => brandsSet.add(b));
+    ["عبده ميديا برايم", "إبداع اكس باور", "العربي للعدد اليدوية", "اكس باور", "دكتور الصنعة"].forEach(b => brandsSet.add(b));
 
     if (settings?.storeName) brandsSet.add(settings.storeName);
 

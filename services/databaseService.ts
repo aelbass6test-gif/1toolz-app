@@ -455,11 +455,17 @@ export const saveLocal = async (key: string, data: any) => {
                 quotations: data.quotations || [],
                 settings: {
                     ...data.settings,
-                    products: (data.settings?.products || []).map((p: any) => ({
-                        ...p,
-                        thumbnail: typeof p.thumbnail === 'string' && p.thumbnail.length > 500 ? '' : p.thumbnail,
-                        images: []
-                    }))
+                    products: (data.settings?.products || []).map((p: any) => {
+                        const thumb = typeof p.thumbnail === 'string' && p.thumbnail.startsWith('data:') && p.thumbnail.length > 1000 ? '' : (p.thumbnail || (Array.isArray(p.images) && p.images[0]) || '');
+                        const cleanImgs = Array.isArray(p.images) 
+                            ? p.images.filter((img: string) => typeof img === 'string' && (!img.startsWith('data:') || img.length <= 1000))
+                            : (thumb ? [thumb] : []);
+                        return {
+                            ...p,
+                            thumbnail: thumb,
+                            images: cleanImgs
+                        };
+                    })
                 }
             };
             localStorage.setItem(`emergency_store_backup_${key}`, JSON.stringify(leanStoreData));
@@ -647,7 +653,25 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     ...INITIAL_SETTINGS,
                     ...storeSettings,
                     customization,
-                    products: products.length > 0 ? products : (storeSettings.products || local?.settings?.products || []),
+                    products: (products.length > 0 ? products : (storeSettings.products || local?.settings?.products || [])).map((p: any) => {
+                        const details = (p.details && typeof p.details === 'object') ? p.details : {};
+                        const localProd = local?.settings?.products?.find((lp: any) => lp.id === p.id);
+                        const mergedThumbnail = p.thumbnail || details.thumbnail || localProd?.thumbnail || (Array.isArray(p.images) && p.images[0]) || (Array.isArray(details.images) && details.images[0]) || (localProd?.images && localProd.images[0]) || '';
+                        const candidateImages = (Array.isArray(p.images) && p.images.length > 0)
+                            ? p.images
+                            : (Array.isArray(details.images) && details.images.length > 0)
+                                ? details.images
+                                : (localProd?.images && localProd.images.length > 0)
+                                    ? localProd.images
+                                    : (mergedThumbnail ? [mergedThumbnail] : []);
+                        return {
+                            ...details,
+                            ...(localProd || {}),
+                            ...p,
+                            thumbnail: mergedThumbnail,
+                            images: candidateImages
+                        };
+                    }),
                     suppliers: suppliers.length > 0 ? suppliers : (storeSettings.suppliers || local?.settings?.suppliers || []),
                     supplyOrders: supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || []),
                     reviews: reviews.length > 0 ? reviews : (storeSettings.reviews || local?.settings?.reviews || []),
@@ -838,7 +862,25 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         ...storeSettings,
                         customization,
                         storeName: storeSettings.storeName || cloudData?.name || local?.settings?.storeName || 'المتجر',
-                        products: storeSettings.products || local?.settings?.products || [],
+                        products: (storeSettings.products || local?.settings?.products || []).map((cp: any) => {
+                            const details = (cp.details && typeof cp.details === 'object') ? cp.details : {};
+                            const localProd = local?.settings?.products?.find((lp: any) => lp.id === cp.id);
+                            const mergedThumbnail = cp.thumbnail || details.thumbnail || localProd?.thumbnail || (Array.isArray(cp.images) && cp.images[0]) || (Array.isArray(details.images) && details.images[0]) || (localProd?.images && localProd.images[0]) || '';
+                            const candidateImages = (Array.isArray(cp.images) && cp.images.length > 0)
+                                ? cp.images
+                                : (Array.isArray(details.images) && details.images.length > 0)
+                                    ? details.images
+                                    : (localProd?.images && localProd.images.length > 0)
+                                        ? localProd.images
+                                        : (mergedThumbnail ? [mergedThumbnail] : []);
+                            return {
+                                ...details,
+                                ...(localProd || {}),
+                                ...cp,
+                                thumbnail: mergedThumbnail,
+                                images: candidateImages
+                            };
+                        }),
                         suppliers: storeSettings.suppliers || local?.settings?.suppliers || [],
                         supplyOrders: storeSettings.supplyOrders || local?.settings?.supplyOrders || [],
                         reviews: storeSettings.reviews || local?.settings?.reviews || [],
@@ -906,10 +948,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     const redundantSettings: any = {};
     if (products.length < 150) {
         redundantSettings.products = products.map((p: any) => {
-            if (p.thumbnail && typeof p.thumbnail === 'string' && p.thumbnail.startsWith('data:') && p.thumbnail.length > 40000) {
+            const finalThumb = p.thumbnail || (Array.isArray(p.images) && p.images[0]) || '';
+            const finalImages = (Array.isArray(p.images) && p.images.length > 0) ? p.images : (finalThumb ? [finalThumb] : []);
+            if (finalThumb && typeof finalThumb === 'string' && finalThumb.startsWith('data:') && finalThumb.length > 40000) {
                 return { ...p, thumbnail: '', images: [] };
             }
-            return p;
+            return {
+                ...p,
+                thumbnail: finalThumb,
+                images: finalImages
+            };
         });
     }
     if (collections.length < 50) redundantSettings.collections = collections;

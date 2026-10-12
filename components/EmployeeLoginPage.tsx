@@ -458,7 +458,7 @@ export const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({
               <Store size={21} />
             </span>
             <span>
-              <strong className="block text-lg font-black tracking-tight text-slate-950">عبدو ميديا برايم</strong>
+              <strong className="block text-lg font-black tracking-tight text-slate-950">عبده ميديا برايم</strong>
               <span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • مساحة طاقم العمليات والورديات</span>
             </span>
           </Link>

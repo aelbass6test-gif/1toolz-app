@@ -8895,7 +8895,7 @@ const OrderRow = ({
                 >
                   <StoreIcon size={11} className="text-amber-600 dark:text-amber-400" />
                   <span>
-                    {order.merchantBrandName?.trim() || settings?.storeName || activeStore?.name || "وان تولز للعدد"}
+                    {order.merchantBrandName?.trim() || settings?.storeName || activeStore?.name || "عبده ميديا برايم"}
                   </span>
                 </div>
                 {(() => {

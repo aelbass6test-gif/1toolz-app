@@ -108,12 +108,28 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (!env.R2_IMAGES) return json(request, env, { success: false, error: 'تخزين صور المنتجات غير مكوّن' }, 503);
 
+  // Direct image path (GET / HEAD / DELETE)
   if (url.pathname.startsWith('/images/')) {
-    if (request.method !== 'GET' && request.method !== 'HEAD') return json(request, env, { success: false, error: 'طريقة الطلب غير مدعومة' }, 405);
+    if (request.method !== 'GET' && request.method !== 'HEAD' && request.method !== 'DELETE') {
+      return json(request, env, { success: false, error: 'طريقة الطلب غير مدعومة' }, 405);
+    }
     // Uploaded objects are stored with the "images/" prefix, so keep it in
     // the R2 key when resolving the public /images/... URL.
     const key = decodeURIComponent(url.pathname.slice(1)).replace(/^\/+/, '');
     if (!key || key.includes('..')) return json(request, env, { success: false, error: 'مسار صورة غير صالح' }, 400);
+
+    if (request.method === 'DELETE') {
+      if (env.MEDIA_REQUIRE_AUTH === 'true' && !request.headers.get('authorization')) {
+        return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل حذف الصور' }, 401);
+      }
+      try {
+        await env.R2_IMAGES.delete(key);
+        return json(request, env, { success: true, message: 'تم حذف الصورة من مساحة التخزين بنجاح', key });
+      } catch (err: any) {
+        return json(request, env, { success: false, error: err?.message || 'فشل حذف الصورة من التخزين' }, 500);
+      }
+    }
+
     const object = await env.R2_IMAGES.get(key);
     if (!object) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
     const headers = new Headers({ 'cache-control': 'public, max-age=31536000, immutable', 'access-control-allow-origin': '*' });
@@ -122,6 +138,78 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
     return new Response(request.method === 'HEAD' ? null : object.body, { status: 200, headers });
   }
 
+  // Deletion API routes: DELETE /api/media/product-images, POST/DELETE /api/media/delete
+  const isDeleteApi = 
+    (url.pathname === '/api/media/product-images' && request.method === 'DELETE') ||
+    (url.pathname === '/api/media/delete' && (request.method === 'DELETE' || request.method === 'POST'));
+
+  if (isDeleteApi) {
+    if (env.MEDIA_REQUIRE_AUTH === 'true' && !request.headers.get('authorization')) {
+      return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل حذف الصور' }, 401);
+    }
+
+    let body: any = {};
+    try {
+      body = await request.json();
+    } catch {
+      try {
+        const form = await request.formData();
+        body = Object.fromEntries(form.entries());
+      } catch {
+        body = {};
+      }
+    }
+
+    const inputKeys: string[] = [];
+    if (typeof body.key === 'string') inputKeys.push(body.key);
+    if (typeof body.url === 'string') inputKeys.push(body.url);
+    if (typeof body.imageUrl === 'string') inputKeys.push(body.imageUrl);
+    if (Array.isArray(body.keys)) inputKeys.push(...body.keys);
+    if (Array.isArray(body.urls)) inputKeys.push(...body.urls);
+    if (Array.isArray(body.images)) inputKeys.push(...body.images);
+
+    const qKey = url.searchParams.get('key');
+    if (qKey) inputKeys.push(qKey);
+    const qUrl = url.searchParams.get('url');
+    if (qUrl) inputKeys.push(qUrl);
+
+    const cleanedKeys = inputKeys
+      .map(k => {
+        if (!k || typeof k !== 'string') return '';
+        let cleaned = k.trim();
+        try {
+          if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+            const parsed = new URL(cleaned);
+            cleaned = parsed.pathname;
+          }
+        } catch {}
+        cleaned = decodeURIComponent(cleaned).replace(/^\/+/, '');
+        return cleaned;
+      })
+      .filter(k => k && k.startsWith('images/') && !k.includes('..'));
+
+    if (!cleanedKeys.length) {
+      return json(request, env, { success: false, error: 'لم يتم تحديد مفتاح أو رابط صورة صالح للحذف' }, 400);
+    }
+
+    try {
+      if (cleanedKeys.length === 1) {
+        await env.R2_IMAGES.delete(cleanedKeys[0]);
+      } else {
+        await env.R2_IMAGES.delete(cleanedKeys);
+      }
+      return json(request, env, { 
+        success: true, 
+        message: `تم حذف ${cleanedKeys.length} صورة من مساحة التخزين بنجاح`, 
+        deletedCount: cleanedKeys.length,
+        deletedKeys: cleanedKeys 
+      });
+    } catch (delErr: any) {
+      return json(request, env, { success: false, error: delErr?.message || 'فشل حذف الصورة من التخزين' }, 500);
+    }
+  }
+
+  // Upload route
   if (url.pathname !== '/api/media/product-images' || request.method !== 'POST') {
     return json(request, env, { success: false, error: 'مسار الوسائط غير مدعوم' }, 404);
   }
@@ -535,7 +623,7 @@ export default {
         return await handleWhatsAppWebhook(request, env, ctx);
       }
 
-      if (url.pathname.startsWith('/images/') || url.pathname === '/api/media/product-images') {
+      if (url.pathname.startsWith('/images/') || url.pathname === '/api/media/product-images' || url.pathname === '/api/media/delete') {
         return await handleMedia(request, env);
       }
 

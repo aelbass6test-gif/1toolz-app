@@ -500,6 +500,66 @@ async function startServer() {
 
   app.use("/*", cors());
 
+  // --- MEDIA UPLOAD & DELETE PROXY (Cloudflare R2 / app.abdomedi.com) ---
+  app.post("/api/media/product-images", async (c) => {
+    try {
+      const authHeader = c.req.header("Authorization") || "";
+      const body = await c.req.raw.formData();
+      const upstreamRes = await fetch("https://app.abdomedi.com/api/media/product-images", {
+        method: "POST",
+        headers: {
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: body,
+      });
+      const data = await upstreamRes.json();
+      return c.json(data, upstreamRes.status as any);
+    } catch (err: any) {
+      console.error("[MEDIA UPLOAD PROXY ERROR]", err);
+      return c.json({ success: false, error: err.message || "فشل الاتصال بخادم رفع الصور" }, 500);
+    }
+  });
+
+  app.delete("/api/media/product-images", async (c) => {
+    try {
+      const authHeader = c.req.header("Authorization") || "";
+      const body = await c.req.raw.text();
+      const upstreamRes = await fetch("https://app.abdomedi.com/api/media/product-images", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: body || "{}",
+      });
+      const data = await upstreamRes.json();
+      return c.json(data, upstreamRes.status as any);
+    } catch (err: any) {
+      console.error("[MEDIA DELETE PROXY ERROR]", err);
+      return c.json({ success: false, error: err.message || "فشل الاتصال بخادم حذف الصور" }, 500);
+    }
+  });
+
+  app.all("/api/media/delete", async (c) => {
+    try {
+      const authHeader = c.req.header("Authorization") || "";
+      const body = await c.req.raw.text();
+      const upstreamRes = await fetch("https://app.abdomedi.com/api/media/delete", {
+        method: c.req.method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+        body: body || "{}",
+      });
+      const data = await upstreamRes.json();
+      return c.json(data, upstreamRes.status as any);
+    } catch (err: any) {
+      console.error("[MEDIA DELETE PROXY ERROR]", err);
+      return c.json({ success: false, error: err.message || "فشل الاتصال بخادم حذف الصور" }, 500);
+    }
+  });
+
   // --- SHARED REPORTS IN-MEMORY & CLOUD CACHE ---
   const sharedReportsCache = new Map<string, { content: string; createdAt: number }>();
 
