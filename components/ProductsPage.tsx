@@ -2517,6 +2517,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const [showUrlInput, setShowUrlInput] = useState(false);
     const [newImageUrl, setNewImageUrl] = useState('');
     const [isUploadingProductImages, setIsUploadingProductImages] = useState(false);
+    const [uploadingImageCount, setUploadingImageCount] = useState(0);
 
     const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2645,6 +2646,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
+        setUploadingImageCount(files.length);
         setIsUploadingProductImages(true);
         try {
             if (!activeStoreId) throw new Error('لا يوجد متجر نشط لرفع الصورة إليه');
@@ -2663,6 +2665,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         } finally {
             e.target.value = '';
             setIsUploadingProductImages(false);
+            setUploadingImageCount(0);
         }
     };
 
@@ -3244,6 +3247,34 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                                     حدّد حتى 20 صورة مرة واحدة لرفعها إلى المنصة؛ كل صورة بحد أقصى 10 ميجابايت، وروابطها تبدأ بـ https://abdomedi.com/images/.
                                 </p>
+                                {isUploadingProductImages && (
+                                    <motion.div
+                                        role="status"
+                                        aria-live="polite"
+                                        initial={{ opacity: 0, y: -4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 px-4 py-3 shadow-sm"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-9 h-9 shrink-0 rounded-xl bg-white dark:bg-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-300 shadow-sm">
+                                                <RefreshCw size={18} className="animate-spin" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-extrabold text-indigo-900 dark:text-indigo-100">
+                                                    جاري رفع {uploadingImageCount === 1 ? 'صورة واحدة' : `${uploadingImageCount} صور`} إلى المنصة
+                                                </p>
+                                                <p className="text-[10px] text-indigo-700/80 dark:text-indigo-200/80 mt-0.5">ستظهر الصور في المعرض تلقائيًا بعد اكتمال الرفع.</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900">
+                                            <motion.div
+                                                className="h-full w-1/3 rounded-full bg-indigo-600 dark:bg-indigo-400"
+                                                animate={{ x: ['-100%', '300%'] }}
+                                                transition={{ repeat: Infinity, duration: 1.25, ease: 'linear' }}
+                                            />
+                                        </div>
+                                    </motion.div>
+                                )}
 
                                 {showUrlInput && (
                                     <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 flex gap-2 animate-in slide-in-from-top-2 duration-200">
