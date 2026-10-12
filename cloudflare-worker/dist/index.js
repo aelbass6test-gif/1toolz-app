@@ -488,7 +488,7 @@ async function handleMedia(request, env) {
   if (!env.R2_IMAGES) return json(request, env, { success: false, error: "\u062A\u062E\u0632\u064A\u0646 \u0635\u0648\u0631 \u0627\u0644\u0645\u0646\u062A\u062C\u0627\u062A \u063A\u064A\u0631 \u0645\u0643\u0648\u0651\u0646" }, 503);
   if (url.pathname.startsWith("/images/")) {
     if (request.method !== "GET" && request.method !== "HEAD") return json(request, env, { success: false, error: "\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0637\u0644\u0628 \u063A\u064A\u0631 \u0645\u062F\u0639\u0648\u0645\u0629" }, 405);
-    const key = decodeURIComponent(url.pathname.slice("/images/".length)).replace(/^\/+/, "");
+    const key = decodeURIComponent(url.pathname.slice(1)).replace(/^\/+/, "");
     if (!key || key.includes("..")) return json(request, env, { success: false, error: "\u0645\u0633\u0627\u0631 \u0635\u0648\u0631\u0629 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D" }, 400);
     const object = await env.R2_IMAGES.get(key);
     if (!object) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
@@ -519,7 +519,8 @@ async function handleMedia(request, env) {
       httpMetadata: { contentType: file.type, cacheControl: "public, max-age=31536000, immutable" },
       customMetadata: { storeId, productId, originalName: file.name }
     });
-    images.push({ key, url: `https://abdomedi.com/${key}`, filename, contentType: file.type, size: file.size });
+    const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || "https://abdomedi.com").replace(/\/$/, "");
+    images.push({ key, url: `${publicOrigin}/${key}`, filename, contentType: file.type, size: file.size });
   }
   return json(request, env, { success: true, images });
 }
