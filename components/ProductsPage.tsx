@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft, Printer, ExternalLink } from 'lucide-react';
+import { Package, Plus, Trash2, Edit3, Save, XCircle, Search, AlertCircle, Barcode, DollarSign, Scale, Wallet, RefreshCw, ServerOff, Image as ImageIcon, CheckCircle, Clock, Download, Layers, Grid3x3, Wand2, FileText, Copy, ChevronsUpDown, Percent, Upload, FileUp, ListChecks, FileWarning, HandCoins, Info, Calendar, ChevronLeft, ChevronRight, Eye, EyeOff, Sparkles, TrendingUp, Box, Sliders, Tag, Zap, Check, Share2, Globe, ShieldCheck, LayoutGrid, Calculator, HelpCircle, Lightbulb, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Printer, ExternalLink } from 'lucide-react';
 import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
-import { uploadProductImages } from '../services/mediaUploadService';
+import { compressProductImages, uploadProductImages } from '../services/mediaUploadService';
 import { getLatestProductCost } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
@@ -2519,6 +2519,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const [isUploadingProductImages, setIsUploadingProductImages] = useState(false);
     const [uploadingImageCount, setUploadingImageCount] = useState(0);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [isPreparingImages, setIsPreparingImages] = useState(false);
+    const [draggedGalleryImageIndex, setDraggedGalleryImageIndex] = useState<number | null>(null);
 
     const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2649,10 +2651,13 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
 
         setUploadingImageCount(files.length);
         setUploadProgress(0);
+        setIsPreparingImages(true);
         setIsUploadingProductImages(true);
         try {
             if (!activeStoreId) throw new Error('لا يوجد متجر نشط لرفع الصورة إليه');
-            const uploaded = await uploadProductImages(Array.from(files), {
+            const optimizedFiles = await compressProductImages(Array.from(files));
+            setIsPreparingImages(false);
+            const uploaded = await uploadProductImages(optimizedFiles, {
                 storeId: activeStoreId,
                 productId: productData.id || `draft-${Date.now()}`
             }, setUploadProgress);
@@ -2669,6 +2674,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
             setIsUploadingProductImages(false);
             setUploadingImageCount(0);
             setUploadProgress(0);
+            setIsPreparingImages(false);
         }
     };
 
@@ -2676,6 +2682,18 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         const currentImages = [...(productData.images || [])];
         currentImages.splice(index, 1);
         updateField('images', currentImages);
+    };
+
+    const reorderGalleryImage = (fromIndex: number, toIndex: number) => {
+        const images = [...(productData.images || [])];
+        if (fromIndex < 0 || fromIndex >= images.length || toIndex < 0 || toIndex >= images.length || fromIndex === toIndex) return;
+        const [image] = images.splice(fromIndex, 1);
+        images.splice(toIndex, 0, image);
+        updateField('images', images);
+    };
+
+    const moveGalleryImage = (index: number, offset: -1 | 1) => {
+        reorderGalleryImage(index, index + offset);
     };
 
     const addImageUrl = () => {
@@ -3243,13 +3261,14 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             className="text-xs font-bold text-white bg-indigo-600 px-3.5 py-1.5 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-1 shadow-sm disabled:opacity-60 disabled:cursor-wait"
                                         >
                                             {isUploadingProductImages ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
-                                            {isUploadingProductImages ? 'جاري رفع الصور...' : 'رفع عدة صور دفعة واحدة'}
+                                            {isPreparingImages ? 'جاري تجهيز وضغط الصور...' : isUploadingProductImages ? 'جاري رفع الصور...' : 'رفع عدة صور دفعة واحدة'}
                                         </button>
                                     </div>
                                 </div>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                    حدّد حتى 20 صورة مرة واحدة لرفعها إلى المنصة؛ كل صورة بحد أقصى 10 ميجابايت، وروابطها تبدأ بـ https://abdomedi.com/images/.
+                                    حدّد حتى 20 صورة مرة واحدة؛ تُضغط صور JPEG وPNG وWebP تلقائيًا (حتى 1920 بكسل وجودة 82%) قبل الرفع. كل صورة بحد أقصى 10 ميجابايت، وروابطها تبدأ بـ https://abdomedi.com/images/.
                                 </p>
+                                <p className="text-[11px] text-indigo-600 dark:text-indigo-300">اسحب صور المعرض لتغيير ترتيبها، أو استخدم السهمين على كل صورة؛ يُحفظ الترتيب عند حفظ المنتج.</p>
                                 {isUploadingProductImages && (
                                     <motion.div
                                         role="status"
@@ -3264,33 +3283,45 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             </div>
                                             <div className="min-w-0 flex-1">
                                                 <p className="text-xs font-extrabold text-indigo-900 dark:text-indigo-100">
-                                                    {uploadProgress < 100
-                                                        ? `جاري رفع ${uploadingImageCount === 1 ? 'صورة واحدة' : `${uploadingImageCount} صور`} إلى المنصة`
-                                                        : 'اكتمل إرسال الملفات؛ جارٍ تأكيد حفظها'}
+                                                    {isPreparingImages
+                                                        ? `جاري ضغط وتجهيز ${uploadingImageCount === 1 ? 'صورة واحدة' : `${uploadingImageCount} صور`} قبل الرفع`
+                                                        : uploadProgress < 100
+                                                            ? `جاري رفع ${uploadingImageCount === 1 ? 'صورة واحدة' : `${uploadingImageCount} صور`} إلى المنصة`
+                                                            : 'اكتمل إرسال الملفات؛ جارٍ تأكيد حفظها'}
                                                 </p>
                                                 <p className="text-[10px] text-indigo-700/80 dark:text-indigo-200/80 mt-0.5">
-                                                    {uploadProgress < 100 ? 'النسبة محسوبة من البيانات المرسلة فعليًا.' : 'تُضاف الصور للمعرض فور تأكيد الخادم.'}
+                                                    {isPreparingImages
+                                                        ? 'يتم تجهيز الصور على جهازك؛ سيبدأ شريط النسبة عند إرسالها.'
+                                                        : uploadProgress < 100 ? 'النسبة محسوبة من البيانات المرسلة فعليًا.' : 'تُضاف الصور للمعرض فور تأكيد الخادم.'}
                                                 </p>
                                             </div>
-                                            <span className="shrink-0 text-sm font-black tabular-nums text-indigo-700 dark:text-indigo-200" dir="ltr">
-                                                {uploadProgress}%
-                                            </span>
+                                            {!isPreparingImages && (
+                                                <span className="shrink-0 text-sm font-black tabular-nums text-indigo-700 dark:text-indigo-200" dir="ltr">
+                                                    {uploadProgress}%
+                                                </span>
+                                            )}
                                         </div>
-                                        <div
-                                            className="mt-3 h-2 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900"
-                                            role="progressbar"
-                                            aria-label="نسبة إرسال صور المنتج"
-                                            aria-valuemin={0}
-                                            aria-valuemax={100}
-                                            aria-valuenow={uploadProgress}
-                                            aria-valuetext={`${uploadProgress}%`}
-                                        >
-                                            <motion.div
-                                                className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
-                                                animate={{ width: `${uploadProgress}%` }}
-                                                transition={{ duration: 0.15, ease: 'linear' }}
-                                            />
-                                        </div>
+                                        {isPreparingImages ? (
+                                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900">
+                                                <motion.div className="h-full w-1/3 rounded-full bg-indigo-600 dark:bg-indigo-400" animate={{ x: ['-100%', '300%'] }} transition={{ repeat: Infinity, duration: 1.25, ease: 'linear' }} />
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className="mt-3 h-2 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900"
+                                                role="progressbar"
+                                                aria-label="نسبة إرسال صور المنتج"
+                                                aria-valuemin={0}
+                                                aria-valuemax={100}
+                                                aria-valuenow={uploadProgress}
+                                                aria-valuetext={`${uploadProgress}%`}
+                                            >
+                                                <motion.div
+                                                    className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
+                                                    animate={{ width: `${uploadProgress}%` }}
+                                                    transition={{ duration: 0.15, ease: 'linear' }}
+                                                />
+                                            </div>
+                                        )}
                                     </motion.div>
                                 )}
 
@@ -3349,7 +3380,28 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
 
                                     {/* Gallery Images */}
                                     {(productData.images || []).map((imgUrl, index) => (
-                                        <div key={index} className="aspect-square rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 relative overflow-hidden group shadow-sm">
+                                        <div
+                                            key={`${imgUrl}-${index}`}
+                                            draggable={!isUploadingProductImages}
+                                            onDragStart={(event) => {
+                                                setDraggedGalleryImageIndex(index);
+                                                event.dataTransfer.effectAllowed = 'move';
+                                                event.dataTransfer.setData('text/plain', String(index));
+                                            }}
+                                            onDragOver={(event) => {
+                                                event.preventDefault();
+                                                event.dataTransfer.dropEffect = 'move';
+                                            }}
+                                            onDrop={(event) => {
+                                                event.preventDefault();
+                                                const fromIndex = draggedGalleryImageIndex ?? Number(event.dataTransfer.getData('text/plain'));
+                                                if (Number.isInteger(fromIndex)) reorderGalleryImage(fromIndex, index);
+                                                setDraggedGalleryImageIndex(null);
+                                            }}
+                                            onDragEnd={() => setDraggedGalleryImageIndex(null)}
+                                            title="اسحب لترتيب الصورة"
+                                            className={`aspect-square rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 relative overflow-hidden group shadow-sm cursor-grab active:cursor-grabbing transition-all ${draggedGalleryImageIndex === index ? 'opacity-50 scale-95' : ''}`}
+                                        >
                                             <img src={imgUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                             <button 
                                                 type="button" 
@@ -3359,6 +3411,28 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             >
                                                 <Trash2 size={13} />
                                             </button>
+                                            <div className="absolute top-1.5 right-1.5 flex gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => moveGalleryImage(index, -1)}
+                                                    disabled={index === 0 || isUploadingProductImages}
+                                                    className="w-7 h-7 rounded-lg bg-black/70 text-white flex items-center justify-center disabled:opacity-40 hover:bg-indigo-600"
+                                                    title="نقل الصورة إلى موضع أسبق"
+                                                    aria-label="نقل الصورة إلى موضع أسبق"
+                                                >
+                                                    <ArrowUp size={13} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => moveGalleryImage(index, 1)}
+                                                    disabled={index === (productData.images || []).length - 1 || isUploadingProductImages}
+                                                    className="w-7 h-7 rounded-lg bg-black/70 text-white flex items-center justify-center disabled:opacity-40 hover:bg-indigo-600"
+                                                    title="نقل الصورة إلى موضع لاحق"
+                                                    aria-label="نقل الصورة إلى موضع لاحق"
+                                                >
+                                                    <ArrowDown size={13} />
+                                                </button>
+                                            </div>
                                             <button 
                                                 type="button"
                                                 onClick={() => updateField('thumbnail', imgUrl)}
