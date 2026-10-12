@@ -4,6 +4,7 @@ import { Settings, Product, ProductVariant, Order } from '../types';
 import { motion, Variants, AnimatePresence } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { generateProductDescription, generateSocialMediaPost } from '../services/geminiService';
+import { uploadProductImages } from '../services/mediaUploadService';
 import { getLatestProductCost } from '../utils/financials';
 import { triggerCelebration } from '../utils/celebration';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
@@ -2210,6 +2211,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             isEditing={!!editingProduct}
             onGenerateDescription={handleGenerateDescription}
             isGenerating={isGenerating}
+            activeStoreId={activeStoreId}
         />
       )}
       
@@ -2497,9 +2499,10 @@ interface ProductFormModalProps {
     isEditing: boolean;
     onGenerateDescription: (isEdit: boolean) => void;
     isGenerating: boolean;
+    activeStoreId: string | null;
 }
 
-const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, onSave, productData, setProductData, settings, isEditing, onGenerateDescription, isGenerating }) => {
+const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, onSave, productData, setProductData, settings, isEditing, onGenerateDescription, isGenerating, activeStoreId }) => {
     const [isSaving, setIsSaving] = useState(false);
     
     // Track modes: 'simple' (منتج مباشر), 'variant' (متغيرات ومقاسات), 'digital' (خدمة / منتج رقمي بدون مخزون)
@@ -2642,22 +2645,19 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         if (!files || files.length === 0) return;
 
         try {
+            if (!activeStoreId) throw new Error('لا يوجد متجر نشط لرفع الصورة إليه');
+            const uploaded = await uploadProductImages(Array.from(files), {
+                storeId: activeStoreId,
+                productId: productData.id || `draft-${Date.now()}`
+            });
             if (target === 'thumbnail') {
-                const file = files[0];
-                const base64 = await convertToBase64(file);
-                updateField('thumbnail', base64);
+                updateField('thumbnail', uploaded[0]?.url || '');
             } else {
-                const newImages: string[] = [];
-                for (let i = 0; i < files.length; i++) {
-                    const file = files[i];
-                    const base64 = await convertToBase64(file);
-                    newImages.push(base64);
-                }
-                updateField('images', [...(productData.images || []), ...newImages]);
+                updateField('images', [...(productData.images || []), ...uploaded.map(item => item.url)]);
             }
         } catch (error) {
             console.error("File upload error:", error);
-            alert("حدث خطأ أثناء رفع الصورة.");
+            alert(error instanceof Error ? error.message : "حدث خطأ أثناء رفع الصورة.");
         } finally {
             e.target.value = '';
         }

@@ -9,15 +9,27 @@ workers_dev = true
 directory = "../dist"
 binding = "ASSETS"
 
+[[r2_buckets]]
+binding = "R2_IMAGES"
+bucket_name = "abdomedi-product-images"
+
 # After the first successful deploy, attach the custom domain from
 # Cloudflare Dashboard or uncomment this block if your account supports it.
 # [[routes]]
 # pattern = "api.abdomedi.com"
 # custom_domain = true
+[[routes]]
+pattern = "abdomedi.com/images/*"
+zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
+[[routes]]
+pattern = "app.abdomedi.com/api/media/*"
+zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
 
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
 APP_BACKEND_URL = "https://api.abdomedi.com"
+MEDIA_PUBLIC_ORIGIN = "https://abdomedi.com"
+MEDIA_REQUIRE_AUTH = "true"
 META_VERIFY_TOKEN = "abdomedi_whatsapp_meta_token"
 OTP_FROM_NAME = "AbdoMedia Prime"
 OTP_RESEND_FROM = "no-reply@abdomedi.com"

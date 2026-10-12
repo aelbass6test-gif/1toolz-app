@@ -4,10 +4,23 @@ type Fetcher = {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 };
 
+type R2Object = {
+  body: ReadableStream;
+  httpEtag?: string;
+  httpMetadata?: { contentType?: string };
+};
+type R2Bucket = {
+  put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream | string | Blob, options?: { httpMetadata?: Record<string, string>; customMetadata?: Record<string, string> }): Promise<void>;
+  get(key: string): Promise<R2Object | null>;
+};
+
 export interface Env {
   ASSETS: Fetcher;
+  R2_IMAGES?: R2Bucket;
   APP_ORIGIN?: string;
   APP_BACKEND_URL?: string;
+  MEDIA_PUBLIC_ORIGIN?: string;
+  MEDIA_REQUIRE_AUTH?: string;
   OTP_DB?: any;
   OTP_HASH_SECRET?: string;
   RESEND_API_KEY?: string;
@@ -36,6 +49,7 @@ export interface ExecutionContext {
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
 const SUPABASE_WHATSAPP_WEBHOOK_URL = "https://kwirhppfowzqshltmoga.supabase.co/functions/v1/whatsapp-webhook";
+const MAX_MEDIA_FILE_SIZE = 10 * 1024 * 1024;
 
 /**
  * Checks if the incoming origin is allowed.
@@ -76,6 +90,62 @@ function corsHeaders(request: Request, env: Env): Headers {
 
 function json(request: Request, env: Env, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders(request, env) });
+}
+
+function safePathPart(value: unknown, fallback: string): string {
+  const cleaned = String(value || fallback).normalize('NFKC').trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+  return cleaned.slice(0, 100) || fallback;
+}
+
+function safeFilename(value: unknown): string {
+  const raw = String(value || 'image.jpg').normalize('NFKC').trim();
+  const ext = (raw.match(/\.(jpe?g|png|webp|gif|avif)$/i)?.[1] || 'jpg').toLowerCase().replace('jpeg', 'jpg');
+  const stem = safePathPart(raw.replace(/\.[^.]+$/, ''), 'image');
+  return `${stem}.${ext}`;
+}
+
+async function handleMedia(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (!env.R2_IMAGES) return json(request, env, { success: false, error: 'تخزين صور المنتجات غير مكوّن' }, 503);
+
+  if (url.pathname.startsWith('/images/')) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') return json(request, env, { success: false, error: 'طريقة الطلب غير مدعومة' }, 405);
+    const key = decodeURIComponent(url.pathname.slice('/images/'.length)).replace(/^\/+/, '');
+    if (!key || key.includes('..')) return json(request, env, { success: false, error: 'مسار صورة غير صالح' }, 400);
+    const object = await env.R2_IMAGES.get(key);
+    if (!object) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
+    const headers = new Headers({ 'cache-control': 'public, max-age=31536000, immutable', 'access-control-allow-origin': '*' });
+    if (object.httpEtag) headers.set('etag', object.httpEtag);
+    if (object.httpMetadata?.contentType) headers.set('content-type', object.httpMetadata.contentType);
+    return new Response(request.method === 'HEAD' ? null : object.body, { status: 200, headers });
+  }
+
+  if (url.pathname !== '/api/media/product-images' || request.method !== 'POST') {
+    return json(request, env, { success: false, error: 'مسار الوسائط غير مدعوم' }, 404);
+  }
+  if (env.MEDIA_REQUIRE_AUTH === 'true' && !request.headers.get('authorization')) {
+    return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل رفع الصور' }, 401);
+  }
+  const form = await request.formData();
+  const storeId = safePathPart(form.get('storeId'), 'store');
+  const productId = safePathPart(form.get('productId'), 'product');
+  const files = form.getAll('files').filter((item): item is File => item instanceof File);
+  if (!files.length) return json(request, env, { success: false, error: 'لم يتم اختيار أي صورة' }, 400);
+  if (files.length > 20) return json(request, env, { success: false, error: 'الحد الأقصى 20 صورة في الطلب الواحد' }, 413);
+
+  const images: Array<{ key: string; url: string; filename: string; contentType: string; size: number }> = [];
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) return json(request, env, { success: false, error: `الملف ${file.name} ليس صورة` }, 415);
+    if (file.size > MAX_MEDIA_FILE_SIZE) return json(request, env, { success: false, error: `حجم ${file.name} أكبر من 10 ميجابايت` }, 413);
+    const filename = safeFilename(file.name);
+    const key = `images/${storeId}/${productId}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${filename}`;
+    await env.R2_IMAGES.put(key, file.stream(), {
+      httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' },
+      customMetadata: { storeId, productId, originalName: file.name }
+    });
+    images.push({ key, url: `https://abdomedi.com/${key}`, filename, contentType: file.type, size: file.size });
+  }
+  return json(request, env, { success: true, images });
 }
 
 function clean(value: unknown): string {
@@ -460,6 +530,10 @@ export default {
       // Meta WhatsApp Webhook Route
       if (url.pathname === "/api/webhook/whatsapp" || url.pathname === "/api/webhooks/whatsapp" || url.pathname === "/webhook/whatsapp" || url.pathname === "/wa-webhook-direct") {
         return await handleWhatsAppWebhook(request, env, ctx);
+      }
+
+      if (url.pathname.startsWith('/images/') || url.pathname === '/api/media/product-images') {
+        return await handleMedia(request, env);
       }
 
       // Bosta Carrier Routes
