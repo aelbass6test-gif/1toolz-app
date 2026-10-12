@@ -18,13 +18,8 @@ bucket_name = "abdomedi-product-images"
 # [[routes]]
 # pattern = "api.abdomedi.com"
 # custom_domain = true
-[[routes]]
-pattern = "abdomedi.com/images/*"
-zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
-[[routes]]
-pattern = "app.abdomedi.com/api/media/*"
-zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
-
+# Product-media routes are owned by the separate `abdomedi-media` Worker.
+# Do not declare them here; duplicate routes make production builds fail.
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
 APP_BACKEND_URL = "https://api.abdomedi.com"
