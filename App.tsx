@@ -124,6 +124,8 @@ import Sidebar from './components/Sidebar';
 import MobileNavigation from './components/MobileNavigation';
 import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
 import { InAppAlertSystem } from './components/InAppAlertSystem';
+import { NewOrderAlertModal } from './components/NewOrderAlertModal';
+import { showOrderWebNotification, isPendingOrderStatus } from './utils/webNotification';
 
 interface EmployeeRegisterRequestData {
   fullName: string;
@@ -1071,6 +1073,8 @@ export const AppComponent = () => {
     const refreshGlobalDataRef = useRef<any>(null);
     const activeStoreRef = useRef<any>(null);
     const allStoresDataRef = useRef<any>(null);
+    const knownOrderIdsRef = useRef<Set<string>>(new Set());
+    const hasInitialOrdersLoadedRef = useRef<boolean>(false);
     
     // 2FA State
     const [userForOtp, setUserForOtp] = useState<User | null>(null);
@@ -2832,6 +2836,25 @@ export const AppComponent = () => {
                             items: docItems
                         } as Order;
                     });
+
+                    // 🔔 Web Notifications & Manager Alert for incoming new pending orders
+                    if (!hasInitialOrdersLoadedRef.current) {
+                        knownOrderIdsRef.current = new Set(newOrders.map(o => o.id));
+                        hasInitialOrdersLoadedRef.current = true;
+                    } else {
+                        newOrders.forEach(order => {
+                            if (!knownOrderIdsRef.current.has(order.id)) {
+                                knownOrderIdsRef.current.add(order.id);
+                                if (isPendingOrderStatus(order.status)) {
+                                    console.log('🔔 [WEB NOTIFICATION] Incoming pending order detected:', order.id);
+                                    showOrderWebNotification(order, {
+                                        storeName: activeStoreRef.current?.name || 'متجري'
+                                    });
+                                }
+                            }
+                        });
+                    }
+
                     setAllStoresData(prev => {
                         const store = prev[activeStoreId];
                         if (!store) return prev;
@@ -3153,6 +3176,43 @@ export const AppComponent = () => {
             clearInterval(autoSyncInterval);
         };
     }, [activeStoreId, dbSyncMode]); 
+
+    // 🔔 Global Manager Alert Actions Listener (Web Notification Click & Status Updates)
+    useEffect(() => {
+        const handleNavToOrder = (e: Event) => {
+            const { orderId } = (e as CustomEvent)?.detail || {};
+            if (orderId) {
+                if (activeStoreId) {
+                    navigate(`/store/${activeStoreId}/orders?search=${encodeURIComponent(orderId)}`);
+                } else if (isEmployeeSession) {
+                    navigate('/employee/confirmation-queue');
+                }
+            }
+        };
+
+        const handleStatusUpdateEvent = (e: Event) => {
+            const { orderId, status } = (e as CustomEvent)?.detail || {};
+            if (orderId && status && activeStoreId) {
+                setAllStoresData(p => {
+                    const currentOrders = p[activeStoreId]?.orders || [];
+                    return {
+                        ...p,
+                        [activeStoreId]: {
+                            ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
+                            orders: currentOrders.map(o => o.id === orderId ? { ...o, status } : o)
+                        }
+                    };
+                });
+            }
+        };
+
+        window.addEventListener('NAVIGATE_TO_ORDER', handleNavToOrder);
+        window.addEventListener('UPDATE_ORDER_STATUS_EVENT', handleStatusUpdateEvent);
+        return () => {
+            window.removeEventListener('NAVIGATE_TO_ORDER', handleNavToOrder);
+            window.removeEventListener('UPDATE_ORDER_STATUS_EVENT', handleStatusUpdateEvent);
+        };
+    }, [activeStoreId, isEmployeeSession, navigate]);
 
     if (!authChecked) {
         return <GlobalLoader message="جاري التحقق من أمان الجلسة والربط السحابي..." />;
@@ -3609,6 +3669,12 @@ export const AppComponent = () => {
         };
         
         pageProps.setOrders((prev: Order[]) => [newOrder, ...prev]);
+        knownOrderIdsRef.current.add(newOrder.id);
+
+        // 🔔 Trigger Web Notification & In-App Alert Window for new pending order
+        showOrderWebNotification(newOrder, {
+            storeName: activeStore?.name || pageProps.settings?.storeName || 'متجري'
+        });
 
         // Auto-register or update customer in store CRM
         if (orderData.customerPhone) {
@@ -4016,6 +4082,22 @@ export const AppComponent = () => {
                 <SmartUpdatesWidget isAdminView={true} primaryColor="#6366f1" />
             )}
             <InAppAlertSystem />
+            <NewOrderAlertModal 
+                activeStoreId={activeStoreId}
+                storeName={activeStore?.name}
+                onUpdateOrderStatus={(orderId, newStatus) => {
+                    pageProps.setOrders((prev: Order[]) =>
+                        prev.map(o => o.id === orderId ? { ...o, status: newStatus as any } : o)
+                    );
+                }}
+                onNavigateToOrder={(orderId) => {
+                    if (activeStoreId) {
+                        navigate(`/store/${activeStoreId}/orders?search=${encodeURIComponent(orderId)}`);
+                    } else if (isEmployeeSession) {
+                        navigate('/employee/confirmation-queue');
+                    }
+                }}
+            />
         </Suspense>
     );
 };

@@ -43,12 +43,22 @@ import {
     Store as StoreIcon,
     Sparkles,
     ArrowUpRight,
-    Fingerprint
+    Fingerprint,
+    BellRing,
+    Volume2
 } from 'lucide-react';
 import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
 import { CommandPalette } from './CommandPalette';
+import { 
+    isWebNotificationSupported, 
+    getWebNotificationPermission, 
+    requestWebNotificationPermission, 
+    sendTestWebNotification, 
+    isWebNotificationEnabled, 
+    setWebNotificationEnabled 
+} from '../utils/webNotification';
 
 const PATH_TITLES: { [key: string]: string } = {
     '/select-store': 'إدارة المتاجر',
@@ -67,7 +77,8 @@ const PATH_TITLES: { [key: string]: string } = {
     '/marketing': 'مساعد التسويق الذكي',
     '/discounts': 'كوبونات الخصم',
     '/shipping': 'الشحن واللوجستيات',
-    '/wallet': 'المحفظة والأرباح',
+    '/wallet': 'المحفظة الماليّة المركزيّة',
+    '/treasury': 'الخزائن وصناديق السيولة',
     '/collections-report': 'التحصيلات النقدية',
     '/customize-store': 'تخصيص المظهر',
     '/pages': 'الصفحات الثابتة',
@@ -150,6 +161,32 @@ const Header: React.FC<HeaderProps> = ({
             return [];
         }
     });
+
+    // Web Notifications & Manager Alert State
+    const [webNotifPermission, setWebNotifPermission] = useState<string>(() => getWebNotificationPermission());
+    const [isWebNotifActive, setIsWebNotifActive] = useState<boolean>(() => isWebNotificationEnabled());
+    const [isTestingWebNotif, setIsTestingWebNotif] = useState<boolean>(false);
+
+    const handleEnableWebNotifications = async () => {
+        audioSynth.playTone('click');
+        const perm = await requestWebNotificationPermission();
+        setWebNotifPermission(perm);
+        if (perm === 'granted') {
+            setIsWebNotifActive(true);
+            audioSynth.playTone('success');
+            await sendTestWebNotification(activeStore?.name || 'متجري');
+        }
+    };
+
+    const handleTestWebNotification = async () => {
+        setIsTestingWebNotif(true);
+        audioSynth.playTone('click');
+        try {
+            await sendTestWebNotification(activeStore?.name || 'متجري');
+        } finally {
+            setIsTestingWebNotif(false);
+        }
+    };
 
     const handleDismissAlert = (id: string, e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -365,7 +402,7 @@ const Header: React.FC<HeaderProps> = ({
                                             <span className="text-[11px]">طي القائمة</span>
                                         </>
                                     )}
-                                    <kbd className="hidden lg:inline-block px-1.5 py-0.2 text-[9px] font-mono bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 rounded-md border border-slate-200/80 dark:border-white/[0.1] shadow-2xs">
+                                    <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[9px] font-mono bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-500 rounded-md border border-slate-200 dark:border-white/10 shadow-xs">
                                         ⌘B
                                     </kbd>
                                 </button>
@@ -439,14 +476,12 @@ const Header: React.FC<HeaderProps> = ({
                     </div>
                 </div>
 
-                {/* Center Zone: Sleek Spotlight Command Bar Trigger */}
                 {!isStoreManagementOrCreationPage && (
                     <div className="hidden md:flex items-center justify-center flex-1 max-w-sm px-4">
                         <button
                             onClick={() => setIsCommandPaletteOpen(true)}
-                            className="w-full flex items-center justify-between gap-3 px-3 py-1.5 rounded-xl bg-slate-100/70 hover:bg-slate-200/60 dark:bg-white/[0.04] dark:hover:bg-white/[0.07] border border-slate-200/80 dark:border-white/[0.08] text-slate-500 dark:text-slate-400 transition-all text-xs group cursor-pointer shadow-2xs hover:border-slate-300 dark:hover:border-white/[0.14]"
-                            title="البحث السريع والتنقل في النظام (Ctrl+K)"
-                            aria-label="البحث السريع"
+                            className="w-full flex items-center justify-between gap-3 px-4 py-2 rounded-[1.25rem] bg-slate-100/50 hover:bg-slate-100 dark:bg-white/[0.03] dark:hover:bg-white/[0.06] border border-slate-200/50 dark:border-white/5 text-slate-400 transition-all text-xs cursor-pointer shadow-sm"
+                            title="البحث السريع والتنقل (Ctrl+K)"
                         >
                             <div className="flex items-center gap-2">
                                 <Search size={13} className="text-slate-400 group-hover:text-emerald-500 transition-colors" />
@@ -454,10 +489,8 @@ const Header: React.FC<HeaderProps> = ({
                                     بحث سريع أو أمر...
                                 </span>
                             </div>
-                            <div className="flex items-center gap-0.5">
-                                <kbd className="font-mono text-[9px] font-bold bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded-md shadow-2xs">
-                                    Ctrl+K
-                                </kbd>
+                            <div className="flex items-center gap-2">
+                                <kbd className="font-mono text-[10px] font-black opacity-40">⌘K</kbd>
                             </div>
                         </button>
                     </div>
@@ -504,6 +537,18 @@ const Header: React.FC<HeaderProps> = ({
                                 </button>
                             )}
 
+                            {/* Quick Web Notifications Permission Pill */}
+                            {webNotifPermission === 'default' && (
+                                <button
+                                    onClick={handleEnableWebNotifications}
+                                    className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/25 text-[11px] font-black transition-colors cursor-pointer"
+                                    title="تفعيل إشعارات المتصفح الفورية للأوردرات الجديدة"
+                                >
+                                    <BellRing size={13} className="text-amber-600 dark:text-amber-400 animate-pulse" />
+                                    <span>تفعيل إشعارات الأوردرات</span>
+                                </button>
+                            )}
+
                             {/* Notification Center */}
                             <div className="relative" ref={alertsMenuRef}>
                                 <button 
@@ -525,7 +570,7 @@ const Header: React.FC<HeaderProps> = ({
 
                                 {/* Notification Popover */}
                                 {isAlertsOpen && (
-                                    <div className="absolute left-0 top-12 w-80 sm:w-[400px] bg-white dark:bg-[#0f1722] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-white/[0.1] z-50 overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
+                                    <div className="absolute left-0 top-12 w-80 sm:w-[420px] bg-white dark:bg-[#0f1722] rounded-2xl shadow-2xl border border-slate-200/90 dark:border-white/[0.1] z-50 overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-150">
                                         {/* Popover Header */}
                                         <div className="p-3.5 border-b border-slate-200/80 dark:border-white/[0.08] bg-slate-50/80 dark:bg-white/[0.02] flex items-center justify-between">
                                             <div className="flex items-center gap-2">
@@ -555,6 +600,48 @@ const Header: React.FC<HeaderProps> = ({
                                                 <span className="text-[10px] font-black px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded-full">
                                                     {visibleAlerts.length}
                                                 </span>
+                                            </div>
+                                        </div>
+
+                                        {/* 🔔 Web Notifications Manager Banner */}
+                                        <div className="p-3 bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-transparent border-b border-slate-200/60 dark:border-white/[0.06] flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className={`p-1.5 rounded-lg shrink-0 ${webNotifPermission === 'granted' && isWebNotifActive ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'}`}>
+                                                    <BellRing size={15} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="font-extrabold text-[11px] text-slate-900 dark:text-white flex items-center gap-1.5">
+                                                        <span>إشعارات المتصفح (Web Notifications)</span>
+                                                        {webNotifPermission === 'granted' && isWebNotifActive ? (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold shrink-0">مفعلة</span>
+                                                        ) : (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 font-bold shrink-0">غير مفعلة</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                                                        تنبيه نافذة فورية للمدير فور وصول أوردر جديد (Pending)
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                                {webNotifPermission === 'granted' ? (
+                                                    <button
+                                                        onClick={handleTestWebNotification}
+                                                        disabled={isTestingWebNotif}
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs"
+                                                        title="إرسال إشعار تجريبي فوري للتأكد من الصوت والظهور"
+                                                    >
+                                                        <Volume2 size={11} />
+                                                        <span>{isTestingWebNotif ? 'جاري...' : 'تجربة'}</span>
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={handleEnableWebNotifications}
+                                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                                                    >
+                                                        تفعيل الآن
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 

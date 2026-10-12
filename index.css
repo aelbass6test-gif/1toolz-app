@@ -20,7 +20,7 @@
 
   --radius-xl: 0.875rem;
   --radius-2xl: 1.25rem;
-  --radius-3xl: 2rem;
+  --radius-3xl: 2.25rem;
 
   --animate-ambient-pulse: ambient-pulse 16s ease-in-out infinite;
   --animate-ambient-pulse-slow: ambient-pulse-slow 24s ease-in-out infinite;
@@ -100,76 +100,82 @@
 
 @layer base {
   body {
-    @apply bg-[#f4f6fa] text-slate-950 font-sans antialiased transition-colors duration-300;
+    @apply bg-[#F9FAFB] text-slate-900 font-sans antialiased selection:bg-emerald-500/20 selection:text-emerald-700 transition-colors duration-300;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(124, 58, 237, 0.03) 0px, transparent 45%),
-      radial-gradient(at 100% 0%, rgba(192, 132, 252, 0.03) 0px, transparent 45%),
-      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.02) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.03) 0px, transparent 40%),
+      radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.03) 0px, transparent 40%);
     background-attachment: fixed;
   }
 
   .dark body {
-    @apply bg-[#02050c] text-slate-100;
+    @apply bg-[#030711] text-slate-50;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(124, 58, 237, 0.08) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(192, 132, 252, 0.07) 0px, transparent 50%),
-      radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.03) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%);
   }
 
-  /* Exquisite smooth transition for everything */
   * {
-    @apply border-slate-200/90 dark:border-slate-800/60;
+    @apply border-slate-200 dark:border-slate-800/60;
   }
 }
 
 @layer components {
-  /* Dynamic Glassmorphism v2 */
+  /* High-End Surface Utility */
+  .surface-card {
+    @apply bg-white dark:bg-slate-900/50 border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] p-6 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.02)] transition-all duration-300;
+  }
+
+  .surface-card-hover {
+    @apply hover:-translate-y-1 hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.06)] hover:border-emerald-500/20 dark:hover:shadow-2xl dark:hover:shadow-emerald-500/5 dark:hover:border-emerald-500/30;
+  }
+
+  /* Glassmorphism v3 (Refined) */
   .glass {
-    @apply bg-white/70 backdrop-blur-2xl border border-white/45 shadow-sm;
+    @apply bg-white/60 backdrop-blur-3xl border border-white/20 shadow-sm;
   }
 
   .dark .glass {
-    @apply bg-slate-950/60 backdrop-blur-2xl border border-white/5 shadow-none;
+    @apply bg-slate-900/40 backdrop-blur-3xl border border-white/5 shadow-none;
   }
 
-  /* Ultra-Premium Glass Cards with Hover Lifting, Glowing Neon Outline */
   .glass-card {
-    @apply bg-white/95 border border-slate-200/80 shadow-[0_2px_10px_rgb(15,23,42,0.04)] rounded-2xl p-6 transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgb(15,23,42,0.07)] hover:border-emerald-200;
+    @apply bg-white/80 dark:bg-[#0c111d]/70 backdrop-blur-2xl border border-slate-200/50 dark:border-white/5 rounded-[2.25rem] p-6 shadow-sm transition-all duration-300 ease-out;
   }
 
-  .dark .glass-card {
-    @apply bg-[#101817]/90 backdrop-blur-xl border border-white/10 shadow-none hover:bg-[#14201d]/95 hover:border-emerald-500/25 hover:shadow-2xl hover:shadow-emerald-500/10;
-  }
-
-  /* Floating decorative container glass */
   .glass-premium {
-    @apply bg-linear-to-b from-white/80 to-white/40 backdrop-blur-2xl border border-white/60 shadow-xl rounded-3xl;
+    @apply bg-linear-to-b from-white to-white/60 dark:from-slate-900 dark:to-slate-950/80 backdrop-blur-2xl border border-white/20 dark:border-white/5 shadow-2xl rounded-[3rem];
   }
 
-  .dark .glass-premium {
-    @apply bg-linear-to-b from-slate-900/80 to-slate-950/50 backdrop-blur-2xl border border-white/5 shadow-2xl;
-  }
-
-  .bento-grid {
-    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6;
-  }
-
-  /* Sidebar styling */
+  /* Sidebar Styling */
   .sidebar-item {
-    @apply flex items-center justify-start gap-3.5 px-4 py-2.5 rounded-xl transition-all duration-200 text-slate-600 dark:text-slate-400 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/40 hover:text-emerald-700 dark:hover:text-emerald-400 hover:translate-x-[-2px] hover:font-bold;
+    @apply flex items-center justify-start gap-4 px-5 py-3 rounded-2xl transition-all duration-250 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-100;
   }
 
   .sidebar-item-active {
-    @apply bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 font-extrabold shadow-xs shadow-emerald-500/5;
+    @apply bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 font-extrabold shadow-xs;
   }
 
-  .dark .sidebar-item-active {
-    @apply bg-indigo-500/20 text-indigo-400 font-black;
-  }
-
-  /* High performance, gorgeous buttons */
+  /* Buttons */
   .btn-primary {
-    @apply relative overflow-hidden bg-linear-to-r from-indigo-600 to-accent text-white px-5 py-3 rounded-2xl font-bold transition-all duration-300 hover:translate-y-[-1px] hover:shadow-lg hover:shadow-indigo-600/30 active:scale-95 active:translate-y-0 cursor-pointer;
+    @apply relative overflow-hidden bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-6 py-3.5 rounded-2xl font-black text-sm transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-slate-900/10 dark:shadow-white/5;
+  }
+
+  .btn-secondary {
+    @apply bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-6 py-3.5 rounded-2xl font-black text-sm transition-all duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/60;
+  }
+
+  /* Badges - Zero-Pill Protocol (Clean metadata) */
+  .badge-v3 {
+    @apply text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5 w-fit;
+  }
+
+  .badge-success-v3 { @apply text-emerald-600 dark:text-emerald-400; }
+  .badge-pending-v3 { @apply text-amber-600 dark:text-amber-400; }
+  .badge-error-v3 { @apply text-rose-600 dark:text-rose-400; }
+
+  /* Tabular Numerals Everywhere for Financials */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 
   /* Exquisite Glowing Badges */

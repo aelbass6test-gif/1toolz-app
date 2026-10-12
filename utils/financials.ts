@@ -866,13 +866,69 @@ export const calculateWalletLiveBalance = (wallet?: Wallet, treasury?: Treasury)
     return (wallet?.transactions || []).reduce((sum, t) => {
         const amount = Number(t.amount) || 0;
         
-        // Exclude transactions that come from the Supply Wallet (they were already deducted from main during funding or never entered main)
-        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+        // Exclude all transactions belonging to supply wallet from main wallet balance
+        const catStr = String(t.category || '');
+        const typeStr = String(t.type || '');
+        if (
+          catStr.startsWith('supply_') ||
+          catStr === 'supply_purchase' ||
+          catStr === 'supply_deposit' ||
+          catStr === 'supply_funding' ||
+          catStr === 'supply_withdrawal' ||
+          catStr === 'supplier_payment' ||
+          catStr === 'inventory_purchase' ||
+          t.details?.destinationType === 'supply_wallet' ||
+          (t.id && String(t.id).endsWith('-in') && (t.note?.includes('محفظة التوريد') || t.note?.includes('التوريد')))
+        ) {
+          return sum;
+        }
 
         // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
         // Custody expenses were already deducted from the holder's balance, not the central wallet.
         if (t.details?.cashHolderId || (t.details?.expensePaidBy && t.note?.includes('عهدة'))) return sum;
+
+        // Handle treasury synchronization & transfers FIRST (before generic deposit/withdrawal check)
+        if (catStr === 'treasury_sync' || typeStr === 'تحويل' || (t.id && String(t.id).startsWith('TR-'))) {
+            const treasuryTxId = (t.details?.treasuryTxId || String(t.id).replace('TR-', '').replace('-out', '').replace('-in', ''));
+            const tTx = treasury?.transactions?.find((x: any) => x.id === treasuryTxId);
+            if (tTx) {
+                // Direct transfer between main_wallet and supply_wallet
+                if (tTx.fromAccountId === 'main_wallet' && tTx.toAccountId === 'supply_wallet') {
+                    return sum - amount;
+                }
+                if (tTx.fromAccountId === 'supply_wallet' && tTx.toAccountId === 'main_wallet') {
+                    return sum + amount;
+                }
+                // Main wallet to other treasury accounts
+                if (tTx.fromAccountId === 'main_wallet') {
+                    return sum - amount;
+                }
+                if (tTx.toAccountId === 'main_wallet') {
+                    return sum + amount;
+                }
+                // Transfer did not involve main_wallet (e.g., bank -> supply_wallet)
+                return sum;
+            }
+
+            // Fallback heuristics for unlinked or legacy transactions
+            if (t.details?.toAccountId === 'supply_wallet' || t.note?.includes('إلى محفظة التوريد') || t.note?.includes('إلى التوريد') || (t.id && String(t.id).endsWith('-out'))) {
+                return sum - amount;
+            }
+            if (t.details?.fromAccountId === 'supply_wallet' || t.note?.includes('من محفظة التوريد') || t.note?.includes('من التوريد')) {
+                return sum + amount;
+            }
+            if (t.details?.fromAccountId === 'main_wallet' || t.type === 'سحب') {
+                return sum - amount;
+            }
+            if (t.details?.toAccountId === 'main_wallet' || t.type === 'إيداع') {
+                return sum + amount;
+            }
+            if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع')) {
+                return sum + amount;
+            }
+            return sum;
+        }
 
         // Deposits: include completed, approved, or implicit deposits (exclude pending charge requests and cancelled)
         if (t.type === 'إيداع') {
@@ -885,24 +941,6 @@ export const calculateWalletLiveBalance = (wallet?: Wallet, treasury?: Treasury)
         if (t.type === 'سحب') {
              if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
              return t.status === 'cancelled' ? sum : sum - amount;
-        }
-        
-        // Handle 'تحويل' (Treasury Transfers) which might be legacy or current
-        if (t.type === 'تحويل') {
-            if (t.category === 'treasury_sync') {
-                const treasuryTxId = t.id.replace('TR-', '');
-                const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
-                if (tTx) {
-                    if (tTx.toAccountId === 'main_wallet') {
-                        return sum + amount;
-                    } else if (tTx.fromAccountId === 'main_wallet') {
-                        return sum - amount;
-                    }
-                } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
-                    return sum + amount;
-                }
-            }
-            return sum;
         }
         
         return sum;

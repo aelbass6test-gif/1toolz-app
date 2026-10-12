@@ -581,9 +581,13 @@ const EmployeesPayrollPage: React.FC<EmployeesPayrollPageProps> = ({
               <Users size={26} />
             </div>
             <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 border border-emerald-400/30 rounded-full text-emerald-300 text-xs font-black mb-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>نظام الإدارة المالية الشاملة · كشوف المرتبات والأجور</span>
+              </div>
               <div className="flex items-center gap-2">
                 <h1 className="text-2xl md:text-3xl font-black">إدارة شؤون الموظفين والرواتب</h1>
-                <span className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm">الإصدار الذكي 2.0</span>
+                <span className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm">الإصدار الذكي 2.0</span>
               </div>
               <p className="text-slate-300 text-xs md:text-sm mt-1">
                 نظام شامل لمتابعة الرواتب، الحوافز، الخصومات، مع تسوية آلية فورية للأرصدة في الخزينة والمحفظة.

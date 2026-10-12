@@ -330,6 +330,10 @@ export default function ExcelReconciliationPage({ allStoresData, updateStoreData
       {/* Header breadcrumb */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 rounded-full text-emerald-700 dark:text-emerald-300 text-xs font-black mb-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>نظام الإدارة المالية الشاملة · مطابقة ومصالحة كشوف إكسيل شركات الشحن</span>
+          </div>
           <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-3">
             <FileSpreadsheet className="text-emerald-500" /> مطابقة ومصالحة كشوف إكسيل شركات الشحن
           </h1>

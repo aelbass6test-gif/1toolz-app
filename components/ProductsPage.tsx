@@ -1439,60 +1439,96 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       initial="hidden"
       animate="visible"
     >
-      <motion.div variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg">
-            <Package size={24} />
+      {/* 🚀 Dynamic Premium Products Hero Banner */}
+      <motion.div 
+        variants={itemVariants} 
+        className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0f1d2e] to-indigo-950 text-white p-7 sm:p-9 shadow-xl border border-indigo-500/20"
+      >
+        <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-black border border-indigo-500/30 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                المخزون متصل ومراقب لحظياً
+              </span>
+              <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-bold border border-white/10 backdrop-blur-md">
+                {(settings.products || []).length} منتج مسجل
+              </span>
+              {lastSync && (
+                <span className="text-xs text-slate-300/80 font-medium flex items-center gap-1">
+                  <Clock size={13} className="text-amber-400" />
+                  آخر مزامنة: {lastSync.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
+                <span>كتالوج المنتجات وإدارة المخزون</span>
+              </h1>
+              <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                منظومة متكاملة لضبط تكاليف وأسعار الأصناف، تتبع الجرد والمستودعات بدقة، وربط المبيعات بالمخزون لحظياً.
+              </p>
+            </div>
           </div>
-          <h2 className="text-lg sm:text-xl font-bold dark:text-white">قائمة المنتجات</h2>
-        </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            <button onClick={() => setIsImportModalOpen(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-                <FileUp size={14} /> استيراد
-            </button>
-            <button onClick={() => setIsMediaLibraryOpen(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg font-bold text-[10px] sm:text-xs text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 transition-all shadow-xs">
-                <Images size={14} className="text-indigo-600 dark:text-indigo-400" /> مكتبة الوسائط والتخزين (R2)
-            </button>
-            <button onClick={handleExportCSV} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-                <Download size={14} /> تصدير CSV
-            </button>
-            <button onClick={handlePrintInventory} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-bold text-[10px] sm:text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-                <Printer size={14} /> طباعة المخزون (بالتكلفة)
-            </button>
-            <button onClick={restoreAllStockFromInvoices} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-indigo-900 rounded-lg font-bold text-[10px] sm:text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all">
-                <FileText size={14} /> استعادة من الفواتير
-            </button>
-            <button onClick={recalculateAllStock} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-900 rounded-lg font-bold text-[10px] sm:text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all">
-                <RefreshCw size={14} /> مزامنة المخازن
-            </button>
-            {isPlatformConnected && (
-              <button
-                  onClick={handleFetchSelectableProducts}
-                  disabled={isSyncing || isFetchingSelectable}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 px-4 py-2 rounded-lg hover:bg-indigo-600/20 transition-all font-bold border border-indigo-200 dark:border-indigo-800 disabled:opacity-50 text-xs"
-              >
-                  <ListChecks size={16} className={isFetchingSelectable ? 'animate-spin' : ''} />
-                  {isFetchingSelectable ? 'جاري جلب القائمة...' : `اختيار منتجات للمزامنة`}
-              </button>
-            )}
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             {isPlatformConnected ? (
-            <button
+              <button
                 onClick={handleSync}
                 disabled={isSyncing}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl hover:bg-emerald-700 transition-all font-bold shadow-lg shadow-emerald-100 dark:shadow-none active:scale-95 disabled:bg-slate-400 disabled:cursor-wait text-sm"
-            >
+                className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs sm:text-sm font-black shadow-lg shadow-emerald-900/30 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2 cursor-pointer"
+              >
                 <RefreshCw size={16} className={isSyncing ? 'animate-spin' : ''} />
-                {isSyncing ? 'جاري المزامنة...' : `مزامنة المنتجات`}
-            </button>
+                <span>{isSyncing ? 'جاري المزامنة...' : 'مزامنة المنتجات'}</span>
+              </button>
             ) : (
-            <button 
+              <button 
                 onClick={openAddModal}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-2.5 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-lg shadow-indigo-100 dark:shadow-none active:scale-95 text-sm"
-            >
-                <Plus size={20} />
-                إضافة منتج جديد
-            </button>
+                className="px-5 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-600 text-white text-xs sm:text-sm font-black shadow-lg shadow-indigo-900/30 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Plus size={18} />
+                <span>+ إضافة منتج جديد</span>
+              </button>
             )}
+
+            <button 
+              onClick={() => setIsMediaLibraryOpen(true)} 
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2 cursor-pointer"
+              title="مكتبة الصور السحابية Cloudflare R2"
+            >
+              <Images size={16} className="text-indigo-400" />
+              <span>مكتبة الصور (R2)</span>
+            </button>
+
+            <button 
+              onClick={() => setIsImportModalOpen(true)} 
+              className="px-3.5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <FileUp size={15} />
+              <span>استيراد</span>
+            </button>
+
+            <button 
+              onClick={handleExportCSV} 
+              className="px-3.5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Download size={15} />
+              <span>تصدير</span>
+            </button>
+
+            <button 
+              onClick={handlePrintInventory} 
+              className="px-3.5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-1.5 cursor-pointer"
+              title="طباعة المخزون بسعر التكلفة"
+            >
+              <Printer size={15} />
+              <span>طباعة الجرد</span>
+            </button>
+          </div>
         </div>
       </motion.div>
 
@@ -1522,96 +1558,106 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       {/* Inventory Financial Health Indicators Bento Bar */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-5 gap-4 my-6">
         {/* Total Cost Value / Assets invested */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+        <div className="surface-card p-5 space-y-1 text-right relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-              <Layers size={14} className="text-indigo-500" />
-              رأس المال المستثمر (بالتكلفة)
+            <p className="text-[11px] sm:text-xs font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <Layers size={14} />
+              </span>
+              رأس المال المستثمر
             </p>
-            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
-              {showInventoryValue ? <Eye size={16} className="text-indigo-600 dark:text-indigo-400" /> : <EyeOff size={16} className="text-slate-400" />}
+            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+              {showInventoryValue ? <Eye size={15} className="text-indigo-600 dark:text-indigo-400" /> : <EyeOff size={15} className="text-slate-400" />}
             </button>
           </div>
           {showInventoryValue ? (
-            <p className="text-base sm:text-lg font-black text-slate-800 dark:text-white tabular-nums">
-              {inventoryFinancials.totalCostValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+            <p className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tabular-nums tracking-tight">
+              {inventoryFinancials.totalCostValue.toLocaleString()} <span className="text-[11px] font-bold text-slate-400">ج.م</span>
             </p>
           ) : (
-            <p className="text-base sm:text-lg font-black text-slate-400 dark:text-slate-500 tracking-widest">
-              •••••• <span className="text-[10px] font-bold">ج.م</span>
+            <p className="text-lg sm:text-xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
+              •••••• <span className="text-[11px] font-bold">ج.م</span>
             </p>
           )}
-          <span className="text-[9px] text-slate-400 block font-normal">إجمالي تكلفة شراء المخزون الحالي</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-medium">إجمالي تكلفة شراء المخزون الحالي</span>
         </div>
 
         {/* Total Retail Value */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+        <div className="surface-card p-5 space-y-1 text-right relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-              <DollarSign size={14} className="text-emerald-500" />
+            <p className="text-[11px] sm:text-xs font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <DollarSign size={14} />
+              </span>
               القيمة البيعية المتوقعة
             </p>
-            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
-              {showInventoryValue ? <Eye size={16} className="text-emerald-600 dark:text-emerald-400" /> : <EyeOff size={16} className="text-slate-400" />}
+            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+              {showInventoryValue ? <Eye size={15} className="text-emerald-600 dark:text-emerald-400" /> : <EyeOff size={15} className="text-slate-400" />}
             </button>
           </div>
           {showInventoryValue ? (
-            <p className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-              {inventoryFinancials.totalSaleValue.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+            <p className="text-lg sm:text-xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums tracking-tight">
+              {inventoryFinancials.totalSaleValue.toLocaleString()} <span className="text-[11px] font-bold text-slate-400">ج.م</span>
             </p>
           ) : (
-            <p className="text-base sm:text-lg font-black text-slate-400 dark:text-slate-500 tracking-widest">
-              •••••• <span className="text-[10px] font-bold">ج.م</span>
+            <p className="text-lg sm:text-xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
+              •••••• <span className="text-[11px] font-bold">ج.م</span>
             </p>
           )}
-          <span className="text-[9px] text-slate-400 block font-normal">إجمالي سعر بيع كافة حبات المخزون</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-medium">إجمالي سعر بيع كافة حبات المخزون</span>
         </div>
 
         {/* Projected Profit */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
+        <div className="surface-card p-5 space-y-1 text-right relative overflow-hidden group">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-              <Wand2 size={14} className="text-amber-500" />
-              الأرباح المتوقعة عند التصفية
+            <p className="text-[11px] sm:text-xs font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <span className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Wand2 size={14} />
+              </span>
+              الأرباح المتوقعة
             </p>
-            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
-              {showInventoryValue ? <Eye size={16} className="text-amber-500 dark:text-amber-400" /> : <EyeOff size={16} className="text-slate-400" />}
+            <button onClick={toggleInventoryValue} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" title={showInventoryValue ? "إخفاء التفاصيل المالية" : "إظهار التفاصيل المالية"}>
+              {showInventoryValue ? <Eye size={15} className="text-amber-500 dark:text-amber-400" /> : <EyeOff size={15} className="text-slate-400" />}
             </button>
           </div>
           {showInventoryValue ? (
-            <p className="text-base sm:text-lg font-black text-amber-550 dark:text-amber-400 tabular-nums">
-              {inventoryFinancials.potentialProfit.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+            <p className="text-lg sm:text-xl font-black text-amber-600 dark:text-amber-400 tabular-nums tracking-tight">
+              {inventoryFinancials.potentialProfit.toLocaleString()} <span className="text-[11px] font-bold text-slate-400">ج.م</span>
             </p>
           ) : (
-            <p className="text-base sm:text-lg font-black text-slate-400 dark:text-slate-500 tracking-widest">
-              •••••• <span className="text-[10px] font-bold">ج.م</span>
+            <p className="text-lg sm:text-xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
+              •••••• <span className="text-[11px] font-bold">ج.م</span>
             </p>
           )}
-          <span className="text-[9px] text-slate-400 block font-normal">صافي الربح الإجمالي المتوقع من المخزون</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-medium">صافي الربح المتوقع عند البيع</span>
         </div>
 
         {/* Profit Margin Ratio */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right">
-          <p className="text-[10px] sm:text-xs font-bold text-slate-500 flex items-center gap-1">
-            <Percent size={14} className="text-blue-500" />
+        <div className="surface-card p-5 space-y-1 text-right relative overflow-hidden group">
+          <p className="text-[11px] sm:text-xs font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <span className="p-1.5 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <Percent size={14} />
+            </span>
             متوسط هامش الربح
           </p>
-          <p className="text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 tabular-nums">
+          <p className="text-lg sm:text-xl font-black text-blue-600 dark:text-blue-400 tabular-nums tracking-tight">
             {inventoryFinancials.marginPercent}%
           </p>
-          <span className="text-[9px] text-slate-400 block font-normal">نسبة الربح من سعر البيع التقديري</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-medium">نسبة الربح من سعر البيع التقديري</span>
         </div>
 
         {/* Total Stocked Pieces */}
-        <button onClick={() => setSearchTerm('')} className="col-span-2 lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm space-y-1 text-right hover:border-indigo-400 transition-colors">
-          <p className="text-[10px] sm:text-xs font-bold text-slate-400 flex items-center gap-1">
-            <Package size={14} className="text-cyan-500" />
+        <button onClick={() => setSearchTerm('')} className="col-span-2 lg:col-span-1 surface-card p-5 space-y-1 text-right hover:border-indigo-400 dark:hover:border-indigo-500/50 transition-all cursor-pointer">
+          <p className="text-[11px] sm:text-xs font-black text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <span className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-400">
+              <Package size={14} />
+            </span>
             إجمالي عدد القطع
           </p>
-          <p className="text-base sm:text-lg font-black text-slate-705 dark:text-slate-300 tabular-nums">
-            {inventoryFinancials.totalStock.toLocaleString()} <span className="text-[10px] font-bold text-slate-400">قطعة</span>
+          <p className="text-lg sm:text-xl font-black text-slate-800 dark:text-slate-100 tabular-nums tracking-tight">
+            {inventoryFinancials.totalStock.toLocaleString()} <span className="text-[11px] font-bold text-slate-400">قطعة</span>
           </p>
-          <span className="text-[9px] text-slate-400 block font-normal">عدد كل القطع والبدائل في المستودع</span>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-medium">عدد كل القطع والبدائل في المستودع</span>
         </button>
       </motion.div>
 

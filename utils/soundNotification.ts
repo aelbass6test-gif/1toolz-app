@@ -119,3 +119,4 @@ class SoundNotificationManager {
 }
 
 export const soundManager = new SoundNotificationManager();
+export const soundNotification = soundManager;

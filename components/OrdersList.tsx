@@ -691,7 +691,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [displayDensity, setDisplayDensity] = useState<'comfortable' | 'compact'>(() => {
     return (localStorage.getItem('orders_display_density') as 'comfortable' | 'compact') || 'comfortable';
   });
-  const [smartActionFilter, setSmartActionFilter] = useState<'all' | 'high_risk' | 'pending_bosta' | 'pending_compensation'>('all');
+  const [smartActionFilter, setSmartActionFilter] = useState<'all' | 'high_risk' | 'pending_bosta' | 'pending_compensation' | 'pending_confirmation'>('all');
   
   // Real Bosta Shipping Integration States
   const [bostaTrackingOrder, setBostaTrackingOrder] = useState<Order | null>(null);
@@ -1533,9 +1533,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     let highRisk = 0;
     let pendingBosta = 0;
     let pendingComp = 0;
+    let pendingConfirmation = 0;
 
     orders.forEach(o => {
       if (o.status === 'مؤرشف') return;
+
+      // 0. Pending confirmation
+      if (['في_انتظار_المكالمة', 'pending', 'بانتظار_المكالمة', 'جاري_المراجعة'].includes(o.status)) {
+        pendingConfirmation++;
+      }
 
       // 1. High risk
       const phone = o.customerPhone;
@@ -1560,7 +1566,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       }
     });
 
-    return { highRisk, pendingBosta, pendingComp };
+    return { highRisk, pendingBosta, pendingComp, pendingConfirmation };
   }, [orders]);
 
   const filteredOrders = useMemo(() => {
@@ -1642,7 +1648,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       tabFiltered = searched.filter((o) => o.status === activeTab);
     }
 
-    if (smartActionFilter === 'high_risk') {
+    if (smartActionFilter === 'pending_confirmation') {
+      tabFiltered = tabFiltered.filter(o => ['في_انتظار_المكالمة', 'pending', 'بانتظار_المكالمة', 'جاري_المراجعة'].includes(o.status));
+    } else if (smartActionFilter === 'high_risk') {
       tabFiltered = tabFiltered.filter(o => {
         const phone = o.customerPhone;
         const matchingOrders = orders.filter((x) => x.customerPhone === phone);
@@ -4290,65 +4298,74 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
       {/* Header & Main Actions */}
       <div
-        className="relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-5 sm:p-7 rounded-2xl bg-gradient-to-l from-[#123c32] via-[#0f5c48] to-[#008060] border border-emerald-700/30 shadow-[0_14px_30px_rgba(0,128,96,0.16)]"
+        className="relative overflow-hidden flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-7 sm:p-9 rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0d211c] to-emerald-950 text-white border border-emerald-500/20 shadow-xl"
         dir="rtl"
       >
-        <div className="pointer-events-none absolute -left-20 -top-24 h-64 w-64 rounded-full bg-emerald-300/10 blur-3xl" />
-        <div className="pointer-events-none absolute -right-16 -bottom-32 h-72 w-72 rounded-full bg-lime-300/10 blur-3xl" />
+        <div className="pointer-events-none absolute top-0 left-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl -translate-x-1/3 -translate-y-1/3" />
+        <div className="pointer-events-none absolute bottom-0 right-0 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl translate-x-1/4 translate-y-1/4" />
         
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-300 animate-pulse"></span>
-            <span className="text-xs font-bold text-emerald-100/80 uppercase tracking-[0.22em]">
-              نظام الطلبات واللوجستيات المركزي
+        <div className="relative z-10 min-w-0 flex-1 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black border border-emerald-500/30 backdrop-blur-md">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              نظام اللوجستيات والشحن المركزي
             </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight flex items-center gap-2">
-              إدارة الطلبات وسجل المبيعات
-            </h1>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleManualRefresh}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 bg-white/10 text-slate-100 hover:text-white hover:border-white/40 transition-all cursor-pointer ${isRefreshing ? "animate-spin text-emerald-200 border-emerald-200/60" : ""}`}
-              title="مزامنة الطلبات"
-            >
-              <RefreshCcw size={18} />
-              <span className="text-xs font-black uppercase tracking-tight">
-                مزامنة سحابية
-              </span>
-            </motion.button>
-          </div>
-          <p className="text-xs font-bold text-slate-300/75 mt-1 leading-relaxed">
-            نظام موحد ومبسط لمتابعة الشحنات، معالجة وتجهيز الأوردرات، وتحليل مبيعات وأرباح المتجر بكل سهولة
-          </p>
-          <div className="flex flex-wrap items-center gap-3 mt-2">
-              <div className="px-3 py-1 bg-white/10 text-emerald-50 rounded-full text-[10px] font-black border border-white/15">
+            <div className="px-3 py-1 bg-white/10 text-emerald-100 rounded-full text-xs font-bold border border-white/10 backdrop-blur-md">
               {filteredOrders.length} طلب مطابق للفلتر
             </div>
             {activeStore?.id && (
-              <div className="px-3 py-1 bg-cyan-300/10 text-cyan-200 rounded-full text-[10px] font-black border border-cyan-300/20">
-                المتجر النشط: {activeStore?.id}
+              <div className="px-3 py-1 bg-cyan-400/10 text-cyan-200 rounded-full text-xs font-bold border border-cyan-400/20 backdrop-blur-md">
+                المتجر: {activeStore?.name || activeStore?.id}
               </div>
             )}
           </div>
+
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight flex items-center gap-3">
+                إدارة الطلبات وسجل المبيعات
+              </h1>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={handleManualRefresh}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-white/15 bg-white/10 text-slate-100 hover:text-white hover:border-white/40 transition-all cursor-pointer backdrop-blur-md text-xs font-bold ${isRefreshing ? "animate-spin text-emerald-200 border-emerald-200/60" : ""}`}
+                title="مزامنة الطلبات السحابية"
+              >
+                <RefreshCcw size={14} />
+                <span>مزامنة سحابية</span>
+              </motion.button>
+            </div>
+            <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+              غرفة العمليات المركزية لمتابعة الشحنات، تتبع حالات التوصيل مع شركات الشحن، ومعالجة الطلبات لحظياً.
+            </p>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+        <div className="relative z-10 flex flex-wrap items-center gap-2.5 sm:gap-3 shrink-0">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => navigate(`${storePrefix}/orders/new`)}
+            className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black shadow-lg shadow-emerald-950/30 transition-all flex items-center gap-2 text-xs sm:text-sm cursor-pointer"
+          >
+            <Plus size={18} />
+            <span>+ إنشاء طلب جديد</span>
+          </motion.button>
+
           <button
             onClick={() => setShowDuplicateFinder(true)}
-            className={`flex items-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl border transition-all font-bold text-xs cursor-pointer relative ${
+            className={`flex items-center gap-2 px-4 py-3 rounded-2xl border transition-all font-bold text-xs cursor-pointer backdrop-blur-md relative ${
               duplicateGroups.some(g => g.hasSuspectedDuplicate)
-                ? "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-900/40"
-                : "bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/50 hover:bg-purple-100 dark:hover:bg-purple-900/40"
+                ? "bg-rose-500/20 text-rose-200 border-rose-500/40 hover:bg-rose-500/30"
+                : "bg-white/10 text-white border-white/10 hover:bg-white/20"
             }`}
             title="كشف الطلبات المكررة والعملاء ذوي الطلبات المتعددة"
           >
             {duplicateGroups.some(g => g.hasSuspectedDuplicate) ? (
               <>
-                <AlertTriangle size={18} className="text-rose-600 dark:text-rose-400 animate-pulse animate-duration-1000 shrink-0" />
-                <span>👥 كاشف التكرار ({duplicateGroups.filter(g => g.hasSuspectedDuplicate).length})</span>
+                <AlertTriangle size={16} className="text-rose-400 animate-pulse shrink-0" />
+                <span>كاشف التكرار ({duplicateGroups.filter(g => g.hasSuspectedDuplicate).length})</span>
                 <span className="absolute -top-1.5 -left-1.5 flex h-3.5 w-3.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500 text-[8px] font-black text-white items-center justify-center">!</span>
@@ -4356,30 +4373,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               </>
             ) : (
               <>
-                <Users size={18} className="text-purple-600 dark:text-purple-400 shrink-0" />
-                <span>👥 العملاء المكررين ({duplicateGroups.length})</span>
+                <Users size={16} className="text-purple-300 shrink-0" />
+                <span>كاشف التكرار ({duplicateGroups.length})</span>
               </>
             )}
           </button>
 
           <button
             onClick={() => setShowStatusGuide(true)}
-            className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 transition-all font-bold text-xs shrink-0"
+            className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/10 transition-all font-bold text-xs backdrop-blur-md cursor-pointer shrink-0"
             title="شرح مبسط لحالات الطلبات"
           >
-            <Info size={18} className="shrink-0" />
-            <span>💡 دليل استخدام الحالات</span>
+            <Info size={16} className="text-amber-300 shrink-0" />
+            <span>دليل الحالات</span>
           </button>
-
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => navigate(`${storePrefix}/orders/new`)}
-            className="bg-white text-emerald-800 hover:bg-emerald-50 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl font-black shadow-xl shadow-emerald-950/15 transition-all flex items-center gap-2 text-xs sm:text-sm shrink-0"
-          >
-            <Plus size={20} className="shrink-0" />
-            <span>طلب جديد</span>
-          </motion.button>
         </div>
       </div>
 
@@ -4523,11 +4530,11 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       {mainSection === 'orders' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
           {/* Smart Action Center Banner */}
-          {(smartActionCounts.highRisk > 0 || smartActionCounts.pendingBosta > 0 || smartActionCounts.pendingComp > 0) && (
+          {(smartActionCounts.pendingConfirmation > 0 || smartActionCounts.highRisk > 0 || smartActionCounts.pendingBosta > 0 || smartActionCounts.pendingComp > 0) && (
             <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 rounded-[2rem] p-5 space-y-3.5 shadow-xs">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                   <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 tracking-wider">🛠️ مركز التنبيهات والأعمال العاجلة (مهمة اليوم)</h4>
                 </div>
                 {smartActionFilter !== 'all' && (
@@ -4539,7 +4546,35 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* 0. Pending Confirmation Card (New Orders) */}
+                {smartActionCounts.pendingConfirmation > 0 && (
+                  <button
+                    onClick={() => setSmartActionFilter(smartActionFilter === 'pending_confirmation' ? 'all' : 'pending_confirmation')}
+                    className={`flex items-start gap-3 p-3.5 rounded-2xl text-right transition-all border ${
+                      smartActionFilter === 'pending_confirmation'
+                        ? 'bg-amber-500/15 border-amber-500 text-amber-800 dark:text-amber-300 shadow-sm ring-2 ring-amber-500/30'
+                        : 'bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-900/30'
+                    }`}
+                  >
+                    <div className="p-2 bg-amber-500/15 text-amber-600 rounded-xl mt-0.5 shrink-0">
+                      <PhoneForwarded size={16} className="animate-pulse" />
+                    </div>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <span>🔔 طلبات بانتظار التأكيد</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-black bg-amber-500 text-white rounded-full tabular-nums">
+                          {smartActionCounts.pendingConfirmation}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">طلبات جديدة واردة تحتاج مكالمة تأكيد وتجهيز فوري</p>
+                    </div>
+                  </button>
+                )}
+
                 {/* 1. High Risk Card */}
                 {smartActionCounts.highRisk > 0 && (
                   <button
@@ -4640,12 +4675,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               );
 
               const borderBg = {
-                indigo: "border-indigo-500/60 bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-500/20",
-                amber: "border-amber-500/60 bg-amber-50/80 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 ring-2 ring-amber-500/20",
-                blue: "border-blue-500/60 bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 ring-2 ring-blue-500/20",
-                emerald: "border-emerald-500/60 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 ring-2 ring-emerald-500/20",
-                rose: "border-rose-500/60 bg-rose-50/80 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 ring-2 ring-rose-500/20",
-                slate: "border-slate-500/60 bg-slate-50/80 dark:bg-slate-950/40 text-slate-600 dark:text-slate-400 ring-2 ring-slate-500/20",
+                indigo: "border-indigo-500/70 bg-indigo-50/90 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/30 shadow-md",
+                amber: "border-amber-500/70 bg-amber-50/90 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 ring-2 ring-amber-500/30 shadow-md",
+                blue: "border-blue-500/70 bg-blue-50/90 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/30 shadow-md",
+                emerald: "border-emerald-500/70 bg-emerald-50/90 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-500/30 shadow-md",
+                rose: "border-rose-500/70 bg-rose-50/90 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 ring-2 ring-rose-500/30 shadow-md",
+                slate: "border-slate-500/70 bg-slate-100/90 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 ring-2 ring-slate-500/30 shadow-md",
               }[cat.color];
 
               const iconBg = {
@@ -4661,22 +4696,22 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                 <div
                   key={cat.id}
                   onClick={() => setActiveTab(isSelected && cat.id === activeTab ? "الجميع" : cat.id)}
-                  className={`cursor-pointer select-none active:scale-95 p-4 rounded-3xl border transition-all duration-300 flex flex-col justify-between relative overflow-hidden ${
+                  className={`cursor-pointer select-none active:scale-[0.98] p-4 sm:p-5 rounded-[1.75rem] transition-all duration-300 flex flex-col justify-between relative overflow-hidden group ${
                     isSelected
-                      ? `${borderBg} shadow-md`
-                      : "bg-[#f8fafc] dark:bg-[#172235] border-slate-200 dark:border-slate-700/80 hover:border-amber-300 dark:hover:border-amber-400/40 shadow-sm hover:shadow-lg hover:shadow-slate-900/5"
+                      ? `${borderBg}`
+                      : "surface-card border-slate-200/80 dark:border-white/[0.06] hover:border-emerald-500/40 hover:-translate-y-0.5 hover:shadow-md"
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className={`p-2.5 rounded-2xl ${iconBg}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className={`p-2.5 rounded-2xl transition-transform group-hover:scale-110 ${iconBg}`}>
                       <cat.icon size={18} />
                     </div>
-                    <span className="text-2xl font-black text-slate-900 dark:text-white tabular-nums">
+                    <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tight">
                       {cat.count}
                     </span>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs font-black text-slate-800 dark:text-slate-200 mb-0.5">
+                    <p className="text-xs sm:text-sm font-black text-slate-900 dark:text-slate-100 mb-0.5">
                       {cat.label}
                     </p>
                     <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">

@@ -1699,57 +1699,74 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 text-right pb-12 px-4" dir="rtl">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider font-mono">التحكم والإدارة الشاملة</span>
+      {/* 🚀 Dynamic Settings Hero Banner */}
+      <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#10192a] to-slate-950 text-white p-7 sm:p-9 shadow-xl border border-indigo-500/20">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-black border border-indigo-500/30 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                مركز التحكم والإدارة الشاملة
+              </span>
+              {activeStore && (
+                <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-bold border border-white/10 backdrop-blur-md">
+                  المتجر: {activeStore.name || activeStore.id}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
+                <span>الإعدادات العامة وإدارة النظام</span>
+              </h1>
+              <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                التحكم الموحد في المزامنة السحابية وقواعد البيانات المحلية، إدارة التنبيهات الفورية، وتخصيص إعدادات المتجر الأساسية.
+              </p>
+            </div>
           </div>
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-            <SettingsIcon size={32} className="text-indigo-500"/>
-            الإعدادات العامة وإدارة المتجر
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">التحكم الموحد في المزامنة وقواعد البيانات، وتخصيص إعدادات المتجر الأساسية.</p>
         </div>
       </div>
 
-      {/* 🚀 قسم التبويبات الموحد والمنسق لمنع التشتت */}
-      <div className="flex flex-wrap border-b border-slate-200 dark:border-slate-800 gap-2">
+      {/* 🚀 قسم التبويبات الموحد والمنسق بنمط كبسولات راقية */}
+      <div className="flex gap-2 bg-slate-100/80 dark:bg-slate-900/80 p-2 rounded-2xl border border-slate-200/60 dark:border-slate-800 overflow-x-auto no-scrollbar scroll-smooth w-full">
         <button
           type="button"
           onClick={() => setActiveTab('general')}
-          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 font-black text-sm transition-all duration-200 active:scale-95 ${
+          className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'general'
-              ? 'border-indigo-600 text-indigo-650 dark:border-indigo-400 dark:text-indigo-400 bg-indigo-50/10'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
           }`}
         >
-          <SettingsIcon size={18} />
-          إدارة وتخصيص المتجر ⚙️
+          <SettingsIcon size={16} />
+          <span>إدارة وتخصيص المتجر ⚙️</span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('database')}
-          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 font-black text-sm transition-all duration-200 active:scale-95 ${
+          className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'database'
-              ? 'border-indigo-600 text-indigo-650 dark:border-indigo-400 dark:text-indigo-400 bg-indigo-50/10'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
           }`}
         >
-          <Database size={18} />
-          المزامنة والاتصال السحابي والنسخ الاحتياطي ☁️
+          <Database size={16} />
+          <span>المزامنة والاتصال السحابي ☁️</span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('admin-alerts')}
-          className={`flex items-center gap-2 px-6 py-3.5 border-b-2 font-black text-sm transition-all duration-200 active:scale-95 ${
+          className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'admin-alerts'
-              ? 'border-rose-600 text-rose-650 dark:border-rose-400 dark:text-rose-400 bg-rose-50/10'
-              : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
           }`}
         >
-          <Activity size={18} />
-          إشعارات الإدارة الفورية 🚨
+          <Activity size={16} />
+          <span>إشعارات الإدارة الفورية 🚨</span>
         </button>
       </div>
 

@@ -12,6 +12,7 @@ import { whatsappService } from '../utils/whatsappService';
 import { deductOrderStock } from '../utils/inventoryManager';
 import { normalizePhone } from '../utils/phoneUtils';
 import { getSupabaseClient } from '../services/databaseService';
+import { showOrderWebNotification, isPendingOrderStatus } from '../utils/webNotification';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -707,6 +708,13 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         // تشغيل صوت واحتفالات نجاح تسجيل الطلب
         triggerCelebration('create_order', settings);
         
+        // إشعار المتصفح وتنبيه نافذة المدير الفورية للأوردرات الجديدة Pending
+        if (isPendingOrderStatus(orderWithId.status)) {
+            showOrderWebNotification(orderWithId, {
+                storeName: activeStore?.name || 'متجري'
+            });
+        }
+
         // إرسال الـ Webhooks لحظياً للأنظمة المربوطة (مثل Akked أو Zapier)
         void triggerWebhooks(orderWithId, settings, activeStore?.id);
         

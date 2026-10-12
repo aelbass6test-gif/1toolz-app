@@ -431,17 +431,46 @@ const ShippingDashboard: React.FC<any> = ({ settings, setSettings, onManageCompa
             initial="hidden"
             animate="visible"
         >
-             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-800 w-full">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">نظام الشحن واللوجستيات والمزودين</span>
+             {/* 🚀 Dynamic Logistics & Shipping Hero Banner */}
+             <motion.div 
+               variants={itemVariants} 
+               className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0c1c24] to-teal-950 text-white p-7 sm:p-9 shadow-xl border border-teal-500/20"
+             >
+                <div className="absolute top-0 left-0 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+                <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
+
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/20 text-teal-300 text-xs font-black border border-teal-500/30 backdrop-blur-md">
+                        <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+                        المنظومة اللوجستية وإدارة شركات الشحن
+                      </span>
+                      <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-bold border border-white/10 backdrop-blur-md">
+                        {(settings.companies || []).length} شركات شحن مسجلة
+                      </span>
                     </div>
-                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-                        <Truck size={32} className="text-indigo-500"/>
-                        إعدادات وتفاصيل الشحن
-                    </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">إدارة شركات الشحن المختلفة، تفعيل بوابة بوسطة، وتخصيص السياسات المالية الافتراضية بدقة</p>
+
+                    <div className="space-y-1">
+                      <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
+                        <span>إعدادات وتفاصيل الشحن والشركات</span>
+                      </h1>
+                      <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                        إدارة شركات الشحن المعتمدة، أسعار المحافظات والمدن، سياسات التأمين وضريبة القيمة المضافة، وتكاملات بوسطة وتربو المركزية.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <button 
+                      type="button"
+                      onClick={onAddCompany}
+                      className="px-5 py-3 rounded-2xl bg-teal-500 hover:bg-teal-600 text-white font-black shadow-lg shadow-teal-950/40 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer"
+                    >
+                      <Plus size={18} />
+                      <span>+ إضافة شركة شحن</span>
+                    </button>
+                  </div>
                 </div>
             </motion.div>
 

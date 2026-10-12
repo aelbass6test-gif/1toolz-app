@@ -859,8 +859,8 @@ const ExpensesPage: React.FC<ExpensesPageProps> = ({ wallet, setWallet, settings
         <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div className="space-y-3 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-black tracking-wider">
-              <Sparkles size={14} className="animate-spin" style={{ animationDuration: '4s' }} />
-              <span>نظام الرقابة المالية والتكاليف الذكي</span>
+              <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse" />
+              <span>نظام الإدارة المالية الشاملة · المصروفات والتكاليف العامة</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black tracking-tight flex items-center gap-3">
               <Receipt className="text-rose-500 w-10 h-10 flex-shrink-0" />

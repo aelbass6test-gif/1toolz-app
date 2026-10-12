@@ -279,8 +279,63 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
     return (wallet?.transactions || []).reduce((sum: number, t: any) => {
       const amount = Number(t.amount) || 0;
       
-      if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+      // Exclude all transactions belonging to supply wallet from main wallet balance
+      const catStr = String(t.category || '');
+      const typeStr = String(t.type || '');
+      if (
+        catStr.startsWith('supply_') ||
+        catStr === 'supply_purchase' ||
+        catStr === 'supply_deposit' ||
+        catStr === 'supply_funding' ||
+        catStr === 'supply_withdrawal' ||
+        catStr === 'supplier_payment' ||
+        catStr === 'inventory_purchase' ||
+        t.details?.destinationType === 'supply_wallet' ||
+        (t.id && String(t.id).endsWith('-in') && (t.note?.includes('محفظة التوريد') || t.note?.includes('التوريد')))
+      ) {
+        return sum;
+      }
+
       if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+      if (t.details?.cashHolderId || (t.details?.expensePaidBy && t.note?.includes('عهدة'))) return sum;
+
+      // Handle treasury synchronization & transfers FIRST (before generic deposit/withdrawal check)
+      if (catStr === 'treasury_sync' || typeStr === 'تحويل' || (t.id && String(t.id).startsWith('TR-'))) {
+        const treasuryTxId = (t.details?.treasuryTxId || String(t.id).replace('TR-', '').replace('-out', '').replace('-in', ''));
+        const tTx = treasury?.transactions?.find((x: any) => x.id === treasuryTxId);
+        if (tTx) {
+          // Transfer directly between main_wallet and supply_wallet
+          if (tTx.fromAccountId === 'main_wallet' && tTx.toAccountId === 'supply_wallet') {
+            return sum - amount;
+          }
+          if (tTx.fromAccountId === 'supply_wallet' && tTx.toAccountId === 'main_wallet') {
+            return sum + amount;
+          }
+          // Main wallet to other treasury accounts
+          if (tTx.fromAccountId === 'main_wallet') return sum - amount;
+          if (tTx.toAccountId === 'main_wallet') return sum + amount;
+          // Transfer did not involve main_wallet (e.g., bank -> supply_wallet)
+          return sum;
+        }
+
+        // Fallback heuristics for unlinked or legacy transactions
+        if (t.details?.toAccountId === 'supply_wallet' || t.note?.includes('إلى محفظة التوريد') || t.note?.includes('إلى التوريد') || (t.id && String(t.id).endsWith('-out'))) {
+          return sum - amount;
+        }
+        if (t.details?.fromAccountId === 'supply_wallet' || t.note?.includes('من محفظة التوريد') || t.note?.includes('من التوريد')) {
+          return sum + amount;
+        }
+        if (t.details?.fromAccountId === 'main_wallet' || t.type === 'سحب') {
+          return sum - amount;
+        }
+        if (t.details?.toAccountId === 'main_wallet' || t.type === 'إيداع') {
+          return sum + amount;
+        }
+        if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع')) {
+          return sum + amount;
+        }
+        return sum;
+      }
 
       if (t.type === 'إيداع') {
         if (t.status === 'cancelled') return sum;
@@ -292,19 +347,6 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
         return t.status === 'cancelled' ? sum : sum - amount;
       }
       
-      if (t.type === 'تحويل') {
-        if (t.category === 'treasury_sync') {
-          const treasuryTxId = t.id.replace('TR-', '');
-          const tTx = treasury?.transactions?.find((x: any) => x.id === treasuryTxId);
-          if (tTx) {
-            if (tTx.toAccountId === 'main_wallet') return sum + amount;
-            if (tTx.fromAccountId === 'main_wallet') return sum - amount;
-          } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
-            return sum + amount;
-          }
-        }
-        return sum;
-      }
       return sum;
     }, 0);
   };
@@ -645,28 +687,156 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
       });
     }
 
-    // Handle wallet updates if virtual accounts are used
+    // Handle wallet updates if virtual accounts (main_wallet or supply_wallet) are used
     if (setWallet && (fromAccountId === 'main_wallet' || fromAccountId === 'supply_wallet' || toAccountId === 'main_wallet' || toAccountId === 'supply_wallet')) {
       setWallet((prev: any) => {
         let newBalance = Number(prev.balance) || 0;
         let newSupplyBalance = Number(prev.supplyBalance) || 0;
         const walletTxs = [...(prev.transactions || [])];
 
-        if (fromAccountId === 'main_wallet') newBalance -= amount;
-        if (fromAccountId === 'supply_wallet') newSupplyBalance -= amount;
+        const isFromMain = fromAccountId === 'main_wallet';
+        const isToMain = toAccountId === 'main_wallet';
+        const isFromSupply = fromAccountId === 'supply_wallet';
+        const isToSupply = toAccountId === 'supply_wallet';
 
-        if (toAccountId === 'main_wallet') newBalance += amount;
-        if (toAccountId === 'supply_wallet') newSupplyBalance += amount;
+        if (isFromMain) newBalance -= amount;
+        if (isToMain) newBalance += amount;
+        if (isFromSupply) newSupplyBalance -= amount;
+        if (isToSupply) newSupplyBalance += amount;
 
-        walletTxs.unshift({
-          id: `TR-${newTx.id}`,
-          type: (toAccountId === 'main_wallet' || toAccountId === 'supply_wallet') ? 'إيداع' : 'سحب',
-          amount,
-          date: newTx.date,
-          note: transDesc || `عملية خزينة: ${transactionType}`,
-          category: 'treasury_sync',
-          status: 'completed'
-        });
+        const fromAccName = allAccounts.find(a => a.id === fromAccountId)?.name || fromAccountId;
+        const toAccName = allAccounts.find(a => a.id === toAccountId)?.name || toAccountId;
+
+        // 1. Direct transfer between Main Wallet and Supply Wallet
+        if (isFromMain && isToSupply) {
+          // Outgoing deduction from Main Wallet (recorded as withdrawal)
+          walletTxs.unshift({
+            id: `TR-${newTx.id}-out`,
+            type: 'سحب',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `تحويل إلى محفظة التوريد: ${transDesc}` : 'تحويل مالي صادر من المحفظة العامة إلى محفظة التوريد',
+            category: 'treasury_sync',
+            details: {
+              fromAccountId: 'main_wallet',
+              toAccountId: 'supply_wallet',
+              treasuryTxId: newTx.id,
+              type: 'transfer_to_supply'
+            },
+            status: 'completed'
+          });
+          // Incoming deposit into Supply Wallet (shows under supply tab, excluded from main wallet balance)
+          walletTxs.unshift({
+            id: `TR-${newTx.id}-in`,
+            type: 'إيداع',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `تغذية محفظة التوريد: ${transDesc}` : 'تغذية وتمويل محفظة التوريد من المحفظة العامة',
+            category: 'supply_deposit',
+            details: {
+              fromAccountId: 'main_wallet',
+              toAccountId: 'supply_wallet',
+              treasuryTxId: newTx.id,
+              type: 'transfer_from_main'
+            },
+            status: 'completed'
+          });
+        } else if (isFromSupply && isToMain) {
+          // Incoming deposit to Main Wallet
+          walletTxs.unshift({
+            id: `TR-${newTx.id}-in`,
+            type: 'إيداع',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `تحويل وارد من محفظة التوريد: ${transDesc}` : 'تحويل مالي وارد للمحفظة العامة من محفظة التوريد',
+            category: 'treasury_sync',
+            details: {
+              fromAccountId: 'supply_wallet',
+              toAccountId: 'main_wallet',
+              treasuryTxId: newTx.id
+            },
+            status: 'completed'
+          });
+          // Outgoing deduction from Supply Wallet
+          walletTxs.unshift({
+            id: `TR-${newTx.id}-out`,
+            type: 'سحب',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `تحويل صادر إلى المحفظة العامة: ${transDesc}` : 'تحويل مالي صادر من محفظة التوريد إلى المحفظة العامة',
+            category: 'supply_withdrawal',
+            details: {
+              fromAccountId: 'supply_wallet',
+              toAccountId: 'main_wallet',
+              treasuryTxId: newTx.id
+            },
+            status: 'completed'
+          });
+        } else if (isFromMain) {
+          // Outgoing from Main Wallet to external account (Bank/Safe)
+          walletTxs.unshift({
+            id: `TR-${newTx.id}`,
+            type: 'سحب',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `تحويل من المحفظة إلى ${toAccName}: ${transDesc}` : `تحويل مالي من المحفظة العامة إلى ${toAccName}`,
+            category: 'treasury_sync',
+            details: {
+              fromAccountId: 'main_wallet',
+              toAccountId,
+              treasuryTxId: newTx.id
+            },
+            status: 'completed'
+          });
+        } else if (isToMain) {
+          // Incoming to Main Wallet from external account (Bank/Safe)
+          walletTxs.unshift({
+            id: `TR-${newTx.id}`,
+            type: 'إيداع',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `إيداع بالمحفظة من ${fromAccName}: ${transDesc}` : `إيداع/تحويل وارد للمحفظة العامة من ${fromAccName}`,
+            category: 'treasury_sync',
+            details: {
+              fromAccountId,
+              toAccountId: 'main_wallet',
+              treasuryTxId: newTx.id
+            },
+            status: 'completed'
+          });
+        } else if (isToSupply) {
+          // Funding Supply Wallet from external account (Bank/Safe) - Does NOT touch Main Wallet
+          walletTxs.unshift({
+            id: `TR-${newTx.id}`,
+            type: 'إيداع',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `تغذية محفظة التوريد من ${fromAccName}: ${transDesc}` : `تغذية وتمويل محفظة التوريد من ${fromAccName}`,
+            category: 'supply_deposit',
+            details: {
+              fromAccountId,
+              toAccountId: 'supply_wallet',
+              treasuryTxId: newTx.id
+            },
+            status: 'completed'
+          });
+        } else if (isFromSupply) {
+          // Withdrawal from Supply Wallet to external account (Bank/Safe) - Does NOT touch Main Wallet
+          walletTxs.unshift({
+            id: `TR-${newTx.id}`,
+            type: 'سحب',
+            amount,
+            date: newTx.date,
+            note: transDesc ? `سحب من محفظة التوريد إلى ${toAccName}: ${transDesc}` : `سحب من محفظة التوريد إلى ${toAccName}`,
+            category: 'supply_withdrawal',
+            details: {
+              fromAccountId: 'supply_wallet',
+              toAccountId,
+              treasuryTxId: newTx.id
+            },
+            status: 'completed'
+          });
+        }
 
         return {
           ...prev,
@@ -814,36 +984,48 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
     if (setTreasury) {
       setTreasury((prev: Treasury) => {
         let updatedAccounts = [...prev.accounts];
+        let mainBalanceDiff = 0;
+        let supplyBalanceDiff = 0;
+
         txsToDelete.forEach(tx => {
           const amount = tx.amount;
           if (tx.fromAccountId) {
-            updatedAccounts = updatedAccounts.map(acc => 
-              acc.id === tx.fromAccountId ? { ...acc, balance: acc.balance + amount } : acc
-            );
+            if (tx.fromAccountId === 'main_wallet') mainBalanceDiff += amount;
+            else if (tx.fromAccountId === 'supply_wallet') supplyBalanceDiff += amount;
+            else {
+              updatedAccounts = updatedAccounts.map(acc => 
+                acc.id === tx.fromAccountId ? { ...acc, balance: acc.balance + amount } : acc
+              );
+            }
           }
-          if (tx.toAccountId && tx.toAccountId !== 'supply_wallet') {
-            updatedAccounts = updatedAccounts.map(acc => 
-              acc.id === tx.toAccountId ? { ...acc, balance: acc.balance - amount } : acc
-            );
+          if (tx.toAccountId) {
+            if (tx.toAccountId === 'main_wallet') mainBalanceDiff -= amount;
+            else if (tx.toAccountId === 'supply_wallet') supplyBalanceDiff -= amount;
+            else {
+              updatedAccounts = updatedAccounts.map(acc => 
+                acc.id === tx.toAccountId ? { ...acc, balance: acc.balance - amount } : acc
+              );
+            }
           }
         });
 
-        const totalSupplyRefund = txsToDelete
-          .filter(tx => tx.toAccountId === 'supply_wallet')
-          .reduce((sum, tx) => sum + tx.amount, 0);
-
-        if (totalSupplyRefund > 0 && setWallet) {
+        if (setWallet && (mainBalanceDiff !== 0 || supplyBalanceDiff !== 0 || txIdsToDelete.length > 0)) {
           setWallet((prevWallet: any) => {
             const match = transactionToDelete.description.match(/#(MNT-\d+|\d+)/i) || transactionToDelete.description.match(/#\S+/);
             const ref = match ? match[0] : '';
+            const deletedIdSet = new Set(txIdsToDelete);
+
             const filteredWalletTx = (prevWallet.transactions || []).filter((wTx: any) => {
               if (ref && wTx.note && wTx.note.includes(ref)) return false;
+              const wTreasuryId = (wTx.details?.treasuryTxId || String(wTx.id).replace('TR-', '').replace('-out', '').replace('-in', ''));
+              if (deletedIdSet.has(wTreasuryId) || deletedIdSet.has(wTx.id)) return false;
               return true;
             });
 
             return {
               ...prevWallet,
-              supplyBalance: Math.max(0, (prevWallet.supplyBalance || 0) - totalSupplyRefund),
+              balance: (prevWallet.balance || 0) + mainBalanceDiff,
+              supplyBalance: Math.max(0, (prevWallet.supplyBalance || 0) + supplyBalanceDiff),
               transactions: filteredWalletTx
             };
           });
@@ -873,37 +1055,31 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto font-sans text-right" dir="rtl">
       
       {/* ======================================================== */}
-      {/* 1. ARCHITECTURAL HEADER & COMMAND BAR                    */}
+      {/* 1. ARCHITECTURAL HERO BANNER & COMMAND BAR               */}
       {/* ======================================================== */}
-      <div id="treasury-header" className="relative bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-7 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
-        {/* Subtle geometric grid background */}
-        <div className="absolute inset-0 bg-[radial-gradient(#6366f1_1px,transparent_1px)] [background-size:20px_20px] opacity-5 pointer-events-none" />
+      <div id="treasury-header" className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-[#0d1b2a] to-emerald-950 rounded-[2.5rem] p-7 sm:p-9 border border-slate-800 shadow-2xl text-white">
+        {/* Ambient glow orbs */}
+        <div className="absolute top-0 -left-20 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-20 right-1/4 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-              <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                منظومة الخزائن وصناديق السيولة المركزية
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>تحديث مباشر</span>
-              <span aria-hidden="true">·</span>
-              <span>{allAccounts.length} أوعية نقدية معتمدة</span>
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-xs font-black tracking-wide">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>نظام الإدارة المالية الشاملة · الخزائن المركزية وإدارة السيولة</span>
+              <span className="text-[10px] text-slate-400">·</span>
+              <span className="text-slate-300">{allAccounts.length} أوعية نقدية معتمدة</span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-slate-900 to-indigo-950 text-white flex items-center justify-center shadow-md shadow-indigo-950/20">
-                <Landmark className="w-6 h-6 text-indigo-300" />
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-3xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-950/40">
+                <Landmark className="w-7 h-7" />
               </div>
               <div>
-                <h1 className="text-xl sm:text-2xl font-black text-slate-950 dark:text-white tracking-tight flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
                   <span>إدارة الخزائن وأوعية السيولة النقدية</span>
-                  <span className="text-[10px] font-black bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
-                    Pro Vault 2026
-                  </span>
                 </h1>
-                <p className="text-slate-500 dark:text-slate-400 text-xs font-medium leading-relaxed mt-0.5">
+                <p className="text-slate-300 text-xs sm:text-sm font-medium leading-relaxed mt-1 max-w-2xl">
                   رصد مباشر للنقدية السائلة، أداة جرد الفئات، وتتبع التحويلات البنكية والمحافظ وأدراج الكاشير بدقة دفاتر متناهية.
                 </p>
               </div>
@@ -914,7 +1090,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
           <div className="flex flex-wrap items-center gap-2.5">
             <button 
               onClick={() => { setTransactionType('deposit'); setShowTransactionModal(true); }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
+              className="flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-600/30 transition-all cursor-pointer active:scale-95"
             >
               <TrendingUp className="w-4 h-4" />
               <span>إيداع نقدي</span>
@@ -922,7 +1098,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
 
             <button 
               onClick={() => { setTransactionType('withdrawal'); setShowTransactionModal(true); }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
+              className="flex items-center gap-2 px-4 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl font-black text-xs shadow-lg shadow-rose-600/30 transition-all cursor-pointer active:scale-95"
             >
               <TrendingDown className="w-4 h-4" />
               <span>صرف مصروف</span>
@@ -930,7 +1106,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
 
             <button 
               onClick={() => { setTransactionType('transfer'); setShowTransactionModal(true); }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
+              className="flex items-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-black text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer active:scale-95"
             >
               <ArrowRightLeft className="w-4 h-4" />
               <span>تحويل بين الخزائن</span>
@@ -938,7 +1114,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
 
             <button 
               onClick={() => setActiveTab('audit')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer active:scale-95"
+              className="flex items-center gap-2 px-4 py-3 bg-white/10 hover:bg-white/15 text-white border border-white/10 rounded-2xl font-black text-xs transition-all cursor-pointer active:scale-95 backdrop-blur-xs"
             >
               <Calculator className="w-4 h-4 text-emerald-400" />
               <span>جرد فئات النقدية</span>
@@ -946,10 +1122,10 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
 
             <button 
               onClick={handleExportLedgerExcel}
-              className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs border border-slate-200 dark:border-slate-700 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-3 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded-2xl font-black text-xs transition-all cursor-pointer"
               title="تصدير كشف الحساب إلى Excel"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               <span>تصدير Excel</span>
             </button>
           </div>

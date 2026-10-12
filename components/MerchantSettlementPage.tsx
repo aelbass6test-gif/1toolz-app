@@ -425,8 +425,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-6 sm:p-8 rounded-[2.5rem] shadow-2xl border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
         <div className="space-y-2 relative z-10">
-          <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-xs font-black border border-emerald-500/30 inline-flex items-center gap-1.5">
-            <Sparkles size={14} /> تسوية حسابات الموكلين والتسويق لحساب الغير
+          <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-xs font-black border border-emerald-500/30 inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>نظام الإدارة المالية الشاملة · تسوية حسابات الموكلين والبضائع</span>
           </span>
           <h2 className="text-2xl sm:text-3xl font-black">كشوف تسوية أصحاب البضائع والمنتجات</h2>
           <p className="text-xs text-slate-300 font-medium max-w-xl">

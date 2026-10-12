@@ -2144,18 +2144,64 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
 
   return (
     <div className="w-full max-w-[1900px] mx-auto space-y-8 pb-16 px-4 sm:px-6 md:px-8 lg:px-10" dir="rtl">
-      {/* Premium Elegant Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 pb-6 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-            <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">سلسلة التوريد المتقدمة والمخزن الذكي</span>
+      {/* 🚀 Dynamic Premium Supply Chain & Inventory Hero Banner */}
+      <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0d1e2e] to-sky-950 text-white p-7 sm:p-9 shadow-xl border border-sky-500/20">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 text-xs font-black border border-sky-500/30 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+                سلسلة التوريد المتقدمة والمخزن المركزي
+              </span>
+              <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-bold border border-white/10 backdrop-blur-md">
+                {totalSuppliersCount} موردين معتمدين
+              </span>
+              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 backdrop-blur-md">
+                {totalOrdersCount} أمر توريد موثق
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
+                <span>إدارة الموردين والمخزون المركزي</span>
+              </h1>
+              <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                سجل الموردين المعتمدين، متابعة فواتير الشراء، تسوية حسابات المديونيات، وضبط حركة المستودعات والجرد بدقة متناهية.
+              </p>
+            </div>
           </div>
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-3">
-            <Truck size={34} className="text-indigo-600 dark:text-indigo-500"/>
-            إدارة الموردين والمخزون المركزي
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm font-medium">سجل الموردين المعتمدين، تابع فواتير الشراء وأوامر التوريد بالتفصيل، وتحكم في أرصدة وتسويات جرد مستودعاتك بدقة لا متناهية.</p>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => {
+                setEditingOrder(null);
+                setOrderItems([]);
+                setSelectedSupplierId('');
+                setPartnerPayments([]);
+                setCustodyPayments([]);
+                setShowOrderModal(true);
+              }}
+              className="px-5 py-3 rounded-2xl bg-sky-500 hover:bg-sky-600 text-white font-black shadow-lg shadow-sky-950/40 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer"
+            >
+              <Plus size={18} />
+              <span>+ فاتورة شراء جديدة</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setEditingSupplier(null);
+                setNewSupplier({ name: '', phone: '', address: '', notes: '' });
+                setShowSupplierModal(true);
+              }}
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <UserPlus size={16} className="text-sky-300" />
+              <span>+ إضافة مورد</span>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -17,7 +17,7 @@ import { trimTrailingSlash } from "hono/trailing-slash";
 import { appendShippingTimeline, buildEventKey, getEventAt, mapBostaStatus, mapTurboStatus, shouldApplyShippingUpdate } from './utils/shippingStatus';
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
+  apiKey: process.env.GEMINI_API_KEY || "AIzaSy_placeholder_key_for_dev_mode",
   httpOptions: {
     headers: {
       'User-Agent': 'aistudio-build',

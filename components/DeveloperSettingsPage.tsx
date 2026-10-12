@@ -1053,6 +1053,59 @@ CREATE TABLE IF NOT EXISTS withdrawal_requests (
     updatedAt TEXT
 );
 
+-- 39. QUOTATIONS (عروض الأسعار)
+CREATE TABLE IF NOT EXISTS quotations (
+    id TEXT PRIMARY KEY,
+    store_id TEXT,
+    storeId TEXT,
+    quotation_number TEXT,
+    quotationNumber TEXT,
+    customer_name TEXT,
+    customerName TEXT,
+    customer_phone TEXT,
+    customerPhone TEXT,
+    customer_phone2 TEXT,
+    customerPhone2 TEXT,
+    customer_email TEXT,
+    customerEmail TEXT,
+    customer_address TEXT,
+    customerAddress TEXT,
+    governorate TEXT,
+    city TEXT,
+    building_number TEXT,
+    buildingNumber TEXT,
+    floor_number TEXT,
+    floorNumber TEXT,
+    apartment_number TEXT,
+    apartmentNumber TEXT,
+    items JSONB DEFAULT '[]'::jsonb,
+    subtotal NUMERIC DEFAULT 0,
+    discount NUMERIC DEFAULT 0,
+    shipping_fee NUMERIC DEFAULT 0,
+    shippingFee NUMERIC DEFAULT 0,
+    tax NUMERIC DEFAULT 0,
+    total NUMERIC DEFAULT 0,
+    advance_payment NUMERIC DEFAULT 0,
+    advancePayment NUMERIC DEFAULT 0,
+    remaining_amount NUMERIC DEFAULT 0,
+    remainingAmount NUMERIC DEFAULT 0,
+    shipping_company TEXT,
+    shippingCompany TEXT,
+    shipping_area TEXT,
+    shippingArea TEXT,
+    include_inspection_fee BOOLEAN DEFAULT false,
+    includeInspectionFee BOOLEAN DEFAULT false,
+    status TEXT DEFAULT 'مسودة',
+    notes TEXT,
+    terms TEXT,
+    valid_until TEXT,
+    validUntil TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
+);
+
 -- =========================================================================
 -- تعطيل نظام الحماية RLS لجميع الجداول (لتسهيل وسرعة المزامنة بدون أخطاء)
 -- =========================================================================
@@ -1095,6 +1148,7 @@ ALTER TABLE customer_transactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier_transactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE shared_audits DISABLE ROW LEVEL SECURITY;
 ALTER TABLE withdrawal_requests DISABLE ROW LEVEL SECURITY;
+ALTER TABLE quotations DISABLE ROW LEVEL SECURITY;
 
 -- منح كامل الصلاحيات لجميع المفاتيح (anon, authenticated, service_role)
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;

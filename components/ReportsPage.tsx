@@ -5902,58 +5902,75 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
     }, [dateRangeType, settings?.activePeriodStartDate, customStartDate, customEndDate]);
 
     return (
-        <div className="space-y-6 sm:space-y-8 pb-12" dir="rtl">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">الذكاء التحليلي والموازنة</span>
+        <div className="space-y-6 sm:space-y-8 pb-12 max-w-[1900px] mx-auto text-right" dir="rtl">
+            {/* 🚀 Dynamic Executive Reports Hero Banner */}
+            <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0b1c2d] to-indigo-950 text-white p-7 sm:p-9 shadow-xl border border-indigo-500/20">
+                <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+                <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
+
+                <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                    <div className="space-y-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-black border border-indigo-500/30 backdrop-blur-md">
+                                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                                محرك التقارير المحاسبية والموازنة
+                            </span>
+                            <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-bold border border-white/10 backdrop-blur-md">
+                                النطاق: {dateRangeText}
+                            </span>
+                            {settings?.activePeriodStartDate && (
+                                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30 backdrop-blur-md flex items-center gap-1.5">
+                                    <Lock size={12} />
+                                    دورة محاسبية جارية
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="space-y-1">
+                            <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
+                                <span>مركز التقارير والتحليلات المالية</span>
+                            </h1>
+                            <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                                لوحة التحكم الشاملة لمؤشرات الأداء، الأرباح والخسائر، التدفقات النقدية، مقاصة المخزون، والمركز المالي الدقيق لجميع الشركاء.
+                            </p>
+                        </div>
                     </div>
-                    <h1 className="text-3xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
-                        <FileText size={32} className="text-indigo-500"/>
-                        مركز التقارير والتحليلات
-                    </h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">ملخص شامل ومؤشرات الأداء لمتجرك والمركز المالي الدقيق لجميع الشركاء</p>
-                </div>
 
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => setIsClosingModalOpen(true)}
-                        className="group relative inline-flex items-center gap-3 px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 hover:from-indigo-800 hover:via-indigo-900 hover:to-slate-800 text-white font-black text-xs sm:text-sm border border-indigo-400/40 hover:border-amber-400/60 shadow-xl shadow-indigo-950/20 hover:shadow-indigo-500/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer overflow-hidden"
-                    >
-                        {/* Shimmer / Glow effect on hover */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-                        
-                        <span className="p-1.5 bg-amber-500/20 text-amber-300 rounded-xl border border-amber-400/40 group-hover:rotate-12 group-hover:scale-110 transition-all duration-300 shrink-0 shadow-sm">
-                            <Lock size={16} className="text-amber-300" />
-                        </span>
-
-                        <span className="tracking-tight text-white font-black text-xs sm:text-sm">
-                            إقفال الفترة وبدء دورة جديدة
-                        </span>
-
-                        <span className="px-2.5 py-1 text-[10px] sm:text-[11px] font-black bg-gradient-to-r from-amber-400/20 to-amber-500/20 text-amber-300 rounded-xl border border-amber-400/40 shadow-inner flex items-center gap-1.5 shrink-0">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                            مقاصة المخزون
-                        </span>
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3 shrink-0">
+                        <button
+                            onClick={() => setIsClosingModalOpen(true)}
+                            className="group relative inline-flex items-center gap-3 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-indigo-600 to-indigo-700 hover:from-amber-500/30 hover:to-indigo-600 text-white font-black text-xs sm:text-sm border border-indigo-400/40 hover:border-amber-400/60 shadow-xl shadow-indigo-950/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer overflow-hidden"
+                            title="إقفال الدورة المحاسبية وتسوية مقاصة الشركاء وفق بضاعة المخزون"
+                        >
+                            <span className="p-1.5 bg-amber-500/30 text-amber-300 rounded-xl border border-amber-400/40 group-hover:rotate-12 transition-transform duration-300 shrink-0 shadow-sm">
+                                <Lock size={16} className="text-amber-300" />
+                            </span>
+                            <span className="tracking-tight text-white font-black">
+                                إقفال الفترة وبدء دورة جديدة
+                            </span>
+                            <span className="px-2.5 py-1 text-[10px] font-black bg-amber-400/20 text-amber-300 rounded-xl border border-amber-400/40 flex items-center gap-1.5 shrink-0">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                مقاصة المخزون
+                            </span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* Dynamic Date Range Picker Bar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div className="bg-white dark:bg-slate-900/90 backdrop-blur-xl p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm space-y-4">
                 <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                        <span className="p-2 bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
-                            <Calendar size={18} />
-                        </span>
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                            <Calendar size={20} />
+                        </div>
                         <div>
-                            <h3 className="text-sm font-bold text-slate-800 dark:text-white">نطاق فلترة تاريخ التقارير</h3>
-                            <p className="text-[11px] text-slate-400">حدد الفترة الزمنية لتحديث كافة الرسوم والأرباح وإحصاءات الخسائر والشركاء بشكل منسق.</p>
+                            <h3 className="text-sm font-black text-slate-800 dark:text-white">نطاق فلترة تاريخ التقارير</h3>
+                            <p className="text-[11px] text-slate-400 font-medium">حدد الفترة الزمنية لتحديث كافة الرسوم والأرباح وإحصاءات الخسائر والشركاء بشكل منسق لحظياً.</p>
                         </div>
                     </div>
                     
-                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-100 dark:border-slate-800/80 w-fit">
+                    <div className="flex flex-wrap items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 p-1.5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 w-fit">
                         {[
                             ...(settings?.activePeriodStartDate ? [{ id: 'activePeriod', label: `الدورة الحالية (من ${new Date(settings.activePeriodStartDate).toLocaleDateString('ar-EG')}) 🔒` }] : []),
                             { id: 'all', label: 'كل البيانات' },
@@ -5967,10 +5984,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                             <button
                                 key={preset.id}
                                 onClick={() => setDateRangeType(preset.id)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                                     dateRangeType === preset.id
-                                        ? 'bg-indigo-600 text-white shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                                        ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                                        : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/50'
                                 }`}
                             >
                                 {preset.label}
@@ -5982,38 +5999,39 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
                 {dateRangeType === 'custom' && (
                     <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs animate-in slide-in-from-top-1 duration-200">
                         <div className="flex items-center gap-2">
-                            <span className="text-slate-500 font-bold">من تاريخ:</span>
+                            <span className="text-slate-500 dark:text-slate-400 font-bold">من تاريخ:</span>
                             <input
                                 type="date"
                                 value={customStartDate}
                                 onChange={(e) => setCustomStartDate(e.target.value)}
-                                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 dark:text-slate-200"
+                                className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 dark:text-slate-200"
                             />
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className="text-slate-500 font-bold">إلى تاريخ:</span>
+                            <span className="text-slate-500 dark:text-slate-400 font-bold">إلى تاريخ:</span>
                             <input
                                 type="date"
                                 value={customEndDate}
                                 onChange={(e) => setCustomEndDate(e.target.value)}
-                                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 dark:text-slate-200"
+                                className="px-3.5 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-slate-700 dark:text-slate-200"
                             />
                         </div>
                     </div>
                 )}
             </div>
 
-            <div className="flex gap-2 bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto no-scrollbar scroll-smooth w-full sm:w-fit">
-                <button onClick={() => setActiveTab('pnl')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'pnl' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 dark:shadow-none' : 'text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30'}`}>الأرباح والخسائر P&L ✨</button>
-                <button onClick={() => setActiveTab('summary')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'summary' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>ملخص المبيعات</button>
-                <button onClick={() => setActiveTab('losses')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'losses' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الخسائر</button>
-                <button onClick={() => setActiveTab('pos')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'pos' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الكاشير (POS)</button>
-                <button onClick={() => setActiveTab('comprehensive')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'comprehensive' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>التقرير الشامل</button>
-                <button onClick={() => setActiveTab('final')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'final' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>التقرير الختامي الشامل</button>
-                <button onClick={() => setActiveTab('partners')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>تقرير الشركاء</button>
-                <button onClick={() => setActiveTab('custody')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'custody' ? 'bg-amber-600 text-white shadow' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>العهد المالية</button>
-                <button onClick={() => setActiveTab('inventory')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'inventory' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 dark:shadow-none' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>المشتريات والمخزون</button>
-                <button onClick={() => setActiveTab('accounting')} className={`flex-1 sm:flex-none px-4 sm:px-6 py-2 rounded-lg font-bold transition-all whitespace-nowrap ${activeTab === 'accounting' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 dark:shadow-none' : 'text-purple-600 hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/30 border border-purple-200 dark:border-purple-800/50'}`}>الحسابات الختامية 📊</button>
+            {/* Premium Modern Navigation Tabs */}
+            <div className="flex gap-2 bg-slate-100/80 dark:bg-slate-900/80 p-2 rounded-2xl border border-slate-200/60 dark:border-slate-800 overflow-x-auto no-scrollbar scroll-smooth w-full">
+                <button onClick={() => setActiveTab('pnl')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'pnl' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>الأرباح والخسائر P&L ✨</button>
+                <button onClick={() => setActiveTab('summary')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'summary' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>ملخص المبيعات</button>
+                <button onClick={() => setActiveTab('losses')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'losses' ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>تقرير الخسائر</button>
+                <button onClick={() => setActiveTab('pos')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'pos' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>تقرير الكاشير (POS)</button>
+                <button onClick={() => setActiveTab('comprehensive')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'comprehensive' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>التقرير الشامل</button>
+                <button onClick={() => setActiveTab('final')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'final' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>التقرير الختامي الشامل</button>
+                <button onClick={() => setActiveTab('partners')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'partners' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>تقرير الشركاء</button>
+                <button onClick={() => setActiveTab('custody')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'custody' ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>العهد المالية</button>
+                <button onClick={() => setActiveTab('inventory')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'inventory' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>المشتريات والمخزون</button>
+                <button onClick={() => setActiveTab('accounting')} className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${activeTab === 'accounting' ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30' : 'text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-950/30'}`}>الحسابات الختامية 📊</button>
             </div>
             <div className="relative min-h-[calc(100vh-200px)] mt-6 animate-in fade-in-5 duration-300">
                 {activeTab === 'pnl' && <FinancialPnLDashboard orders={filteredData.orders} settings={filteredData.settings} treasury={treasury} wallet={filteredData.wallet} />}

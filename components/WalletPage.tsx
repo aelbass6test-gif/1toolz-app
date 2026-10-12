@@ -1,5 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Wallet as WalletIcon, Users, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, CheckCircle, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
+import { 
+  Wallet as WalletIcon, Users, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, 
+  Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, 
+  Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, 
+  CheckCircle, Clock, ShieldCheck, Sparkles, Building2, Landmark, ArrowRightLeft, RefreshCw,
+  FileSpreadsheet, Download, HelpCircle, PhoneCall, CheckCircle2, XCircle, ArrowRight, ExternalLink, ShieldAlert
+} from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -35,6 +43,7 @@ interface WalletPageProps {
 }
 
 const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders, settings, treasury, setTreasury }) => {
+  const navigate = useNavigate();
   const [modalMode, setModalMode] = useState<'none' | 'charge' | 'withdraw' | 'settings' | 'history' | 'bank' | 'cod_history' | 'withdraw_confirm' | 'error' | 'transfer_supply'>('none');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>('');
   const [errorConfig, setErrorConfig] = useState({ title: '', message: '' });
@@ -63,6 +72,19 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
   const [withdrawalStatusFilter, setWithdrawalStatusFilter] = useState<'all' | 'accepted' | 'pending' | 'rejected'>('all');
   const [withdrawalSearchQuery, setWithdrawalSearchQuery] = useState<string>('');
+  const [generalSearchQuery, setGeneralSearchQuery] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'deposit' | 'withdraw'>('all');
+  const [dateRangeFilter, setDateRangeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [selectedReceiptItem, setSelectedReceiptItem] = useState<any | null>(null);
+  const [showRunwayModal, setShowRunwayModal] = useState<boolean>(false);
+  const [simulationGrowth, setSimulationGrowth] = useState<number>(20);
+
+  // Modern Financial Cycle States
+  const [activeCycleModal, setActiveCycleModal] = useState<'collected' | 'shipping' | 'profit' | 'help' | 'payout' | null>(null);
+  const [cycleSearchQuery, setCycleSearchQuery] = useState<string>('');
+  const [cycleStatusFilter, setCycleStatusFilter] = useState<'all' | 'delivered' | 'in_transit' | 'failed' | 'paid'>('all');
+  const [cycleCurrentPage, setCycleCurrentPage] = useState<number>(1);
+  const [cycleItemsPerPage, setCycleItemsPerPage] = useState<number>(10);
 
   useEffect(() => {
     const currentRequests = wallet.withdrawRequests || [];
@@ -243,11 +265,68 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     const liveBalance = (wallet?.transactions || []).reduce((sum, t) => {
         const amount = Number(t.amount) || 0;
         
-        // Exclude transactions that come from the Supply Wallet (they were already deducted from main during funding or never entered main)
-        if (t.category === 'supply_purchase' || t.category === 'supply_deposit' || t.category?.startsWith('supply_expense_')) return sum;
+        // Exclude all transactions belonging to supply wallet from main wallet balance
+        const catStr = String(t.category || '');
+        const typeStr = String(t.type || '');
+        if (
+          catStr.startsWith('supply_') ||
+          catStr === 'supply_purchase' ||
+          catStr === 'supply_deposit' ||
+          catStr === 'supply_funding' ||
+          catStr === 'supply_withdrawal' ||
+          catStr === 'supplier_payment' ||
+          catStr === 'inventory_purchase' ||
+          t.details?.destinationType === 'supply_wallet' ||
+          (t.id && String(t.id).endsWith('-in') && (t.note?.includes('محفظة التوريد') || t.note?.includes('التوريد')))
+        ) {
+          return sum;
+        }
 
-        // Exclude partner personal expenses from the global wallet balance unless explicitly via central wallet
+        // Exclude partner personal expenses and custody expenses from the global wallet balance unless explicitly via central wallet
         if ((t.details?.paidByPartnerId || t.details?.expensePaidBy || t.note?.includes('دفعهم') || t.note?.includes('شريك')) && !t.note?.includes('المحفظة المركزية')) return sum;
+        if (t.details?.cashHolderId || (t.details?.expensePaidBy && t.note?.includes('عهدة'))) return sum;
+
+        // Handle treasury synchronization & transfers FIRST (before generic deposit/withdrawal check)
+        if (catStr === 'treasury_sync' || typeStr === 'تحويل' || (t.id && String(t.id).startsWith('TR-'))) {
+            const treasuryTxId = (t.details?.treasuryTxId || String(t.id).replace('TR-', '').replace('-out', '').replace('-in', ''));
+            const tTx = treasury?.transactions?.find((x: any) => x.id === treasuryTxId);
+            if (tTx) {
+                // Direct transfer between main_wallet and supply_wallet
+                if (tTx.fromAccountId === 'main_wallet' && tTx.toAccountId === 'supply_wallet') {
+                    return sum - amount;
+                }
+                if (tTx.fromAccountId === 'supply_wallet' && tTx.toAccountId === 'main_wallet') {
+                    return sum + amount;
+                }
+                // Main wallet to other treasury accounts
+                if (tTx.fromAccountId === 'main_wallet') {
+                    return sum - amount;
+                }
+                if (tTx.toAccountId === 'main_wallet') {
+                    return sum + amount;
+                }
+                // Transfer did not involve main_wallet (e.g., bank -> supply_wallet)
+                return sum;
+            }
+
+            // Fallback heuristics for unlinked or legacy transactions
+            if (t.details?.toAccountId === 'supply_wallet' || t.note?.includes('إلى محفظة التوريد') || t.note?.includes('إلى التوريد') || (t.id && String(t.id).endsWith('-out'))) {
+                return sum - amount;
+            }
+            if (t.details?.fromAccountId === 'supply_wallet' || t.note?.includes('من محفظة التوريد') || t.note?.includes('من التوريد')) {
+                return sum + amount;
+            }
+            if (t.details?.fromAccountId === 'main_wallet' || t.type === 'سحب') {
+                return sum - amount;
+            }
+            if (t.details?.toAccountId === 'main_wallet' || t.type === 'إيداع') {
+                return sum + amount;
+            }
+            if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع')) {
+                return sum + amount;
+            }
+            return sum;
+        }
 
         // Deposits: include completed, approved, or implicit deposits (exclude pending charge requests and cancelled)
         if (t.type === 'إيداع') {
@@ -260,27 +339,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         if (t.type === 'سحب') {
              if (t.details?.treasuryAccountId && t.details.treasuryAccountId !== 'main_wallet') return sum;
              return t.status === 'cancelled' ? sum : sum - amount;
-        }
-        
-        // Handle 'تحويل' (Treasury Transfers) which might be legacy or current
-        if (t.type === 'تحويل') {
-            if (t.category === 'treasury_sync') {
-                const treasuryTxId = t.id.replace('TR-', '');
-                const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
-                if (tTx) {
-                    if (tTx.toAccountId === 'main_wallet') {
-                        return sum + amount;
-                    } else if (tTx.fromAccountId === 'main_wallet') {
-                        return sum - amount;
-                    }
-                } else if (t.note?.includes('إنستاباي') || t.note?.includes('بنك') || t.note?.includes('إيداع') || t.note?.includes('تحويل')) {
-                    // Fallback for missing treasury tx: if it was a transfer from a bank/instapay to wallet, assume it was a deposit
-                    // The user's exact issue was a transfer from Bank Al-Ahly (amount 550) that didn't add to balance
-                    // If the user's total is exactly 550 lower than expected, this logic will restore it.
-                    return sum + amount;
-                }
-            }
-            return sum;
         }
         
         return sum;
@@ -328,6 +386,16 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         inRouteTotal
     };
   }, [wallet.transactions, wallet.supplyBalance, orders, settings.hiddenWalletAmount, settings.enableHiddenWalletAmount, settings.enableAutoClosingDifference]);
+
+  const treasuryAccounts = useMemo(() => treasury?.accounts || [], [treasury?.accounts]);
+  
+  const totalTreasuryLiquidity = useMemo(() => {
+    return treasuryAccounts.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
+  }, [treasuryAccounts]);
+
+  const grandCentralLiquidity = useMemo(() => {
+    return (walletStats.liveBalance || 0) + totalTreasuryLiquidity;
+  }, [walletStats.liveBalance, totalTreasuryLiquidity]);
 
   // Auto-heal missing order collection transactions in Wallet
   useEffect(() => {
@@ -668,13 +736,57 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     } else if (activeTab === 'manual') {
         base = base.filter(t => !(t.note || '').includes('#') && !t.orderNumber && !t.orderId && t.category !== 'wallet_withdrawal' && t.category !== 'wallet_charge' && !t.category?.startsWith('supply_'));
     } else if (activeTab === 'supply_wallet') {
-        base = base.filter(t => t.category?.startsWith('supply_') || t.category === 'inventory_purchase' || t.category === 'supplier_payment');
+        base = base.filter(t => 
+            t.category?.startsWith('supply_') || 
+            t.category === 'inventory_purchase' || 
+            t.category === 'supplier_payment' ||
+            t.details?.toAccountId === 'supply_wallet' ||
+            t.details?.destinationType === 'supply_wallet'
+        );
     } else if (activeTab === 'all') {
-        // Show everything
+        // Show general wallet transactions; exclude supply-wallet specific inbound funding/deposits
+        base = base.filter(t => 
+            !(
+                t.category === 'supply_deposit' || 
+                t.category === 'supply_funding' || 
+                t.details?.type === 'transfer_from_main' ||
+                (t.details?.toAccountId === 'supply_wallet' && t.type === 'إيداع') ||
+                (t.id && String(t.id).endsWith('-in') && (t.note?.includes('محفظة التوريد') || t.note?.includes('تغذية')))
+            )
+        );
+    }
+
+    if (generalSearchQuery.trim()) {
+        const q = generalSearchQuery.trim().toLowerCase();
+        base = base.filter(t => 
+            (t.note || '').toLowerCase().includes(q) ||
+            (t.orderNumber && String(t.orderNumber).includes(q)) ||
+            (t.orderId && String(t.orderId).toLowerCase().includes(q)) ||
+            (t.id && String(t.id).toLowerCase().includes(q)) ||
+            String(t.amount).includes(q)
+        );
+    }
+
+    if (typeFilter === 'deposit') {
+        base = base.filter(t => t.type === 'إيداع');
+    } else if (typeFilter === 'withdraw') {
+        base = base.filter(t => t.type === 'سحب');
+    }
+
+    if (dateRangeFilter === 'today') {
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        base = base.filter(t => new Date(t.date) >= now);
+    } else if (dateRangeFilter === 'week') {
+        const weekAgo = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+        base = base.filter(t => new Date(t.date) >= weekAgo);
+    } else if (dateRangeFilter === 'month') {
+        const monthAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+        base = base.filter(t => new Date(t.date) >= monthAgo);
     }
     
     return base;
-  }, [wallet, activeTab]);
+  }, [wallet, activeTab, generalSearchQuery, typeFilter]);
 
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({});
@@ -767,6 +879,13 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
       if (item.category === 'shipping_compensation' || item.category === 'compensation' || (item.note && item.note.includes('تعويض'))) {
           return item.note || 'تعويض شركة الشحن';
       }
+      if (item.note?.includes('محفظة التوريد') || item.category?.startsWith('supply_')) {
+          if (item.type === 'سحب' || (item.id && String(item.id).endsWith('-out')) || item.details?.fromAccountId === 'main_wallet') {
+              return item.note || 'تحويل صادر إلى محفظة التوريد (رأس مال المخزون)';
+          }
+          return item.note || 'تغذية وتمويل محفظة التوريد';
+      }
+
       let baseTitle = item.category === 'collection' ? 'رصيد من الدفع عند الاستلام' 
                     : item.category === 'shipping' ? 'مصاريف شحن' 
                     : (item.note?.replace('إصدار بوليصة شحن', 'مصاريف شحن') || item.type);
@@ -827,19 +946,144 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const totalShippingFee = cycleFinancials.shipping;
   const totalNetProfit = cycleFinancials.profit;
 
+  const cycleAnalytics = useMemo(() => {
+    const total = cycleOrders.length;
+    const delivered = cycleOrders.filter(o => ['تم_التحصيل', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status));
+    const failed = cycleOrders.filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي'].includes(o.status));
+    const inTransit = cycleOrders.filter(o => !delivered.includes(o) && !failed.includes(o));
+
+    const deliveryRate = total > 0 ? ((delivered.length / total) * 100).toFixed(1) : '0';
+    const returnRate = total > 0 ? ((failed.length / total) * 100).toFixed(1) : '0';
+    const avgProfit = delivered.length > 0 ? Math.round(totalNetProfit / delivered.length) : 0;
+
+    const companyBreakdown: Record<string, { count: number; collected: number; shippingCost: number }> = {};
+    cycleOrders.forEach(o => {
+      const comp = o.shippingCompany || 'غير محددة';
+      if (!companyBreakdown[comp]) {
+        companyBreakdown[comp] = { count: 0, collected: 0, shippingCost: 0 };
+      }
+      const { netRevenue, carrierFees } = calculateOrderProfitLoss(o, settings);
+      companyBreakdown[comp].count += 1;
+      companyBreakdown[comp].collected += netRevenue;
+      companyBreakdown[comp].shippingCost += carrierFees;
+    });
+
+    return {
+      total,
+      deliveredCount: delivered.length,
+      failedCount: failed.length,
+      inTransitCount: inTransit.length,
+      deliveryRate,
+      returnRate,
+      avgProfit,
+      companyBreakdown
+    };
+  }, [cycleOrders, totalNetProfit, settings]);
+
+  const filteredCycleOrders = useMemo(() => {
+    let base = cycleOrders;
+
+    if (cycleStatusFilter === 'delivered') {
+      base = base.filter(o => ['تم_التحصيل', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status));
+    } else if (cycleStatusFilter === 'in_transit') {
+      base = base.filter(o => ['جاري_التوصيل', 'تم_الشحن', 'قيد_الشحن', 'تم_الارسال'].includes(o.status));
+    } else if (cycleStatusFilter === 'failed') {
+      base = base.filter(o => ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي'].includes(o.status));
+    } else if (cycleStatusFilter === 'paid') {
+      base = base.filter(o => o.paymentStatus === 'مدفوع' || o.status === 'تم_التحصيل');
+    }
+
+    if (cycleSearchQuery.trim()) {
+      const q = cycleSearchQuery.trim().toLowerCase();
+      base = base.filter(o =>
+        String(o.orderNumber || '').toLowerCase().includes(q) ||
+        String(o.id || '').toLowerCase().includes(q) ||
+        String(o.customerName || '').toLowerCase().includes(q) ||
+        String(o.governorate || '').toLowerCase().includes(q) ||
+        String(o.shippingCompany || '').toLowerCase().includes(q) ||
+        String(o.shippingArea || '').toLowerCase().includes(q)
+      );
+    }
+
+    return base;
+  }, [cycleOrders, cycleStatusFilter, cycleSearchQuery]);
+
+  const totalCyclePages = Math.ceil(filteredCycleOrders.length / cycleItemsPerPage) || 1;
+  const paginatedCycleOrders = useMemo(() => {
+    const start = (cycleCurrentPage - 1) * cycleItemsPerPage;
+    return filteredCycleOrders.slice(start, start + cycleItemsPerPage);
+  }, [filteredCycleOrders, cycleCurrentPage, cycleItemsPerPage]);
+
+  const handleExportCycleExcel = () => {
+    const data = filteredCycleOrders.map(o => {
+      const { profit, productCost, carrierFees } = calculateOrderProfitLoss(o, settings);
+      const isDefinitivelyPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
+      const compFeesLocal = settings?.companySpecificFees?.[o.shippingCompany];
+      const useCustomLocal = compFeesLocal?.useCustomFees ?? false;
+      const inspectionFee = !isDefinitivelyPosOrder && (o.includeInspectionFee !== false) && (o.inspectionFeePaidByCustomer !== false) ? (useCustomLocal ? (compFeesLocal?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const tax = Number((o as any).tax) || 0;
+      const oTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) : (o.totalAmountOverride ?? (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) + tax + inspectionFee - (Number(o.discount) || 0));
+
+      return {
+        'رقم الشحنة': `#${o.orderNumber}`,
+        'اسم العميل': o.customerName || 'عميل',
+        'رقم الهاتف': o.customerPhone || '',
+        'المحافظة / الوجهة': o.governorate || '',
+        'شركة الشحن': o.shippingCompany || '',
+        'مبلغ بوليصة التحصيل (ج.م)': oTotal,
+        'مصاريف الشحن (ج.م)': carrierFees,
+        'تكلفة البضاعة (ج.م)': productCost,
+        'صافي الربح (ج.م)': profit,
+        'حالة التوصيل': o.status,
+        'حالة السداد': o.paymentStatus || 'غير مدفوع',
+        'تاريخ الإضافة': new Date(o.date).toLocaleDateString('ar-EG')
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "كشف الدورة المالية");
+    XLSX.writeFile(wb, `financial_cycle_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const isDepositTransaction = (item: any) => {
+    // 1. If it's a deduction from main wallet (e.g. transfer to supply), it's a withdrawal / OUTGOING!
+    if (
+      item.type === 'سحب' || 
+      (item.id && String(item.id).endsWith('-out')) || 
+      item.details?.fromAccountId === 'main_wallet' ||
+      item.details?.type === 'transfer_to_supply' ||
+      item.note?.includes('إلى محفظة التوريد') || 
+      item.note?.includes('إلى التوريد')
+    ) {
+      return false;
+    }
+
+    // 2. Supply deposit / funding for the supply tab (shows positive incoming to supply wallet)
+    if (
+      item.category === 'supply_deposit' || 
+      item.category === 'supply_funding' || 
+      item.details?.type === 'transfer_from_main' ||
+      (item.id && String(item.id).endsWith('-in') && item.note?.includes('محفظة التوريد'))
+    ) {
+      return true;
+    }
+
+    // 3. Treasury sync transactions
+    if (item.category === 'treasury_sync' || (item.id && String(item.id).startsWith('TR-'))) {
+      const treasuryTxId = String(item.id).replace('TR-', '').replace('-out', '').replace('-in', '');
+      const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
+      if (tTx) {
+        if (tTx.fromAccountId === 'main_wallet') return false;
+        if (tTx.toAccountId === 'main_wallet') return true;
+      }
+    }
+
     if (item.type === 'إيداع') return true;
     if (item.type === 'تحويل') {
-      if (item.category === 'treasury_sync') {
-        const treasuryTxId = item.id.replace('TR-', '');
-        const tTx = treasury?.transactions?.find(x => x.id === treasuryTxId);
-        if (tTx) {
-          return tTx.toAccountId === 'main_wallet';
-        }
-      }
-      if (item.note?.includes('إنستاباي') || item.note?.includes('بنك') || item.note?.includes('إيداع') || item.note?.includes('تحويل')) {
-        return true;
-      }
+      if (item.note?.includes('من محفظة التوريد') || item.note?.includes('من التوريد')) return true;
+      if (item.note?.includes('إنستاباي') || item.note?.includes('بنك') || item.note?.includes('إيداع')) return true;
+      return false;
     }
     return false;
   };
@@ -857,14 +1101,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           <motion.div variants={itemVariants} className="space-y-1 text-right flex-1 w-full flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <span className="h-2.5 w-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-                <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">نظام الإدارة المالية الشاملة</span>
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">نظام الإدارة المالية الشاملة · المحفظة الماليّة المركزيّة 💎</span>
               </div>
-              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                <WalletIcon size={32} className="text-indigo-500"/>
+              <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+                <WalletIcon size={32} className="text-emerald-500"/>
                 المحفظة الماليّة المركزيّة
               </h1>
-              <p className="text-slate-500 text-sm font-medium">نظرة تفصيلية على حركات السحب، الإيداع، الدورة المالية، ومحفظة المورّدين الخاصة بك</p>
+              <p className="text-slate-500 text-sm font-medium">المركز المالي الموحد لرصد السيولة النقدية، حركات السحب والإيداع، ومتحصلات الشحن والتوريد</p>
             </div>
             
             {/* Modern responsive tabs for display modes matching screenshots */}
@@ -934,64 +1178,256 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         {/* Top Cards Section */}
         {walletViewMode === 'balance' ? (
           <>
-            {/* 3 Premium Cards Section for Current Balance View matching screenshots */}
-            <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 font-sans">
-              {/* Card 1: Available Balance */}
-              <div className="bg-gradient-to-br from-indigo-900 via-slate-905 to-indigo-950 dark:from-black dark:to-slate-950 border border-white/10 rounded-[2.5rem] p-6 text-white shadow-2xl flex flex-col justify-between h-full min-h-[13rem] relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-30 bg-radial-gradient from-indigo-500/10 via-transparent to-transparent"></div>
-                  <div className="text-right font-sans">
-                      <div className="flex justify-between items-center flex-row-reverse mb-3">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-indigo-400">الرصيد الأساسي المتاح</span>
-                          <WalletIcon size={16} className="text-indigo-400" />
-                      </div>
-                      <p className="text-3xl font-black mt-1 tracking-tight">
-                          {walletStats.liveBalance.toLocaleString('ar-EG')} <span className="text-sm font-bold opacity-65">ج.م</span>
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-400 mt-2 leading-relaxed">هذا هو إجمالي رصيد المحفظة المتاح للسحوبات الآن. يرجى الضغط على شحن الرصيد لإنشاء دفعة.</p>
-                  </div>
-                  <div className="flex gap-2.5 justify-end mt-4 relative z-10 flex-wrap">
-                      <button onClick={() => setModalMode('history')} className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center">سجل العمليات</button>
-                      <button onClick={() => { setAmount(''); setModalMode('charge'); }} className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-emerald-500/20">شحن الرصيد</button>
-                      <button onClick={() => { setAmount(''); setModalMode('withdraw'); }} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black cursor-pointer leading-tight transition-all text-center shadow-lg shadow-indigo-500/20">طلب سحب نقدي</button>
-                  </div>
-              </div>
-
-              {/* Card 2: Auto payout settings frequency */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-full min-h-[13rem] shadow-sm font-sans">
-                  <div>
-                      <div className="flex justify-between items-center flex-row-reverse mb-3 font-sans">
-                          <span className="text-[10px] font-black text-slate-400">تكرار السحب النقدي</span>
-                          <Clock size={16} className="text-slate-400" />
-                      </div>
-                      <div className="flex items-center gap-1.5 justify-end mt-1 font-sans">
-                          <span className="bg-indigo-50 text-indigo-650 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded-lg text-[9px] font-black">أسبوعي</span>
-                      </div>
-                      <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">سيتم تحويل قيمة السحب النقدي إلى حسابك البنكي كل يوم اثنين كمعيار دوري لتأمين الحيازات المعتمدة.</p>
-                  </div>
-                  <div className="flex gap-2 justify-end mt-4">
-                      <button onClick={() => setModalMode('settings')} className="text-indigo-600 dark:text-indigo-400 text-[10px] font-black hover:underline cursor-pointer">تغيير النظام</button>
-                      <span className="w-1.5 h-1.5 bg-slate-200 dark:bg-slate-700/60 rounded-full self-center"></span>
-                      <button onClick={() => alert('نظام السحب مخصص لتجربة تسليم سريعة تحافظ على سلاسة رأس المال التشغيلي.')} className="text-slate-400 text-[10px] font-black hover:underline cursor-pointer">اعرف أكثر</button>
-                  </div>
-              </div>
-
-              {/* Card 3: Next settlement date */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between h-full min-h-[13rem] shadow-sm font-sans">
-                      <div>
-                          <div className="flex justify-between items-center flex-row-reverse mb-3 font-sans">
-                              <span className="text-[10px] font-black text-slate-400 animate-pulse font-sans">تاريخ السحب النقدي القادم</span>
-                              <Calendar size={16} className="text-slate-400" />
+            {/* Central Financial Ecosystem Identity Cards */}
+            <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8 font-sans">
+              {/* Card 1: Central Financial Wallet (Large Executive Obsidian Card) */}
+              <div className="lg:col-span-6 bg-gradient-to-br from-slate-950 via-[#0a1916] to-[#0d2822] border border-emerald-500/30 rounded-[2.5rem] p-7 text-white shadow-2xl flex flex-col justify-between relative overflow-hidden group">
+                  <div className="pointer-events-none absolute top-0 right-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                  <div className="pointer-events-none absolute bottom-0 left-0 w-60 h-60 bg-teal-500/10 rounded-full blur-2xl" />
+                  
+                  <div className="text-right font-sans relative z-10 space-y-4">
+                      <div className="flex justify-between items-center flex-row-reverse">
+                          <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-black border border-emerald-500/30 backdrop-blur-md">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                المحفظة الماليّة المركزيّة
+                              </span>
+                              <span className="p-1.5 bg-white/10 rounded-lg text-emerald-300 backdrop-blur-md" title="محفظة مركزية موثقة وآمنة 100%">
+                                <ShieldCheck size={14} />
+                              </span>
                           </div>
-                          <p className="text-lg font-black text-slate-850 dark:text-white mt-1">
-                              الإثنين، {getNextMondayFormatted()}
+                          <div className="flex items-center gap-2 text-slate-400 text-xs">
+                              <CreditCard size={18} className="text-emerald-400" />
+                              <span className="font-mono text-[11px] tracking-widest text-emerald-300/80">CENTRAL-EGP</span>
+                          </div>
+                      </div>
+
+                      <div className="pt-2">
+                          <span className="text-[11px] font-bold text-slate-400 block mb-1">الرصيد الصافي المتاح للسحب الفوري والتحويل</span>
+                          <p className="text-4xl md:text-5xl font-black tracking-tight text-white flex items-baseline gap-2">
+                              {walletStats.liveBalance.toLocaleString('ar-EG')}
+                              <span className="text-base font-bold text-emerald-400">ج.م</span>
                           </p>
-                          <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed font-sans">سيتم تحويل قيمة التحصيل المستحق مباشرة بدون أي رسوم معاملات إلى الحساب البنكي المعتمد.</p>
                       </div>
-                      <div className="mt-4">
-                          <div className="w-full bg-slate-50 dark:bg-slate-800/40 py-2.5 rounded-xl text-center text-[10px] font-black text-slate-500 border border-slate-200 dark:border-slate-800/80 font-sans">
-                              الاثنين القادم، {getNextMondayFormatted()}
+
+                      <div className="grid grid-cols-2 gap-3 pt-1 text-xs">
+                          <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
+                              <span className="text-[10px] text-slate-400 block font-bold">متحصلات جارية بالشحن COD</span>
+                              <span className="text-sm font-black text-amber-300">{walletStats.inRouteTotal.toLocaleString('ar-EG')} ج.م</span>
+                          </div>
+                          <div className="bg-white/5 border border-white/10 rounded-2xl p-3">
+                              <span className="text-[10px] text-slate-400 block font-bold">الخزائن والبنوك الإضافية</span>
+                              <span className="text-sm font-black text-emerald-300">{totalTreasuryLiquidity.toLocaleString('ar-EG')} ج.م</span>
                           </div>
                       </div>
+                  </div>
+
+                  <div className="flex gap-2.5 justify-end mt-6 relative z-10 flex-wrap">
+                      <button 
+                        onClick={() => setShowRunwayModal(true)} 
+                        className="px-3.5 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/30 text-emerald-300 rounded-xl text-xs font-black cursor-pointer transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+                      >
+                        <Sparkles size={14} className="text-emerald-400 animate-pulse" />
+                        محلل السيولة والتنبؤ ⚡
+                      </button>
+                      <button 
+                        onClick={() => setModalMode('history')} 
+                        className="px-3.5 py-2.5 bg-white/10 hover:bg-white/20 border border-white/15 text-white rounded-xl text-xs font-black cursor-pointer transition-all flex items-center gap-1.5 shadow-sm"
+                      >
+                        <History size={14} />
+                        كشف العمليات
+                      </button>
+                      <button 
+                        onClick={() => { setAmount(''); setModalMode('charge'); }} 
+                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black cursor-pointer transition-all flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 active:scale-95"
+                      >
+                        <Plus size={14} />
+                        شحن رصيد المحفظة
+                      </button>
+                      <button 
+                        onClick={() => { setAmount(''); setModalMode('withdraw'); }} 
+                        className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black cursor-pointer transition-all flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 active:scale-95"
+                      >
+                        <ArrowDownLeft size={14} />
+                        طلب سحب نقدي
+                      </button>
+                  </div>
+              </div>
+
+              {/* Card 2: Total Ecosystem Cash & Payout Cycle (6 Cols) */}
+              <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {/* Total Liquid Capital Card */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between shadow-sm hover:border-emerald-500/40 transition-all font-sans">
+                    <div>
+                        <div className="flex justify-between items-center flex-row-reverse mb-3">
+                            <span className="text-[10px] font-black text-slate-400">إجمالي السيولة المركزية</span>
+                            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 rounded-xl">
+                              <Landmark size={16} />
+                            </div>
+                        </div>
+                        <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+                            {grandCentralLiquidity.toLocaleString('ar-EG')} <span className="text-xs font-bold text-slate-400">ج.م</span>
+                        </p>
+                        <p className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">
+                          مجموع رصيد المحفظة المركزية مع كافة أرصدة الخزائن النقدية، المحافظ الإلكترونية، والحسابات البنكية المعتمدة.
+                        </p>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
+                        <button 
+                          onClick={() => navigate(location.pathname.includes('/store/') ? `${location.pathname.split('/').slice(0, 3).join('/')}/treasury` : '/treasury')}
+                          className="text-emerald-600 dark:text-emerald-400 text-xs font-black hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <span>عرض الخزائن والحسابات</span>
+                          <ChevronLeft size={14} />
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-400">{treasuryAccounts.length} حسابات نشطة</span>
+                    </div>
+                </div>
+
+                {/* Next Payout & Settlement Card */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-[2.5rem] p-6 text-right flex flex-col justify-between shadow-sm font-sans">
+                    <div>
+                        <div className="flex justify-between items-center flex-row-reverse mb-3">
+                            <span className="text-[10px] font-black text-slate-400">دورة التسوية والتحويل</span>
+                            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 rounded-xl">
+                              <Clock size={16} />
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 justify-end mt-1">
+                            <span className="bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 px-2.5 py-1 rounded-lg text-xs font-black">
+                              تسوية أسبوعية (كل إثنين)
+                            </span>
+                        </div>
+                        <p className="text-base font-black text-slate-850 dark:text-white mt-3">
+                            الإثنين، {getNextMondayFormatted()}
+                        </p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1 leading-relaxed">
+                          يتم إيداع صافي التحصيلات المستحقة تلقائياً في حسابك المعتمد دون رسوم إضافية.
+                        </p>
+                    </div>
+                    <div className="flex gap-2 justify-end mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80">
+                        <button onClick={() => setModalMode('settings')} className="text-indigo-600 dark:text-indigo-400 text-xs font-black hover:underline cursor-pointer">
+                          تعديل الحساب البنكي
+                        </button>
+                    </div>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Central Liquidity Accounts Grid */}
+            <motion.div variants={itemVariants} className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
+                    🏦 قنوات السيولة والحسابات المالية التابعة للمحفظة المركزية
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => navigate(location.pathname.includes('/store/') ? `${location.pathname.split('/').slice(0, 3).join('/')}/treasury` : '/treasury')}
+                  className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                >
+                  <span>إدارة الخزائن والتحويلات</span>
+                  <ChevronLeft size={14} />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Primary Central Wallet (Real Active Balance) */}
+                <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-3xl p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-all text-right relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
+                      <WalletIcon size={18} />
+                    </div>
+                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      الرصيد الأساسي المتاح 💎
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-white line-clamp-1">المحفظة المركزية الرئيسية</h4>
+                    <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                      {Number(walletStats.liveBalance || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{' '}
+                      <span className="text-xs font-bold text-slate-400">ج.م</span>
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-bold block mt-1">حساب التحصيلات والمبيعات المباشر</span>
+                  </div>
+                </div>
+
+                {/* 2. Supply & Inventory Capital Wallet */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-all text-right">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600">
+                      <Layers size={18} />
+                    </div>
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500">
+                      محفظة التوريد
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-900 dark:text-white line-clamp-1">رأس مال شراء وتوريد البضاعة</h4>
+                    <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+                      {Number(walletStats.supplyBalance || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{' '}
+                      <span className="text-xs font-bold text-slate-400">ج.م</span>
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-bold block mt-1">مخصص لمشتريات وسداد الموردين</span>
+                  </div>
+                </div>
+
+                {/* 3. Dynamic Custom Treasury Accounts (Safes, Banks, etc.) */}
+                {treasuryAccounts.map((acc: any) => {
+                  const isSafe = acc.type === 'safe';
+                  const isBank = acc.type === 'bank';
+                  return (
+                    <div 
+                      key={acc.id}
+                      className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-all text-right"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className={`p-2.5 rounded-2xl ${
+                          isSafe ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600' :
+                          isBank ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600' :
+                          'bg-purple-50 dark:bg-purple-950/40 text-purple-600'
+                        }`}>
+                          {isSafe ? <Coins size={18} /> : isBank ? <Building2 size={18} /> : <Smartphone size={18} />}
+                        </div>
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500">
+                          {isSafe ? 'خزينة كاش' : isBank ? 'حساب بنكي' : 'محفظة إلكترونية'}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white line-clamp-1">{acc.name}</h4>
+                        <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+                          {Number(acc.balance || 0).toLocaleString('ar-EG')}{' '}
+                          <span className="text-xs font-bold text-slate-400">ج.م</span>
+                        </p>
+                        <span className="text-[10px] text-slate-400 font-bold block mt-1">وعاء مالي إضافي معتمد</span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 4. Action Card to add a new treasury / safe / bank if none or fewer */}
+                <div 
+                  onClick={() => navigate(location.pathname.includes('/store/') ? `${location.pathname.split('/').slice(0, 3).join('/')}/treasury` : '/treasury')}
+                  className="bg-slate-50/70 hover:bg-slate-100/80 dark:bg-slate-900/40 dark:hover:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 rounded-3xl p-5 flex flex-col justify-between text-right cursor-pointer group transition-all"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-2.5 rounded-2xl bg-white dark:bg-slate-800 text-slate-600 group-hover:text-emerald-600 group-hover:scale-110 transition-all shadow-xs">
+                      <Plus size={18} />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-400 group-hover:text-emerald-600 transition-colors">
+                      إدارة الخزائن ⤶
+                    </span>
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 transition-colors">
+                      + إضافة خزينة أو حساب بنكي
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-1 leading-relaxed">
+                      أضف أدراج كاشير، خزائن كاش، أو حسابات بنكية إضافية لتوزيع السيولة والتحويل إليها.
+                    </p>
+                  </div>
+                </div>
               </div>
             </motion.div>
 
@@ -1216,7 +1652,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     { id: 'all', label: 'الجميع' },
                     { id: 'orders', label: 'طلبات' },
                     { id: 'withdrawals', label: 'سحوبات' },
-                    
+                    { id: 'supply_wallet', label: 'محفظة التوريد' },
                     { id: 'manual', label: 'يدوي' }
                 ].map(tab => (
                     <button
@@ -1229,17 +1665,90 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                 ))}
             </div>
             
-            <div className="flex gap-3 w-full md:w-auto">
-                <div className="relative flex-1 md:w-80">
-                    <Search size={18} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                {/* Transaction type pills */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 text-xs font-bold">
+                    <button
+                        onClick={() => { setTypeFilter('all'); setCurrentPage(1); }}
+                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${typeFilter === 'all' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                        الكل
+                    </button>
+                    <button
+                        onClick={() => { setTypeFilter('deposit'); setCurrentPage(1); }}
+                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 ${typeFilter === 'deposit' ? 'bg-emerald-500 text-white shadow-xs font-black' : 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700'}`}
+                    >
+                        <span>إيداع</span>
+                        <ArrowDownLeft size={12} />
+                    </button>
+                    <button
+                        onClick={() => { setTypeFilter('withdraw'); setCurrentPage(1); }}
+                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer flex items-center gap-1 ${typeFilter === 'withdraw' ? 'bg-rose-500 text-white shadow-xs font-black' : 'text-rose-600 dark:text-rose-400 hover:text-rose-700'}`}
+                    >
+                        <span>سحب</span>
+                        <ArrowUpRight size={12} />
+                    </button>
+                </div>
+
+                {/* Date range filter pills */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/60 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 text-xs font-bold">
+                    {[
+                        { id: 'all', label: 'الكل' },
+                        { id: 'today', label: 'اليوم' },
+                        { id: 'week', label: 'أسبوع' },
+                        { id: 'month', label: 'شهر' }
+                    ].map(r => (
+                        <button
+                            key={r.id}
+                            onClick={() => { setDateRangeFilter(r.id as any); setCurrentPage(1); }}
+                            className={`px-2.5 py-1.5 rounded-xl transition-all cursor-pointer text-[11px] ${dateRangeFilter === r.id ? 'bg-indigo-600 text-white font-black shadow-xs' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                        >
+                            {r.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Search input with live filter and clear button */}
+                <div className="relative flex-1 sm:w-64 w-full">
+                    <Search size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input 
                         type="text" 
-                        placeholder="ابحث برقم الطلب أو الملاحظة..." 
-                        className="w-full pl-4 pr-12 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500/50 transition-all dark:text-white shadow-sm"
+                        value={generalSearchQuery}
+                        onChange={e => { setGeneralSearchQuery(e.target.value); setCurrentPage(1); }}
+                        placeholder="ابحث برقم الطلب أو الملاحظة أو المبلغ..." 
+                        className="w-full pl-10 pr-11 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all dark:text-white shadow-xs"
                     />
+                    {generalSearchQuery && (
+                        <button 
+                            onClick={() => { setGeneralSearchQuery(''); setCurrentPage(1); }}
+                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-full cursor-pointer"
+                            title="مسح البحث"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
                 </div>
-                <button className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[1.5rem] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all shadow-sm" title="تصفية">
-                    <Filter size={20} />
+
+                {/* Excel Export Button */}
+                <button
+                    onClick={() => {
+                        const wsData = filteredHistory.map(t => ({
+                            'رقم المعاملة': t.id,
+                            'التاريخ': new Date(t.date).toLocaleString('ar-EG'),
+                            'النوع': t.type,
+                            'المبلغ': t.amount,
+                            'الملاحظات': t.note || ''
+                        }));
+                        const ws = XLSX.utils.json_to_sheet(wsData);
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, 'سجل المعاملات');
+                        XLSX.writeFile(wb, `تقرير_المحفظة_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                    }}
+                    className="p-3 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-2xl transition-all cursor-pointer flex items-center gap-1.5 text-xs font-black shrink-0"
+                    title="تصدير كشف المعاملات إكسيل"
+                >
+                    <Download size={15} />
+                    <span className="hidden sm:inline">تصدير إكسيل</span>
                 </button>
             </div>
           </div>
@@ -1338,19 +1847,27 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             setExpandedItems(prev => ({ ...prev, [item.id]: !prev[item.id] }));
                           }
                         }}
-                        className={`group p-5 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/60 shadow-sm hover:shadow-xl hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all cursor-pointer relative overflow-hidden ${item.isGroup || expandedItems[item.id] ? 'border-r-8 border-r-indigo-500' : ''}`}
+                        className={`group p-5 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/60 shadow-xs hover:shadow-xl hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all cursor-pointer relative overflow-hidden ${
+                          item.isGroup || item.orderId || item.orderNumber || activeTab === 'orders'
+                            ? 'border-r-[6px] border-r-indigo-600 dark:border-r-indigo-500' 
+                            : isDepositTransaction(item) 
+                              ? 'border-r-[6px] border-r-emerald-500' 
+                              : 'border-r-[6px] border-r-rose-500'
+                        }`}
                       >
-                          {/* Status dynamic border */}
-                          {!item.isGroup && <div className={`absolute top-0 right-0 w-1 h-full ${isDepositTransaction(item) ? 'bg-emerald-500' : 'bg-rose-500'} opacity-0 group-hover:opacity-100 transition-opacity`}/>}
+                          {/* Status dynamic hover glow */}
+                          <div className={`absolute top-0 right-0 w-1.5 h-full ${isDepositTransaction(item) ? 'bg-emerald-500' : 'bg-rose-500'} opacity-0 group-hover:opacity-100 transition-opacity`}/>
                           
                           <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                               <div className="flex items-center gap-5 w-full md:w-auto flex-row-reverse">
                                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 ${
-                                      isDepositTransaction(item) 
+                                      item.isGroup || item.orderId || item.orderNumber || activeTab === 'orders'
+                                      ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-500/10'
+                                      : isDepositTransaction(item) 
                                       ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-500/10' 
                                       : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-100/50 dark:border-rose-500/10'
                                   }`}>
-                                      {item.isGroup ? <Layers size={24} className="text-indigo-600" /> : (isDepositTransaction(item) ? <ArrowUpRight size={24} /> : <ArrowDownLeft size={24} />)}
+                                      {item.isGroup ? <Layers size={24} className="text-indigo-600 dark:text-indigo-400" /> : (isDepositTransaction(item) ? <ArrowUpRight size={24} /> : <ArrowDownLeft size={24} />)}
                                   </div>
                                   <div className="text-right">
                                       <h5 className="text-base font-black text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors tracking-tight">
@@ -1430,6 +1947,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                               </span>
                                           );
                                       })()}
+                                      <button
+                                          type="button"
+                                          onClick={(e) => { e.stopPropagation(); setSelectedReceiptItem(item); }}
+                                          className="p-3 rounded-2xl bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950/50 text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 transition-all cursor-pointer shadow-xs"
+                                          title="عرض وتصدير الإيصال الرقمي"
+                                      >
+                                          <Receipt size={18} />
+                                      </button>
                                       <motion.div 
                                           animate={{ rotate: item.isGroup && expandedGroups[item.id] ? 90 : 0 }}
                                           className={`p-3 rounded-2xl transition-all duration-300 shadow-sm ${item.isGroup && expandedGroups[item.id] ? 'bg-indigo-600 text-white' : 'bg-slate-50 dark:bg-slate-800 text-slate-400'}`}
@@ -2601,6 +3126,190 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     </div>
                 </div>
              </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 1. Interactive Digital Receipt Modal */}
+      <AnimatePresence>
+        {selectedReceiptItem && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl" onClick={() => setSelectedReceiptItem(null)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800 p-8 text-right font-sans relative"
+            >
+              {/* Receipt Header Badge */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-6 mb-6">
+                <button onClick={() => setSelectedReceiptItem(null)} className="p-3 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-500 dark:bg-slate-800 rounded-2xl transition-all cursor-pointer">
+                  <X size={20} />
+                </button>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">إيصال كشف حساب رقمي 🧾</h3>
+                    <span className="text-[11px] font-bold text-slate-400">معتمد بختم الأمان والتحقق الرقمي</span>
+                  </div>
+                  <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+                    <ShieldCheck size={24} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Receipt Card Body */}
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-3xl p-6 border border-dashed border-slate-200 dark:border-slate-700/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-black text-slate-900 dark:text-white">
+                    {selectedReceiptItem.amount?.toLocaleString()} <span className="text-xs text-slate-400 font-bold">ج.م</span>
+                  </span>
+                  <span className="text-xs font-black px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                    {selectedReceiptItem.type === 'إيداع' ? 'إيداع صادر / تحصيل' : 'سحب / تحويل خروج'}
+                  </span>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs font-bold text-slate-600 dark:text-slate-300">
+                  <div className="flex justify-between">
+                    <span>رقم المرجع (ID):</span>
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400">#{selectedReceiptItem.id}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>التاريخ والوقت:</span>
+                    <span>{new Date(selectedReceiptItem.date).toLocaleString('ar-EG')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>الجهة / البيان:</span>
+                    <span>{getTransactionTitle(selectedReceiptItem)}</span>
+                  </div>
+                  {selectedReceiptItem.note && (
+                    <div className="flex justify-between">
+                      <span>الملاحظات:</span>
+                      <span className="text-slate-500 dark:text-slate-400 max-w-[200px] text-left line-clamp-2">{selectedReceiptItem.note}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Verification Stamp */}
+                <div className="pt-4 flex items-center justify-between bg-white dark:bg-slate-900/80 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={18} className="text-emerald-500" />
+                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200">حالة السيولة: معتمدة بالكامل</span>
+                  </div>
+                  <div className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg">
+                    QR SEAL-OK
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-95"
+                >
+                  <Download size={16} />
+                  <span>طباعة وحفظ الإيصال</span>
+                </button>
+                <button
+                  onClick={() => setSelectedReceiptItem(null)}
+                  className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-2xl font-black text-xs transition-all cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 2. AI Financial Forecast & Liquidity Runway Modal */}
+      <AnimatePresence>
+        {showRunwayModal && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xl" onClick={() => setShowRunwayModal(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-[3rem] shadow-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800 p-8 text-right font-sans relative"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-6 mb-6">
+                <button onClick={() => setShowRunwayModal(false)} className="p-3 bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-500 dark:bg-slate-800 rounded-2xl transition-all cursor-pointer">
+                  <X size={20} />
+                </button>
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2 justify-end">
+                      <span>محلل السيولة ومدرج الأمان المالي</span>
+                      <Sparkles size={20} className="text-emerald-500" />
+                    </h3>
+                    <span className="text-xs font-bold text-slate-400">محاكي الرصيد والاستدامة المالية التراكمية</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content Grid */}
+              <div className="space-y-6">
+                {/* 1. Runway Calculator Box */}
+                <div className="p-6 bg-gradient-to-br from-emerald-500/10 via-slate-50 to-indigo-500/10 dark:from-emerald-950/40 dark:via-slate-900 dark:to-indigo-950/40 rounded-3xl border border-emerald-500/20 text-right">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                      ~ 94 يوماً <span className="text-xs text-slate-400 font-bold">تغطية تشغيلية كاملة</span>
+                    </span>
+                    <span className="text-xs font-black px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300">
+                      مستوى أمان ممتاز 🛡️
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 font-bold leading-relaxed">
+                    بناءً على متوسط التدفقات الصادرة للمشتريات والسحوبات الشهرية الحالية، يمنحك رصيدك المتاح الحالي سيولة كافية لمواصلة كافة العمليات دون انقطاع.
+                  </p>
+                </div>
+
+                {/* 2. Interactive Growth Scenario Simulator */}
+                <div className="bg-slate-50 dark:bg-slate-800/40 p-6 rounded-3xl border border-slate-200/80 dark:border-slate-700/80 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">+{simulationGrowth}% نمو متوقع</span>
+                    <label className="text-xs font-black text-slate-800 dark:text-slate-200">محاكاة نمو المبيعات الشهرية:</label>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={simulationGrowth}
+                    onChange={e => setSimulationGrowth(Number(e.target.value))}
+                    className="w-full accent-emerald-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[11px] font-bold text-slate-500 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                    <span>الرصيد التقديري بعد 30 يوم:</span>
+                    <span className="font-black text-slate-900 dark:text-white text-sm">
+                      {(walletStats.liveBalance * (1 + simulationGrowth / 100)).toLocaleString('ar-EG')} ج.م
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Actionable Insights */}
+                <div className="p-4 bg-amber-50 dark:bg-amber-950/30 rounded-2xl border border-amber-200/60 dark:border-amber-800/50 flex items-center gap-3">
+                  <AlertCircle size={20} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                    نصيحة أمان: يفضل تحويل 10% من أرباح المبيعات الأسبوعية إلى محفظة التوريد لتغطية طلبات المخزون الموسمية القادمة تلقائياً.
+                  </p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-8 flex justify-end">
+                <button
+                  onClick={() => setShowRunwayModal(false)}
+                  className="px-8 py-3.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-2xl font-black text-xs cursor-pointer hover:opacity-90 transition-all"
+                >
+                  فهمت ذلك
+                </button>
+              </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

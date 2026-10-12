@@ -82,6 +82,14 @@ try {
 
 const knownMissingColumns = new Set<string>([...defaultMissingColumns, ...storedMissingCols]);
 
+let storedMissingTables: string[] = [];
+try {
+    const rawTables = typeof window !== 'undefined' ? localStorage.getItem('supabase_missing_tables') : null;
+    if (rawTables) storedMissingTables = JSON.parse(rawTables);
+} catch (e) {}
+
+const knownMissingTables = new Set<string>(['quotations', ...storedMissingTables]);
+
 export const syncSupabaseCredentials = (storeId: string, settings: any) => {
     if (typeof window === 'undefined') return;
     const activeStoreId = localStorage.getItem('lastActiveStoreId');
@@ -578,11 +586,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     if (supabase) {
         try {
             const fetchTable = async (table: string) => {
+                if (knownMissingTables.has(table)) {
+                    return [];
+                }
                 try {
                     const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
                     if (error) {
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
-                            console.warn(`Table ${table} not found in Supabase schema. Skipping fetch.`);
+                            knownMissingTables.add(table);
+                            try {
+                                if (typeof window !== 'undefined') {
+                                    localStorage.setItem('supabase_missing_tables', JSON.stringify(Array.from(knownMissingTables)));
+                                }
+                            } catch (e) {}
                             return [];
                         }
                         throw error;
@@ -1053,6 +1069,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             }
 
             const syncTable = async (table: string, rawItems: any[], omitFields: string[] = []) => {
+                if (knownMissingTables.has(table)) {
+                    return;
+                }
                 const items = Array.isArray(rawItems) ? rawItems : [];
                 const fingerprintKey = `${store.id}:${table}`;
                 const fingerprint = JSON.stringify(items);
@@ -1563,7 +1582,12 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         }
                         
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
-                            console.warn(`Table ${table} not found in Supabase schema. Skipping sync.`);
+                            knownMissingTables.add(table);
+                            try {
+                                if (typeof window !== 'undefined') {
+                                    localStorage.setItem('supabase_missing_tables', JSON.stringify(Array.from(knownMissingTables)));
+                                }
+                            } catch (e) {}
                             return;
                         }
                         

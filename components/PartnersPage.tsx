@@ -1286,86 +1286,91 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         )}
       </AnimatePresence>
       
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-black text-slate-800 dark:text-white flex items-center gap-3">
-             <div className="p-2 bg-indigo-600 text-white rounded-2xl">
-                <PieChart size={24} />
-             </div>
-             إدارة الشركاء
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium">متابعة رؤوس الأموال، السلف، وتوزيع الأرباح</p>
-        </div>
-        
-        <div className="flex flex-wrap gap-3">
-              <button 
-                onClick={() => setIsClosingModalOpen(true)}
-                className="group relative inline-flex items-center gap-3 px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 hover:from-indigo-800 hover:via-indigo-900 hover:to-slate-800 text-white font-black text-xs sm:text-sm border border-indigo-400/40 hover:border-amber-400/60 shadow-xl shadow-indigo-950/20 hover:shadow-indigo-500/20 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer overflow-hidden"
-                title="إقفال الدورة المحاسبية وتسوية مقاصة الشركاء وفق بضاعة المخزون"
-              >
-                {/* Shimmer / Glow effect on hover */}
-                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-                
-                <span className="p-1.5 bg-amber-500/20 text-amber-300 rounded-xl border border-amber-400/40 group-hover:rotate-12 group-hover:scale-110 transition-all duration-300 shrink-0 shadow-sm">
-                    <Lock size={16} className="text-amber-300" />
-                </span>
+      {/* 🚀 Dynamic Executive Partners & Capital Hero Banner */}
+      <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0d1b2a] to-indigo-950 text-white p-7 sm:p-9 shadow-xl border border-indigo-500/20">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
 
-                <span className="tracking-tight text-white font-black text-xs sm:text-sm">
-                    إقفال الفترة وبدء دورة جديدة
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-black border border-indigo-500/30 backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                غرفة العمليات المالية والشركاء
+              </span>
+              <span className="px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-bold border border-white/10 backdrop-blur-md">
+                {partners.length} شركاء مسجلين
+              </span>
+              {settings?.activePeriodStartDate && (
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30 backdrop-blur-md flex items-center gap-1.5">
+                  <Lock size={12} />
+                  دورة محاسبية جارية
                 </span>
+              )}
+            </div>
 
-                <span className="px-2.5 py-1 text-[10px] sm:text-[11px] font-black bg-gradient-to-r from-amber-400/20 to-amber-500/20 text-amber-300 rounded-xl border border-amber-400/40 shadow-inner flex items-center gap-1.5 shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                    مقاصة المخزون
-                </span>
-              </button>
-              <button 
-                onClick={() => setShowHelpGuide(!showHelpGuide)}
-                className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-500/20 text-amber-700 dark:text-amber-400 px-5 py-3 rounded-2xl font-bold hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-all flex items-center gap-2"
-              >
-                <BookOpen size={18} className="text-amber-500" />
-                {showHelpGuide ? 'إخفاء الدليل السريع' : '💡 كيف يعمل حساب الشركاء والمسحوبات؟'}
-              </button>
-              <Link 
-                to={`/store/${storeId}/partner-portal`}
-                className="bg-indigo-50 dark:bg-indigo-950/30 border-2 border-indigo-500/20 text-indigo-700 dark:text-indigo-400 px-5 py-3 rounded-2xl font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all flex items-center gap-2"
-              >
-                <Users2 size={18} className="text-indigo-500" />
-                <span>دخول بوابة الشركاء الاستعلامية (PIN) 🔑</span>
-              </Link>
-              <button 
-                onClick={() => window.print()}
-                className="bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 px-6 py-3 rounded-2xl font-bold hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-all flex items-center gap-2"
-                title="طباعة التقرير العام"
-              >
-                <Printer size={18} />
-                طباعة التقرير
-              </button>
-              
-              <button 
-                onClick={recalculatePartnerBalances}
-                className="bg-white dark:bg-slate-800 border-2 border-emerald-600/20 text-emerald-600 dark:text-emerald-400 px-6 py-3 rounded-2xl font-bold hover:bg-emerald-50/50 dark:hover:bg-emerald-900/20 transition-all flex items-center gap-2"
-                title="إعادة حساب أرصدة الشركاء الحالية من سجل المعاملات المالية"
-              >
-                <Coins size={18} />
-                مزامنة أرصدة الشركاء
-              </button>
-              <button 
-                onClick={() => distributeProfit()}
-                className="bg-white dark:bg-slate-800 border-2 border-indigo-600/20 text-indigo-600 dark:text-indigo-400 px-6 py-3 rounded-2xl font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex items-center gap-2"
-              >
-              <TrendingUp size={18} />
-              تحليل الأرباح
-            </button>
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
+                <span>إدارة الشركاء ورؤوس الأموال</span>
+              </h1>
+              <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                متابعة الحصص الرأسمالية، المسحوبات والسلف، توزيع الأرباح تلقائياً، وبوابة الاستعلام المستقلة لكل شريك.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button 
-              onClick={() => {
-                if (!partnerName) return;
-                addPartner();
-              }}
-              className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-500/25 flex items-center gap-2"
+              onClick={() => setIsClosingModalOpen(true)}
+              className="group relative inline-flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500/20 via-indigo-600 to-indigo-700 hover:from-amber-500/30 hover:to-indigo-600 text-white font-black text-xs sm:text-sm border border-indigo-400/40 hover:border-amber-400/60 shadow-xl shadow-indigo-950/40 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] cursor-pointer overflow-hidden"
+              title="إقفال الدورة المحاسبية وتسوية مقاصة الشركاء وفق بضاعة المخزون"
             >
-               إضافة شريك
+              <span className="p-1.5 bg-amber-500/30 text-amber-300 rounded-xl border border-amber-400/40 group-hover:rotate-12 transition-transform duration-300 shrink-0 shadow-sm">
+                <Lock size={14} className="text-amber-300" />
+              </span>
+              <span className="tracking-tight text-white font-black">
+                إقفال الفترة
+              </span>
+              <span className="px-2 py-0.5 text-[10px] font-black bg-amber-400/20 text-amber-300 rounded-lg border border-amber-400/40 flex items-center gap-1 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                مقاصة
+              </span>
             </button>
+
+            <Link 
+              to={`/store/${storeId}/partner-portal`}
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Users2 size={16} className="text-indigo-300" />
+              <span>بوابة الشركاء (PIN)</span>
+            </Link>
+
+            <button 
+              onClick={() => setShowHelpGuide(!showHelpGuide)}
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <BookOpen size={16} className="text-amber-300" />
+              <span>{showHelpGuide ? 'إخفاء الدليل' : 'دليل الحسابات'}</span>
+            </button>
+
+            <button 
+              onClick={recalculatePartnerBalances}
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2 cursor-pointer"
+              title="إعادة حساب أرصدة الشركاء الحالية من سجل المعاملات المالية"
+            >
+              <Coins size={16} className="text-emerald-300" />
+              <span>مزامنة الأرصدة</span>
+            </button>
+
+            <button 
+              onClick={() => window.print()}
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2 cursor-pointer"
+              title="طباعة التقرير العام"
+            >
+              <Printer size={16} className="text-slate-300" />
+              <span>طباعة</span>
+            </button>
+          </div>
         </div>
       </div>
 

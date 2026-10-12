@@ -2,10 +2,19 @@ import React, { useState } from 'react';
 import { 
   BellRing, Send, CheckCircle2, AlertCircle, ShieldAlert,
   Smartphone, MessageSquare, Bot, Check, Copy, ExternalLink,
-  Zap, Save, Info, RefreshCw, X, Settings as SettingsIcon
+  Zap, Save, Info, RefreshCw, X, Settings as SettingsIcon,
+  Globe, Volume2
 } from 'lucide-react';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings } from '../types';
+import { 
+  isWebNotificationSupported, 
+  getWebNotificationPermission, 
+  requestWebNotificationPermission, 
+  sendTestWebNotification, 
+  isWebNotificationEnabled, 
+  setWebNotificationEnabled 
+} from '../utils/webNotification';
 
 interface AdminAlertsModalProps {
   isOpen: boolean;
@@ -44,6 +53,8 @@ export const AdminAlertsModal: React.FC<AdminAlertsModalProps> = ({
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [webNotifPermission, setWebNotifPermission] = useState<string>(() => getWebNotificationPermission());
+  const [isWebNotifTesting, setIsWebNotifTesting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -191,6 +202,52 @@ export const AdminAlertsModal: React.FC<AdminAlertsModalProps> = ({
               />
               <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
             </label>
+          </div>
+
+          {/* 🔔 Web Notifications Section */}
+          <div className="p-4 border border-emerald-500/30 dark:border-emerald-500/25 rounded-2xl space-y-3 bg-gradient-to-br from-emerald-500/5 via-teal-500/5 to-transparent">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <Globe size={18} />
+                </div>
+                <div>
+                  <div className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>إشعارات المتصفح (Web Notifications)</span>
+                    {webNotifPermission === 'granted' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">مفعلة</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">بانتظار الإذن</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    ظهور نافذة تنبيه للمدير فور وصول أوردر جديد بـ status 'pending' مع صوت تنبيه إشعار لحظي.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsWebNotifTesting(true);
+                    audioSynth.playTone('click');
+                    try {
+                      const res = await sendTestWebNotification(storeName);
+                      setTestResult(res);
+                      setWebNotifPermission(getWebNotificationPermission());
+                    } finally {
+                      setIsWebNotifTesting(false);
+                    }
+                  }}
+                  disabled={isWebNotifTesting}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  <Volume2 size={13} />
+                  <span>{isWebNotifTesting ? 'جاري الاختبار...' : 'تجربة التنبيه الفوري'}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Telegram Alerts Section */}

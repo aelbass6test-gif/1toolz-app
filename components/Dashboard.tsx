@@ -97,51 +97,49 @@ const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Set
     };
 
     return (
-        <div className="relative overflow-hidden rounded-3xl bg-linear-to-r from-amber-500/10 via-purple-500/10 to-indigo-500/10 dark:from-amber-950/20 dark:via-purple-950/20 dark:to-indigo-950/20 p-1 border border-amber-500/20 dark:border-purple-500/20 shadow-xl shadow-indigo-500/5">
-            <div className="bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl p-6 sm:p-7 rounded-[22px]">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-amber-500/25">
-                            <Sparkles size={20} className="animate-pulse" />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-black text-slate-900 dark:text-white text-base">المستشار الذكي (AI Suggestions)</h3>
-                                <span className="px-2.5 py-0.5 text-[9px] font-black rounded-full bg-gradient-to-r from-amber-500 to-purple-600 text-white shadow-xs">
-                                    Gemini AI ✨
-                                </span>
-                            </div>
-                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">تحليلات فورية وتوصيات لزيادة المبيعات وكفاءة العمليات</p>
-                        </div>
+        <div className="surface-card p-6 sm:p-7 relative overflow-hidden h-full">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-indigo-600 flex items-center justify-center text-white shadow-md">
+                        <Sparkles size={20} className="animate-pulse" />
                     </div>
-                    <button 
-                        onClick={fetchSuggestions} 
-                        disabled={isLoading} 
-                        className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-black rounded-xl shadow-md shadow-indigo-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait cursor-pointer self-start sm:self-auto"
-                    >
-                        <RefreshCcw size={14} className={isLoading ? 'animate-spin' : ''} />
-                        <span>{isLoading ? 'جاري التحليل...' : 'تحديث الاقتراحات الذكية'}</span>
-                    </button>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <h3 className="font-black text-slate-900 dark:text-white text-base">المستشار الذكي (AI Suggestions)</h3>
+                            <span className="px-2.5 py-0.5 text-[9px] font-black rounded-full bg-gradient-to-r from-amber-500 to-purple-600 text-white shadow-xs">
+                                Gemini AI ✨
+                            </span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mt-0.5">تحليلات فورية وتوصيات لزيادة المبيعات وكفاءة العمليات</p>
+                    </div>
                 </div>
-
-                {isLoading ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-slate-400 gap-3 bg-slate-50/50 dark:bg-slate-950/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                        <BrainCircuit size={28} className="text-purple-500 animate-bounce" />
-                        <span className="text-xs font-black text-slate-600 dark:text-slate-300">مستشار الذكاء الاصطناعي يقوم بتحليل المبيعات والعملاء والمخزون...</span>
-                    </div>
-                ) : (
-                    <div className="p-4 bg-slate-50/80 dark:bg-slate-950/50 rounded-2xl border border-slate-200 dark:border-slate-800/80 text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
-                        {suggestions.split('\n').map((line, i) => (
-                            <p key={i} className="my-1.5 flex items-start gap-2">
-                                {line.startsWith('•') || line.startsWith('-') ? (
-                                    <span className="text-amber-500 font-black">✦</span>
-                                ) : null}
-                                <span>{line.replace(/^[•-]\s*/, '')}</span>
-                            </p>
-                        ))}
-                    </div>
-                )}
+                <button 
+                    onClick={fetchSuggestions} 
+                    disabled={isLoading} 
+                    className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white text-xs font-black rounded-xl shadow-md transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-wait cursor-pointer self-start sm:self-auto"
+                >
+                    <RefreshCcw size={14} className={isLoading ? 'animate-spin' : ''} />
+                    <span>{isLoading ? 'جاري التحليل...' : 'تحديث الاقتراحات الذكية'}</span>
+                </button>
             </div>
+
+            {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-8 text-slate-400 gap-3 bg-slate-50/50 dark:bg-slate-950/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                    <BrainCircuit size={28} className="text-purple-500 animate-bounce" />
+                    <span className="text-xs font-black text-slate-600 dark:text-slate-300">مستشار الذكاء الاصطناعي يقوم بتحليل المبيعات والعملاء والمخزون...</span>
+                </div>
+            ) : (
+                <div className="p-4 bg-slate-50 dark:bg-slate-950/50 rounded-2xl border border-slate-100 dark:border-slate-800/80 text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">
+                    {suggestions.split('\n').map((line, i) => (
+                        <p key={i} className="my-1.5 flex items-start gap-2">
+                            {line.startsWith('•') || line.startsWith('-') ? (
+                                <span className="text-amber-500 font-black">✦</span>
+                            ) : null}
+                            <span>{line.replace(/^[•-]\s*/, '')}</span>
+                        </p>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
@@ -217,222 +215,129 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   };
 
   const SuggestionsWidget = () => (
-    <div className="glass-card p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden h-full">
+    <div className="h-full">
       <SmartSuggestions orders={orders} settings={settings} />
     </div>
   );
 
   const KpisWidget = () => (
-    <div className="space-y-6 h-full">
+    <div className="space-y-10 h-full">
       {/* 📊 E-commerce Pro KPIs Hub */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <TrendingUp className="text-primary" size={18} />
-          <h2 className="text-lg font-black text-slate-800 dark:text-slate-100">مؤشرات الأداء كفاءة المتجر (KPIs)</h2>
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">كفاءة الأداء التشغيلي</h2>
+            <p className="text-sm font-bold text-slate-400">مؤشرات الأداء الرئيسية (KPIs) لنمو متجرك</p>
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* KPI 1: Delivery success rate */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-emerald-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-2xl">
-                <TrendingUp size={18} />
+          <div className="surface-card surface-card-hover group relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-emerald-500/10 transition-all" />
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-2xl">
+                <TrendingUp size={20} />
               </div>
-              <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                أداء الشحن
-              </span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-emerald-600/80 dark:text-emerald-400/80">أداء الشحن</span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">معدل نجاح التسليم النهائي (Delivery Rate)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.deliveryRate}%</span>
-              <span className="text-[11px] text-slate-400 font-medium">من إجمالي الطلبات</span>
+            <div className="space-y-1">
+              <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">معدل نجاح التسليم</p>
+              <div className="flex items-baseline gap-2 tabular-nums">
+                <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">{stats.deliveryRate}%</span>
+              </div>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
-              <div 
-                className={`h-full rounded-full transition-all duration-500 ${
-                  stats.deliveryRate > 75 
-                    ? 'bg-emerald-500' 
-                    : stats.deliveryRate > 50 
-                    ? 'bg-amber-500' 
-                    : 'bg-rose-500'
+            <div className="mt-6 h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${stats.deliveryRate}%` }}
+                transition={{ duration: 1, ease: "easeOut" }}
+                className={`h-full rounded-full ${
+                  stats.deliveryRate > 75 ? 'bg-emerald-500' : stats.deliveryRate > 50 ? 'bg-amber-500' : 'bg-rose-500'
                 }`}
-                style={{ width: `${stats.deliveryRate}%` }}
-              ></div>
+              />
             </div>
           </div>
 
           {/* KPI 2: Average Order Value */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-indigo-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl">
-                <DollarSign size={18} />
+          <div className="surface-card surface-card-hover group relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-indigo-500/10 transition-all" />
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-2xl">
+                <DollarSign size={20} />
               </div>
-              <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
-                المعدل التجاري
-              </span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-indigo-600/80 dark:text-indigo-400/80">المعدل التجاري</span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">متوسط قيمة السلة الشرائية (AOV)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{(stats.aov ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</span>
-              <span className="text-xs font-bold text-slate-400">ج.م / طلب</span>
+            <div className="space-y-1">
+              <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">متوسط قيمة السلة</p>
+              <div className="flex items-baseline gap-2 tabular-nums">
+                <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">{(stats.aov ?? 0).toLocaleString()}</span>
+                <span className="text-xs font-bold text-slate-400">ج.م</span>
+              </div>
             </div>
-            <p className="text-[10px] text-slate-400 font-medium mt-3.5">
-              💡 اقتراح: إعرض باقات مكملة لزيادة حجم السلة الشرائية.
-            </p>
           </div>
 
           {/* KPI 3: Net Profit Margin */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-cyan-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan-500/5 rounded-full blur-xl group-hover:bg-cyan-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 rounded-2xl">
-                <ChartIcon size={18} />
+          <div className="surface-card surface-card-hover group relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-cyan-500/10 transition-all" />
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 rounded-2xl">
+                <Percent size={20} />
               </div>
-              <span className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400">
-                صحة الهامش
-              </span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-cyan-600/80 dark:text-cyan-400/80">صحة الهامش</span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">هامش صافي ربح المتجر (Profit Margin)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.netMargin}%</span>
-              <span className="text-[11px] text-slate-400 font-medium">من إجمالي المبيعات</span>
+            <div className="space-y-1">
+              <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">هامش صافي الربح</p>
+              <div className="flex items-baseline gap-2 tabular-nums">
+                <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">{stats.netMargin}%</span>
+              </div>
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden mt-4">
-              <div 
-                className={`h-full rounded-full transition-all duration-500 ${
-                  stats.netMargin > 30 
-                    ? 'bg-emerald-500' 
-                    : stats.netMargin > 15 
-                    ? 'bg-cyan-500' 
-                    : 'bg-amber-500'
-                }`}
-                style={{ width: `${Math.max(stats.netMargin, 0)}%` }}
-              ></div>
+            <div className="mt-6 h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.max(stats.netMargin, 0)}%` }}
+                transition={{ duration: 1, ease: "easeOut" }}
+                className="h-full rounded-full bg-cyan-500"
+              />
             </div>
           </div>
 
           {/* KPI 4: Active unique customers */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-purple-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-purple-500/5 rounded-full blur-xl group-hover:bg-purple-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 rounded-2xl">
-                <Users2 size={18} />
+          <div className="surface-card surface-card-hover group relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-purple-500/10 transition-all" />
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2.5 bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-2xl">
+                <Users2 size={20} />
               </div>
-              <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">
-                العملاء الفريدين
-              </span>
+              <span className="text-[11px] font-black uppercase tracking-widest text-purple-600/80 dark:text-purple-400/80">قاعدة العملاء</span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">قاعدة العملاء الفريدين (Unique Customers)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.uniqueCustomerCount}</span>
-              <span className="text-xs font-bold text-slate-400">عميل فعال</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-medium mt-3">
-              🔁 معدل الشراء المتكرر: {(stats.successfulOrdersCount > 0 && stats.uniqueCustomerCount > 0 ? (stats.successfulOrdersCount / stats.uniqueCustomerCount).toFixed(1) : 1)}x لكل عميل
-            </p>
-          </div>
-
-          {/* KPI 5: POS Receivables */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-orange-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-orange-500/5 rounded-full blur-xl group-hover:bg-orange-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 rounded-2xl">
-                <AlertCircle size={18} />
+            <div className="space-y-1">
+              <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">العملاء الفريدين</p>
+              <div className="flex items-baseline gap-2 tabular-nums">
+                <span className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter">{stats.uniqueCustomerCount}</span>
+                <span className="text-xs font-bold text-slate-400">عميل</span>
               </div>
-              <span className="text-[11px] font-bold text-orange-600 dark:text-orange-400">
-                مديونيات الكاشير
-              </span>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">مبيعات الكاشير الآجلة (Receivables)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{(stats.posReceivables ?? 0).toLocaleString()}</span>
-              <span className="text-xs font-bold text-slate-400">ج.م مُعلق</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-medium mt-3">
-              ⚠️ مبالغ لدى العملاء لم يتم تحصيلها بعد في الفترات الحالية.
-            </p>
-          </div>
-
-          {/* KPI 6: Distributed Custody */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-amber-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-amber-500/5 rounded-full blur-xl group-hover:bg-amber-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-2xl">
-                <ShoppingBag size={18} />
-              </div>
-              <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                العهد الموزعة
-              </span>
-            </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">إجمالي المبالغ بعهدة الموظفين (In Custody)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{(stats.totalCustodyBalance ?? 0).toLocaleString()}</span>
-              <span className="text-xs font-bold text-slate-400">ج.م نقدية</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-medium mt-3">
-              💰 مبالغ "خارج" الخزينة الرئيسية في انتظار التوريد اليدوي.
-            </p>
-          </div>
-
-          {/* KPI 7: Liquidity Coverage */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-blue-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-blue-500/5 rounded-full blur-xl group-hover:bg-blue-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-2xl">
-                <RefreshCcw size={18} />
-              </div>
-              <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
-                قدرة السداد
-              </span>
-            </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">معامل السيولة (Liquidity Months)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.liquidityCoverage}</span>
-              <span className="text-xs font-bold text-slate-400">شهور تغطية</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-medium mt-3">
-              📊 عدد الشهور التي تكفيها السيولة الحالية للمصاريف الإدارية.
-            </p>
-          </div>
-
-          {/* KPI 8: Dead Stock */}
-          <div className="bg-white dark:bg-[#0f1523] p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-[0_2px_12px_-2px_rgba(0,0,0,0.04)] relative overflow-hidden group hover:border-rose-500/40 hover:-translate-y-0.5 transition-all text-right font-sans">
-            <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-rose-500/5 rounded-full blur-xl group-hover:bg-rose-500/10 transition-colors" />
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl">
-                <X size={18} />
-              </div>
-              <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                المخزون الساكن
-              </span>
-            </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs font-bold">أصناف لم تُبع آخر 30 يوم (Dead Stock)</p>
-            <div className="mt-2 flex items-baseline gap-2 justify-start" dir="rtl">
-              <span className="text-3xl font-black text-slate-900 dark:text-white tabular-nums font-mono tracking-tight">{stats.deadStockCount}</span>
-              <span className="text-xs font-bold text-slate-400">صنف راكد</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-medium mt-3">
-              🥀 أصناف عالية المخزون ولكنها لا تحقق مبيعات حالية.
-            </p>
           </div>
         </div>
       </div>
 
       {/* 🔄 Pipeline and tracking */}
-      <div className="space-y-4 pt-2">
-        <div className="flex items-center gap-2">
-          <Layers className="text-indigo-500" size={18} />
-          <h2 className="text-lg font-black text-slate-800 dark:text-slate-100">دورة حياة المبيعات وحالات الطلبات اليومية</h2>
+      <div className="space-y-6 pt-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-900 dark:text-white">
+            <Layers size={18} />
+          </div>
+          <h2 className="text-lg font-black text-slate-900 dark:text-white">دورة حياة الطلبات اليومية</h2>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 font-sans">
-          <DashboardStatusCard title="الأوردرات الناجحة" value={`${stats.successfulOrdersCount} / ${stats.total}`} color="text-emerald-600" />
-          <DashboardStatusCard title="في إنتظار قرارك" value={stats.awaitingDecisionCount} color="text-orange-500" />
-          <DashboardStatusCard title="متجه للعميل" value={stats.outForDeliveryCount} color="text-blue-600" />
-          <DashboardStatusCard title="قيد التنفيذ" value={stats.processingCount} color="text-purple-600" />
-          <DashboardStatusCard title="التحصيل المتوقع" value={`${(stats.expectedCollection).toLocaleString()} ج.م`} color="text-indigo-600" />
-          <DashboardStatusCard title="التحصيل الفعلي" value={`${(stats.actualCollection).toLocaleString()} ج.م`} color="text-emerald-500" />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <DashboardStatusCard title="ناجحة" value={stats.successfulOrdersCount} color="text-emerald-600 dark:text-emerald-400" />
+          <DashboardStatusCard title="بانتظار قرار" value={stats.awaitingDecisionCount} color="text-amber-600 dark:text-amber-400" />
+          <DashboardStatusCard title="خرج للتوصيل" value={stats.outForDeliveryCount} color="text-blue-600 dark:text-blue-400" />
+          <DashboardStatusCard title="قيد التنفيذ" value={stats.processingCount} color="text-purple-600 dark:text-purple-400" />
+          <DashboardStatusCard title="توقع التحصيل" value={`${(stats.expectedCollection).toLocaleString()}`} color="text-slate-900 dark:text-white" badge="ج.م" />
+          <DashboardStatusCard title="تحصيل فعلي" value={`${(stats.actualCollection).toLocaleString()}`} color="text-emerald-600 dark:text-emerald-400" badge="ج.م" />
         </div>
 
         <motion.div 
@@ -440,12 +345,12 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           animate={{ height: showDetailedStats ? 'auto' : 0, opacity: showDetailedStats ? 1 : 0 }}
           className="overflow-hidden"
         >
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800/50">
-            <DashboardStatusCard title="المرتجعات" value={stats.returnedCount} color="text-rose-600" />
-            <DashboardStatusCard title="فشل التوصيل" value={stats.failedCount} color="text-red-500" />
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+            <DashboardStatusCard title="المرتجعات" value={stats.returnedCount} color="text-rose-600 dark:text-rose-400" />
+            <DashboardStatusCard title="فشل التوصيل" value={stats.failedCount} color="text-rose-500" />
             <DashboardStatusCard title="ملغي" value={stats.cancelledCount} color="text-slate-500" />
-            <DashboardStatusCard title="مؤجل ومجدول" value={stats.delayedCount} color="text-amber-500" />
-            <DashboardStatusCard title="في انتظار الاستلام" value={stats.awaitingPickupCount} color="text-slate-700" />
+            <DashboardStatusCard title="مؤجل" value={stats.delayedCount} color="text-amber-500" />
+            <DashboardStatusCard title="بانتظار استلام" value={stats.awaitingPickupCount} color="text-slate-600 dark:text-slate-400" />
             <DashboardStatusCard title="متجه إليك" value={stats.headedToYouCount} color="text-rose-500" />
           </div>
         </motion.div>
@@ -454,19 +359,10 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           <button 
             type="button"
             onClick={() => setShowDetailedStats(!showDetailedStats)}
-            className="group flex items-center gap-2 px-6 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 text-[10px] font-black text-slate-400 hover:text-primary hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
+            className="px-6 py-2 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-2"
           >
-            {showDetailedStats ? (
-              <>
-                <ArrowDown className="text-primary rotate-180 transition-transform" size={12} />
-                <span>إخفاء الحالات الإضافية</span>
-              </>
-            ) : (
-              <>
-                <Layers className="text-primary group-hover:animate-bounce" size={12} />
-                <span>عرض كافة حالات الطلبات</span>
-              </>
-            )}
+            {showDetailedStats ? 'إخفاء الحالات الإضافية' : 'عرض كافة الحالات'}
+            <ArrowDown className={`transition-transform duration-300 ${showDetailedStats ? 'rotate-180' : ''}`} size={12} />
           </button>
         </div>
       </div>
@@ -474,169 +370,95 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   );
 
   const FinanceHistoryWidget = () => (
-    <div className="glass-card p-6 sm:p-10 rounded-[2.5rem] relative overflow-hidden group border border-slate-200 dark:border-slate-800/80 shadow-xl shadow-slate-200/40 dark:shadow-none font-sans">
-      <div className="absolute top-0 right-0 w-96 h-96 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-primary/10 transition-colors pointer-events-none" />
+    <div className="surface-card p-8 sm:p-10 relative overflow-hidden group">
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-500/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-[120px] pointer-events-none" />
       
-      <div className="relative z-10 font-sans">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-6 text-right">
+      <div className="relative z-10 space-y-10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
           <div className="space-y-1">
-            <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-3">
-              <TrendingUp className="text-primary p-1.5 bg-primary/10 rounded-xl" size={32} />
-              الأداء المالي وسجل التداولات (Financial Performance)
-            </h3>
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">الأداء المالي والسيولة</h3>
             <p className="text-sm font-bold text-slate-400">تحليل الميزانية، الأرباح، والتدفقات النقدية اللحظية</p>
           </div>
-          <div className="flex items-center gap-3">
-            <button 
-              type="button"
-              onClick={() => setShowDetailedFinancials(!showDetailedFinancials)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/10 text-primary text-xs font-black hover:bg-primary/20 transition-all border border-primary/10 cursor-pointer"
-            >
-              <ChartIcon size={14} />
-              <span>{showDetailedFinancials ? 'تقليل العرض' : 'تحليلات تفصيلية'}</span>
-            </button>
-          </div>
+          <button 
+            type="button"
+            onClick={() => setShowDetailedFinancials(!showDetailedFinancials)}
+            className="btn-secondary py-2.5 px-5 flex items-center gap-2 text-xs"
+          >
+            <ChartIcon size={14} />
+            <span>{showDetailedFinancials ? 'تقليل العرض' : 'تحليلات تفصيلية'}</span>
+          </button>
         </div>
 
-        <div className={`grid grid-cols-1 sm:grid-cols-2 ${showDetailedFinancials ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-6 transition-all duration-500`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* صافي الأرباح */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
-            <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-              <DollarSign size={16} className="text-primary" />
-              <span>صافي الأرباح (Net Profit)</span>
-            </p>
-            <h4 className={`text-2xl sm:text-3xl font-black tabular-nums ${(stats.net ?? 0) >= 0 ? 'text-primary' : 'text-rose-500'}`}>
-              {(stats.net ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+          <div className="space-y-3 p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] border border-slate-100 dark:border-white/5 transition-all hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">صافي الأرباح</p>
+            <h4 className={`text-3xl font-black tabular-nums tracking-tighter ${(stats.net ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+              {(stats.net ?? 0).toLocaleString()} <span className="text-xs font-bold text-slate-400 ml-1">ج.م</span>
             </h4>
             <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${(stats.revenueGrowth ?? 0) >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                {(stats.revenueGrowth ?? 0) >= 0 ? '+' : ''}{(stats.revenueGrowth ?? 0).toFixed(1)}%
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${(stats.revenueGrowth ?? 0) >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                {(stats.revenueGrowth ?? 0) >= 0 ? '↑' : '↓'} {(stats.revenueGrowth ?? 0).toFixed(1)}%
               </span>
-              <p className="text-[10px] text-slate-400 font-bold">نمو المبيعات</p>
+              <span className="text-[10px] text-slate-400 font-bold">نمو المبيعات</span>
             </div>
           </div>
 
           {/* مجمل الأرباح */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
-            <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-              <ShoppingBag size={16} className="text-emerald-500" />
-              <span>مجمل الربح (Gross Profit)</span>
-            </p>
-            <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-              {(stats.grossProfit ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+          <div className="space-y-3 p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] border border-slate-100 dark:border-white/5 transition-all hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">مجمل الربح</p>
+            <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">
+              {(stats.grossProfit ?? 0).toLocaleString()} <span className="text-xs font-bold text-slate-400 ml-1">ج.م</span>
             </h4>
-            <p className="text-[10px] text-slate-400 font-bold">الأرباح قبل خصم المصاريف التشغيلية</p>
-          </div>
-
-          {/* هامش صافي الربح */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
-            <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-              <Percent size={16} className="text-emerald-500" />
-              <span>هامش صافي الربح</span>
-            </p>
-            <h4 className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-              {stats.netMarginPercentage.toFixed(1)}%
-            </h4>
-            <p className="text-[10px] text-slate-400 font-bold">نسبة الأرباح النهائية من إجمالي المبيعات</p>
+            <p className="text-[10px] text-slate-400 font-bold">قبل خصم المصاريف</p>
           </div>
 
           {/* ROI */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
-            <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-              <ArrowUpLeft size={16} className="text-indigo-500" />
-              <span>ROI (Return on Investment)</span>
-            </p>
-            <h4 className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
+          <div className="space-y-3 p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] border border-slate-100 dark:border-white/5 transition-all hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">العائد على الاستثمار</p>
+            <h4 className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tabular-nums tracking-tighter">
               {stats.roi.toFixed(1)}%
             </h4>
-            <p className="text-[10px] text-slate-400 font-bold">كفاءة العائد على رأس المال المستثمر</p>
+            <p className="text-[10px] text-slate-400 font-bold">كفاءة العائد (ROI)</p>
           </div>
 
-          {/* قيمة المخزون الحالية */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-                <Layers size={16} className="text-amber-500" />
-                <span>قيمة المخزون (Stock Value)</span>
-              </p>
-              <button
-                type="button"
-                onClick={toggleInventoryValue}
-                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-                title={showInventoryValue ? "إخفاء قيمة البضاعة المتاحة في المخزن" : "إظهار قيمة البضاعة المتاحة في المخزن"}
-              >
-                {showInventoryValue ? <Eye size={16} className="text-amber-600 dark:text-amber-400" /> : <EyeOff size={16} className="text-slate-400" />}
-              </button>
-            </div>
-            {showInventoryValue ? (
-              <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-                {(stats.inventoryValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
-              </h4>
-            ) : (
-              <h4 className="text-2xl sm:text-3xl font-black text-slate-400 dark:text-slate-500 tracking-widest">
-                •••••• <span className="text-xs font-bold">ج.م</span>
-              </h4>
-            )}
-            <p className="text-[10px] text-slate-400 font-bold">إجمالي تكلفة البضاعة الموجودة بالمستودعات</p>
-          </div>
-
-          {/* متوسط الأرباح لكل طلب */}
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800/80 space-y-2">
-            <p className="text-xs font-black text-slate-550 dark:text-slate-400 flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-cyan-500" />
-              <span>صافي الربح / طلب</span>
-            </p>
-            <h4 className="text-2xl sm:text-3xl font-black text-slate-800 dark:text-white tabular-nums">
-              {(stats.avgProfitPerOrder ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} <span className="text-xs font-bold text-slate-400">ج.م</span>
+          {/* Liquidity */}
+          <div className="space-y-3 p-6 bg-slate-50 dark:bg-slate-800/40 rounded-[2rem] border border-slate-100 dark:border-white/5 transition-all hover:bg-white dark:hover:bg-slate-800 shadow-sm hover:shadow-md">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">معامل السيولة</p>
+            <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums tracking-tighter">
+              {stats.liquidityCoverage}
             </h4>
-            <p className="text-[10px] text-slate-400 font-bold">متوسط الربح الصافي المحقق من كل طلب ناجح</p>
+            <p className="text-[10px] text-slate-400 font-bold">شهور تغطية</p>
           </div>
         </div>
 
-        {/* Expanded Analytical Grid */}
-        <motion.div 
-          initial={false}
-          animate={{ height: showDetailedFinancials ? 'auto' : 0, opacity: showDetailedFinancials ? 1 : 0 }}
-          className="overflow-hidden"
-        >
-          <div className="pt-6 mt-6 border-t border-slate-200 dark:border-slate-800/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <p className="text-[10px] font-black text-slate-400 mb-1">رأس المال العامل</p>
-              <h5 className="text-sm font-black text-slate-800 dark:text-white">{(stats.workingCapital ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
-            </div>
-            <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <p className="text-[10px] font-black text-slate-400 mb-1">إجمالي الاستثمارات</p>
-              <h5 className="text-sm font-black text-slate-800 dark:text-white">{(stats.totalCapital ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
-            </div>
-            <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <p className="text-[10px] font-black text-slate-400 mb-1">أرباح الشركاء الموزعة</p>
-              <h5 className="text-sm font-black text-slate-800 dark:text-white">{((stats as any).totalDividendsDistributed ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
-            </div>
-            <div className="bg-white/50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <p className="text-[10px] font-black text-slate-400 mb-1">الأرباح المحتجزة</p>
-              <h5 className="text-sm font-black text-slate-800 dark:text-white">{((stats as any).retainedEarnings ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م</h5>
-            </div>
-          </div>
-        </motion.div>
-
         {/* 6-Month Area Chart */}
-        <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800/50">
-          <div className="flex items-center justify-between mb-4">
-            <h4 className="text-sm font-black text-slate-700 dark:text-slate-300">مقارنة الإيرادات بالمصروفات التشغيلية (آخر 6 أشهر)</h4>
-            <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span> الإيرادات</span>
-              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span> المصروفات</span>
+        <div className="pt-10 border-t border-slate-100 dark:border-white/5">
+          <div className="flex items-center justify-between mb-8">
+            <h4 className="text-sm font-black text-slate-900 dark:text-white">تحليل التدفق النقدي (آخر 6 أشهر)</h4>
+            <div className="flex items-center gap-6 text-[10px] font-black uppercase tracking-widest text-slate-400">
+              <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> الإيرادات</span>
+              <span className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700"></span> المصروفات</span>
             </div>
           </div>
-          <div className="h-[220px] w-full" dir="ltr">
+          <div className="h-[280px] w-full" dir="ltr">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={stats.financeHistory}>
+                <defs>
+                  <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#fff', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)' }} />
-                <Area type="monotone" dataKey="revenue" stroke="#6366f1" strokeWidth={3} fill="#6366f1" fillOpacity={0.1} />
-                <Area type="monotone" dataKey="expenses" stroke="#94a3b8" strokeWidth={2} strokeDasharray="4 4" fill="none" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '20px', border: 'none', backgroundColor: '#fff', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.1)', padding: '12px' }}
+                  itemStyle={{ fontSize: '12px', fontWeight: 800 }}
+                />
+                <Area type="monotone" dataKey="revenue" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorRev)" />
+                <Area type="monotone" dataKey="expenses" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="6 6" fill="none" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -1552,88 +1374,56 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   ];
 
   const lowStockProducts = (settings?.products || []).filter(p => (p.stockQuantity ?? 0) < 5);
-
   return (
     <motion.div 
-      className="space-y-6 pb-12 max-w-[1680px] mx-auto"
       variants={containerVariants}
       initial="hidden"
       animate="visible"
+      className="max-w-[1600px] mx-auto px-4 sm:px-8 py-8 sm:py-12 space-y-12 text-right overflow-x-hidden font-sans"
+      dir="rtl"
     >
-      {/* Platform Level Announcement Banner */}
-      {announcementText && (
-        <motion.div 
-          variants={itemVariants}
-          className={`p-4 rounded-3xl border flex items-center justify-between gap-4 transition-all ${
-            announcementType === 'warning'
-              ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40 text-amber-800 dark:text-amber-200'
-              : announcementType === 'error'
-              ? 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40 text-rose-800 dark:text-rose-200'
-              : 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900/40 text-indigo-800 dark:text-indigo-200'
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            {announcementType === 'warning' ? (
-              <AlertTriangle className="text-amber-500 animate-pulse shrink-0" size={20} />
-            ) : announcementType === 'error' ? (
-              <ShieldAlert className="text-rose-500 shrink-0" size={20} />
-            ) : (
-              <AlertCircle className="text-indigo-500 shrink-0" size={20} />
-            )}
-            <div>
-              <span className="text-xs font-black leading-relaxed">{announcementText}</span>
-            </div>
-          </div>
-          <button 
-            onClick={handleDismissAnnouncement}
-            className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-full transition-colors shrink-0"
-          >
-            <X size={16} />
-          </button>
-        </motion.div>
-      )}
-      {/* Header Section */}
-      <motion.div variants={itemVariants} className="relative overflow-hidden rounded-2xl bg-gradient-to-l from-[#123c32] via-[#0f5c48] to-[#008060] text-white p-6 sm:p-8 shadow-[0_14px_30px_rgba(0,128,96,0.18)] border border-emerald-700/30">
-        <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-300/10 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-0 right-0 w-80 h-80 bg-lime-300/10 rounded-full blur-3xl pointer-events-none translate-x-1/3 translate-y-1/3" />
-        
+      {/* 🚀 Dynamic Premium Hero Banner */}
+      <motion.div variants={itemVariants} className="relative z-20 overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0d1f1c] to-emerald-950 text-white p-7 sm:p-9 shadow-xl border border-emerald-500/20">
+        <div className="absolute top-0 left-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -translate-x-1/3 -translate-y-1/3" />
+        <div className="absolute bottom-0 right-0 w-80 h-80 bg-teal-500/10 rounded-full blur-3xl pointer-events-none translate-x-1/4 translate-y-1/4" />
+
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-black border border-emerald-500/30">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 backdrop-blur-md">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                المتجر نشط وجاهز لاستقبال الطلبات
+                المتجر متصل ومستقر
               </span>
-              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white/10 text-slate-200 text-xs font-medium backdrop-blur-md">
-                <Clock size={12} className="text-amber-400" />
-                تحديث لحظي
+              <span className="text-xs text-slate-300/80 font-medium flex items-center gap-1">
+                <Clock size={13} className="text-amber-400" />
+                تحديث تلقائي كل دقيقة
               </span>
             </div>
 
-            <h1 className="text-2xl sm:text-4xl font-black tracking-tight leading-tight text-white">
-              مرحباً بك، {currentUser?.fullName ? currentUser.fullName.split(' ')[0] : 'عزيزي التاجر'} 👋
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 font-medium max-w-2xl leading-relaxed">
-              إليك نظرة عامة شاملة على أداء متجرك الإلكتروني، حركة المبيعات اليومية، والمؤشرات المالية اللحظية.
-            </p>
+            <div className="space-y-1">
+              <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight">
+                أهلاً بك، {currentUser?.fullName ? currentUser.fullName.split(' ')[0] : 'عزيزي التاجر'} 👋
+              </h1>
+              <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
+                غرفة العمليات المركزية لمتابعة حركة المبيعات اللحظية، الأرباح، وتوجيه أداء المتجر.
+              </p>
+            </div>
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-3 shrink-0">
             <Link 
               to={activeStore ? `/store/${activeStore.id}/orders/new` : '/orders/new'} 
-              className="px-5 py-2.5 rounded-xl bg-white text-emerald-800 hover:bg-emerald-50 text-xs sm:text-sm font-black shadow-lg shadow-emerald-950/15 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-              title="إنشاء وتسجيل طلب جديد"
+              className="px-5 py-3 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs sm:text-sm font-black shadow-lg shadow-emerald-900/30 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
             >
               <ShoppingBag size={18} />
-              <span>+ أوردر جديد</span>
+              <span>+ إنشاء أوردر جديد</span>
             </Link>
 
             <Link 
               to="/store"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2"
-              title="فتح ومعاينة المتجر المباشر للعملاء"
+              className="px-4 py-3 rounded-2xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold border border-white/10 transition-all backdrop-blur-md flex items-center justify-center gap-2"
             >
               <PlayCircle size={18} className="text-emerald-400" />
               <span>معاينة المتجر</span>
@@ -1641,14 +1431,14 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
 
             <button 
               onClick={() => setIsEditingLayout(!isEditingLayout)}
-              className={`p-2.5 rounded-xl border transition-all flex items-center justify-center ${
+              className={`px-4 py-3 rounded-2xl text-xs font-bold border transition-all flex items-center justify-center gap-2 ${
                 isEditingLayout 
                   ? 'bg-emerald-500 text-white border-emerald-400 shadow-md ring-2 ring-white/30' 
-                  : 'bg-white/10 hover:bg-white/20 text-white border-white/10'
+                  : 'bg-white/10 hover:bg-white/20 text-white border-white/10 backdrop-blur-md'
               }`}
-              title={isEditingLayout ? "إنهاء تخصيص اللوحة" : "تخصيص ترتيب وبطاقات اللوحة"}
             >
               <Monitor size={18} />
+              <span>{isEditingLayout ? 'إنهاء التخصيص' : 'تخصيص الواجهة'}</span>
             </button>
           </div>
         </div>
@@ -1680,15 +1470,15 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       </Reorder.Group>
 
       {/* Footer Branding */}
-      <motion.div variants={itemVariants} className="pt-12 border-t border-slate-200 dark:border-slate-800/50">
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-widest">
-            <div className="w-8 h-[1px] bg-current opacity-20" />
-            عبده ميديا برايم | AbdoMedia Prime Dashboard v2.0
-            <div className="w-8 h-[1px] bg-current opacity-20" />
+      <motion.div variants={itemVariants} className="pt-12 border-t border-slate-100 dark:border-white/5">
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 dark:text-slate-700">
+            <div className="w-12 h-[1px] bg-current" />
+            نظام إدارة التجارة الذكي | v3.0 Premium Edition
+            <div className="w-12 h-[1px] bg-current" />
           </div>
-          <p className="text-[10px] text-slate-400 text-center max-w-xs leading-relaxed">
-            تم التصميم والبرمجة بواسطة عبدالرحمن سعيد. جميع الحقوق محفوظة © 2026
+          <p className="text-[10px] font-bold text-slate-400 text-center max-w-xs leading-relaxed">
+            تم تطوير هذا النظام بأعلى معايير الدقة والسرعة لخدمة تجارتك المتنامية.
           </p>
         </div>
       </motion.div>
@@ -1707,19 +1497,16 @@ const StatusItem = ({ label, value, color }: { label: string, value: number, col
 );
 
 const DashboardStatusCard = ({ title, value, color, badge }: { title: string, value: string | number, color: string, badge?: string }) => (
-  <div className="bg-white/60 dark:bg-[#0b0f19]/60 backdrop-blur-xl p-3.5 sm:p-4.5 rounded-2xl border border-slate-200/40 dark:border-white/5 shadow-xs relative overflow-hidden flex flex-col items-end justify-center min-h-[85px] sm:min-h-[105px] group hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/5 transition-all duration-300">
-      <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 opacity-25 group-hover:opacity-100 transition-opacity duration-300">
-           <Clock size={12} className="text-indigo-500 dark:text-indigo-400" />
-      </div>
-      <div className="text-slate-500 dark:text-slate-400 text-[10px] sm:text-xs font-black mb-1 sm:mb-1.5">{title}</div>
-      <div className={`text-base sm:text-2xl font-extrabold ${color} flex items-center gap-1 sm:gap-2 tabular-nums`}>
-          {badge && (
-              <span className="text-[8px] sm:text-[10px] bg-indigo-500/10 dark:bg-indigo-500/25 text-indigo-600 dark:text-indigo-450 px-1 sm:px-1.5 py-0.5 rounded-full font-black">
-                  {badge}
-              </span>
-          )}
-          {value}
-      </div>
+  <div className="bg-white dark:bg-slate-900/40 p-5 rounded-[2rem] border border-slate-100 dark:border-white/5 shadow-xs flex flex-col items-end justify-center min-h-[110px] transition-all duration-300 hover:shadow-md hover:border-slate-200 dark:hover:border-white/10 group">
+    <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2 group-hover:text-slate-500 transition-colors">{title}</div>
+    <div className={`text-2xl font-black ${color} flex items-center gap-2 tabular-nums tracking-tighter`}>
+      {value}
+      {badge && (
+        <span className="text-[10px] text-slate-400 font-bold ml-1">
+          {badge}
+        </span>
+      )}
+    </div>
   </div>
 );
 

@@ -124,12 +124,17 @@ const Sidebar: React.FC<SidebarProps> = ({
         },
         {
             type: 'group',
-            title: 'المالية والشركاء والرواتب',
+            title: 'نظام الإدارة المالية الشاملة',
             links: [
+                { 
+                    to: `${storePrefix}/wallet`, 
+                    label: 'المحفظة الماليّة المركزيّة', 
+                    icon: <WalletIcon size={18} />,
+                    badge: { text: "الرئيسية 💎", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
+                },
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
                 { to: `${storePrefix}/merchant-settlement`, label: 'تسوية حسابات الموكلين والبضائع 📄', icon: <Receipt size={18} />, badge: { text: "جديد", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px]" } },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
-                { to: `${storePrefix}/wallet`, label: 'محفظة عمولات المتجر', icon: <WalletIcon size={18} /> },
                 { to: `${storePrefix}/partners`, label: 'إدارة الشركاء والمسوقين', icon: <Users size={18} /> },
                 { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={18} /> },
                 { to: `${storePrefix}/reconciliation`, label: 'مطابقة الحسابات (إكسيل)', icon: <FileSpreadsheet size={18} /> },
@@ -315,9 +320,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 border border-emerald-400/30 flex items-center justify-center text-white shadow-xs shrink-0 ring-1 ring-emerald-500/20">
                         <ShoppingCart size={17} />
                     </div>
-                    <div className="overflow-hidden">
+                    <div className="overflow-hidden min-w-0">
                         <div className="flex items-center gap-1.5">
-                            <h2 className="text-xs font-black text-slate-900 dark:text-white truncate max-w-[120px]" title={activeStore?.name}>
+                            <h2 className="text-xs font-black text-slate-900 dark:text-white truncate" title={activeStore?.name}>
                                 {activeStore?.name || 'منظومة التشغيل'}
                             </h2>
                             <span className="relative flex h-1.5 w-1.5 shrink-0" title="المتجر نشط">
@@ -427,7 +432,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                             const containsActivePath = item.links.some(link => isLinkActive(link));
 
                             return (
-                                <div key={item.title} className="space-y-0.5 bg-slate-50/50 dark:bg-white/[0.02] rounded-xl p-1 border border-slate-200/50 dark:border-white/[0.04] transition-all duration-150">
+                                <div key={item.title} className="space-y-0.5 bg-slate-50 dark:bg-white/[0.02] rounded-2xl p-1.5 border border-slate-200/40 dark:border-white/[0.04] transition-all duration-150">
                                     
                                     {/* Actionable Header representing a grouping */}
                                     <button 
@@ -465,10 +470,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                         end={true}
                                                         target={link.external ? "_blank" : undefined}
                                                         rel={link.external ? "noopener noreferrer" : undefined}
-                                                        className={`relative flex items-center justify-between px-2.5 py-2 rounded-lg transition-all duration-150 text-xs ${
+                                                        className={`relative flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-150 text-xs ${
                                                             active 
-                                                                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-950 dark:text-emerald-100 font-black border border-emerald-500/25 dark:border-emerald-500/35 shadow-2xs before:absolute before:right-0 before:top-1.5 before:bottom-1.5 before:w-1 before:bg-emerald-500 before:rounded-l-full' 
-                                                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-bold'
+                                                                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-950 dark:text-emerald-50 font-black border border-emerald-500/20 dark:border-emerald-500/30 shadow-xs' 
+                                                                : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-bold'
                                                         }`}
                                                     >
                                                         {() => (
@@ -509,10 +514,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
             </nav>
 
-            {/* Brand Credit Signature (Architectural Engineering Watermark) */}
-            <div className="pt-2.5 border-t border-slate-200/60 dark:border-white/[0.06] text-center text-[10px] text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center gap-0.5 font-mono select-none">
-                <span className="font-bold text-slate-700 dark:text-slate-300 tracking-tight">ABDOMEDIA PRIME // v2026</span>
-                <span className="text-[9px] text-slate-400 dark:text-slate-500">منظومة التجارة والتشغيل المؤسسي المتكاملة</span>
+            {/* Brand Credit Signature */}
+            <div className="pt-4 border-t border-slate-100 dark:border-white/5 text-center flex flex-col items-center justify-center gap-1">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 dark:text-slate-700">AbdoMedia Premium</span>
+                <span className="text-[8px] font-bold text-slate-400 dark:text-slate-600">منظومة التجارة المتكاملة © 2026</span>
             </div>
         </div>
     );

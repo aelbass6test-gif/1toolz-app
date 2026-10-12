@@ -645,10 +645,10 @@ const CashManagement: React.FC<CashManagementProps> = ({ settings, updateSetting
       <div id="cashmgmt-header" className="relative bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2.5">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 rounded-lg">
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 dark:bg-indigo-400 animate-pulse"></span>
-              <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
-                منظومة إدارة عهد وتحصيل الموظفين والشركاء
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 rounded-full">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-xs font-black text-emerald-700 dark:text-emerald-300">
+                نظام الإدارة المالية الشاملة · إدارة العهد النقدية للموظفين والشركاء
               </span>
             </div>
             <div className="flex items-center gap-3">

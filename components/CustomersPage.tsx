@@ -620,25 +620,25 @@ const CustomersPage: React.FC<CustomersPageProps> = ({ orders, loyaltyData, cust
 
 const StatCard = ({ title, value, subtitle, icon, color, isActive, onClick }: any) => {
   const colors: any = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-900/50',
-    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-900/50',
-    amber: 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/50',
-    rose: 'bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-900/50',
-    red: 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/50',
-    slate: 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+    blue: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+    emerald: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+    amber: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+    rose: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+    red: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+    slate: 'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20'
   };
 
   return (
     <div 
       onClick={onClick}
-      className={`p-4 md:p-5 rounded-3xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+      className={`p-4 md:p-5 rounded-[1.75rem] transition-all cursor-pointer flex flex-col justify-between select-none relative overflow-hidden group ${
         isActive 
-          ? 'ring-2 ring-indigo-500 shadow-xl scale-[1.02] bg-white dark:bg-slate-900 border-indigo-500' 
-          : 'bg-white dark:bg-slate-900 hover:border-indigo-400/60 dark:hover:border-indigo-500/50 shadow-sm hover:shadow-md'
+          ? 'ring-2 ring-indigo-500 shadow-xl scale-[1.02] surface-card border-indigo-500' 
+          : 'surface-card border-slate-200/80 dark:border-white/[0.06] hover:border-indigo-400/60 dark:hover:border-indigo-500/50 hover:-translate-y-0.5 hover:shadow-md'
       }`}
     >
       <div className="flex items-center justify-between gap-2 mb-3">
-        <div className={`p-2.5 rounded-2xl border ${colors[color] || colors.blue}`}>
+        <div className={`p-2.5 rounded-2xl border transition-transform group-hover:scale-110 ${colors[color] || colors.blue}`}>
           {React.cloneElement(icon, { size: 18 })}
         </div>
         {isActive && (
@@ -648,9 +648,9 @@ const StatCard = ({ title, value, subtitle, icon, color, isActive, onClick }: an
 
       <div>
         <div className="text-[11px] font-black text-slate-400 uppercase tracking-wide truncate">{title}</div>
-        <div className="text-lg md:text-xl font-black text-slate-800 dark:text-white mt-0.5 truncate">{value}</div>
+        <div className="text-lg md:text-xl font-black text-slate-900 dark:text-white mt-0.5 truncate tabular-nums tracking-tight">{value}</div>
         {subtitle && (
-          <div className="text-[10px] font-bold text-slate-400 mt-1 truncate">{subtitle}</div>
+          <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 mt-1 truncate">{subtitle}</div>
         )}
       </div>
     </div>

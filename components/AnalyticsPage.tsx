@@ -102,65 +102,111 @@ const AnalyticsPage: React.FC<AnalyticsPageProps> = ({ orders, wallet, settings 
     };
     
     return (
-        <div className="space-y-6 pb-12">
-            <div className="flex items-center gap-4 mb-6">
-                <div className="p-3 bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400 rounded-xl"><BarChart2 size={28} /></div>
-                <div>
-                    <h1 className="text-3xl font-black text-slate-800 dark:text-white">التحليلات الذكية</h1>
-                    <p className="text-slate-500 dark:text-slate-400 mt-1">اطرح أي سؤال عن بيانات متجرك واحصل على إجابة فورية.</p>
-                </div>
-            </div>
+        <div className="space-y-8 pb-16 text-right max-w-7xl mx-auto" dir="rtl">
+            {/* 🚀 Dynamic Premium AI Analytics Hero Banner */}
+            <div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-[#0a192f] to-sky-950 text-white p-7 sm:p-10 shadow-2xl border border-slate-800">
+                {/* Ambient glow effects */}
+                <div className="absolute top-0 -left-20 w-80 h-80 bg-sky-500/15 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute -bottom-20 right-10 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                <div className="flex gap-2">
-                    <input
-                        type="text"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleQuery(query)}
-                        placeholder="اسأل مساعدك التحليلي أي سؤال عن بياناتك..."
-                        className="flex-1 px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-sky-500 font-bold"
-                    />
-                    <button onClick={() => handleQuery(query)} disabled={isLoading} className="px-6 py-3 bg-sky-600 text-white rounded-xl font-bold hover:bg-sky-700 transition-all shadow-lg flex items-center justify-center gap-2 disabled:bg-slate-400">
-                        <Send size={18}/> <span>تحليل</span>
-                    </button>
-                </div>
-                <div className="flex flex-wrap gap-2 mt-4">
-                    {suggestedQueries.map(q => (
-                        <button key={q} onClick={() => handleQuery(q)} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
-                            {q}
-                        </button>
-                    ))}
+                <div className="relative z-10 space-y-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-2">
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-sky-500/10 border border-sky-400/20 text-sky-400 text-xs font-black">
+                                <BrainCircuit size={14} className="animate-pulse" />
+                                <span>محرك التحليلات التنبؤية بالذكاء الاصطناعي</span>
+                                <span className="bg-sky-400/20 text-sky-300 text-[10px] px-2 py-0.5 rounded-full font-mono">Gemini AI</span>
+                            </div>
+                            <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white flex items-center gap-3">
+                                <span>التحليلات والاستشارات الذكية</span>
+                            </h1>
+                            <p className="text-slate-300 text-xs sm:text-sm font-medium max-w-2xl leading-relaxed">
+                                اسأل المساعد الذكي بأي لغة أو صياغة عامية عن مبيعاتك، أرباح المنتجات، محافظات التوصيل، أو سلوك العملاء واحصل على رؤى تفصيلية ورسوم بيانية فورية.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* AI Prompt Input Bar */}
+                    <div className="bg-white/10 dark:bg-slate-950/40 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-white/15 shadow-xl">
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyPress={(e) => e.key === 'Enter' && handleQuery(query)}
+                                placeholder="اسأل مساعدك: ما هو المنتج الأكثر ربحاً هذا الشهر؟ أو قارن بين مبيعات المحافظات..."
+                                className="flex-1 px-4 py-3.5 bg-slate-900/60 text-white placeholder-slate-400 border border-white/10 rounded-xl outline-none focus:ring-2 focus:ring-sky-400 font-bold text-sm transition-all"
+                            />
+                            <button 
+                                onClick={() => handleQuery(query)} 
+                                disabled={isLoading || !query.trim()} 
+                                className="px-7 py-3.5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+                            >
+                                <Wand2 size={18} className={isLoading ? "animate-spin" : ""} />
+                                <span>{isLoading ? "جاري التحليل..." : "تحليل ذكي"}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Prompt suggestions pills */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+                            <span>💡 نماذج أسئلة مقترحة:</span>
+                        </span>
+                        {suggestedQueries.map(q => (
+                            <button 
+                                key={q} 
+                                onClick={() => handleQuery(q)} 
+                                className="px-3.5 py-1.5 bg-white/5 hover:bg-white/15 text-slate-200 border border-white/10 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 cursor-pointer backdrop-blur-xs"
+                            >
+                                {q}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 
             {isLoading && (
-                <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-center flex flex-col items-center gap-4 text-sky-600 dark:text-sky-400">
-                    <BrainCircuit size={40} className="animate-pulse" />
-                    <h3 className="font-bold text-lg">جاري تحليل البيانات...</h3>
-                    <p className="text-sm text-slate-500">يقوم المساعد الذكي بمعالجة الأرقام الآن، قد يستغرق الأمر بضع لحظات.</p>
+                <div className="surface-card p-12 text-center flex flex-col items-center justify-center gap-4 text-sky-600 dark:text-sky-400">
+                    <div className="w-16 h-16 rounded-3xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center animate-bounce">
+                        <BrainCircuit size={36} className="text-sky-500 animate-pulse" />
+                    </div>
+                    <div className="space-y-1">
+                        <h3 className="font-black text-lg text-slate-800 dark:text-white">جاري تحليل بيانات المتجر واستخراج المؤشرات...</h3>
+                        <p className="text-xs text-slate-400 max-w-md">يقوم المساعد الذكي بمعالجة جداول الطلبات والمنتجات لتوليد تقرير بياني دقيق.</p>
+                    </div>
                 </div>
             )}
             
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-2xl border border-red-200 dark:border-red-800 flex items-center gap-4 text-red-700 dark:text-red-400">
-                    <AlertTriangle size={32}/>
+                <div className="bg-rose-50 dark:bg-rose-950/30 p-6 rounded-2xl border border-rose-200 dark:border-rose-800/60 flex items-center gap-4 text-rose-700 dark:text-rose-400">
+                    <AlertTriangle size={32} className="shrink-0"/>
                     <div>
-                        <h4 className="font-bold">حدث خطأ</h4>
-                        <p className="text-sm">{error}</p>
+                        <h4 className="font-black text-sm">تعذر إتمام التحليل</h4>
+                        <p className="text-xs mt-0.5">{error}</p>
                     </div>
                 </div>
             )}
             
             {result && (
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm animate-in fade-in-5 duration-300 space-y-6">
-                    <div className="prose prose-base dark:prose-invert max-w-none text-slate-700 dark:text-slate-300 bg-slate-50/50 dark:bg-slate-800/20 p-4 rounded-xl">
-                        <p>{result.analysisText}</p>
+                <div className="surface-card p-6 sm:p-8 space-y-6 animate-in fade-in-5 duration-300">
+                    <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                        <div className="flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+                            <h3 className="font-black text-lg text-slate-900 dark:text-white">نتيجة التحليل والرؤية الذكية</h3>
+                        </div>
+                        <span className="text-xs font-bold px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                            محدث الآن
+                        </span>
                     </div>
+
+                    <div className="text-slate-700 dark:text-slate-200 bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 leading-relaxed text-sm font-medium">
+                        <p className="whitespace-pre-line">{result.analysisText}</p>
+                    </div>
+
                     <DynamicChart chart={result.chart} />
                 </div>
             )}
-
         </div>
     );
 };
