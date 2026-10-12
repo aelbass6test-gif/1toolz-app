@@ -2518,6 +2518,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
     const [newImageUrl, setNewImageUrl] = useState('');
     const [isUploadingProductImages, setIsUploadingProductImages] = useState(false);
     const [uploadingImageCount, setUploadingImageCount] = useState(0);
+    const [uploadProgress, setUploadProgress] = useState(0);
 
     const handleFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2647,13 +2648,14 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
         if (!files || files.length === 0) return;
 
         setUploadingImageCount(files.length);
+        setUploadProgress(0);
         setIsUploadingProductImages(true);
         try {
             if (!activeStoreId) throw new Error('لا يوجد متجر نشط لرفع الصورة إليه');
             const uploaded = await uploadProductImages(Array.from(files), {
                 storeId: activeStoreId,
                 productId: productData.id || `draft-${Date.now()}`
-            });
+            }, setUploadProgress);
             if (target === 'thumbnail') {
                 updateField('thumbnail', uploaded[0]?.url || '');
             } else {
@@ -2666,6 +2668,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
             e.target.value = '';
             setIsUploadingProductImages(false);
             setUploadingImageCount(0);
+            setUploadProgress(0);
         }
     };
 
@@ -3261,16 +3264,31 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             </div>
                                             <div className="min-w-0 flex-1">
                                                 <p className="text-xs font-extrabold text-indigo-900 dark:text-indigo-100">
-                                                    جاري رفع {uploadingImageCount === 1 ? 'صورة واحدة' : `${uploadingImageCount} صور`} إلى المنصة
+                                                    {uploadProgress < 100
+                                                        ? `جاري رفع ${uploadingImageCount === 1 ? 'صورة واحدة' : `${uploadingImageCount} صور`} إلى المنصة`
+                                                        : 'اكتمل إرسال الملفات؛ جارٍ تأكيد حفظها'}
                                                 </p>
-                                                <p className="text-[10px] text-indigo-700/80 dark:text-indigo-200/80 mt-0.5">ستظهر الصور في المعرض تلقائيًا بعد اكتمال الرفع.</p>
+                                                <p className="text-[10px] text-indigo-700/80 dark:text-indigo-200/80 mt-0.5">
+                                                    {uploadProgress < 100 ? 'النسبة محسوبة من البيانات المرسلة فعليًا.' : 'تُضاف الصور للمعرض فور تأكيد الخادم.'}
+                                                </p>
                                             </div>
+                                            <span className="shrink-0 text-sm font-black tabular-nums text-indigo-700 dark:text-indigo-200" dir="ltr">
+                                                {uploadProgress}%
+                                            </span>
                                         </div>
-                                        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900">
+                                        <div
+                                            className="mt-3 h-2 overflow-hidden rounded-full bg-indigo-200 dark:bg-indigo-900"
+                                            role="progressbar"
+                                            aria-label="نسبة إرسال صور المنتج"
+                                            aria-valuemin={0}
+                                            aria-valuemax={100}
+                                            aria-valuenow={uploadProgress}
+                                            aria-valuetext={`${uploadProgress}%`}
+                                        >
                                             <motion.div
-                                                className="h-full w-1/3 rounded-full bg-indigo-600 dark:bg-indigo-400"
-                                                animate={{ x: ['-100%', '300%'] }}
-                                                transition={{ repeat: Infinity, duration: 1.25, ease: 'linear' }}
+                                                className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
+                                                animate={{ width: `${uploadProgress}%` }}
+                                                transition={{ duration: 0.15, ease: 'linear' }}
                                             />
                                         </div>
                                     </motion.div>

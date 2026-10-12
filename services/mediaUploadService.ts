@@ -16,7 +16,8 @@ function mediaApiBase(): string {
 
 export async function uploadProductImages(
   files: File[],
-  params: { storeId: string; productId?: string }
+  params: { storeId: string; productId?: string },
+  onProgress?: (percent: number) => void
 ): Promise<ProductImageUploadResult[]> {
   if (!files.length) return [];
   if (!params.storeId) throw new Error('معرّف المتجر غير متوفر');
@@ -36,15 +37,34 @@ export async function uploadProductImages(
   const session = (await supabase?.auth.getSession())?.data.session;
   if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
 
-  const response = await fetch(`${mediaApiBase()}/api/media/product-images`, {
-    method: 'POST',
-    headers,
-    body: form,
-    credentials: 'include'
+  return new Promise<ProductImageUploadResult[]>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${mediaApiBase()}/api/media/product-images`);
+    xhr.withCredentials = true;
+    Object.entries(headers).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      let data: any = {};
+      try {
+        data = JSON.parse(xhr.responseText || '{}');
+      } catch {
+        data = {};
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300 || !data?.success) {
+        reject(new Error(data?.error || 'تعذر رفع صور المنتج'));
+        return;
+      }
+      resolve(data.images || []);
+    });
+    xhr.addEventListener('error', () => reject(new Error('تعذر الاتصال بخادم رفع الصور')));
+    xhr.addEventListener('timeout', () => reject(new Error('انتهت مهلة رفع الصور؛ حاول مرة أخرى')));
+    xhr.send(form);
   });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || !data?.success) {
-    throw new Error(data?.error || 'تعذر رفع صور المنتج');
-  }
-  return data.images || [];
 }
