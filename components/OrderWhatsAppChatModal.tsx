@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Order, Settings, WhatsAppConfig, WhatsAppMessageLog } from '../types';
 import { 
   MessageSquare, Send, Search, CheckCircle2, AlertTriangle, 
   X, Phone, ExternalLink, RefreshCw, Copy, Check, Sparkles, 
   Clock, Shield, Truck, XCircle, ChevronRight, User, ShoppingBag, 
   MapPin, DollarSign, ArrowRight, Play, CheckCheck, FileText, CornerDownLeft, Zap,
-  Pin, Archive, MoreVertical, Smile, Paperclip, BellRing
+  Pin, Archive, MoreVertical, Smile, Paperclip, BellRing, Plus, Minus, Trash2
 } from 'lucide-react';
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
@@ -34,6 +34,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   onSelectOrder
 }) => {
   const { storeId } = useParams<{ storeId: string }>();
+  const navigate = useNavigate();
 
   // Current active order
   const [activeOrder, setActiveOrder] = useState<Order | null>(
@@ -45,6 +46,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'shipping'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [conversationFilter, setConversationFilter] = useState<'all' | 'new' | 'follow_up' | 'manager' | 'resolved'>('all');
+  const [conversationMeta, setConversationMeta] = useState<Record<string, { stage: 'new' | 'follow_up' | 'manager' | 'resolved'; assignee: string }>>({});
   const [readOrderIds, setReadOrderIds] = useState<Set<string>>(new Set());
   const [customMessage, setCustomMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -53,7 +56,40 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [liveConversationId, setLiveConversationId] = useState<string | null>(null);
   const [liveMessages, setLiveMessages] = useState<any[]>([]);
+  const [showOrderComposer, setShowOrderComposer] = useState(false);
+  const [draftItems, setDraftItems] = useState<any[]>([]);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  const conversationStorageKey = `inbox_conversation_meta_${storeId || 'default'}`;
+  const employeeOptions = ((settings as any)?.employees || []) as Array<{ id?: string; name?: string; fullName?: string; phone?: string }>;
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(conversationStorageKey);
+      if (saved) setConversationMeta(JSON.parse(saved));
+    } catch (_) {}
+  }, [conversationStorageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(conversationStorageKey, JSON.stringify(conversationMeta));
+    } catch (_) {}
+  }, [conversationMeta, conversationStorageKey]);
+
+  const getConversationKey = (order: Order) => String(order.id || order.orderNumber || 'unknown');
+  const getConversationMeta = (order: Order) => conversationMeta[getConversationKey(order)] || { stage: 'new' as const, assignee: '' };
+  const updateConversationMeta = (order: Order, patch: Partial<{ stage: 'new' | 'follow_up' | 'manager' | 'resolved'; assignee: string }>) => {
+    const key = getConversationKey(order);
+    setConversationMeta(prev => ({ ...prev, [key]: { ...getConversationMeta(order), ...patch } }));
+  };
+  const getConversationStage = (stage: 'new' | 'follow_up' | 'manager' | 'resolved') => {
+    switch (stage) {
+      case 'follow_up': return { label: 'قيد المتابعة', className: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800' };
+      case 'manager': return { label: 'تحتاج مدير', className: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800' };
+      case 'resolved': return { label: 'تم الحل', className: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700' };
+      default: return { label: 'جديدة', className: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' };
+    }
+  };
 
   // Canonical inbox stream: use whatsapp_messages when a conversation exists,
   // while retaining the legacy order log as a compatibility fallback.
@@ -143,6 +179,10 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     }
   }, [initialOrder, selectedOrderId, orders]);
 
+  useEffect(() => {
+    setDraftItems((activeOrder?.items || []).map((item: any) => ({ ...item })));
+  }, [activeOrder?.id]);
+
   // Scroll to bottom when messages update
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -176,7 +216,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       const lastOutgoingIndex = logs.reduce((index: number, log: any, i: number) => log.direction === 'outgoing' ? i : index, -1);
       const hasUnread = !readOrderIds.has(String(ord.id || ord.orderNumber)) && logs.some((log: any, i: number) => i > lastOutgoingIndex && log.direction === 'incoming');
 
-      if (!matchesSearch || (showUnreadOnly && !hasUnread)) return false;
+      const conversationStage = getConversationMeta(ord).stage;
+      if (!matchesSearch || (showUnreadOnly && !hasUnread) || (conversationFilter !== 'all' && conversationStage !== conversationFilter)) return false;
 
       if (filterType === 'pending') {
         return ['جديد', 'قيد_المراجعة', 'في_انتظار_المكالمة', 'معلق', 'بانتظار_التأكيد', 'pending'].includes(ord.status);
@@ -200,7 +241,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       };
       return getTime(b) - getTime(a);
     });
-  }, [orders, searchTerm, filterType, showUnreadOnly, readOrderIds]);
+  }, [orders, searchTerm, filterType, showUnreadOnly, readOrderIds, conversationFilter, conversationMeta]);
 
   // Extract messages and history for active order
   const chatMessages = useMemo(() => {
@@ -227,6 +268,21 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
     );
   }, [activeOrder, liveMessages, settings, storeDisplayName]);
+
+  const customerInsights = useMemo(() => {
+    if (!activeOrder) return { orders: [], totalSpent: 0, returns: 0, segment: 'عميل جديد' };
+    const phone = String(activeOrder.customerPhone || '').replace(/\D/g, '');
+    const email = String(activeOrder.customerEmail || '').trim().toLowerCase();
+    const relatedOrders = orders.filter(order => {
+      const orderPhone = String(order.customerPhone || '').replace(/\D/g, '');
+      const orderEmail = String((order as any).customerEmail || '').trim().toLowerCase();
+      return (phone && orderPhone && phone === orderPhone) || (email && orderEmail && email === orderEmail);
+    });
+    const totalSpent = relatedOrders.reduce((sum, order) => sum + Number(order.totalPrice || order.productPrice || 0), 0);
+    const returns = relatedOrders.filter(order => ['مرتجع', 'ملغي', 'مرفوض', 'returned', 'cancelled'].includes(String(order.status))).length;
+    const segment = relatedOrders.length >= 5 || totalSpent >= 10000 ? 'VIP' : returns >= 2 ? 'يحتاج متابعة' : relatedOrders.length <= 1 ? 'عميل جديد' : 'عميل منتظم';
+    return { orders: relatedOrders, totalSpent, returns, segment };
+  }, [activeOrder, orders]);
 
   // Handle Order Selection
   const handleSelectOrder = (ord: Order) => {
@@ -453,6 +509,40 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     window.open(`https://wa.me/${clean}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  const openCreateOrder = () => {
+    if (!activeOrder) return;
+    navigate(`/store/${storeId || ''}/orders/new`, {
+      state: {
+        exchangeData: {
+          customerName: activeOrder.customerName || '',
+          customerPhone: activeOrder.customerPhone || '',
+          customerAddress: activeOrder.customerAddress || '',
+          governorate: activeOrder.governorate || '',
+          city: activeOrder.customerCity || activeOrder.city || '',
+          items: draftItems.map((item: any) => ({ ...item })),
+          shippingFee: Number(activeOrder.shippingFee || 0),
+          discount: Number(activeOrder.discount || 0),
+          source: 'واتساب',
+          notes: `تم إنشاء الطلب من محادثة واتساب للعميل ${activeOrder.customerName || activeOrder.customerPhone || ''}`
+        }
+      }
+    });
+  };
+
+  const addProductToDraft = (productId: string) => {
+    const product = settings.products?.find((item: any) => item.id === productId) as any;
+    if (!product) return;
+    setDraftItems(prev => {
+      const index = prev.findIndex(item => item.productId === product.id);
+      if (index >= 0) return prev.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(item.quantity || 1) + 1 } : item);
+      return [...prev, { productId: product.id, name: product.name, price: Number(product.price || 0), cost: Number(product.costPrice || 0), quantity: 1, thumbnail: product.thumbnail || '' }];
+    });
+  };
+
+  const updateDraftQuantity = (index: number, delta: number) => {
+    setDraftItems(prev => prev.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Math.max(1, Number(item.quantity || 1) + delta) } : item));
+  };
+
   // Status Badge Helper
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -572,6 +662,28 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 </button>
               ))}
             </div>
+            <div className="flex gap-1 overflow-x-auto no-scrollbar py-0.5 border-t border-slate-100 dark:border-slate-800 pt-2">
+              {[
+                { id: 'all', label: 'كل الحالات' },
+                { id: 'new', label: 'جديدة' },
+                { id: 'follow_up', label: 'قيد المتابعة' },
+                { id: 'manager', label: 'تحتاج مدير' },
+                { id: 'resolved', label: 'تم الحل' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setConversationFilter(tab.id as any)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all ${
+                    conversationFilter === tab.id
+                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
             <div className="flex items-center justify-between px-1 pt-1 text-[10px] font-bold text-slate-400">
               <span>{showUnreadOnly ? 'غير مقروءة فقط' : 'مرتبة حسب آخر رسالة'}</span>
               {showUnreadOnly && <button type="button" onClick={() => setShowUnreadOnly(false)} className="text-emerald-600 hover:underline">عرض الكل</button>}
@@ -588,6 +700,9 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
             ) : (
               filteredOrders.map(ord => {
                 const isSelected = activeOrder?.id === ord.id || activeOrder?.orderNumber === ord.orderNumber;
+                const meta = getConversationMeta(ord);
+                const stage = getConversationStage(meta.stage);
+                const assignee = employeeOptions.find(employee => String(employee.id || employee.phone || '') === meta.assignee);
                 const formattedPhone = ord.customerPhone || 'بدون هاتف';
                 const totalPrice = ord.totalPrice || (ord.productPrice || 0) + (ord.shippingFee || 0) - (ord.discount || 0);
                 const logs = Array.isArray((ord as any).whatsappLogs) && (ord as any).whatsappLogs.length > 0 ? (ord as any).whatsappLogs : ((ord as any).whatsapp_logs || []);
@@ -626,10 +741,12 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/40">
-                      <div className="scale-90 origin-right">
-                        {getStatusBadge(ord.status)}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="scale-75 origin-right shrink-0">{getStatusBadge(ord.status)}</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[9px] font-black ${stage.className}`}>{stage.label}</span>
+                        {assignee && <span className="max-w-20 truncate text-[9px] font-bold text-slate-400">{assignee.name || assignee.fullName || assignee.phone}</span>}
                       </div>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-black flex items-center gap-0.5">
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-black flex items-center gap-0.5 shrink-0">
                         عرض الشات <ChevronRight size={12} className="rotate-180" />
                       </span>
                     </div>
@@ -698,6 +815,47 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                     <ExternalLink size={13} />
                     فتح واتساب
                   </button>
+                  <button
+                    type="button"
+                    onClick={openCreateOrder}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-600/20 transition-all"
+                    title="فتح نموذج إنشاء طلب جديد ببيانات هذا العميل"
+                  >
+                    <ShoppingBag size={13} />
+                    إنشاء طلب
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowOrderComposer(value => !value)}
+                    className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${showOrderComposer ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'}`}
+                    title="تجهيز منتجات الطلب قبل فتح النموذج"
+                  >
+                    <Plus size={13} />
+                    تجهيز المنتجات
+                  </button>
+                  <select
+                    value={getConversationMeta(activeOrder).stage}
+                    onChange={(event) => updateConversationMeta(activeOrder, { stage: event.target.value as any })}
+                    className="hidden md:block max-w-32 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                    aria-label="حالة المحادثة"
+                  >
+                    <option value="new">جديدة</option>
+                    <option value="follow_up">قيد المتابعة</option>
+                    <option value="manager">تحتاج مدير</option>
+                    <option value="resolved">تم الحل</option>
+                  </select>
+                  <select
+                    value={getConversationMeta(activeOrder).assignee}
+                    onChange={(event) => updateConversationMeta(activeOrder, { assignee: event.target.value })}
+                    className="hidden lg:block max-w-32 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
+                    aria-label="الموظف المسؤول"
+                  >
+                    <option value="">بدون مسؤول</option>
+                    {employeeOptions.map(employee => {
+                      const id = String(employee.id || employee.phone || '');
+                      return <option key={id} value={id}>{employee.name || employee.fullName || employee.phone || 'موظف'}</option>;
+                    })}
+                  </select>
                 </div>
               </div>
 
@@ -707,8 +865,8 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                   <ShoppingBag size={14} className="text-emerald-600" />
                   <span className="font-bold">المنتجات:</span>
                   <span className="font-medium text-slate-800 dark:text-slate-200">
-                    {activeOrder.items && activeOrder.items.length > 0 
-                      ? activeOrder.items.map(i => `${i.name || i.productName} (${i.quantity || 1})`).join('، ')
+                    {draftItems.length > 0
+                      ? draftItems.map(i => `${i.name || i.productName} (${i.quantity || 1})`).join('، ')
                       : activeOrder.productName || 'منتج'}
                   </span>
                 </div>
@@ -721,6 +879,58 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 )}
               </div>
 
+              {showOrderComposer && (
+                <div className="bg-amber-50/70 dark:bg-amber-950/20 border-b border-amber-200/70 dark:border-amber-900/50 px-4 py-3 space-y-2 shrink-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-black text-amber-900 dark:text-amber-200">تجهيز مسودة الطلب</h4>
+                      <p className="text-[10px] text-amber-700/80 dark:text-amber-300/80 font-bold">أضف المنتجات أو عدّل الكمية قبل فتح نموذج الطلب.</p>
+                    </div>
+                    <select
+                      defaultValue=""
+                      onChange={(event) => { addProductToDraft(event.target.value); event.target.value = ''; }}
+                      className="max-w-44 px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-amber-400"
+                      aria-label="إضافة منتج للمسودة"
+                    >
+                      <option value="">+ إضافة منتج</option>
+                      {(settings.products || []).map((product: any) => <option key={product.id} value={product.id}>{product.name} — {Number(product.price || 0).toLocaleString()} ج.م</option>)}
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {draftItems.length === 0 ? (
+                      <span className="text-[10px] font-bold text-amber-700/80 dark:text-amber-300/80">لا توجد منتجات في المسودة.</span>
+                    ) : draftItems.map((item, index) => (
+                      <div key={`${item.productId || item.name}-${index}`} className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-[10px] font-black text-slate-700 dark:text-slate-200">
+                        <span className="max-w-36 truncate">{item.name || 'منتج'}</span>
+                        <button type="button" onClick={() => updateDraftQuantity(index, -1)} className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:text-amber-600" title="تقليل الكمية"><Minus size={11} /></button>
+                        <span className="font-mono min-w-3 text-center">{item.quantity || 1}</span>
+                        <button type="button" onClick={() => updateDraftQuantity(index, 1)} className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:text-amber-600" title="زيادة الكمية"><Plus size={11} /></button>
+                        <button type="button" onClick={() => setDraftItems(prev => prev.filter((_, itemIndex) => itemIndex !== index))} className="text-slate-400 hover:text-rose-600" title="حذف المنتج"><Trash2 size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Customer 360 context strip */}
+              <div className="bg-slate-50/90 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 shrink-0">
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0"><User size={15} /></div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-black text-slate-500 dark:text-slate-400">ملف العميل</span>
+                        <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800 text-[10px] font-black">{customerInsights.segment}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-bold truncate">{activeOrder.customerEmail || activeOrder.customerAddress || 'لا توجد بيانات إضافية للعميل'}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="px-2 min-w-16"><div className="text-[13px] font-black text-slate-800 dark:text-white tabular-nums">{customerInsights.orders.length}</div><div className="text-[9px] font-bold text-slate-400">طلب سابق</div></div>
+                    <div className="px-2 min-w-20 border-x border-slate-200 dark:border-slate-700"><div className="text-[13px] font-black text-emerald-600 dark:text-emerald-400 tabular-nums">{customerInsights.totalSpent.toLocaleString()} ج.م</div><div className="text-[9px] font-bold text-slate-400">إجمالي الشراء</div></div>
+                    <div className="px-2 min-w-16"><div className={`text-[13px] font-black tabular-nums ${customerInsights.returns ? 'text-rose-600' : 'text-slate-800 dark:text-white'}`}>{customerInsights.returns}</div><div className="text-[9px] font-bold text-slate-400">مرتجع/ملغي</div></div>
+                  </div>
+                </div>
+              </div>
               {/* Chat Message Stream */}
               <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 min-h-0 no-scrollbar bg-[#EFEAE2] dark:bg-[#0B141A] bg-opacity-95">
                 {/* Security/Notice Banner */}
