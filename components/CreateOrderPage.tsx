@@ -622,7 +622,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         // --- 2. Interactive WhatsApp Automation Message ---
         // The message must be persisted in the same order record after a successful send;
         // otherwise the customer receives it but the conversation loses it on reload.
-        if (settings.whatsappConfig?.isActive) {
+        if (settings.whatsappConfig?.isActive && settings.whatsappConfig?.providerType !== 'direct_web') {
             const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
             const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فوراً 🚚";
             const buttonsToUse = template?.buttons && template.buttons.length > 0
@@ -682,7 +682,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     message: formattedMsg,
                     sender: `${activeStore?.name || 'المتجر'} (المتجر)`,
                     recipient: orderWithId.customerName || orderWithId.customerPhone || 'العميل',
-                    status: sendResult.success ? 'sent' : 'failed'
+                    status: sendResult.success ? 'sent' : 'failed',
+                    errorReason: sendResult.error
                 } as any;
                 const currentLogs = Array.isArray((orderWithId as any).whatsappLogs)
                     ? (orderWithId as any).whatsappLogs
@@ -696,6 +697,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 } as Order;
 
                 setOrders(prev => prev.map(existing => existing.id === orderWithId.id ? orderWithMessage : existing));
+                orderWithId = orderWithMessage;
                 if (forceSync && currentStoreId && allStoresData?.[currentStoreId]) {
                     const savedStore = allStoresData[currentStoreId];
                     const hasOrder = (savedStore.orders || []).some(existing => existing.id === orderWithId.id);
@@ -704,11 +706,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                         : [orderWithMessage, ...(savedStore.orders || [])];
                     await forceSync({ ...savedStore, orders: savedOrders });
                 }
-                if (!sendResult.success) {
-                    console.warn('Automatic WhatsApp confirmation was not sent:', sendResult.error);
-                }
-            } catch (err) {
-                console.error("Failed to send automatic WhatsApp message:", err);
+            } catch (_err) {
+                // Handled gracefully in OrderConfirmationSummary
             }
         }
         

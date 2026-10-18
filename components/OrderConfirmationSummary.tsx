@@ -4,7 +4,8 @@ import { calculateInsuranceFee, getStandardShippingFee, getAdvancePaymentCustody
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { generateShippingLabelHTML } from '../utils/shippingLabelGenerator';
-import { CheckCircle, Printer, FileDown } from 'lucide-react';
+import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
+import { CheckCircle, Printer, FileDown, MessageCircle, AlertCircle } from 'lucide-react';
 
 interface OrderConfirmationSummaryProps {
     order: Order;
@@ -25,7 +26,6 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
     const useCustomFees = compFees?.useCustomFees ?? false;
     const vatRate = useCustomFees ? (compFees?.shippingVatRate ?? 0.14) : (settings.shippingVatRate ?? 0.14);
     const isVatEnabled = compFees?.enableVat !== false;
-    console.log("VAT DEBUG:", { shippingCompany: order.shippingCompany, compFees, useCustomFees, vatRate, isVatEnabled });
     const vatBasis = useCustomFees ? (compFees?.vatBasis || 'shipping_only') : 'shipping_only';
     const useStandard = order.vatOnStandardShipping === true;
     const standardShippingFee = useStandard ? getStandardShippingFee(order, settings) : (order.shippingFee || 0);
@@ -47,6 +47,18 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
     const finalTotal = order.totalAmountOverride !== undefined && order.totalAmountOverride !== null
         ? Math.max(0, Math.round(Number(order.totalAmountOverride) - safeAdvance - credit))
         : Math.max(0, Math.round(total));
+
+    // Prepare Direct WhatsApp Link
+    const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
+    const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\nنرجو تأكيد الطلب لمباشرة التجهيز والشحن فوراً 🚚";
+    const formattedWaMsg = whatsappService.formatMessage(textToUse, order, settings, undefined, template?.footer || `خدمة عملاء ${storeName}`, storeName);
+    const cleanPhone = normalizeWhatsAppPhone(order.customerPhone || '');
+    const directWaUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(formattedWaMsg)}` : '';
+
+    const lastWaLog = Array.isArray((order as any).whatsappLogs) && (order as any).whatsappLogs.length > 0
+        ? (order as any).whatsappLogs[(order as any).whatsappLogs.length - 1]
+        : null;
+    const autoSendFailed = lastWaLog?.status === 'failed';
     
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
@@ -60,6 +72,15 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                 <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mb-5">
                     ملخص الطلب المالي للعميل <span className="font-black text-slate-800 dark:text-slate-100">{order.customerName}</span>
                 </p>
+
+                {autoSendFailed && (
+                    <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-2xl text-right flex items-start gap-2.5">
+                        <AlertCircle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <div className="text-[11px] font-bold text-amber-800 dark:text-amber-300 leading-relaxed">
+                            لم يتم الإرسال التلقائي عبر مزود UltraMsg بسبب توقف الاشتراك الخارجي. يمكنك إرسال رسالة التأكيد للعميل فوراً عبر الزر المباشر المجاني بالأسفل، أو تحويل المزود إلى <strong>«الربط المباشر المجاني»</strong> من إعدادات الواتساب.
+                        </div>
+                    </div>
+                )}
 
                 {order.merchantBrandName?.trim() && (
                     <div className="mb-4 p-3.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl text-right flex items-center justify-between">
@@ -144,6 +165,17 @@ export const OrderConfirmationSummary: React.FC<OrderConfirmationSummaryProps> =
                 </div>
 
                 <div className="flex flex-col gap-2.5 mt-6">
+                    {directWaUrl && (
+                        <a
+                            href={directWaUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-3.5 bg-[#008060] hover:bg-[#006e52] text-white rounded-2xl font-black transition-all shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2.5 cursor-pointer text-sm active:scale-95"
+                        >
+                            <MessageCircle size={18} />
+                            <span>إرسال تأكيد الطلب عبر واتساب مباشر (مجاني)</span>
+                        </a>
+                    )}
                     <button 
                         onClick={() => {
                             const html = generateInvoiceHTML(order, settings, storeName);

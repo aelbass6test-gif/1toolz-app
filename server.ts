@@ -3955,6 +3955,8 @@ async function startServer() {
       let customError = data.error;
       if (customError === "Authentication Error" || (data.message && String(data.message).includes("Authentication"))) {
         customError = "تنبيه مزود الخدمة (UltraMsg): خطأ في المصادقة. يرجى التأكد من صحة الـ Instance ID والـ Token وأن اشتراكك مفعل.";
+      } else if (customError && (String(customError).includes("Stopped due to non-payment") || String(customError).includes("non-payment"))) {
+        customError = "تنبيه مزود الخدمة (UltraMsg): توقف الـ Instance بسبب انتهاء الاشتراك في UltraMsg. يمكنك تجديد اشتراك UltraMsg أو التحويل إلى «الربط المباشر المجاني» أو «Meta Cloud API الرسمية» من إعدادات الواتساب.";
       }
 
       return c.json({ 
@@ -4080,6 +4082,8 @@ async function startServer() {
       let customError = statusData.error;
       if (customError === "Authentication Error" || (statusData.message && String(statusData.message).includes("Authentication"))) {
         customError = "تنبيه مزود الخدمة (UltraMsg): خطأ في المصادقة. يرجى التأكد من صحة الـ Instance ID والـ Token وأن اشتراكك مفعل.";
+      } else if (customError && (String(customError).includes("Stopped due to non-payment") || String(customError).includes("non-payment"))) {
+        customError = "تنبيه مزود الخدمة (UltraMsg): توقف الـ Instance بسبب انتهاء الاشتراك في UltraMsg. يمكنك تجديد اشتراك UltraMsg أو التحويل إلى «الربط المباشر المجاني» أو «Meta Cloud API الرسمية» من إعدادات الواتساب.";
       }
 
       if (!statusRes.ok || statusData.error) {

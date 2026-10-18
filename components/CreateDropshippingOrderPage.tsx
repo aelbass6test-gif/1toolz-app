@@ -585,8 +585,10 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
             const footerToUse = template?.footer || "خدمة عملاء {storeName}";
 
             const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
-            whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse)
-                .catch(err => console.error("Failed to send automatic WhatsApp message:", err));
+            if (settings.whatsappConfig?.providerType !== 'direct_web') {
+                whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse)
+                    .catch(() => {});
+            }
         }
 
         // --- LINK TO MAINTENANCE CENTER ---

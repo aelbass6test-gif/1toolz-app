@@ -779,6 +779,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   // Share via WhatsApp
   const handleShareWhatsApp = (settlement: MerchantSettlement) => {
     const partner = merchantsList.find(m => m.id === settlement.merchantId || m.name === settlement.merchantName);
+    const partnerNetProfitOrLoss = Math.round((settlement.netPayoutToMerchant - settlement.totalMerchantGoodsCost) * 100) / 100;
+    const roiPercent = settlement.totalMerchantGoodsCost > 0
+      ? Math.round((partnerNetProfitOrLoss / settlement.totalMerchantGoodsCost) * 1000) / 10
+      : 0;
+    const profitStatusLine =
+      partnerNetProfitOrLoss > 0
+        ? `✅ *صافي ربحك فوق تكلفة البضاعة: +${partnerNetProfitOrLoss.toLocaleString()} ج.م (عائد +${roiPercent}%)*`
+        : partnerNetProfitOrLoss < 0
+        ? `⚠️ *صافي خسارة من تكلفة البضاعة: ${partnerNetProfitOrLoss.toLocaleString()} ج.م (${roiPercent}%)*`
+        : `⚖️ *نقطة تعادل (استرداد تكلفة البضاعة بالكامل بدون ربح أو خسارة)*`;
+
     const lines = [
       `*كشف تسوية مالية - ${settings.storeName || 'AbdoMedia Prime'}*`,
       `رقم الكشف: *${settlement.settlementNumber}*`,
@@ -787,14 +798,19 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       `────────────────────`,
       `• إجمالي الأوردرات بالكشف: ${settlement.ordersCount} أوردر`,
       `• إجمالي التحصيل الفعلي: ${settlement.totalCollected.toLocaleString()} ج.م`,
-      `• مستحقات تكلفة البضاعة: ${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م`,
+      `• رأس مال البضاعة المباعة: ${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م`,
       `• مصاريف الشحن واللوجستيات: -${settlement.totalShippingCosts.toLocaleString()} ج.م`,
       `• عمولات التحصيل (COD): -${settlement.totalCollectionFees.toLocaleString()} ج.م`,
       `• عمولة التشغيل والخدمة: -${settlement.totalServiceFees.toLocaleString()} ج.م`,
       ...(settlement.totalMarketingCosts > 0 ? [`• مصاريف الإعلانات والتسويق: -${settlement.totalMarketingCosts.toLocaleString()} ج.م`] : []),
       ...(settlement.totalReturnFees > 0 ? [`• رسوم شحن المرتجعات: -${settlement.totalReturnFees.toLocaleString()} ج.م`] : []),
       `────────────────────`,
-      `*الصافي النهائي المستحق للتحويل: ${settlement.netPayoutToMerchant.toLocaleString()} ج.م*`,
+      `*بيان الربح والخسارة للموكل:*`,
+      `• استرداد رأس مال البضاعة: ${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م`,
+      profitStatusLine,
+      `────────────────────`,
+      `*💰 الصافي النهائي المستحق للتحويل لك: ${settlement.netPayoutToMerchant.toLocaleString()} ج.م*`,
+      `_(شامل رأس مال البضاعة ${partnerNetProfitOrLoss >= 0 ? '+ صافي الربح' : '- صافي الخسارة'})_`,
       settlement.notes ? `ملاحظات: ${settlement.notes}` : ''
     ].filter(Boolean).join('\n');
 
@@ -817,6 +833,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   // Print Official Brand Statement
   const handlePrintSettlement = (settlement: MerchantSettlement) => {
     const snapshots = settlement.orderSnapshots || [];
+    const partnerNetProfitOrLoss = Math.round((settlement.netPayoutToMerchant - settlement.totalMerchantGoodsCost) * 100) / 100;
+    const roiPercent = settlement.totalMerchantGoodsCost > 0
+      ? Math.round((partnerNetProfitOrLoss / settlement.totalMerchantGoodsCost) * 1000) / 10
+      : 0;
+    const isProfitable = partnerNetProfitOrLoss >= 0;
+
     const rowsHtml = snapshots.length > 0
       ? snapshots.map((s, idx) => `
           <tr>
@@ -845,12 +867,16 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           .title { font-size: 22px; font-weight: 900; color: #008060; margin: 0; }
           .brand-badge { background: #0d1b2a; color: #10b981; padding: 8px 16px; border-radius: 10px; font-weight: 800; font-size: 13px; }
           .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; background: #f8fafc; padding: 16px; border-radius: 14px; margin-bottom: 20px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: bold; }
-          table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
           th, td { border: 1px solid #cbd5e1; padding: 9px 10px; text-align: right; }
           th { background-color: #0d1b2a; color: #ffffff; font-weight: bold; text-align: center; }
           .sub-th th { background-color: #008060; color: #ffffff; }
           .num { font-family: monospace, sans-serif; text-align: center; font-weight: bold; }
-          .summary-box { display: flex; justify-content: space-between; align-items: center; background: #ecfdf5; border: 2px solid #008060; padding: 18px 22px; border-radius: 14px; margin-top: 24px; font-weight: 900; font-size: 17px; color: #064e3b; }
+          .pnl-card { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; padding: 14px; border-radius: 14px; background: ${isProfitable ? '#f0fdf4' : '#fff1f2'}; border: 2px solid ${isProfitable ? '#10b981' : '#f43f5e'}; }
+          .pnl-item { text-align: center; padding: 8px; background: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; }
+          .pnl-label { font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px; }
+          .pnl-val { font-size: 15px; font-weight: 900; font-family: monospace, sans-serif; }
+          .summary-box { display: flex; justify-content: space-between; align-items: center; background: #0d1b2a; color: #ffffff; border: 2px solid #008060; padding: 18px 22px; border-radius: 14px; margin-top: 18px; font-weight: 900; font-size: 17px; }
           .section-label { font-size: 14px; font-weight: 900; margin-top: 22px; margin-bottom: 6px; color: #0d1b2a; }
         </style>
       </head>
@@ -876,7 +902,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           <thead>
             <tr>
               <th>إجمالي التحصيل الفعلي</th>
-              <th>مستحقات تكلفة البضاعة</th>
+              <th>رأس مال البضاعة المباعة</th>
               <th>عمولة الخدمة والتشغيل</th>
               <th>فروق ورسوم الشحن</th>
               <th>عمولات التحصيل COD</th>
@@ -897,17 +923,26 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           </tbody>
         </table>
 
-        <table>
-          <tbody>
-            <tr><td>فرق خصم الشحن الذي يتحمله الموكل</td><td class="num">-${(settlement.totalShippingDiscountDifference || 0).toLocaleString()} ج.م</td></tr>
-            <tr><td>رسوم شركة الشحن الإضافية (تأمين / معاينة / ضريبة / غيرها)</td><td class="num">-${(settlement.totalCarrierAdditionalFees || 0).toLocaleString()} ج.م</td></tr>
-            <tr><td>إجمالي خسائر المرتجع والفشل</td><td class="num">-${(settlement.totalReturnLosses || 0).toLocaleString()} ج.م</td></tr>
-            <tr><td>صافي أرباح وعمولات التشغيل (حصة النظام)</td><td class="num" style="color:#008060;">${(settlement.totalOperatorEarnings ?? settlement.totalServiceFees).toLocaleString()} ج.م</td></tr>
-          </tbody>
-        </table>
+        <div class="section-label">ثانياً: موقف الربح والخسارة الفعلي لصاحب البضاعة</div>
+        <div class="pnl-card">
+          <div class="pnl-item">
+            <div class="pnl-label">1. استرداد رأس مال البضاعة المباعة</div>
+            <div class="pnl-val" style="color:#0f172a;">${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م</div>
+          </div>
+          <div class="pnl-item">
+            <div class="pnl-label">2. ${isProfitable ? 'صافي ربح الموكل فوق رأس المال' : 'صافي خسارة الموكل من رأس المال'}</div>
+            <div class="pnl-val" style="color:${isProfitable ? '#008060' : '#e11d48'};">
+              ${partnerNetProfitOrLoss > 0 ? '+' : ''}${partnerNetProfitOrLoss.toLocaleString()} ج.م (${roiPercent > 0 ? '+' : ''}${roiPercent}%)
+            </div>
+          </div>
+          <div class="pnl-item">
+            <div class="pnl-label">3. إجمالي الصافي المستحق (رأس المال ${isProfitable ? '+ الربح' : '- الخسارة'})</div>
+            <div class="pnl-val" style="color:#008060;">${settlement.netPayoutToMerchant.toLocaleString()} ج.م</div>
+          </div>
+        </div>
 
         ${rowsHtml ? `
-          <div class="section-label">ثانياً: بيان تفصيلي بالأوردرات المشمولة في الكشف (${snapshots.length} أوردر)</div>
+          <div class="section-label">ثالثاً: بيان تفصيلي بالأوردرات المشمولة في الكشف (${snapshots.length} أوردر)</div>
           <table>
             <thead class="sub-th">
               <tr>
@@ -931,8 +966,13 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         ${settlement.notes ? `<div style="margin-top: 14px; font-size: 12px; color: #334155;"><strong>ملاحظات التسوية:</strong> ${settlement.notes}</div>` : ''}
 
         <div class="summary-box">
-          <span>الصافي النهائي المستحق للتحويل لصاحب البضاعة:</span>
-          <span class="num">${settlement.netPayoutToMerchant.toLocaleString()} ج.م</span>
+          <div>
+            <div>الصافي النهائي المستحق للتحويل لصاحب البضاعة:</div>
+            <div style="font-size: 11px; color: #94a3b8; font-weight: 600; margin-top: 3px;">
+              المعادلة: رأس مال البضاعة (${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م) ${isProfitable ? `+ صافي الربح (${partnerNetProfitOrLoss.toLocaleString()} ج.م)` : `- صافي الخسارة (${Math.abs(partnerNetProfitOrLoss).toLocaleString()} ج.م)`}
+            </div>
+          </div>
+          <span class="num" style="color: #10b981; font-size: 22px;">${settlement.netPayoutToMerchant.toLocaleString()} ج.م</span>
         </div>
       </body>
       </html>
@@ -943,6 +983,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   // Export Single Settlement to Excel
   const handleExportSettlementToExcel = (settlement: MerchantSettlement) => {
     const settlementOrders = orders.filter(o => o.settlementId === settlement.id);
+    const partnerNetProfitOrLoss = Math.round((settlement.netPayoutToMerchant - settlement.totalMerchantGoodsCost) * 100) / 100;
     const data = settlement.orderSnapshots?.length
       ? settlement.orderSnapshots.map(snapshot => ({
         'رقم الطلب': snapshot.orderNumber || snapshot.orderId,
@@ -980,7 +1021,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       { 'رقم الطلب': 'رقم الكشف', 'التاريخ': settlement.settlementNumber },
       { 'رقم الطلب': 'اسم الموكل', 'التاريخ': settlement.merchantName },
       { 'رقم الطلب': 'إجمالي التحصيل', 'التاريخ': settlement.totalCollected },
-      { 'رقم الطلب': 'إجمالي مستحقات البضاعة', 'التاريخ': settlement.totalMerchantGoodsCost },
+      { 'رقم الطلب': 'رأس مال البضاعة المباعة (المسترد)', 'التاريخ': settlement.totalMerchantGoodsCost },
+      { 'رقم الطلب': 'صافي ربح / خسارة الموكل فوق رأس المال', 'التاريخ': partnerNetProfitOrLoss },
+      { 'رقم الطلب': 'نتيجة الكشف للموكل', 'التاريخ': partnerNetProfitOrLoss > 0 ? 'ربح صافي' : partnerNetProfitOrLoss < 0 ? 'خسارة' : 'تعادل' },
       { 'رقم الطلب': 'إجمالي عمولة الخدمة', 'التاريخ': settlement.totalServiceFees },
       { 'رقم الطلب': 'إجمالي مصاريف الشحن', 'التاريخ': settlement.totalShippingCosts },
       { 'رقم الطلب': 'عمولات التحصيل COD', 'التاريخ': settlement.totalCollectionFees },
@@ -990,7 +1033,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       { 'رقم الطلب': 'إجمالي رسوم المرتجعات', 'التاريخ': settlement.totalReturnFees },
       { 'رقم الطلب': 'إجمالي خسائر المرتجع والفشل', 'التاريخ': settlement.totalReturnLosses || 0 },
       { 'رقم الطلب': 'عمولتي كمقدم خدمة', 'التاريخ': settlement.totalOperatorEarnings ?? settlement.totalServiceFees },
-      { 'رقم الطلب': 'الصافي النهائي المحول', 'التاريخ': settlement.netPayoutToMerchant }
+      { 'رقم الطلب': 'الصافي النهائي المحول للموكل', 'التاريخ': settlement.netPayoutToMerchant }
     ];
 
     const ws = XLSX.utils.json_to_sheet([...data, ...summary]);
@@ -2113,6 +2156,44 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Partner Profit / Loss Breakdown Banner (فوق تكلفة البضاعة) */}
+              {(() => {
+                const partnerNetProfitOrLoss = Math.round((settlementCalculation.netPayoutToMerchant - settlementCalculation.totalMerchantGoodsCost) * 100) / 100;
+                const roiPercent = settlementCalculation.totalMerchantGoodsCost > 0
+                  ? Math.round((partnerNetProfitOrLoss / settlementCalculation.totalMerchantGoodsCost) * 1000) / 10
+                  : 0;
+                const isProfit = partnerNetProfitOrLoss >= 0;
+
+                return (
+                  <div className={`p-4 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                    isProfit
+                      ? 'bg-emerald-500/10 border-emerald-400/30'
+                      : 'bg-rose-500/10 border-rose-400/30'
+                  }`}>
+                    <div className="space-y-1">
+                      <div className="text-xs font-black text-white flex items-center gap-2">
+                        <span>موقف الربح والخسارة الفعلي لصاحب البضاعة (الذي يظهر له في الكشف المطبوع):</span>
+                      </div>
+                      <p className="text-xs text-slate-300">
+                        المعادلة: الصافي المحول للموكل (<strong className="font-mono text-white">{settlementCalculation.netPayoutToMerchant.toLocaleString()} ج.م</strong>) = استرداد رأس مال البضاعة المباعة (<strong className="font-mono text-emerald-300">{settlementCalculation.totalMerchantGoodsCost.toLocaleString()} ج.م</strong>) {isProfit ? '+' : '-'} {isProfit ? 'صافي ربح الموكل' : 'صافي الخسارة'} (<strong className={`font-mono ${isProfit ? 'text-emerald-300' : 'text-rose-300'}`}>{Math.abs(partnerNetProfitOrLoss).toLocaleString()} ج.م</strong>)
+                      </p>
+                    </div>
+
+                    <div className={`px-4 py-2.5 rounded-xl font-black text-xs font-mono shrink-0 ${
+                      isProfit
+                        ? 'bg-[#008060] text-white'
+                        : 'bg-rose-600 text-white'
+                    }`}>
+                      {partnerNetProfitOrLoss > 0
+                        ? `صافي ربح الموكل: +${partnerNetProfitOrLoss.toLocaleString()} ج.م (+${roiPercent}%)`
+                        : partnerNetProfitOrLoss < 0
+                        ? `صافي خسارة الموكل: ${partnerNetProfitOrLoss.toLocaleString()} ج.م (${roiPercent}%)`
+                        : 'نقطة تعادل (0 ج.م ربح/خسارة)'}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Payout Execution & Treasury Controls */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/10">
