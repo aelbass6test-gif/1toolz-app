@@ -2927,6 +2927,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     // All other statuses are considered "returnable" to stock if they were deducted
     const shouldBeDeducted = deductStatuses.includes(newStatus);
     const isCurrentlyDeducted = order.stockDeducted || false;
+    const isExternalFulfillment = Boolean(order.merchantId || order.isExternalDropship);
     let updatedProducts = [...currentProducts];
     let newStockDeducted = isCurrentlyDeducted;
 
@@ -3007,6 +3008,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         };
       }
     };
+
+    // الطلب الخارجي لا يستهلك مخزوننا. إذا كان طلب قديمًا تم وسمه بالخطأ
+    // كمخصوم، نعيد كميته مرة واحدة ونثبت العلامة على false.
+    if (isExternalFulfillment) {
+      if (isCurrentlyDeducted) {
+        (order.items || []).forEach(orderItem => addItemToStock(orderItem));
+      }
+      return { updatedProducts, stockDeducted: false };
+    }
 
     if (shouldBeDeducted && !isCurrentlyDeducted) {
       // 1. Deduct standard outgoing items of this order from stock

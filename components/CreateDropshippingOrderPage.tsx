@@ -518,7 +518,9 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
 
         // --- 1. Intelligent Stock Allocation & Deduction ---
         const orderWarehouseId = orderWithId.warehouseId || '';
-        if (orderWarehouseId && Array.isArray(settings.products)) {
+        // الدروبشيب/التنفيذ الخارجي لا يستخدم مخزون المتجر؛ المنتج مملوك
+        // للموكل أو المورد ويتم تسويته ماليًا فقط.
+        if (!orderWithId.isExternalDropship && orderWarehouseId && Array.isArray(settings.products)) {
             setSettings(prev => {
                 const updatedProducts = (prev.products || []).map(p => {
                     const orderedItems = (orderWithId.items || []).filter(item => item.productId === p.id) || [];
@@ -698,4 +700,3 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
 };
 
 export default CreateDropshippingOrderPage;
-

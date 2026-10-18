@@ -536,7 +536,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         }
 
         // --- 1. Intelligent Stock Allocation & Deduction ---
-        if (Array.isArray(settings.products) && settings.products.length > 0) {
+        // طلبات الموكل/المورد والدروبشيب يتم تنفيذها لحساب طرف خارجي؛
+        // لا تخصم أي كمية من مخزون المتجر، ولا تدخل في تكلفة مخزوننا.
+        const isExternalFulfillment = Boolean(orderWithId.merchantId || orderWithId.isExternalDropship);
+        if (!isExternalFulfillment && Array.isArray(settings.products) && settings.products.length > 0) {
             setSettings(prev => {
                 const updatedProducts = deductOrderStock(orderWithId, prev.products || [], prev.defaultWarehouseId);
                 return {
@@ -544,6 +547,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     products: updatedProducts
                 };
             });
+        } else if (isExternalFulfillment) {
+            setOrders(prev => prev.map(existing => existing.id === orderWithId.id
+                ? { ...existing, stockDeducted: false }
+                : existing));
         }
 
         // --- LINK TO MAINTENANCE CENTER ---

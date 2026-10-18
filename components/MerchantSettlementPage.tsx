@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Settings, Order, MerchantSettlement, Treasury, CustomerProfile } from '../types';
+import { Settings, Order, MerchantSettlement, MerchantSettlementOrderSnapshot, Treasury, CustomerProfile } from '../types';
 import { 
   Building2, DollarSign, Calculator, FileText, CheckCircle2, 
   Printer, Download, Plus, Search, Filter, Calendar, User, 
@@ -8,12 +8,65 @@ import {
 import { printHTMLDirectly } from '../utils/printHelper';
 import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 import * as XLSX from 'xlsx';
-import { calculateCodFee, calculateOrderShippingAndFees } from '../utils/financials';
+import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee } from '../utils/financials';
+
+const SETTLEMENT_ELIGIBLE_STATUSES = [
+  'تم_التحصيل',
+  'مدفوعة',
+  'تم_التوصيل',
+  'مرتجع',
+  'فشل_التوصيل',
+  'تمت_الاعادة_لشركة_الشحن',
+  'مرتجع_جزئي',
+  'مرتجع_بعد_الاستلام',
+  'ملغي'
+];
+
+const DELIVERED_STATUSES = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل'];
+
+/**
+ * تكلفة الشحن المحملة على الموكل:
+ * السعر الرسمي لشركة الشحن ناقص ما دفعه العميل بعد الخصم،
+ * مضافاً إليه الرسوم الإضافية الفعلية (تأمين/معاينة/VAT وغيرها).
+ */
+const calculateMerchantShippingBreakdown = (order: Order, settings: Settings) => {
+  if (!DELIVERED_STATUSES.includes(order.status)) {
+    const total = calculateOrderShippingAndFees(order, settings);
+    return {
+      total,
+      customerPaidShipping: 0,
+      officialShippingFee: Math.max(0, getStandardShippingFee(order, settings)),
+      shippingDiscountDifference: 0,
+      carrierAdditionalFees: total
+    };
+  }
+
+  const customerPaidShipping = Math.max(0, Number(order.shippingFee) || 0);
+  const officialShippingFee = Math.max(0, getStandardShippingFee(order, settings));
+  const actualCarrierFees = calculateOrderShippingAndFees({
+    ...order,
+    shippingFee: officialShippingFee,
+    isManualShippingOverride: false
+  }, settings);
+
+  const shippingDiscountDifference = Math.max(0, officialShippingFee - customerPaidShipping);
+  const additionalCarrierFees = Math.max(0, actualCarrierFees - officialShippingFee);
+  return {
+    total: Math.round((shippingDiscountDifference + additionalCarrierFees) * 100) / 100,
+    customerPaidShipping,
+    officialShippingFee,
+    shippingDiscountDifference: Math.round(shippingDiscountDifference * 100) / 100,
+    carrierAdditionalFees: Math.round(additionalCarrierFees * 100) / 100
+  };
+};
+
+const calculateMerchantShippingBurden = (order: Order, settings: Settings): number =>
+  calculateMerchantShippingBreakdown(order, settings).total;
 
 interface MerchantSettlementPageProps {
   orders: Order[];
   settings: Settings;
-  updateSettings: (newSettings: Settings) => void;
+  updateSettings: React.Dispatch<React.SetStateAction<Settings>>;
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   treasury?: Treasury;
   setTreasury?: React.Dispatch<React.SetStateAction<Treasury | undefined>>;
@@ -90,7 +143,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     return orders.filter(o => {
       const isMatch = (o.merchantId === selectedMerchantId || o.merchantName === selectedMerchantId || o.customerName === selectedMerchantId || o.customerPhone === selectedMerchantId);
       const isUnsettled = o.settlementStatus !== 'settled';
-      const isEligibleStatus = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن'].includes(o.status);
+      const isEligibleStatus = SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status);
       return isMatch && isUnsettled && isEligibleStatus;
     });
   }, [orders, selectedMerchantId]);
@@ -100,7 +153,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     setSelectedMerchantId(mId);
     const mOrders = orders.filter(o => {
       const isMatch = (o.merchantId === mId || o.merchantName === mId || o.customerName === mId || o.customerPhone === mId);
-      return isMatch && o.settlementStatus !== 'settled';
+      return isMatch && o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status);
     });
     setSelectedOrderIds(mOrders.map(o => o.id));
   };
@@ -121,18 +174,25 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     let totalMarketingCosts = 0;
     let totalReturnFees = 0;
     let totalCollectionFees = 0;
+    let totalShippingDiscountDifference = 0;
+    let totalCarrierAdditionalFees = 0;
+    let totalReturnLosses = 0;
+    const orderSnapshots: MerchantSettlementOrderSnapshot[] = [];
 
     let netPayoutToMerchant = 0;
 
     ordersToProcess.forEach(o => {
-      const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل'].includes(o.status);
+      const isDelivered = DELIVERED_STATUSES.includes(o.status);
       const isReturn = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(o.status);
 
       // 1. Goods Cost (What the merchant expects for the items)
       const goodsCost = o.merchantItemCost || (o.items || []).reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
       
       // 2. Shipping & Processing Fees (Carrier fees, VAT, Insurance)
-      const shippingAndFees = calculateOrderShippingAndFees(o, settings);
+      // لا نخصم سعر الشحن المدفوع من العميل مرة أخرى؛ نحمّل الموكل فقط فرق
+      // السعر الرسمي عن السعر المخفض، بالإضافة للرسوم الإضافية لشركة الشحن.
+      const shippingBreakdown = calculateMerchantShippingBreakdown(o, settings);
+      const shippingAndFees = shippingBreakdown.total;
       
       // 3. Collection Fees (COD fees)
       const codFee = isDelivered ? calculateCodFee(o, settings) : 0;
@@ -153,6 +213,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       totalServiceFees += serviceFee;
       totalCollectionFees += codFee;
       totalShippingCosts += (shippingAndFees - codFee);
+      totalShippingDiscountDifference += shippingBreakdown.shippingDiscountDifference;
+      totalCarrierAdditionalFees += shippingBreakdown.carrierAdditionalFees;
       totalMarketingCosts += marketingCost;
       totalReturnFees += returnFee;
 
@@ -190,6 +252,30 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         
         if (isDelivered) totalMerchantGoodsCost += goodsCost;
       }
+
+      const returnLoss = isReturn ? shippingAndFees + marketingCost + returnFee : 0;
+      totalReturnLosses += returnLoss;
+      orderSnapshots.push({
+        orderId: o.id,
+        orderNumber: o.orderNumber,
+        date: o.date,
+        status: o.status,
+        customerName: o.customerName,
+        shippingCompany: o.shippingCompany,
+        collectedAmount: orderRevenue,
+        merchantGoodsCost: isDelivered ? goodsCost : 0,
+        customerPaidShipping: shippingBreakdown.customerPaidShipping,
+        officialShippingFee: shippingBreakdown.officialShippingFee,
+        shippingDiscountDifference: shippingBreakdown.shippingDiscountDifference,
+        carrierAdditionalFees: shippingBreakdown.carrierAdditionalFees,
+        collectionFee: codFee,
+        marketingCost,
+        serviceFee,
+        returnLoss,
+        netMerchantAmount: o.merchantSettlementMode === 'profit_share'
+          ? (isDelivered ? goodsCost : 0) + ((orderRevenue - (isDelivered ? goodsCost : 0) - shippingAndFees - marketingCost - returnFee) * ((o.merchantProfitSharePercent || 50) / 100))
+          : (isDelivered ? goodsCost : 0) - serviceFee - shippingAndFees - marketingCost - returnFee
+      });
     });
 
     // Finally, handle the lump sum ad spend
@@ -213,6 +299,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       totalMarketingCosts: totalMarketingCosts + sharedLumpSumDeduction,
       totalReturnFees,
       totalCollectionFees,
+      totalShippingDiscountDifference,
+      totalCarrierAdditionalFees,
+      totalReturnLosses,
+      totalOperatorEarnings: totalServiceFees,
+      orderSnapshots,
       netPayoutToMerchant
     };
   }, [eligibleOrders, selectedOrderIds, flatServiceFee, deductReturnsFee, returnShippingFeeAmount, lumpSumAdSpend, isLumpSumShared, batchMarketingFee, settings]);
@@ -221,6 +312,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const handleExecuteSettlement = () => {
     if (!selectedMerchantId) return alert('يرجى اختيار العميل / صاحب البضاعة أولاً');
     if (selectedOrderIds.length === 0) return alert('يرجى تحديد أوردر واحد على الأقل للتسوية');
+    if (settlementCalculation.ordersCount === 0) return alert('الطلبات المحددة غير مؤهلة للتسوية أو تمّت تسويتها بالفعل');
+    if (settlementCalculation.netPayoutToMerchant < 0) {
+      return alert('لا يمكن اعتماد كشف بصافي مستحق سالب. راجع المصروفات أو سجّل مديونية منفصلة على الموكل قبل إغلاق الطلبات.');
+    }
 
     const merchant = merchantsList.find(m => m.id === selectedMerchantId);
     const mName = merchant ? merchant.name : selectedMerchantId;
@@ -250,33 +345,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       paidFromTreasuryAccountName: treasuryAccount?.name || undefined,
       notes: settlementNotes,
       performedBy: currentUser?.fullName || currentUser?.email || 'النظام',
-      attachments: settlementAttachments.length > 0 ? settlementAttachments : undefined
+      attachments: settlementAttachments.length > 0 ? settlementAttachments : undefined,
+      totalShippingDiscountDifference: settlementCalculation.totalShippingDiscountDifference,
+      totalCarrierAdditionalFees: settlementCalculation.totalCarrierAdditionalFees,
+      totalReturnLosses: settlementCalculation.totalReturnLosses,
+      totalOperatorEarnings: settlementCalculation.totalOperatorEarnings,
+      orderSnapshots: settlementCalculation.orderSnapshots
     };
 
     // Update Orders Status to 'settled'
-    const updatedOrders = orders.map(o => {
-      if (selectedOrderIds.includes(o.id)) {
-        return {
-          ...o,
-          settlementStatus: 'settled' as const,
-          settlementId: settlementId
-        };
-      }
-      return o;
-    });
-
     // Deduct Net Payout from Treasury Account if selected
     if (selectedTreasuryAccountId && setTreasury && treasury) {
-      const updatedAccounts = treasury.accounts.map(acc => {
-        if (acc.id === selectedTreasuryAccountId) {
-          return {
-            ...acc,
-            balance: acc.balance - settlementCalculation.netPayoutToMerchant
-          };
-        }
-        return acc;
-      });
-
       const newTx = {
         id: `tx-${Date.now()}`,
         date: new Date().toISOString(),
@@ -289,21 +368,26 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         attachments: settlementAttachments
       };
 
-      setTreasury({
-        ...treasury,
-        accounts: updatedAccounts,
-        transactions: [newTx, ...(treasury.transactions || [])]
-      });
+      setTreasury(currentTreasury => ({
+        ...currentTreasury,
+        accounts: currentTreasury.accounts.map(acc => acc.id === selectedTreasuryAccountId
+          ? { ...acc, balance: acc.balance - settlementCalculation.netPayoutToMerchant }
+          : acc),
+        transactions: [newTx, ...(currentTreasury.transactions || [])]
+      }));
     }
 
-    // Update global orders state
-    setOrders(updatedOrders);
+    // Update only the selected orders using a functional updater so concurrent
+    // changes from another screen are not overwritten.
+    setOrders(currentOrders => currentOrders.map(o => selectedOrderIds.includes(o.id)
+      ? { ...o, settlementStatus: 'settled' as const, settlementId }
+      : o));
 
     // Save Settlement
-    updateSettings({
-      ...settings,
-      merchantSettlements: [newSettlement, ...(settings.merchantSettlements || [])]
-    });
+    updateSettings(currentSettings => ({
+      ...currentSettings,
+      merchantSettlements: [newSettlement, ...(currentSettings.merchantSettlements || [])]
+    }));
 
     // Reset Form
     setSelectedMerchantId('');
@@ -373,6 +457,15 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           </tbody>
         </table>
 
+        <table>
+          <tbody>
+            <tr><td>فرق خصم الشحن الذي يتحمله الموكل</td><td class="num">-${(settlement.totalShippingDiscountDifference || 0).toLocaleString()} ج.م</td></tr>
+            <tr><td>رسوم شركة الشحن الإضافية (تأمين / معاينة / ضريبة / غيرها)</td><td class="num">-${(settlement.totalCarrierAdditionalFees || 0).toLocaleString()} ج.م</td></tr>
+            <tr><td>إجمالي خسائر المرتجع والفشل</td><td class="num">-${(settlement.totalReturnLosses || 0).toLocaleString()} ج.م</td></tr>
+            <tr><td>عمولتي كمقدم خدمة وتشغيل</td><td class="num">${(settlement.totalOperatorEarnings ?? settlement.totalServiceFees).toLocaleString()} ج.م</td></tr>
+          </tbody>
+        </table>
+
         <div class="summary-box">
           <span>الصافي النهائي المحول لصاحب البضاعة:</span>
           <span class="num">${settlement.netPayoutToMerchant.toLocaleString()} ج.م</span>
@@ -386,8 +479,25 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const handleExportSettlementToExcel = (settlement: MerchantSettlement) => {
     // Find orders linked to this settlement
     const settlementOrders = orders.filter(o => o.settlementId === settlement.id);
-    
-    const data = settlementOrders.map(o => ({
+    const data = settlement.orderSnapshots?.length
+      ? settlement.orderSnapshots.map(snapshot => ({
+        'رقم الطلب': snapshot.orderNumber || snapshot.orderId,
+        'التاريخ': new Date(snapshot.date).toLocaleDateString('ar-EG'),
+        'العميل': snapshot.customerName || '',
+        'الحالة': snapshot.status,
+        'المحصل': snapshot.collectedAmount,
+        'مستحقات البضاعة': snapshot.merchantGoodsCost,
+        'الشحن المدفوع من العميل': snapshot.customerPaidShipping,
+        'السعر الرسمي للشحن': snapshot.officialShippingFee,
+        'فرق خصم الشحن': snapshot.shippingDiscountDifference,
+        'رسوم شركة الشحن الإضافية': snapshot.carrierAdditionalFees,
+        'عمولة التحصيل': snapshot.collectionFee,
+        'مصاريف الإعلانات': snapshot.marketingCost,
+        'عمولتي': snapshot.serviceFee,
+        'خسارة المرتجع': snapshot.returnLoss,
+        'الصافي للموكل': snapshot.netMerchantAmount
+      }))
+      : settlementOrders.map(o => ({
       'رقم الطلب': o.orderNumber || o.id,
       'التاريخ': new Date(o.date).toLocaleDateString('ar-EG'),
       'العميل': o.customerName,
@@ -408,8 +518,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       { 'رقم الطلب': 'إجمالي مستحقات البضاعة', 'التاريخ': settlement.totalMerchantGoodsCost },
       { 'رقم الطلب': 'إجمالي عمولة الخدمة', 'التاريخ': settlement.totalServiceFees },
       { 'رقم الطلب': 'إجمالي مصاريف الشحن', 'التاريخ': settlement.totalShippingCosts },
+      { 'رقم الطلب': 'فرق خصم الشحن', 'التاريخ': settlement.totalShippingDiscountDifference || 0 },
+      { 'رقم الطلب': 'رسوم شركة الشحن الإضافية', 'التاريخ': settlement.totalCarrierAdditionalFees || 0 },
       { 'رقم الطلب': 'إجمالي مصاريف الإعلانات', 'التاريخ': settlement.totalMarketingCosts },
       { 'رقم الطلب': 'إجمالي رسوم المرتجعات', 'التاريخ': settlement.totalReturnFees },
+      { 'رقم الطلب': 'إجمالي خسائر المرتجع والفشل', 'التاريخ': settlement.totalReturnLosses || 0 },
+      { 'رقم الطلب': 'عمولتي كمقدم خدمة', 'التاريخ': settlement.totalOperatorEarnings ?? settlement.totalServiceFees },
       { 'رقم الطلب': 'الصافي النهائي المحول', 'التاريخ': settlement.netPayoutToMerchant }
     ];
 
@@ -526,6 +640,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                       <span>تحصيل: {st.totalCollected.toLocaleString()} ج.م</span>
                       <span>تكلفة بضاعة: {st.totalMerchantGoodsCost.toLocaleString()} ج.م</span>
                       <span className="text-rose-500">إجمالي خصومات: {(st.totalServiceFees + st.totalShippingCosts + st.totalMarketingCosts + st.totalReturnFees).toLocaleString()} ج.م</span>
+                      <span className="text-cyan-600">فرق شحن: {(st.totalShippingDiscountDifference || 0).toLocaleString()} ج.م</span>
+                      <span className="text-red-500">خسائر مرتجع: {(st.totalReturnLosses || 0).toLocaleString()} ج.م</span>
+                      <span className="text-amber-600">عمولتي: {(st.totalOperatorEarnings ?? st.totalServiceFees).toLocaleString()} ج.م</span>
                       <span>الخزينة: {st.paidFromTreasuryAccountName || 'تسوية دفتري'}</span>
                     </div>
                   </div>
@@ -537,6 +654,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                       </div>
                       <div className="text-[10px] text-emerald-600 font-bold">الصافي المحول</div>
                     </div>
+
+                    <button
+                      onClick={() => setViewingSettlement(st)}
+                      className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-cyan-600 hover:text-white rounded-xl text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                      title="عرض تفاصيل الكشف"
+                    >
+                      <FileText size={16} />
+                    </button>
 
                     <button
                       onClick={() => handlePrintSettlement(st)}
@@ -770,13 +895,15 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                             <td className="p-3 text-center font-mono text-indigo-600">
                               {(() => {
                                 // Quick per-order payout preview for the table
-                                const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل'].includes(ord.status);
+                                const isDelivered = DELIVERED_STATUSES.includes(ord.status);
                                 const isReturn = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(ord.status);
                                 const gc = ord.merchantItemCost || (ord.items || []).reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
-                                const shippingAndFees = calculateOrderShippingAndFees(ord, settings);
-                                const marketingCost = (ord.marketingFeePerOrder || 0);
+                                const shippingAndFees = calculateMerchantShippingBurden(ord, settings);
+                                const marketingCost = ord.marketingFeePerOrder || batchMarketingFee;
                                 const returnFee = isReturn && deductReturnsFee ? returnShippingFeeAmount : 0;
-                                const serviceFee = (ord.serviceFeePerOrder !== undefined ? ord.serviceFeePerOrder : flatServiceFee);
+                                const serviceFee = isDelivered && ord.merchantSettlementMode !== 'profit_share'
+                                  ? (ord.serviceFeePerOrder !== undefined ? ord.serviceFeePerOrder : flatServiceFee)
+                                  : 0;
                                 const revenue = isDelivered ? (ord.totalPrice || 0) : 0;
                                 
                                 if (ord.merchantSettlementMode === 'profit_share') {
@@ -815,7 +942,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 </div>
 
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-1">
-                  <span className="text-amber-400">تكاليف الشحن (كافة المحاولات)</span>
+                  <span className="text-amber-400">فرق الشحن والرسوم الإضافية</span>
                   <div className="text-xl font-black text-white font-mono">-{settlementCalculation.totalShippingCosts.toLocaleString()} ج.م</div>
                 </div>
 
@@ -837,6 +964,23 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 <div className="p-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 space-y-1">
                   <span className="text-emerald-300">الصافي النهائي للعميل</span>
                   <div className="text-2xl font-black text-emerald-400 font-mono">{settlementCalculation.netPayoutToMerchant.toLocaleString()} ج.م</div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 space-y-1">
+                  <span className="text-cyan-300">فرق خصم الشحن</span>
+                  <div className="text-xl font-black text-cyan-300 font-mono">{settlementCalculation.totalShippingDiscountDifference.toLocaleString()} ج.م</div>
+                </div>
+                <div className="p-4 rounded-2xl bg-violet-500/10 border border-violet-500/30 space-y-1">
+                  <span className="text-violet-300">رسوم شركة الشحن الإضافية</span>
+                  <div className="text-xl font-black text-violet-300 font-mono">{settlementCalculation.totalCarrierAdditionalFees.toLocaleString()} ج.م</div>
+                </div>
+                <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 space-y-1">
+                  <span className="text-red-300">خسائر المرتجع والفشل</span>
+                  <div className="text-xl font-black text-red-300 font-mono">{settlementCalculation.totalReturnLosses.toLocaleString()} ج.م</div>
+                </div>
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
+                  <span className="text-amber-300">عمولتي كمقدم خدمة</span>
+                  <div className="text-xl font-black text-amber-300 font-mono">{settlementCalculation.totalOperatorEarnings.toLocaleString()} ج.م</div>
                 </div>
               </div>
 
@@ -892,6 +1036,61 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {viewingSettlement && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setViewingSettlement(null)}>
+          <div className="w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-slate-200 dark:border-slate-700" dir="rtl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 z-10 p-5 bg-white/95 dark:bg-slate-900/95 backdrop-blur border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">تفاصيل كشف {viewingSettlement.settlementNumber}</h3>
+                <p className="text-xs text-slate-500 mt-1">{viewingSettlement.merchantName} · لقطة محفوظة وقت الاعتماد</p>
+              </div>
+              <button onClick={() => setViewingSettlement(null)} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  ['التحصيل', viewingSettlement.totalCollected],
+                  ['فرق خصم الشحن', viewingSettlement.totalShippingDiscountDifference || 0],
+                  ['رسوم إضافية', viewingSettlement.totalCarrierAdditionalFees || 0],
+                  ['عمولتي', viewingSettlement.totalOperatorEarnings ?? viewingSettlement.totalServiceFees],
+                  ['الإعلانات', viewingSettlement.totalMarketingCosts],
+                  ['خسائر المرتجع', viewingSettlement.totalReturnLosses || 0],
+                  ['مستحق البضاعة', viewingSettlement.totalMerchantGoodsCost],
+                  ['الصافي للموكل', viewingSettlement.netPayoutToMerchant]
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] font-bold text-slate-500">{label}</div>
+                    <div className="mt-1 font-black font-mono text-slate-900 dark:text-white">{Number(value).toLocaleString()} ج.م</div>
+                  </div>
+                ))}
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+                <table className="w-full text-right text-xs min-w-[900px]">
+                  <thead className="bg-slate-100 dark:bg-slate-800 font-black">
+                    <tr><th className="p-3">الطلب</th><th className="p-3">الحالة</th><th className="p-3">المحصل</th><th className="p-3">فرق الشحن</th><th className="p-3">رسوم إضافية</th><th className="p-3">إعلانات</th><th className="p-3">خسارة المرتجع</th><th className="p-3">الصافي</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {(viewingSettlement.orderSnapshots || []).map(snapshot => (
+                      <tr key={snapshot.orderId}>
+                        <td className="p-3 font-mono font-bold">#{snapshot.orderNumber || snapshot.orderId.slice(0, 8)}</td>
+                        <td className="p-3">{snapshot.status}</td>
+                        <td className="p-3 font-mono">{snapshot.collectedAmount.toLocaleString()}</td>
+                        <td className="p-3 font-mono text-cyan-600">{snapshot.shippingDiscountDifference.toLocaleString()}</td>
+                        <td className="p-3 font-mono text-violet-600">{snapshot.carrierAdditionalFees.toLocaleString()}</td>
+                        <td className="p-3 font-mono text-orange-600">{snapshot.marketingCost.toLocaleString()}</td>
+                        <td className="p-3 font-mono text-red-600">{snapshot.returnLoss.toLocaleString()}</td>
+                        <td className="p-3 font-mono font-black text-emerald-600">{snapshot.netMerchantAmount.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {(!viewingSettlement.orderSnapshots || viewingSettlement.orderSnapshots.length === 0) && <div className="p-8 text-center text-xs text-slate-500">هذا كشف قديم قبل تفعيل اللقطات التفصيلية.</div>}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

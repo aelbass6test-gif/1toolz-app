@@ -1790,6 +1790,31 @@ export interface MerchantSettlement {
   notes?: string;                   // ملاحظات التسوية
   performedBy?: string;             // المسند إليه أو القائم بالتسوية
   attachments?: string[];           // صور إيصالات التحويل النقدي البنكي/الفودافون كاش
+  totalShippingDiscountDifference?: number; // فرق السعر الرسمي للشحن عن المدفوع من العميل
+  totalCarrierAdditionalFees?: number; // تأمين/معاينة/ضريبة/رسوم شركة إضافية
+  totalReturnLosses?: number;        // إجمالي تكلفة الطلبات المرتجعة والفاشلة
+  totalOperatorEarnings?: number;    // عمولة مقدم الخدمة/التشغيل
+  orderSnapshots?: MerchantSettlementOrderSnapshot[]; // لقطة ثابتة تحفظ التقرير تاريخياً
+}
+
+export interface MerchantSettlementOrderSnapshot {
+  orderId: string;
+  orderNumber?: string;
+  date: string;
+  status: string;
+  customerName?: string;
+  shippingCompany?: string;
+  collectedAmount: number;
+  merchantGoodsCost: number;
+  customerPaidShipping: number;
+  officialShippingFee: number;
+  shippingDiscountDifference: number;
+  carrierAdditionalFees: number;
+  collectionFee: number;
+  marketingCost: number;
+  serviceFee: number;
+  returnLoss: number;
+  netMerchantAmount: number;
 }
 
 export interface TreasuryAccount {
