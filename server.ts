@@ -11626,7 +11626,10 @@ async function startServer() {
   // Support Vite Dev Server
   let vite: any;
   if (!isProd) {
-    vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+    vite = await createViteServer({
+      server: { middlewareMode: true, hmr: false },
+      appType: "spa",
+    });
   }
 
   const honoListener = getRequestListener(app.fetch);
@@ -11651,9 +11654,24 @@ async function startServer() {
     }
   });
 
+  server.on("error", (err) => {
+    console.error("[SERVER-ERROR]", err);
+  });
+
   server.listen(PORT, "0.0.0.0", () => {
     console.log(`Hono Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer();
+process.on("uncaughtException", (err) => {
+  console.error("[UNCAUGHT-EXCEPTION]", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED-REJECTION]", reason);
+});
+
+startServer().catch((err) => {
+  console.error("[START-SERVER-ERROR]", err);
+});
+

@@ -6,7 +6,9 @@ import {
   X, Phone, ExternalLink, RefreshCw, Copy, Check, Sparkles, 
   Clock, Shield, Truck, XCircle, ChevronRight, User, ShoppingBag, 
   MapPin, DollarSign, ArrowRight, Play, CheckCheck, FileText, CornerDownLeft, Zap,
-  Pin, Archive, MoreVertical, Smile, Paperclip, BellRing, Plus, Minus, Trash2
+  Pin, Archive, MoreVertical, Smile, Paperclip, BellRing, Plus, Minus, Trash2,
+  Filter, SlidersHorizontal, Settings as SettingsIcon, Users, Volume2, Bell,
+  Sun, Moon, Monitor, HelpCircle, Globe
 } from 'lucide-react';
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
@@ -36,15 +38,15 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   const { storeId } = useParams<{ storeId: string }>();
   const navigate = useNavigate();
 
-  // Current active order
+  // Current active order: in embedded inbox mode, start unselected to show the clean empty state canvas until user picks a chat
   const [activeOrder, setActiveOrder] = useState<Order | null>(
-    initialOrder || (selectedOrderId ? orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId) : null) || orders[0] || null
+    initialOrder || (selectedOrderId ? orders.find(o => o.id === selectedOrderId || o.orderNumber === selectedOrderId) : null) || (!isEmbedded ? orders[0] : null) || null
   );
 
   const [showChatMobile, setShowChatMobile] = useState<boolean>(!!initialOrder || !!selectedOrderId);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'shipping'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'pending' | 'confirmed' | 'cancelled' | 'shipping' | 'templates_sent'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [conversationFilter, setConversationFilter] = useState<'all' | 'new' | 'follow_up' | 'manager' | 'resolved'>('all');
   const [conversationMeta, setConversationMeta] = useState<Record<string, { stage: 'new' | 'follow_up' | 'manager' | 'resolved'; assignee: string }>>({});
@@ -59,6 +61,75 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
   const [showOrderComposer, setShowOrderComposer] = useState(false);
   const [draftItems, setDraftItems] = useState<any[]>([]);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const chatStreamRef = useRef<HTMLDivElement>(null);
+
+  // Unified Inbox Top Bar & Agent Profile Popover States
+  const [channelTab, setChannelTab] = useState<'all' | 'whatsapp' | 'store_chat'>('all');
+  const [showStageFilters, setShowStageFilters] = useState<boolean>(false);
+  const [isSyncingList, setIsSyncingList] = useState<boolean>(false);
+  const [aiChecking, setAiChecking] = useState<boolean>(false);
+  const [showProfileMenu, setShowProfileMenu] = useState<boolean>(false);
+  const [agentOnline, setAgentOnline] = useState<boolean>(() => {
+    try { return localStorage.getItem('inbox_agent_online') !== 'false'; } catch (_) { return true; }
+  });
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem('inbox_notifications') !== 'false'; } catch (_) { return true; }
+  });
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem('inbox_sound') !== 'false'; } catch (_) { return true; }
+  });
+  const [themeMode, setThemeMode] = useState<'light' | 'system' | 'dark'>(() => {
+    if (typeof document !== 'undefined' && document.documentElement.classList.contains('dark')) return 'dark';
+    return 'light';
+  });
+
+  const [aiEnabled, setAiEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('inbox_ai_enabled') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
+
+  const toggleAiEnabled = () => {
+    if (aiChecking) return;
+    setAiChecking(true);
+    setTimeout(() => {
+      const next = !aiEnabled;
+      setAiEnabled(next);
+      setAiChecking(false);
+      try { localStorage.setItem('inbox_ai_enabled', String(next)); } catch (_) {}
+    }, 550);
+  };
+
+  const triggerListSync = () => {
+    setIsSyncingList(true);
+    setTimeout(() => setIsSyncingList(false), 700);
+  };
+
+  const handleThemeChange = (mode: 'light' | 'system' | 'dark') => {
+    setThemeMode(mode);
+    if (typeof document !== 'undefined') {
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const shouldDark = mode === 'dark' || (mode === 'system' && prefersDark);
+      document.documentElement.classList.toggle('dark', shouldDark);
+    }
+  };
+
+  const formatRelativeTime = (isoString?: string) => {
+    if (!isoString) return '1 س';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '1 س';
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'الآن';
+    if (diffMins < 60) return `${diffMins} د`;
+    if (diffHours < 24) return `${diffHours} س`;
+    if (diffDays === 1) return 'أمس';
+    return `${diffDays} ي`;
+  };
 
   const conversationStorageKey = `inbox_conversation_meta_${storeId || 'default'}`;
   const employeeOptions = ((settings as any)?.employees || []) as Array<{ id?: string; name?: string; fullName?: string; phone?: string }>;
@@ -174,19 +245,14 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       )) {
         setActiveOrder(found);
       }
-    } else if (orders.length > 0) {
+    } else if (!isEmbedded && orders.length > 0) {
       setActiveOrder(orders[0]);
     }
-  }, [initialOrder, selectedOrderId, orders]);
+  }, [initialOrder, selectedOrderId, orders, isEmbedded]);
 
   useEffect(() => {
     setDraftItems((activeOrder?.items || []).map((item: any) => ({ ...item })));
   }, [activeOrder?.id]);
-
-  // Scroll to bottom when messages update
-  useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeOrder]);
 
   const storeDisplayName = (settings as any)?.storeName || 
                             (settings as any)?.general?.storeName || 
@@ -203,24 +269,36 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     providerType: 'meta_cloud'
   };
 
+  const pendingReplyCount = useMemo(() => {
+    return orders.filter(ord => ['جديد', 'قيد_المراجعة', 'في_انتظار_المكالمة', 'معلق', 'بانتظار_التأكيد', 'pending'].includes(ord.status)).length;
+  }, [orders]);
+
   // Filtered orders for the side list
   const filteredOrders = useMemo(() => {
     const result = orders.filter(ord => {
       const name = (ord.customerName || '').toLowerCase();
       const phone = (ord.customerPhone || '').toLowerCase();
       const orderNum = (ord.orderNumber || '').toString().toLowerCase();
-      const matchesSearch = !searchTerm || name.includes(searchTerm.toLowerCase()) || phone.includes(searchTerm.toLowerCase()) || orderNum.includes(searchTerm.toLowerCase());
       const logs = Array.isArray((ord as any).whatsappLogs) && (ord as any).whatsappLogs.length > 0
         ? (ord as any).whatsappLogs
         : (Array.isArray((ord as any).whatsapp_logs) ? (ord as any).whatsapp_logs : []);
+      const lastMsg = (logs[logs.length - 1]?.message || '').toLowerCase();
+      const matchesSearch = !searchTerm || name.includes(searchTerm.toLowerCase()) || phone.includes(searchTerm.toLowerCase()) || orderNum.includes(searchTerm.toLowerCase()) || lastMsg.includes(searchTerm.toLowerCase());
       const lastOutgoingIndex = logs.reduce((index: number, log: any, i: number) => log.direction === 'outgoing' ? i : index, -1);
       const hasUnread = !readOrderIds.has(String(ord.id || ord.orderNumber)) && logs.some((log: any, i: number) => i > lastOutgoingIndex && log.direction === 'incoming');
 
       const conversationStage = getConversationMeta(ord).stage;
       if (!matchesSearch || (showUnreadOnly && !hasUnread) || (conversationFilter !== 'all' && conversationStage !== conversationFilter)) return false;
 
+      if (channelTab === 'store_chat') {
+        return (ord as any).source === 'الموقع' || (ord as any).channel === 'web' || logs.some((l: any) => l.channel === 'chat');
+      }
+
       if (filterType === 'pending') {
         return ['جديد', 'قيد_المراجعة', 'في_انتظار_المكالمة', 'معلق', 'بانتظار_التأكيد', 'pending'].includes(ord.status);
+      }
+      if (filterType === 'templates_sent') {
+        return logs.length > 0 || ['قيد_التنفيذ', 'مؤكد', 'تم_الشحن'].includes(ord.status);
       }
       if (filterType === 'confirmed') {
         return ['قيد_التنفيذ', 'مؤكد', 'confirmed'].includes(ord.status);
@@ -241,7 +319,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       };
       return getTime(b) - getTime(a);
     });
-  }, [orders, searchTerm, filterType, showUnreadOnly, readOrderIds, conversationFilter, conversationMeta]);
+  }, [orders, searchTerm, filterType, showUnreadOnly, readOrderIds, conversationFilter, conversationMeta, channelTab]);
 
   // Extract messages and history for active order
   const chatMessages = useMemo(() => {
@@ -268,6 +346,17 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
       new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
     );
   }, [activeOrder, liveMessages, settings, storeDisplayName]);
+
+  // Scroll only the internal chat stream container to bottom when messages update
+  // (Never use scrollIntoView as it scrolls parent layout containers and causes a bottom viewport gap)
+  useEffect(() => {
+    if (chatStreamRef.current) {
+      chatStreamRef.current.scrollTo({
+        top: chatStreamRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [activeOrder?.id, chatMessages.length]);
 
   const customerInsights = useMemo(() => {
     if (!activeOrder) return { orders: [], totalSpent: 0, returns: 0, segment: 'عميل جديد' };
@@ -565,41 +654,43 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
 
   const containerContent = (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 overflow-hidden select-text text-right" dir="rtl">
-      {/* Top Header Bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 font-black">
-            <MessageSquare size={22} />
+      {/* Top Header Bar - only shown in standalone modal mode */}
+      {!isEmbedded && (
+        <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 backdrop-blur shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 font-black">
+              <MessageSquare size={22} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
+                شاشة محادثات ورسائل الواتساب للطلبات
+                <span className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  مزامنة حية ⚡
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                استعراض رسائل التأكيد والإلغاء المبعوثة لكل عميل ومتابعة المحادثات التفاعلية
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-black text-slate-800 dark:text-white flex items-center gap-2">
-              شاشة محادثات ورسائل الواتساب للطلبات
-              <span className="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                مزامنة حية ⚡
-              </span>
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              استعراض رسائل التأكيد والإلغاء المبعوثة لكل عميل ومتابعة المحادثات التفاعلية
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {onClose && !isEmbedded && (
-            <button 
-              onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors"
-              title="إغلاق"
-            >
-              <X size={20} />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {onClose && (
+              <button 
+                onClick={onClose}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors"
+                title="إغلاق"
+              >
+                <X size={20} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Status notification toast */}
       {statusMsg && (
-        <div className={`px-6 py-3 shrink-0 flex items-center gap-3 text-xs font-bold transition-all animate-in fade-in slide-in-from-top-2 ${
+        <div className={`px-6 py-2.5 shrink-0 flex items-center gap-3 text-xs font-bold transition-all animate-in fade-in slide-in-from-top-2 ${
           statusMsg.type === 'success' 
             ? 'bg-emerald-500 text-white' 
             : 'bg-red-500 text-white'
@@ -618,30 +709,45 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         {/* Right Sidebar: Orders & Customers List (4 cols) */}
         <div className={`lg:col-span-4 flex-col h-full min-h-0 bg-slate-50/50 dark:bg-slate-900/40 border-l border-slate-200 dark:border-slate-800 ${showChatMobile ? 'hidden lg:flex' : 'flex'}`}>
           {/* Search Box */}
-          <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0 bg-white/80 dark:bg-[#202C33]/90">
+          <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0 bg-white/80 dark:bg-[#202C33]/90">
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center"><MessageSquare size={16} /></div>
-                <div><h3 className="text-sm font-black text-slate-900 dark:text-white">المحادثات</h3><p className="text-[10px] text-slate-400 font-bold">{orders.length} طلب متصل</p></div>
+                <div className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center"><MessageSquare size={14} /></div>
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-xs font-black text-slate-900 dark:text-white">المحادثات</h3>
+                  <span className="text-[10px] text-slate-400 font-bold">({orders.length} طلب)</span>
+                </div>
               </div>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setShowUnreadOnly(v => !v)} className={`p-2 rounded-xl transition-colors ${showUnreadOnly ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`} title="المحادثات غير المقروءة"><BellRing size={15} /></button>
-                <button type="button" className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" title="خيارات القائمة"><MoreVertical size={15} /></button>
+                <button
+                  type="button"
+                  onClick={toggleAiEnabled}
+                  className={`px-2 py-1 rounded-lg border text-[10px] font-black transition-all flex items-center gap-1 ${
+                    aiEnabled
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                      : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
+                  }`}
+                  title="تفعيل/إيقاف المساعد الذكي الآلي"
+                >
+                  <Zap size={10} className={aiEnabled ? 'text-emerald-500 fill-emerald-500' : 'text-slate-400'} />
+                  <span>{aiEnabled ? 'الذكاء مفعل' : 'الذكاء غير مفعل'}</span>
+                </button>
+                <button type="button" onClick={() => setShowUnreadOnly(v => !v)} className={`p-1.5 rounded-lg transition-colors ${showUnreadOnly ? 'bg-emerald-100 text-emerald-700' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`} title="المحادثات غير المقروءة"><BellRing size={14} /></button>
               </div>
             </div>
             <div className="relative">
-              <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input 
                 type="text"
                 placeholder="بحث برقم الطلب، اسم العميل، الهاتف..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pr-9 pl-3 py-2 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                className="w-full pr-8 pl-3 py-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
               />
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex gap-1 overflow-x-auto no-scrollbar py-0.5">
+            <div className="flex gap-1 overflow-x-auto no-scrollbar">
               {[
                 { id: 'all', label: 'الكل' },
                 { id: 'pending', label: 'بانتظار التأكيد' },
@@ -652,7 +758,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 <button
                   key={tab.id}
                   onClick={() => setFilterType(tab.id as any)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-black shrink-0 transition-all ${
+                  className={`px-2 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all ${
                     filterType === tab.id 
                       ? 'bg-emerald-600 text-white shadow-sm' 
                       : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-100'
@@ -662,31 +768,34 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 </button>
               ))}
             </div>
-            <div className="flex gap-1 overflow-x-auto no-scrollbar py-0.5 border-t border-slate-100 dark:border-slate-800 pt-2">
-              {[
-                { id: 'all', label: 'كل الحالات' },
-                { id: 'new', label: 'جديدة' },
-                { id: 'follow_up', label: 'قيد المتابعة' },
-                { id: 'manager', label: 'تحتاج مدير' },
-                { id: 'resolved', label: 'تم الحل' }
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setConversationFilter(tab.id as any)}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black shrink-0 transition-all ${
-                    conversationFilter === tab.id
-                      ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
-                      : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  {tab.label}
+            <div className="flex items-center justify-between gap-1 border-t border-slate-100 dark:border-slate-800 pt-1.5">
+              <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'all', label: 'كل الحالات' },
+                  { id: 'new', label: 'جديدة' },
+                  { id: 'follow_up', label: 'قيد المتابعة' },
+                  { id: 'manager', label: 'تحتاج مدير' },
+                  { id: 'resolved', label: 'تم الحل' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setConversationFilter(tab.id as any)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-black shrink-0 transition-all ${
+                      conversationFilter === tab.id
+                        ? 'bg-slate-800 text-white dark:bg-white dark:text-slate-900'
+                        : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {showUnreadOnly && (
+                <button type="button" onClick={() => setShowUnreadOnly(false)} className="text-[10px] font-bold text-emerald-600 hover:underline shrink-0">
+                  عرض الكل
                 </button>
-              ))}
-            </div>
-            <div className="flex items-center justify-between px-1 pt-1 text-[10px] font-bold text-slate-400">
-              <span>{showUnreadOnly ? 'غير مقروءة فقط' : 'مرتبة حسب آخر رسالة'}</span>
-              {showUnreadOnly && <button type="button" onClick={() => setShowUnreadOnly(false)} className="text-emerald-600 hover:underline">عرض الكل</button>}
+              )}
             </div>
           </div>
 
@@ -715,40 +824,49 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                   <button
                     key={ord.id || ord.orderNumber}
                     onClick={() => handleSelectOrder(ord)}
-                    className={`w-full text-right p-3 rounded-2xl transition-all flex flex-col gap-1.5 border relative ${
+                    className={`w-full text-right p-2.5 rounded-xl transition-all flex flex-col gap-1 border relative ${
                       isSelected
                         ? 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 shadow-sm'
                         : 'bg-white dark:bg-slate-800/80 hover:bg-slate-100/80 dark:hover:bg-slate-800 border-slate-200/80 dark:border-slate-700/60'
                     }`}
                   >
-                    <div className="flex items-center gap-2 w-full">
-                      <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black shrink-0">{(ord.customerName || 'ع').charAt(0)}</div>
+                    <div className="flex items-center gap-2.5 w-full">
+                      <div className="relative shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center font-black text-xs">
+                          {(ord.customerName || 'ع').charAt(0)}
+                        </div>
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-800 flex items-center justify-center text-[7px] text-white">
+                          <MessageSquare size={7} />
+                        </span>
+                      </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <h4 className="text-xs font-black text-slate-800 dark:text-white truncate">{ord.customerName || 'عميل'}</h4>
-                          <span className={`text-[9px] font-mono shrink-0 ${unread ? 'text-emerald-600 font-black' : 'text-slate-400'}`}>{lastLog?.timestamp ? new Date(lastLog.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <h4 className="text-xs font-black text-slate-800 dark:text-white truncate">{ord.customerName || 'عميل'}</h4>
+                            {(ord.governorate || ord.customerCity || ord.city) && (
+                              <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 truncate max-w-20">
+                                {ord.customerCity || ord.governorate}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`text-[9px] font-mono shrink-0 ${unread ? 'text-emerald-600 font-black' : 'text-slate-400'}`}>
+                            {lastLog?.timestamp ? formatRelativeTime(lastLog.timestamp) : ''}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-0.5">
                           <span className={`text-[10px] truncate ${unread ? 'text-slate-800 dark:text-white font-black' : 'text-slate-500 dark:text-slate-400'}`}>{preview}</span>
-                          {unread > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-black">{unread}</span>}
+                          {unread > 0 && <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-black">{unread}</span>}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                      <span className="font-mono text-slate-600 dark:text-slate-300 font-bold">#{ord.orderNumber} · {formattedPhone}</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-200">{totalPrice} ج.م</span>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/40">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="scale-75 origin-right shrink-0">{getStatusBadge(ord.status)}</span>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[9px] font-black ${stage.className}`}>{stage.label}</span>
-                        {assignee && <span className="max-w-20 truncate text-[9px] font-bold text-slate-400">{assignee.name || assignee.fullName || assignee.phone}</span>}
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-700/40">
+                      <div className="flex items-center gap-1 min-w-0 flex-wrap">
+                        <span className="font-mono text-slate-600 dark:text-slate-300 font-bold shrink-0">#{ord.orderNumber}</span>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-md border text-[9px] font-black shrink-0 ${stage.className}`}>{stage.label}</span>
+                        {assignee && <span className="max-w-16 truncate text-[9px] font-bold text-slate-400">{assignee.name || assignee.fullName || assignee.phone}</span>}
                       </div>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-black flex items-center gap-0.5 shrink-0">
-                        عرض الشات <ChevronRight size={12} className="rotate-180" />
-                      </span>
+                      <span className="font-black text-emerald-700 dark:text-emerald-400 shrink-0 tabular-nums">{totalPrice.toLocaleString()} ج.م</span>
                     </div>
                   </button>
                 );
@@ -761,126 +879,147 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         <div className={`lg:col-span-8 flex-col h-full min-h-0 bg-[#F0F2F5] dark:bg-[#0B141A] ${showChatMobile ? 'flex' : 'hidden lg:flex'}`}>
           {activeOrder ? (
             <>
-              {/* Order Chat Header Bar */}
-              <div className="p-4 bg-white dark:bg-[#202C33] border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 shrink-0 shadow-sm">
-                <div className="flex items-center gap-3">
-                  {/* Mobile Back Button */}
-                  <button
-                    onClick={() => setShowChatMobile(false)}
-                    className="lg:hidden p-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-1 inline-flex items-center justify-center shrink-0"
-                    title="الرجوع لقائمة الطلبات"
-                  >
-                    <ArrowRight size={20} className="text-emerald-600 dark:text-emerald-400" />
-                  </button>
-                  <div className="w-11 h-11 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 font-black text-lg flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-700">
-                    {(activeOrder.customerName || 'ع').charAt(0)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-black text-sm text-slate-900 dark:text-white">
+              {/* Order Chat Header Bar - 2 clean stacked rows so customer info and action buttons never collide */}
+              <div className="px-4 py-2.5 bg-white dark:bg-[#202C33] border-b border-slate-200 dark:border-slate-800 flex flex-col gap-2 shrink-0 shadow-xs">
+                {/* Row 1: Customer Identity & Order Summary */}
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {/* Mobile Back Button */}
+                    <button
+                      onClick={() => setShowChatMobile(false)}
+                      className="lg:hidden p-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors inline-flex items-center justify-center shrink-0"
+                      title="الرجوع لقائمة الطلبات"
+                    >
+                      <ArrowRight size={18} className="text-emerald-600 dark:text-emerald-400" />
+                    </button>
+                    <div className="w-9 h-9 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-300 font-black text-sm flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-700">
+                      {(activeOrder.customerName || 'ع').charAt(0)}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <h3 className="font-black text-sm text-slate-900 dark:text-white truncate max-w-[180px] sm:max-w-[240px]">
                         {activeOrder.customerName || 'عزيزي العميل'}
                       </h3>
-                      <span className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                      <span className="font-mono font-bold text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0">
                         طلب #{activeOrder.orderNumber}
                       </span>
-                      {getStatusBadge(activeOrder.status)}
+                      <div className="shrink-0">{getStatusBadge(activeOrder.status)}</div>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      <span className="font-mono font-bold flex items-center gap-1">
-                        <Phone size={11} className="text-emerald-500" />
-                        {activeOrder.customerPhone}
+                  </div>
+
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap shrink-0">
+                    <span className="font-mono font-bold flex items-center gap-1 shrink-0">
+                      <Phone size={11} className="text-emerald-500" />
+                      {activeOrder.customerPhone}
+                    </span>
+                    {(activeOrder.customerCity || activeOrder.governorate) && (
+                      <span className="flex items-center gap-1 shrink-0">
+                        <MapPin size={11} className="text-blue-500" />
+                        {activeOrder.customerCity || activeOrder.governorate}
                       </span>
-                      {activeOrder.customerCity && (
-                        <span className="flex items-center gap-1">
-                          <MapPin size={11} className="text-blue-500" />
-                          {activeOrder.customerCity || activeOrder.governorate}
-                        </span>
-                      )}
-                      <span className="font-black text-slate-700 dark:text-slate-200">
-                        المبلغ: {activeOrder.totalPrice || (activeOrder.productPrice || 0) + (activeOrder.shippingFee || 0) - (activeOrder.discount || 0)} ج.م
-                      </span>
-                    </div>
+                    )}
+                    <span className="font-black text-emerald-700 dark:text-emerald-400 shrink-0 tabular-nums bg-emerald-50/70 dark:bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-200/60 dark:border-emerald-800/60">
+                      المبلغ: {(activeOrder.totalPrice || (activeOrder.productPrice || 0) + (activeOrder.shippingFee || 0) - (activeOrder.discount || 0)).toLocaleString()} ج.م
+                    </span>
                   </div>
                 </div>
 
-                {/* Header Action Buttons */}
-                <div className="flex items-center gap-2">
-                  <button type="button" className="hidden sm:inline-flex p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40" title="تثبيت المحادثة"><Pin size={15} /></button>
-                  <button type="button" className="hidden sm:inline-flex p-2 rounded-xl text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40" title="تنبيهات المحادثة"><BellRing size={15} /></button>
-                  <button
-                    onClick={openDirectWhatsApp}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md shadow-emerald-500/20 transition-all"
-                    title="فتح في تطبيق واتساب مباشرة"
-                  >
-                    <ExternalLink size={13} />
-                    فتح واتساب
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openCreateOrder}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-600/20 transition-all"
-                    title="فتح نموذج إنشاء طلب جديد ببيانات هذا العميل"
-                  >
-                    <ShoppingBag size={13} />
-                    إنشاء طلب
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowOrderComposer(value => !value)}
-                    className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${showOrderComposer ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'}`}
-                    title="تجهيز منتجات الطلب قبل فتح النموذج"
-                  >
-                    <Plus size={13} />
-                    تجهيز المنتجات
-                  </button>
-                  <select
-                    value={getConversationMeta(activeOrder).stage}
-                    onChange={(event) => updateConversationMeta(activeOrder, { stage: event.target.value as any })}
-                    className="hidden md:block max-w-32 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
-                    aria-label="حالة المحادثة"
-                  >
-                    <option value="new">جديدة</option>
-                    <option value="follow_up">قيد المتابعة</option>
-                    <option value="manager">تحتاج مدير</option>
-                    <option value="resolved">تم الحل</option>
-                  </select>
-                  <select
-                    value={getConversationMeta(activeOrder).assignee}
-                    onChange={(event) => updateConversationMeta(activeOrder, { assignee: event.target.value })}
-                    className="hidden lg:block max-w-32 px-2 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500"
-                    aria-label="الموظف المسؤول"
-                  >
-                    <option value="">بدون مسؤول</option>
-                    {employeeOptions.map(employee => {
-                      const id = String(employee.id || employee.phone || '');
-                      return <option key={id} value={id}>{employee.name || employee.fullName || employee.phone || 'موظف'}</option>;
-                    })}
-                  </select>
+                {/* Row 2: Header Action Buttons & Workflow Controls */}
+                <div className="flex items-center justify-between gap-2 flex-wrap pt-1.5 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      onClick={openDirectWhatsApp}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-[11px] font-black shadow-xs transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                      title="فتح في تطبيق واتساب مباشرة"
+                    >
+                      <ExternalLink size={12} />
+                      فتح واتساب
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openCreateOrder}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[11px] font-black shadow-xs transition-all whitespace-nowrap shrink-0 cursor-pointer"
+                      title="فتح نموذج إنشاء طلب جديد ببيانات هذا العميل"
+                    >
+                      <ShoppingBag size={12} />
+                      إنشاء طلب
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowOrderComposer(value => !value)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-black transition-all whitespace-nowrap shrink-0 cursor-pointer ${showOrderComposer ? 'bg-amber-500 text-white shadow-xs' : 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'}`}
+                      title="تجهيز منتجات الطلب قبل فتح النموذج"
+                    >
+                      <Plus size={12} />
+                      تجهيز المنتجات
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <select
+                      value={getConversationMeta(activeOrder).stage}
+                      onChange={(event) => updateConversationMeta(activeOrder, { stage: event.target.value as any })}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 shrink-0 cursor-pointer"
+                      aria-label="حالة المحادثة"
+                    >
+                      <option value="new">جديدة</option>
+                      <option value="follow_up">قيد المتابعة</option>
+                      <option value="manager">تحتاج مدير</option>
+                      <option value="resolved">تم الحل</option>
+                    </select>
+                    <select
+                      value={getConversationMeta(activeOrder).assignee}
+                      onChange={(event) => updateConversationMeta(activeOrder, { assignee: event.target.value })}
+                      className="max-w-32 px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 shrink-0 cursor-pointer"
+                      aria-label="الموظف المسؤول"
+                    >
+                      <option value="">بدون مسؤول</option>
+                      {employeeOptions.map(employee => {
+                        const id = String(employee.id || employee.phone || '');
+                        return <option key={id} value={id}>{employee.name || employee.fullName || employee.phone || 'موظف'}</option>;
+                      })}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Order Quick Summary Card */}
-              <div className="bg-white/70 dark:bg-[#111B21]/70 border-b border-slate-200/80 dark:border-slate-800/80 px-4 py-2 text-xs flex items-center justify-between flex-wrap gap-2 shrink-0">
-                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                  <ShoppingBag size={14} className="text-emerald-600" />
-                  <span className="font-bold">المنتجات:</span>
-                  <span className="font-medium text-slate-800 dark:text-slate-200">
+              {/* Unified Compact Context Strip: Products + Customer 360 in a single clean bar */}
+              <div className="bg-slate-50/95 dark:bg-[#111B21]/90 border-b border-slate-200/80 dark:border-slate-800/80 px-4 py-2 text-xs flex flex-col xl:flex-row xl:items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300 min-w-0 flex-1">
+                  <ShoppingBag size={13} className="text-emerald-600 shrink-0" />
+                  <span className="font-bold shrink-0 text-[11px]">المنتجات:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-200 truncate text-[11px]">
                     {draftItems.length > 0
                       ? draftItems.map(i => `${i.name || i.productName} (${i.quantity || 1})`).join('، ')
                       : activeOrder.productName || 'منتج'}
                   </span>
+                  {activeOrder.waybillNumber && (
+                    <span className="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 font-mono font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md border border-blue-200 dark:border-blue-900 shrink-0">
+                      <Truck size={11} />
+                      {activeOrder.waybillNumber}
+                    </span>
+                  )}
                 </div>
 
-                {activeOrder.waybillNumber && (
-                  <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-mono font-bold bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-lg border border-blue-200 dark:border-blue-900">
-                    <Truck size={12} />
-                    بوليصة: {activeOrder.waybillNumber} ({activeOrder.shippingCompany || 'بوسطة'})
-                  </div>
-                )}
+                <div className="flex items-center gap-2 shrink-0 border-t xl:border-t-0 pt-1.5 xl:pt-0 border-slate-200/60 dark:border-slate-800">
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800 text-[10px] font-black">
+                    {customerInsights.segment}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    طلب سابق: <strong className="text-slate-800 dark:text-white font-black tabular-nums">{customerInsights.orders.length}</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">|</span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    إجمالي الشراء: <strong className="text-emerald-600 dark:text-emerald-400 font-black tabular-nums">{customerInsights.totalSpent.toLocaleString()} ج.م</strong>
+                  </span>
+                  <span className="text-slate-300 dark:text-slate-700">|</span>
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                    مرتجع: <strong className={`font-black tabular-nums ${customerInsights.returns ? 'text-rose-600' : 'text-slate-800 dark:text-white'}`}>{customerInsights.returns}</strong>
+                  </span>
+                </div>
               </div>
 
               {showOrderComposer && (
-                <div className="bg-amber-50/70 dark:bg-amber-950/20 border-b border-amber-200/70 dark:border-amber-900/50 px-4 py-3 space-y-2 shrink-0">
+                <div className="bg-amber-50/70 dark:bg-amber-950/20 border-b border-amber-200/70 dark:border-amber-900/50 px-4 py-2.5 space-y-2 shrink-0">
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <h4 className="text-xs font-black text-amber-900 dark:text-amber-200">تجهيز مسودة الطلب</h4>
@@ -889,18 +1028,18 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                     <select
                       defaultValue=""
                       onChange={(event) => { addProductToDraft(event.target.value); event.target.value = ''; }}
-                      className="max-w-44 px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-amber-400"
+                      className="max-w-44 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-[10px] font-black text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-amber-400"
                       aria-label="إضافة منتج للمسودة"
                     >
                       <option value="">+ إضافة منتج</option>
                       {(settings.products || []).map((product: any) => <option key={product.id} value={product.id}>{product.name} — {Number(product.price || 0).toLocaleString()} ج.م</option>)}
                     </select>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {draftItems.length === 0 ? (
                       <span className="text-[10px] font-bold text-amber-700/80 dark:text-amber-300/80">لا توجد منتجات في المسودة.</span>
                     ) : draftItems.map((item, index) => (
-                      <div key={`${item.productId || item.name}-${index}`} className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-[10px] font-black text-slate-700 dark:text-slate-200">
+                      <div key={`${item.productId || item.name}-${index}`} className="inline-flex items-center gap-2 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-[10px] font-black text-slate-700 dark:text-slate-200">
                         <span className="max-w-36 truncate">{item.name || 'منتج'}</span>
                         <button type="button" onClick={() => updateDraftQuantity(index, -1)} className="w-5 h-5 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center hover:text-amber-600" title="تقليل الكمية"><Minus size={11} /></button>
                         <span className="font-mono min-w-3 text-center">{item.quantity || 1}</span>
@@ -911,37 +1050,18 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                   </div>
                 </div>
               )}
-              {/* Customer 360 context strip */}
-              <div className="bg-slate-50/90 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 shrink-0">
-                <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0"><User size={15} /></div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-black text-slate-500 dark:text-slate-400">ملف العميل</span>
-                        <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-800 text-[10px] font-black">{customerInsights.segment}</span>
-                      </div>
-                      <p className="text-[10px] text-slate-400 font-bold truncate">{activeOrder.customerEmail || activeOrder.customerAddress || 'لا توجد بيانات إضافية للعميل'}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div className="px-2 min-w-16"><div className="text-[13px] font-black text-slate-800 dark:text-white tabular-nums">{customerInsights.orders.length}</div><div className="text-[9px] font-bold text-slate-400">طلب سابق</div></div>
-                    <div className="px-2 min-w-20 border-x border-slate-200 dark:border-slate-700"><div className="text-[13px] font-black text-emerald-600 dark:text-emerald-400 tabular-nums">{customerInsights.totalSpent.toLocaleString()} ج.م</div><div className="text-[9px] font-bold text-slate-400">إجمالي الشراء</div></div>
-                    <div className="px-2 min-w-16"><div className={`text-[13px] font-black tabular-nums ${customerInsights.returns ? 'text-rose-600' : 'text-slate-800 dark:text-white'}`}>{customerInsights.returns}</div><div className="text-[9px] font-bold text-slate-400">مرتجع/ملغي</div></div>
-                  </div>
-                </div>
-              </div>
+
               {/* Chat Message Stream */}
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 min-h-0 no-scrollbar bg-[#EFEAE2] dark:bg-[#0B141A] bg-opacity-95">
+              <div ref={chatStreamRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 no-scrollbar bg-[#EFEAE2] dark:bg-[#0B141A] bg-opacity-95">
                 {/* Security/Notice Banner */}
-                <div className="max-w-md mx-auto bg-amber-50 dark:bg-[#182229] border border-amber-200 dark:border-amber-900/40 rounded-2xl p-3 text-center text-xs text-amber-800 dark:text-amber-300 shadow-sm space-y-1">
-                  <div className="flex items-center justify-center gap-1.5 font-black">
-                    <Shield size={14} className="text-amber-600" />
-                    الرسائل والمحادثات المزامنة للطلب رقم #{activeOrder.orderNumber}
-                  </div>
-                  <p className="text-[11px] opacity-90 leading-relaxed">
-                    يتم إرسال رسائل التأكيد التفاعلية تلقائياً بأزرار الرد السريع، واستقبال استجابات العميل فورياً وتحديث حالة الطلب.
-                  </p>
+                <div className="max-w-lg mx-auto bg-amber-50/95 dark:bg-[#182229] border border-amber-200 dark:border-amber-900/40 rounded-xl px-3 py-2 text-center text-[11px] text-amber-800 dark:text-amber-300 shadow-xs">
+                  <span className="font-black inline-flex items-center gap-1 ml-1">
+                    <Shield size={12} className="text-amber-600" />
+                    الرسائل المزامنة للطلب #{activeOrder.orderNumber}:
+                  </span>
+                  <span className="opacity-90">
+                    تُرسل رسائل التأكيد التفاعلية وتُحدّث حالة الطلب تلقائياً فور استجابة العميل.
+                  </span>
                 </div>
 
                 {/* Messages List */}
@@ -953,7 +1073,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                       key={msg.id || index}
                       className={`flex flex-col ${isOutgoing ? 'items-start' : 'items-end'} animate-in fade-in slide-in-from-bottom-2 duration-200`}
                     >
-                      <div className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-3.5 shadow-sm space-y-2 relative group text-right ${
+                      <div className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-3 shadow-sm space-y-1.5 relative group text-right ${
                         isOutgoing
                           ? 'bg-white dark:bg-[#005C4B] text-slate-800 dark:text-white rounded-tr-none border border-emerald-100 dark:border-emerald-800/40'
                           : 'bg-[#DCF8C6] dark:bg-[#202C33] text-slate-900 dark:text-slate-100 rounded-tl-none border border-emerald-200/50 dark:border-slate-700'
@@ -980,13 +1100,13 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
 
                         {/* Interactive Buttons Preview (if any) */}
                         {msg.buttons && msg.buttons.length > 0 && (
-                          <div className="pt-2 border-t border-black/5 dark:border-white/10 space-y-1.5">
+                          <div className="pt-1.5 border-t border-black/5 dark:border-white/10 space-y-1">
                             <span className="text-[10px] font-bold text-slate-400 block">أزرار الاستجابة السريعة المرسلة للعميل:</span>
                             <div className="flex flex-wrap gap-1.5">
                               {msg.buttons.map((btn, bIdx) => (
                                 <span 
                                   key={bIdx}
-                                  className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 text-[11px] font-black border border-emerald-300/60 dark:border-emerald-700/60"
+                                  className="inline-flex items-center px-2 py-0.5 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 text-[10px] font-black border border-emerald-300/60 dark:border-emerald-700/60"
                                 >
                                   {btn}
                                 </span>
@@ -1004,7 +1124,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                         )}
 
                         {/* Footer / Status ticks */}
-                        <div className="flex items-center justify-between pt-1 text-[10px] opacity-60">
+                        <div className="flex items-center justify-between pt-0.5 text-[10px] opacity-60">
                           <button
                             onClick={() => copyText(msg.message, msg.id)}
                             className="hover:opacity-100 flex items-center gap-0.5 text-[9px]"
@@ -1017,7 +1137,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                           <div className="flex items-center gap-1 font-mono">
                             {isOutgoing && (
                               <span className="text-emerald-600 dark:text-emerald-400 flex items-center" title="تم التسليم">
-                                <CheckCheck size={14} />
+                                <CheckCheck size={13} />
                               </span>
                             )}
                           </div>
@@ -1029,76 +1149,70 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
                 <div ref={chatBottomRef} />
               </div>
 
-              {/* Quick Template Actions Bar */}
-              <div className="bg-white dark:bg-[#202C33] border-t border-slate-200 dark:border-slate-800 p-3 shrink-0 space-y-3 shadow-lg">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-[11px] font-black text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                    <Sparkles size={13} className="text-amber-500" />
-                    إرسال قوالب فورية للطلب:
-                  </span>
+              {/* Quick Template Actions Bar - Sleek & Compact */}
+              <div className="bg-white dark:bg-[#202C33] border-t border-slate-200 dark:border-slate-800 px-3 py-2.5 shrink-0 space-y-2 shadow-md">
+                <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] text-slate-400 font-black">رد سريع:</span>
+                    {['تم استلام رسالتك ✅', 'جاري متابعة طلبك الآن', 'شكرًا لتواصلك معنا'].map(reply => (
+                      <button key={reply} type="button" onClick={() => setCustomMessage(reply)} className="px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#111B21] text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 whitespace-nowrap transition-colors">{reply}</button>
+                    ))}
+                  </div>
 
                   {/* Simulator Trigger */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-slate-400">🤖 تجربة تفاعل العميل:</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-[10px] font-bold text-slate-400 hidden sm:inline">🤖 محاكاة العميل:</span>
                     <button
                       type="button"
                       disabled={isSimulating}
                       onClick={() => handleSimulateCustomerAction('تأكيد الطلب ✅')}
-                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-lg text-[10px] font-black border border-emerald-200 dark:border-emerald-800 disabled:opacity-50 transition-all flex items-center gap-1"
+                      className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-lg text-[10px] font-black border border-emerald-200 dark:border-emerald-800 disabled:opacity-50 transition-all flex items-center gap-1 whitespace-nowrap"
                       title="محاكاة ضغط العميل على تأكيد الطلب"
                     >
-                      <Play size={10} /> محاكاة التأكيد
+                      <Play size={9} /> تأكيد
                     </button>
                     <button
                       type="button"
                       disabled={isSimulating}
                       onClick={() => handleSimulateCustomerAction('إلغاء الطلب ❌')}
-                      className="px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300 rounded-lg text-[10px] font-black border border-red-200 dark:border-red-800 disabled:opacity-50 transition-all flex items-center gap-1"
+                      className="px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300 rounded-lg text-[10px] font-black border border-red-200 dark:border-red-800 disabled:opacity-50 transition-all flex items-center gap-1 whitespace-nowrap"
                       title="محاكاة ضغط العميل على إلغاء الطلب"
                     >
-                      <X size={10} /> محاكاة الإلغاء
+                      <X size={9} /> إلغاء
                     </button>
                   </div>
                 </div>
 
-                {/* WhatsApp Business-style quick replies */}
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-                  <span className="text-[10px] text-slate-400 font-black shrink-0">رد سريع:</span>
-                  {['تم استلام رسالتك ✅', 'جاري متابعة طلبك الآن', 'شكرًا لتواصلك معنا'].map(reply => (
-                    <button key={reply} type="button" onClick={() => setCustomMessage(reply)} className="px-2.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#111B21] text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 whitespace-nowrap transition-colors">{reply}</button>
-                  ))}
-                </div>
-
                 {/* Instant Template Action Buttons */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
                     disabled={isSending}
                     onClick={handleSendConfirmation}
-                    className="flex items-center justify-center gap-1.5 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-sm disabled:opacity-50 transition-all"
+                    className="flex items-center justify-center gap-1 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-black shadow-xs disabled:opacity-50 transition-all truncate"
                   >
-                    <CheckCircle2 size={14} />
-                    إرسال رسالة تأكيد الطلب 💬
+                    <CheckCircle2 size={13} className="shrink-0" />
+                    <span className="truncate">رسالة تأكيد الطلب</span>
                   </button>
 
                   <button
                     type="button"
                     disabled={isSending}
                     onClick={handleSendShipping}
-                    className="flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-sm disabled:opacity-50 transition-all"
+                    className="flex items-center justify-center gap-1 py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[11px] font-black shadow-xs disabled:opacity-50 transition-all truncate"
                   >
-                    <Truck size={14} />
-                    إرسال تفاصيل الشحن والتتبع 🚚
+                    <Truck size={13} className="shrink-0" />
+                    <span className="truncate">تفاصيل الشحن والتتبع</span>
                   </button>
 
                   <button
                     type="button"
                     disabled={isSending}
                     onClick={handleSendCancellation}
-                    className="flex items-center justify-center gap-1.5 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black shadow-sm disabled:opacity-50 transition-all"
+                    className="flex items-center justify-center gap-1 py-1.5 px-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] font-black shadow-xs disabled:opacity-50 transition-all truncate"
                   >
-                    <XCircle size={14} />
-                    إرسال إشعار الإلغاء ❌
+                    <XCircle size={13} className="shrink-0" />
+                    <span className="truncate">إشعار الإلغاء</span>
                   </button>
                 </div>
 
@@ -1151,12 +1265,16 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-3">
-              <MessageSquare size={48} className="opacity-30" />
-              <h3 className="text-base font-black text-slate-700 dark:text-slate-300">حدد طلباً لعرض محادثات ورسائل الواتساب</h3>
-              <p className="text-xs max-w-sm leading-relaxed">
-                اختر أي طلب من القائمة الجانبية للاطلاع على الرسائل المرسلة للعميل، رسائل التأكيد والإلغاء وتفاصيل الشات.
-              </p>
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-4 bg-slate-100/50 dark:bg-[#0B141A]">
+              <div className="w-20 h-20 rounded-3xl bg-slate-200/60 dark:bg-slate-800/80 flex items-center justify-center text-slate-400 dark:text-slate-500 shadow-xs border border-slate-200 dark:border-slate-700">
+                <MessageSquare size={36} className="opacity-70 text-indigo-500 dark:text-indigo-400" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-black text-slate-800 dark:text-slate-200">اختر محادثة لعرض الرسائل</h3>
+                <p className="text-xs text-slate-400 dark:text-slate-500 max-w-xs leading-relaxed">
+                  حدد عميلاً أو طلباً من القائمة الجانبية لبدء التواصل المباشر ومتابعة الرسائل والتأكيدات.
+                </p>
+              </div>
             </div>
           )}
         </div>

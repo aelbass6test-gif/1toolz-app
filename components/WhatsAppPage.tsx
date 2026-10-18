@@ -1118,49 +1118,24 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
         )}
 
         {activeTab === 'chats' && (
-          <div className="space-y-3">
-            {/* Brand-aligned inbox shell: the layout follows the reference, while colors stay on the app's emerald/slate identity. */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-4 py-3 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-200/80 dark:border-slate-800">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-black text-slate-700 dark:text-slate-200">القنوات</span>
-                <button type="button" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black shadow-sm shadow-emerald-600/20">
-                  <MessageSquare size={14} /> واتساب <span className="px-1.5 py-0.5 rounded-md bg-white/20">{orders.length}</span>
-                </button>
-                <button type="button" disabled className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 text-[11px] font-black cursor-not-allowed">
-                  <Mail size={14} /> البريد <span className="text-[9px] font-bold">قريبًا</span>
-                </button>
-                <button type="button" disabled className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 text-[11px] font-black cursor-not-allowed">
-                  <Instagram size={14} /> Instagram <span className="text-[9px] font-bold">قريبًا</span>
-                </button>
-                <button type="button" disabled className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-900 text-slate-400 border border-slate-200 dark:border-slate-700 text-[11px] font-black cursor-not-allowed">
-                  <Facebook size={14} /> Messenger <span className="text-[9px] font-bold">قريبًا</span>
-                </button>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> مباشر</span>
-                <span className="h-4 w-px bg-slate-200 dark:bg-slate-700" />
-                <SlidersHorizontal size={14} /> مركز المحادثات
-              </div>
-            </div>
-            <div className="h-[62vh] md:h-[calc(100vh-320px)] min-h-[420px] md:min-h-[600px] max-h-[800px] w-full">
-              <OrderWhatsAppChatModal
-                orders={orders}
-                settings={settings}
-                isEmbedded={true}
-                onUpdateOrder={async (updatedOrder: Order) => {
-                  if (setOrders && updatedOrder) {
-                    setOrders((prev: Order[]) => {
-                      const exists = prev.some(o => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
-                      if (exists) {
-                        return prev.map(o => (o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber) ? updatedOrder : o);
-                      }
-                      return [updatedOrder, ...prev];
-                    });
-                  }
-                  if (onSave) await onSave();
-                }}
-              />
-            </div>
+          <div className="h-[78vh] min-h-[650px] max-h-[860px] w-full">
+            <OrderWhatsAppChatModal
+              orders={orders}
+              settings={settings}
+              isEmbedded={true}
+              onUpdateOrder={async (updatedOrder: Order) => {
+                if (setOrders && updatedOrder) {
+                  setOrders((prev: Order[]) => {
+                    const exists = prev.some(o => o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber);
+                    if (exists) {
+                      return prev.map(o => (o.id === updatedOrder.id || o.orderNumber === updatedOrder.orderNumber) ? updatedOrder : o);
+                    }
+                    return [updatedOrder, ...prev];
+                  });
+                }
+                if (onSave) await onSave();
+              }}
+            />
           </div>
         )}
 

@@ -213,7 +213,7 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
           onClick={handleOpen}
           style={{ backgroundColor: !isAdminView ? primaryColor : undefined }}
           className={`group relative p-4 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-110 active:scale-95 transition-all duration-300 cursor-pointer ${
-            isAdminView ? 'bg-indigo-650 hover:bg-indigo-755 shadow-indigo-600/20' : 'shadow-black/15'
+            isAdminView ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20' : 'shadow-black/15'
           }`}
           title="ما الجديد؟ اضغط للاطلاع على أحدث التحديثات والميزات الذكية المضافة"
         >

@@ -569,8 +569,8 @@ const MainLayout = ({
             <div className="absolute top-[-12%] right-[-8%] w-[42vw] h-[42vw] rounded-full bg-emerald-500/5 dark:bg-emerald-500/10 blur-[130px] pointer-events-none z-0" />
             <div className="absolute bottom-[-16%] left-[-10%] w-[38vw] h-[38vw] rounded-full bg-lime-500/5 dark:bg-lime-500/8 blur-[140px] pointer-events-none z-0" />
 
-            <div className="relative z-10 flex flex-col h-full overflow-hidden">
-                <div className="no-print">
+            <div className="relative z-10 flex flex-col h-full min-h-0 overflow-hidden">
+                <div className="no-print shrink-0">
                     <Header 
                         currentUser={currentUser} 
                         onLogout={handleLogout} 
@@ -587,9 +587,9 @@ const MainLayout = ({
                         onOpenShippingCalculator={() => setIsShippingCalculatorOpen(true)}
                     />
                 </div>
-                <div className="flex flex-1 overflow-hidden relative">
+                <div className="flex flex-1 min-h-0 overflow-hidden relative">
                     {!isStoreManagementOrCreationPage && (
-                        <div className="no-print">
+                        <div className="no-print h-full flex shrink-0">
                             <Sidebar 
                                 activeStore={activeStore} 
                                 settings={settings} 

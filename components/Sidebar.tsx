@@ -312,7 +312,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     const hasActiveSearch = searchQuery.trim().length > 0;
 
     const sidebarContentJSX = (
-        <div className="h-full flex flex-col p-3 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans text-right select-none" dir="rtl">
+        <div className="h-full flex-1 min-h-0 flex flex-col p-3 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans text-right select-none" dir="rtl">
             
             {/* Header section (Architectural Store Crest) */}
             <div className="p-2.5 mb-2 rounded-2xl bg-slate-100/70 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.07] flex justify-between items-center group/store shadow-2xs">
@@ -515,7 +515,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </nav>
 
             {/* Brand Credit Signature */}
-            <div className="pt-4 border-t border-slate-100 dark:border-white/5 text-center flex flex-col items-center justify-center gap-1">
+            <div className="mt-auto pt-3 border-t border-slate-100 dark:border-white/5 text-center flex flex-col items-center justify-center gap-1 shrink-0">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 dark:text-slate-700">AbdoMedia Premium</span>
                 <span className="text-[8px] font-bold text-slate-400 dark:text-slate-600">منظومة التجارة المتكاملة © 2026</span>
             </div>
@@ -523,7 +523,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     );
 
     const sidebarCollapsedRailJSX = (
-        <div className="h-full flex flex-col items-center py-3 px-1.5 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans select-none relative" dir="rtl">
+        <div className="h-full flex-1 min-h-0 flex flex-col items-center py-3 px-1.5 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans select-none relative" dir="rtl">
             {/* Store Icon & Quick Expand */}
             <div className="flex flex-col items-center gap-2 mb-2 pb-2.5 border-b border-slate-200/60 dark:border-white/[0.06] w-full">
                 <div 
@@ -621,7 +621,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <div 
                 className={`hidden md:flex ${
                     isDesktopCollapsed ? 'w-20' : 'w-72'
-                } bg-white/70 dark:bg-[#0b0f19]/75 backdrop-blur-2xl border-l border-slate-200/45 dark:border-white/5 h-full flex-col sticky top-0 shadow-xl shadow-slate-200/10 dark:shadow-none relative z-20 transition-all duration-300 ease-in-out shrink-0`}
+                } bg-white/70 dark:bg-[#0b0f19]/75 backdrop-blur-2xl border-l border-slate-200/45 dark:border-white/5 h-full min-h-full flex-col sticky top-0 shadow-xl shadow-slate-200/10 dark:shadow-none relative z-20 transition-all duration-300 ease-in-out shrink-0`}
             >
                 {/* Floating Edge Toggle Handle on Left Border (in RTL) */}
                 {onToggleDesktopCollapse && (
