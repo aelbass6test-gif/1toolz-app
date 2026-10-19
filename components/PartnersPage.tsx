@@ -109,10 +109,10 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   const pendingRequestsCount = useMemo(() => partnerRequests.filter((r: any) => r.status === 'pending').length, [partnerRequests]);
 
   const handleApprovePartnerRequest = async (req: any) => {
-    if (storeId) {
-      await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
-      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
-    }
+    if (!storeId || req.status !== 'pending') return;
+    const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+    if (!statusUpdated) return;
+    setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     const updatedRequests = partnerRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
     let updatedTxs = settings.partnerTransactions || [];
@@ -195,10 +195,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
   };
 
   const handleRejectPartnerRequest = async (reqId: string) => {
-    if (storeId) {
-      await db.updatePartnerRequestStatus(reqId, storeId, 'rejected');
-      setCloudRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
-    }
+    if (!storeId || !(await db.updatePartnerRequestStatus(reqId, storeId, 'rejected'))) return;
+    setCloudRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
     const updatedRequests = partnerRequests.map((r: any) => r.id === reqId ? { ...r, status: 'rejected' } : r);
     updateSettings({
       ...settings,

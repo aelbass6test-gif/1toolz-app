@@ -792,8 +792,8 @@ async function startServer() {
       }
 
       if (!emailSent) {
-        const isDev = process.env.NODE_ENV !== 'production' || !process.env.SMTP_HOST;
-        if (isDev) {
+        const allowDebugOtp = process.env.NODE_ENV === 'development' && process.env.ENABLE_DEBUG_OTP === 'true';
+        if (allowDebugOtp) {
           return c.json({
             success: true,
             isDevSimulated: true,
@@ -11707,4 +11707,3 @@ process.on("unhandledRejection", (reason) => {
 startServer().catch((err) => {
   console.error("[START-SERVER-ERROR]", err);
 });
-

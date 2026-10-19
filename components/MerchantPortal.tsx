@@ -187,14 +187,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   }, [storeName]);
 
   // Authentication State
-  const [authenticatedMerchant, setAuthenticatedMerchant] = useState<Partner | null>(() => {
-    try {
-      const saved = sessionStorage.getItem(`merchant_portal_auth_${effectiveStoreId}`);
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [authenticatedMerchant, setAuthenticatedMerchant] = useState<Partner | null>(null);
 
   const liveMerchant = useMemo(() => {
     if (!authenticatedMerchant) return null;
@@ -205,12 +198,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     );
     return current || authenticatedMerchant;
   }, [authenticatedMerchant, merchants]);
-
-  useEffect(() => {
-    if (liveMerchant && effectiveStoreId) {
-      sessionStorage.setItem(`merchant_portal_auth_${effectiveStoreId}`, JSON.stringify(liveMerchant));
-    }
-  }, [liveMerchant, effectiveStoreId]);
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -224,7 +211,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [selectedMerchantId, setSelectedMerchantId] = useState<string>(() => merchants.length === 1 ? merchants[0].id : '');
   const [otpCode, setOtpCode] = useState('');
   const [otpTargetEmail, setOtpTargetEmail] = useState('');
-  const [customEmailInput, setCustomEmailInput] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isOtpSent, setIsOtpSent] = useState(false);
@@ -262,6 +248,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const cleanEmail = targetEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       setAuthError('يرجى إدخال عنوان بريد إلكتروني صالح لربطه بحساب الموكل واستلام الكود');
+      return;
+    }
+    const registeredEmail = activeMerchantObj?.email?.trim().toLowerCase();
+    if (!activeMerchantObj || !registeredEmail || cleanEmail !== registeredEmail) {
+      setAuthError('يجب استخدام البريد الإلكتروني المسجل مسبقاً لهذا الحساب. يرجى التواصل مع الإدارة لتحديثه.');
       return;
     }
 
@@ -322,22 +313,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.valid) {
-        let matched = merchants.find(m => m.id === selectedMerchantId || m.email?.toLowerCase() === otpTargetEmail.toLowerCase());
-        if (!matched && merchants.length === 1) matched = merchants[0];
-        if (!matched && activeMerchantObj) matched = activeMerchantObj;
-
-        const authenticatedObj: Partner = matched || {
-          id: selectedMerchantId || `m_${Date.now()}`,
-          name: activeMerchantObj?.name || 'الموكل المعتمد',
-          email: otpTargetEmail.trim().toLowerCase(),
-          balance: 0,
-          profitRatio: 0,
-          passcode: '0000',
-          role: 'موكل صاحب بضاعة'
-        };
+        const targetMerchantId = selectedMerchantId || (merchants.length === 1 ? merchants[0].id : '');
+        const authenticatedObj = merchants.find(m =>
+          m.id === targetMerchantId &&
+          m.email?.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase()
+        );
+        if (!authenticatedObj) {
+          setAuthError('تعذر مطابقة البريد الموثق مع حساب الموكل المحدد. تواصل مع الإدارة.');
+          return;
+        }
 
         setAuthenticatedMerchant(authenticatedObj);
-        sessionStorage.setItem(`merchant_portal_auth_${effectiveStoreId}`, JSON.stringify(authenticatedObj));
+        setSelectedMerchantId(authenticatedObj.id);
         showToast(`أهلاً بك يا ${authenticatedObj.name}! تم التحقق والدخول لبوابة الموكلين بنجاح`, 'success');
       } else {
         setAuthError(data.message || 'رمز التحقق غير صحيح أو منتهي الصلاحية');
@@ -346,18 +333,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       setAuthError('خطأ أثناء التحقق: ' + (err.message || ''));
     } finally {
       setIsVerifyingOtp(false);
-    }
-  };
-
-  // Handle Quick Test Login
-  const handleQuickTestLogin = () => {
-    const m = activeMerchantObj || merchants[0];
-    if (m) {
-      setAuthenticatedMerchant(m);
-      sessionStorage.setItem(`merchant_portal_auth_${effectiveStoreId}`, JSON.stringify(m));
-      showToast(`🚀 تم الدخول المباشر لحساب الموكل: ${m.name}`, 'success');
-    } else {
-      setAuthError('لم يتم العثور على حساب موكل مسجل بالمتجر لتنفيذ الدخول السريع');
     }
   };
 
@@ -553,7 +528,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Logout
   const handleLogout = () => {
     setAuthenticatedMerchant(null);
-    sessionStorage.removeItem(`merchant_portal_auth_${effectiveStoreId}`);
     showToast('تم تسجيل الخروج الآمن من بوابة الموكلين', 'success');
   };
 
@@ -621,10 +595,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => {
                           setSelectedMerchantId(m.id);
-                          if (m.email) {
-                            setOtpTargetEmail(m.email);
-                            setCustomEmailInput(m.email);
-                          }
+                          setOtpTargetEmail(m.email || '');
                           setAuthError('');
                         }}
                         className={`p-3 rounded-2xl border text-right transition-all flex items-center justify-between cursor-pointer ${
@@ -660,28 +631,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-2 p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl text-xs">
-                      <div className="font-black text-amber-300 flex items-center gap-1.5">
-                        <AlertCircle size={15} />
-                        <span>أدخل بريدك لربطه بحسابك وتفعيل الدخول:</span>
-                      </div>
-                      <input
-                        type="email"
-                        value={customEmailInput}
-                        onChange={e => {
-                          setCustomEmailInput(e.target.value);
-                          setOtpTargetEmail(e.target.value);
-                        }}
-                        placeholder="merchant@example.com"
-                        className="w-full bg-slate-900 px-3 py-2 rounded-xl border border-amber-700 text-white font-mono outline-none focus:border-emerald-500"
-                      />
+                    <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl text-xs font-bold text-amber-300">
+                      لا يوجد بريد موثق لهذا الحساب. يرجى التواصل مع الإدارة لربط البريد قبل تسجيل الدخول.
                     </div>
                   )}
 
                   <button
                     type="button"
-                    onClick={() => handleSendOtp(otpTargetEmail || activeMerchantObj.email || customEmailInput)}
-                    disabled={isSendingOtp || (!otpTargetEmail && !activeMerchantObj.email && !customEmailInput)}
+                    onClick={() => handleSendOtp(activeMerchantObj.email || '')}
+                    disabled={isSendingOtp || !activeMerchantObj.email}
                     className="w-full py-3.5 bg-[#008060] hover:bg-[#006e52] text-white rounded-2xl font-black text-xs shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {isSendingOtp ? <Loader2 size={16} className="animate-spin" /> : <Send size={15} />}
@@ -690,17 +648,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </div>
               )}
 
-              {/* Developer / Admin Quick Test Button */}
-              <div className="pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={handleQuickTestLogin}
-                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-black cursor-pointer transition-all flex items-center justify-center gap-2"
-                >
-                  <Sparkles size={14} />
-                  <span>🚀 دخول سريع للتجربة والمشاهدة</span>
-                </button>
-              </div>
+              {import.meta.env.DEV && (
+                <div className="pt-2 border-t border-slate-800 text-center text-[10px] font-bold text-slate-500">
+                  وضع التطوير فقط
+                </div>
+              )}
             </div>
           ) : (
             /* OTP Verification Step */
@@ -709,7 +661,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 أدخل كود التحقق المكون من 6 أرقام المرسل إلى: <span className="font-mono text-white">{maskEmail(otpTargetEmail)}</span>
               </div>
 
-              {devOtpCode && (
+              {import.meta.env.DEV && devOtpCode && (
                 <div className="p-2.5 bg-amber-950/80 border border-amber-700 rounded-xl text-xs text-amber-300 font-mono text-center font-black">
                   🔑 كود المعاينة للتجربة: {devOtpCode}
                 </div>

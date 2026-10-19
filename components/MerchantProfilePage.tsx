@@ -145,9 +145,17 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
   }
 
   const handleApproveRequest = async (req: db.PartnerPortalRequest) => {
-    if (!storeId) return;
     try {
-      await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+      const amount = Number(req.amount);
+      if (!storeId || req.status !== 'pending' || !Number.isFinite(amount) || amount <= 0 || amount > (merchant.balance || 0)) {
+        inAppToast('تعذر اعتماد الطلب: تحقق من حالته والمبلغ والرصيد المتاح.', 'error');
+        return;
+      }
+      const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+      if (!statusUpdated) {
+        inAppToast('لم يتم اعتماد الطلب؛ ربما عولج بالفعل من شاشة أخرى. حدّث القائمة.', 'error');
+        return;
+      }
       setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
       // Update Merchant Balance and record Withdrawal Transaction
@@ -161,24 +169,29 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
               merchantName: s.name,
               date: new Date().toISOString(),
               type: 'withdrawal',
-              amount: -req.amount,
-              balanceAfter: currentBalance - req.amount,
+              amount: -amount,
+              balanceAfter: currentBalance - amount,
               notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) - ${req.notes || ''}`,
               referenceId: req.id,
               performedBy: currentUser?.fullName || 'الإدارة'
             };
             return {
               ...s,
-              balance: currentBalance - req.amount,
+              balance: currentBalance - amount,
               transactions: [newTx, ...(s.transactions || [])]
             };
           }
           return s;
         });
-        return { ...currentSettings, suppliers: updatedSuppliers };
+        const addedTx = updatedSuppliers.find(s => s.id === merchant.id)?.transactions?.[0];
+        return {
+          ...currentSettings,
+          suppliers: updatedSuppliers,
+          ...(addedTx ? { merchantTransactions: [addedTx, ...(currentSettings.merchantTransactions || [])] } : {})
+        };
       });
 
-      inAppToast(`تم اعتماد طلب السحب للموكل ${merchant.name} بمبلغ ${req.amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+      inAppToast(`تم اعتماد طلب السحب للموكل ${merchant.name} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
     } catch (err: any) {
       inAppToast('حدث خطأ أثناء اعتماد الطلب', 'error');
     }
@@ -319,10 +332,10 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-2 text-right">
           <div className="flex items-center gap-2 text-slate-500">
             <Calculator size={16} />
-            <span className="text-[10px] font-black uppercase">إجمالي المسوى له</span>
+          <span className="text-[10px] font-black uppercase">إجمالي التحصيل من الطلبات</span>
           </div>
           <p className="text-xl font-black text-slate-900 font-mono">{(analytics?.totalCollected || 0).toLocaleString()} <span className="text-[10px]">ج.م</span></p>
-          <p className="text-[10px] text-slate-400 font-medium">صافي ناتج كشوف التسوية المعتمدة</p>
+          <p className="text-[10px] text-slate-400 font-medium">تحصيل الطلبات، وليس صافي المبلغ المسدّد للموكل</p>
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-2 text-right">
@@ -560,14 +573,16 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
              
              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {(settings.merchantSettlements || [])
-                  .filter(s => s.merchantId === merchant.id || s.merchantName === merchant.name)
+                  .filter(s => s.status === 'paid' && (s.merchantId === merchant.id || s.merchantName === merchant.name))
                   .map(st => (
                   <div key={st.id} className="p-5 bg-slate-50 rounded-3xl border border-slate-200 hover:border-emerald-300 transition-all group">
                     <div className="flex justify-between items-start mb-3">
                       <div className="px-3 py-1 bg-white rounded-xl text-[10px] font-black border border-slate-200 font-mono text-slate-400 group-hover:text-emerald-600 group-hover:border-emerald-200 transition-colors">
                         #{st.settlementNumber}
                       </div>
-                      <span className="text-[10px] font-bold text-slate-400">{new Date(st.date).toLocaleDateString('ar-EG')}</span>
+                      <span className={`text-[10px] font-bold ${st.reversedAt ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {st.reversedAt ? 'معكوس · ' : ''}{new Date(st.date).toLocaleDateString('ar-EG')}
+                      </span>
                     </div>
                     <div className="space-y-1 mb-4">
                       <p className="text-[11px] font-bold text-slate-500 uppercase">الصافي المحول للموكل:</p>
@@ -581,7 +596,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                 ))}
              </div>
 
-             {(settings.merchantSettlements || []).filter(s => s.merchantId === merchant.id || s.merchantName === merchant.name).length === 0 && (
+             {(settings.merchantSettlements || []).filter(s => s.status === 'paid' && (s.merchantId === merchant.id || s.merchantName === merchant.name)).length === 0 && (
                 <div className="py-20 text-center text-slate-400 font-bold text-xs italic">لا توجد كشوف تسوية تاريخية مسجلة لهذا الموكل حتى الآن.</div>
              )}
           </div>

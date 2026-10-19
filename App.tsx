@@ -3984,7 +3984,7 @@ export const AppComponent = () => {
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
                     <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
-                    <Route path="merchant-settlement" element={<MerchantSettlementPage orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
+                    <Route path="merchant-settlement" element={<MerchantSettlementPage storeId={activeStoreId} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
                     <Route path="merchant-portal" element={
                         <MerchantPortal 
                             allStoresData={allStoresData} 
