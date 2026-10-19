@@ -64,6 +64,7 @@ export interface TransparencyOrderRow {
   merchantProfitOrLoss: number;
   settlementStatus?: string;
   settlementId?: string;
+  rawOrder?: Order;
 }
 
 export interface TransparencyAnalyticsResult {
@@ -172,20 +173,45 @@ export function isOrderForMerchant(
   merchantIdOrName: string, 
   merchantObj?: { id: string; name: string }
 ): boolean {
+  // Check if order has any valid merchant/supplier association
+  const hasMerchant = Boolean(
+    (order.merchantId && order.merchantId !== 'pending') || 
+    (order.merchantName && order.merchantName.trim() !== '' && order.merchantName !== 'pending') ||
+    (order as any).isAgencyOrder
+  );
+
+  // If no merchant/supplier association at all, it is a standard store retail order -> EXCLUDE from merchant transparency report
+  if (!hasMerchant) return false;
+
+  // If 'all' is selected, include all merchant/supplier/agency orders
   if (!merchantIdOrName || merchantIdOrName === 'all') return true;
-  if (!order.merchantId && !order.merchantName) return false;
-  if (order.merchantId === 'pending') return false;
 
-  const target = merchantIdOrName.trim().toLowerCase();
-  const oMId = (order.merchantId || '').trim().toLowerCase();
-  const oMName = (order.merchantName || '').trim().toLowerCase();
+  const normalizeStr = (s: string) => 
+    (s || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^(sup_|m_|part_)/, '')
+      .replace(/أ|إ|آ/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/\s+/g, '');
 
-  if (oMId === target || oMName === target) return true;
+  const target = normalizeStr(merchantIdOrName);
+  const oMId = normalizeStr(order.merchantId || '');
+  const oMName = normalizeStr(order.merchantName || '');
+
+  if (target && oMId && (oMId === target || oMId.includes(target) || target.includes(oMId))) return true;
+  if (target && oMName && (oMName === target || oMName.includes(target) || target.includes(oMName))) return true;
+
   if (merchantObj) {
-    const objId = merchantObj.id.trim().toLowerCase();
-    const objName = merchantObj.name.trim().toLowerCase();
-    if (oMId === objId || oMId === objName || oMName === objId || oMName === objName) return true;
+    const objId = normalizeStr(merchantObj.id);
+    const objName = normalizeStr(merchantObj.name);
+    if (objId && oMId && (oMId === objId || oMId.includes(objId) || objId.includes(oMId))) return true;
+    if (objName && oMName && (oMName === objName || oMName.includes(objName) || objName.includes(oMName))) return true;
+    if (objName && oMId && (oMId === objName || oMId.includes(objName) || objName.includes(oMId))) return true;
+    if (objId && oMName && (oMName === objId || oMName.includes(objId) || objId.includes(oMName))) return true;
   }
+
   return false;
 }
 
@@ -313,8 +339,13 @@ export function calculateMerchantTransparencyAnalytics(
       const merchantShare = netMargin * ratio;
       netMerchantAmount = (isDelivered ? defaultGoodsCost : 0) + merchantShare;
       merchantProfitOrLoss = isDelivered ? merchantShare : (-returnLoss);
+    } else if (o.merchantSettlementMode === 'wholesale') {
+      // Wholesale Mode: Merchant gets their goods cost only, minus deductions
+      const deductions = serviceFee + carrierCalc.totalShippingAndCarrier + marketingFee;
+      netMerchantAmount = isDelivered ? (defaultGoodsCost - deductions) : (-deductions);
+      merchantProfitOrLoss = isDelivered ? (netMerchantAmount - defaultGoodsCost) : (-returnLoss);
     } else {
-      // Fixed fee / Standard Commission
+      // Fixed fee / Standard Commission / Dropshipping
       const deductions = serviceFee + carrierCalc.totalShippingAndCarrier + marketingFee;
       netMerchantAmount = isDelivered ? (collected - deductions) : (-deductions);
       merchantProfitOrLoss = isDelivered ? (netMerchantAmount - defaultGoodsCost) : (-returnLoss);
@@ -371,7 +402,8 @@ export function calculateMerchantTransparencyAnalytics(
       netMerchantAmount: Math.round(netMerchantAmount * 100) / 100,
       merchantProfitOrLoss: Math.round(merchantProfitOrLoss * 100) / 100,
       settlementStatus: o.settlementStatus,
-      settlementId: o.settlementId
+      settlementId: o.settlementId,
+      rawOrder: o
     });
 
     // Product movements tracking
@@ -411,13 +443,19 @@ export function calculateMerchantTransparencyAnalytics(
       existing.totalQuantityOrdered += itemQty;
 
       if (isDelivered) {
+        const itemCollected = collected * proportion;
         existing.quantityDelivered += itemQty;
-        existing.totalDeliveredSales += (itemPrice * itemQty);
+        existing.totalDeliveredSales += itemCollected;
         existing.totalDeliveredCost += (itemCost * itemQty);
+        
         // Distribute order expenses proportionally
         const orderExp = carrierCalc.totalShippingAndCarrier + serviceFee + marketingFee;
-        existing.allocatedExpenses += Math.round(orderExp * proportion * 100) / 100;
-        existing.netProfit += Math.round(((itemPrice * itemQty) - (itemCost * itemQty) - (orderExp * proportion)) * 100) / 100;
+        const itemAllocatedExp = orderExp * proportion;
+        existing.allocatedExpenses += Math.round(itemAllocatedExp * 100) / 100;
+        
+        // Net profit = (itemCollected - itemAllocatedExp) - itemCost
+        const itemNetProfit = itemCollected - itemAllocatedExp - (itemCost * itemQty);
+        existing.netProfit += Math.round(itemNetProfit * 100) / 100;
       } else if (isReturn) {
         existing.quantityReturned += itemQty;
         const returnExp = returnLoss * proportion;

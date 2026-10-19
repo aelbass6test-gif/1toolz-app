@@ -1,16 +1,19 @@
-import React, { useState, useMemo } from 'react';
-import { Settings, Order, MerchantSettlement, MerchantSettlementOrderSnapshot, Treasury, CustomerProfile } from '../types';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { Settings, Order, MerchantSettlement, MerchantSettlementOrderSnapshot, Treasury, CustomerProfile, MerchantTransaction } from '../types';
 import { 
   Building2, DollarSign, Calculator, FileText, CheckCircle2, 
   Printer, Download, Plus, Search, Filter, Calendar, User, 
   ArrowUpRight, ArrowDownLeft, Wallet, ShieldAlert, Sparkles, X, Paperclip, ChevronDown, Check, Speaker,
   Landmark, TrendingUp, TrendingDown, RefreshCw, MessageSquare, RotateCcw, Eye, SlidersHorizontal,
-  Layers, Percent, PackageCheck, AlertTriangle, Trash2, ExternalLink, FileSpreadsheet, Info, Globe, Mail, Loader2
+  Layers, Percent, PackageCheck, AlertTriangle, Trash2, ExternalLink, FileSpreadsheet, Info, Globe, Mail, Loader2,
+  Coins, Clock, XCircle
 } from 'lucide-react';
+import * as db from '../services/databaseService';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
-import PartnerPortal from './PartnerPortal';
+import MerchantPortal from './MerchantPortal';
 import * as XLSX from 'xlsx';
 import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee, getCompanySpecificFees, calculateInsuranceFee, calculateBostaVat } from '../utils/financials';
 import { inAppAlert, inAppConfirm, inAppToast } from '../utils/inAppAlert';
@@ -37,6 +40,8 @@ const RETURN_STATUSES = [
   'مرتجع_بعد_الاستلام',
   'ملغي'
 ];
+
+const normalizeName = (name: string) => (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 /**
  * حساب تفاصيل الشحن والرسوم المحملة على الطلب:
@@ -89,9 +94,19 @@ const calculateMerchantShippingBreakdown = (
   const carrierAdditionalFees = Math.round((insuranceFee + vatFee + inspectionFee) * 100) / 100;
 
   if (!isDelivered) {
-    const totalReturnFees = ov?.returnFee !== undefined 
+    const totalFees = ov?.returnFee !== undefined 
       ? ov.returnFee 
       : calculateOrderShippingAndFees(order, settings);
+    
+    // Determine if calculateOrderShippingAndFees added a return fee
+    const isReturnStatus = RETURN_STATUSES.includes(order.status);
+    const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
+    const returnFeeInTotal = isReturnStatus && applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+
+    // Use total WITHOUT return fee for the 'total' field here, 
+    // because computeOrderFinancials will add its own returnFee variable from the UI state.
+    const cleanTotal = ov?.returnFee !== undefined ? totalFees : Math.max(0, totalFees - returnFeeInTotal);
+
     return {
       baseShippingFee,
       insuranceFee,
@@ -99,7 +114,8 @@ const calculateMerchantShippingBreakdown = (
       inspectionFee,
       codFee,
       carrierAdditionalFees,
-      total: totalReturnFees,
+      total: cleanTotal,
+      returnFee: returnFeeInTotal,
       customerPaidShipping: 0,
       officialShippingFee: baseShippingFee,
       shippingDiscountDifference: 0
@@ -126,7 +142,7 @@ interface OrderCustomOverride {
   goodsCost?: number;
   marketingFee?: number;
   serviceFee?: number;
-  mode?: 'fixed_fee' | 'profit_share';
+  mode?: 'fixed_fee' | 'profit_share' | 'wholesale';
   sharePercent?: number;
   shippingFee?: number;
   insuranceFee?: number;
@@ -157,10 +173,104 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   customers = [],
   currentUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'partners' | 'transparency' | 'portal'>('settlements');
+  const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'requests' | 'partners' | 'transparency' | 'portal'>('settlements');
   const [transparencyMerchantId, setTransparencyMerchantId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMerchantId, setSelectedMerchantId] = useState<string>('');
+  
+  // Merchant Incoming Payout Requests
+  const [rawRequests, setRawRequests] = useState<db.PartnerPortalRequest[]>([]);
+  const [requestsFilterStatus, setRequestsFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+
+  const activeStoreId = useMemo(() => {
+    try {
+      return localStorage.getItem('activeStoreId') || 'default';
+    } catch {
+      return 'default';
+    }
+  }, []);
+
+  const loadMerchantRequests = useCallback(async () => {
+    try {
+      const reqs = await db.getPartnerRequests(activeStoreId);
+      setRawRequests(reqs);
+    } catch (_) {}
+  }, [activeStoreId]);
+
+  useEffect(() => {
+    loadMerchantRequests();
+  }, [loadMerchantRequests]);
+
+  const merchantRequests = useMemo(() => {
+    const fromSettings = (settings as any).partnerRequests || [];
+    const map = new Map<string, any>();
+    rawRequests.forEach(r => map.set(r.id, r));
+    fromSettings.forEach((r: any) => {
+      if (!map.has(r.id)) map.set(r.id, r);
+    });
+    const list = Array.from(map.values()).filter((r: any) => {
+      const isMerchant = r.id?.startsWith('REQ-M-') || 
+                         r.isMerchantRequest === true || 
+                         (r.typeArabic && r.typeArabic.includes('الموكل')) ||
+                         (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')));
+      return isMerchant;
+    });
+    list.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+    return list;
+  }, [rawRequests, settings]);
+
+  const pendingMerchantRequestsCount = useMemo(() => {
+    return merchantRequests.filter(r => r.status === 'pending').length;
+  }, [merchantRequests]);
+
+  const handleApproveMerchantRequest = async (req: db.PartnerPortalRequest) => {
+    try {
+      await db.updatePartnerRequestStatus(req.id, activeStoreId, 'approved');
+      setRawRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+
+      // Update Merchant Balance and record Withdrawal Transaction
+      updateSettings(currentSettings => {
+        const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
+          if (s.id === req.partnerId || normalizeName(s.name) === normalizeName(req.partnerName)) {
+            const currentBalance = s.balance || 0;
+            const newTx: MerchantTransaction = {
+              id: `mtx-w-${Date.now()}`,
+              merchantId: s.id,
+              merchantName: s.name,
+              date: new Date().toISOString(),
+              type: 'withdrawal',
+              amount: -req.amount, // Negative for withdrawal
+              balanceAfter: currentBalance - req.amount,
+              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) - ${req.notes || ''}`,
+              referenceId: req.id,
+              performedBy: currentUser?.fullName || 'الإدارة'
+            };
+            return {
+              ...s,
+              balance: currentBalance - req.amount,
+              transactions: [newTx, ...(s.transactions || [])]
+            };
+          }
+          return s;
+        });
+        return { ...currentSettings, suppliers: updatedSuppliers };
+      });
+
+      inAppToast(`تم اعتماد طلب السحب للموكل ${req.partnerName} بمبلغ ${req.amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+    } catch (err: any) {
+      inAppToast('حدث خطأ أثناء اعتماد الطلب: ' + (err.message || ''), 'error');
+    }
+  };
+
+  const handleRejectMerchantRequest = async (reqId: string) => {
+    try {
+      await db.updatePartnerRequestStatus(reqId, activeStoreId, 'rejected');
+      setRawRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
+      inAppToast('تم رفض طلب السحب للموكل', 'info');
+    } catch (err: any) {
+      inAppToast('حدث خطأ أثناء رفض الطلب', 'error');
+    }
+  };
   
   // History Filters
   const [historyMerchantFilter, setHistoryMerchantFilter] = useState<string>('');
@@ -169,6 +279,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   // New Settlement Form States
   const [flatServiceFee, setFlatServiceFee] = useState<number>(10); // عمولة الأوردر الافتراضية
+  const [chargeServiceFeeOnReturns, setChargeServiceFeeOnReturns] = useState<boolean>(false); // احتساب عمولة الخدمة حتى على المرتجع
   const [deductReturnsFee, setDeductReturnsFee] = useState<boolean>(true); // خصم مصاريف شحن المرتجع
   const [returnShippingFeeAmount, setReturnShippingFeeAmount] = useState<number>(35); // رسوم شحن المرتجع
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -180,7 +291,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const [viewingSettlement, setViewingSettlement] = useState<MerchantSettlement | null>(null);
   
   // Bulk Accounting Mode & Overrides
-  const [batchAccountingMode, setBatchAccountingMode] = useState<'order_default' | 'fixed_fee' | 'profit_share'>('order_default');
+  const [batchAccountingMode, setBatchAccountingMode] = useState<'order_default' | 'fixed_fee' | 'profit_share' | 'wholesale'>('order_default');
   const [batchProfitSharePercent, setBatchProfitSharePercent] = useState<number>(50);
   const [orderOverrides, setOrderOverrides] = useState<Record<string, OrderCustomOverride>>({});
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -243,30 +354,20 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       }
     });
 
-    // Also merge from settings.partners
+    // Also merge email/phone from settings.partners if person exists in suppliers list
     (settings.partners || []).forEach(p => {
       const existing = list.find(item => item.id === p.id || item.name === p.name);
       if (existing) {
         if (!existing.email && p.email) existing.email = p.email;
         if (!existing.phone && p.phone) existing.phone = p.phone;
-      } else if (p.id && p.name && !seen.has(p.id) && !seen.has(p.name)) {
-        seen.add(p.id);
-        seen.add(p.name.trim());
-        list.push({
-          id: p.id,
-          name: p.name.trim(),
-          phone: p.phone,
-          email: p.email,
-          sourceLabel: 'شريك مسجل'
-        });
       }
     });
 
-    // 2. From Customers ONLY if explicitly marked as a merchant / partner (never regular store buyers!)
+    // 2. From Customers ONLY if explicitly marked as a merchant / supplier (never regular store buyers or profit-share partners!)
     customers.forEach(c => {
       const isTaggedMerchant =
         c.customerSegment === 'merchant' ||
-        (Array.isArray(c.tags) && c.tags.some(t => ['موكل', 'صاحب بضاعة', 'تاجر', 'شريك', 'merchant', 'partner'].includes(String(t).trim().toLowerCase())));
+        (Array.isArray(c.tags) && c.tags.some(t => ['موكل', 'صاحب بضاعة', 'تاجر', 'مورد', 'merchant', 'supplier'].includes(String(t).trim().toLowerCase())));
       if (isTaggedMerchant && c.phone && c.name && !seen.has(c.phone) && !seen.has(c.name.trim())) {
         seen.add(c.phone);
         seen.add(c.name.trim());
@@ -617,12 +718,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     const isReturn = RETURN_STATUSES.includes(o.status);
 
     // Accounting Mode resolution: Per-Order Override -> Batch Override -> Order Default
-    const effectiveMode: 'fixed_fee' | 'profit_share' = ov.mode
+    const effectiveMode: 'fixed_fee' | 'profit_share' | 'wholesale' = ov.mode
       ? ov.mode
       : batchAccountingMode !== 'order_default'
       ? batchAccountingMode
       : o.merchantSettlementMode === 'profit_share'
       ? 'profit_share'
+      : o.merchantSettlementMode === 'wholesale'
+      ? 'wholesale'
       : 'fixed_fee';
 
     const effectiveSharePercent = ov.sharePercent !== undefined
@@ -648,12 +751,16 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
     // 5. Service Fee
     const defaultServiceFee = o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : flatServiceFee;
-    const serviceFee = (isDelivered && effectiveMode !== 'profit_share')
+    const serviceFee = ((isDelivered || chargeServiceFeeOnReturns) && effectiveMode !== 'profit_share')
       ? (ov.serviceFee !== undefined ? ov.serviceFee : defaultServiceFee)
       : 0;
 
     // 6. Return Fee
-    const returnFee = isReturn && deductReturnsFee ? (ov.returnFee !== undefined ? ov.returnFee : returnShippingFeeAmount) : 0;
+    // Use the component-level state if enabled, otherwise 0.
+    // If there's an override on the order, use that.
+    const returnFee = isReturn && deductReturnsFee 
+      ? (ov.returnFee !== undefined ? ov.returnFee : returnShippingFeeAmount) 
+      : 0;
 
     // 7. Collected Cash Revenue from Customer
     const orderRevenue = isDelivered 
@@ -673,6 +780,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       const merchantProfitShare = netProfitOrLoss * merchantShareRatio;
       orderPayout = (isDelivered ? goodsCost : 0) + merchantProfitShare;
       operatorOrderEarning = Math.max(0, netProfitOrLoss * (1 - merchantShareRatio));
+    } else if (effectiveMode === 'wholesale') {
+      // WHOLESALE MODE
+      // صافي مستحق الموكل = سعر الجملة - المصاريف (إذا كان الموكل يتحملها)
+      const totalDeductions = serviceFee + shippingAndFees + marketingCost + returnFee;
+      orderPayout = isDelivered ? (goodsCost - totalDeductions) : (-totalDeductions);
+      operatorOrderEarning = isDelivered ? (orderRevenue - goodsCost + serviceFee) : 0;
     } else {
       // FIXED FEE / COMMISSION MODE
       // صافي مستحق الموكل = إجمالي التحصيل - مصاريف الشحن - رسوم شركة الشحن (تأمين + ضريبة + معاينة + COD) - عمولة المنصة - مصاريف التسويق
@@ -961,11 +1074,38 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       };
     }));
 
-    // Save Settlement
-    updateSettings(currentSettings => ({
-      ...currentSettings,
-      merchantSettlements: [newSettlement, ...(currentSettings.merchantSettlements || [])]
-    }));
+    // Update Settlement, Merchant Balance and Ledger
+    updateSettings(currentSettings => {
+      const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
+        if (s.id === selectedMerchantId) {
+          const currentBalance = s.balance || 0;
+          const newTx: MerchantTransaction = {
+            id: `mtx-${Date.now()}`,
+            merchantId: s.id,
+            merchantName: s.name,
+            date: new Date().toISOString(),
+            type: 'order_delivered',
+            amount: settlementCalculation.netPayoutToMerchant,
+            balanceAfter: currentBalance + settlementCalculation.netPayoutToMerchant,
+            notes: `كشف تسوية أوردرات رقم ${newSettlement.settlementNumber} - (${newSettlement.ordersCount} أوردر)`,
+            referenceId: newSettlement.id,
+            performedBy: currentUser?.fullName || 'الإدارة'
+          };
+          return {
+            ...s,
+            balance: currentBalance + settlementCalculation.netPayoutToMerchant,
+            transactions: [newTx, ...(s.transactions || [])]
+          };
+        }
+        return s;
+      });
+
+      return {
+        ...currentSettings,
+        suppliers: updatedSuppliers,
+        merchantSettlements: [newSettlement, ...(currentSettings.merchantSettlements || [])]
+      };
+    });
 
     // Reset Form
     setSelectedMerchantId('');
@@ -1464,6 +1604,23 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('requests')}
+              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'requests' 
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-900/50' 
+                  : 'text-amber-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Coins size={15} />
+              <span>طلبات سحب الموكلين</span>
+              {pendingMerchantRequestsCount > 0 && (
+                <span className="font-mono text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
+                  {pendingMerchantRequestsCount} معلق
+                </span>
+              )}
+            </button>
+
+            <button
               onClick={() => setActiveTab('partners')}
               className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'partners' 
@@ -1492,6 +1649,27 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Alert Banner for Pending Merchant Withdrawal Requests */}
+      {pendingMerchantRequestsCount > 0 && activeTab !== 'requests' && (
+        <div 
+          onClick={() => setActiveTab('requests')}
+          className="bg-amber-500/15 border border-amber-500/40 rounded-2xl p-4 text-amber-200 flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-500/25 transition-all shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0">
+              <Coins size={20} />
+            </div>
+            <div>
+              <h4 className="font-black text-sm text-amber-300">يوجد {pendingMerchantRequestsCount} طلب سحب مستحقات معلق وارد من الموكلين!</h4>
+              <p className="text-xs text-amber-200/80">انقر هنا لمراجعة طلبات سحب المستحقات واعتمادها أو رفضها مباشرة لحسابات الموكلين.</p>
+            </div>
+          </div>
+          <div className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-black text-xs whitespace-nowrap shadow-sm">
+            عرض الطلبات ({pendingMerchantRequestsCount}) ←
+          </div>
+        </div>
+      )}
 
       {/* ======================================================== */}
       {/* 2. EXECUTIVE FINANCIAL KPI STRIP                         */}
@@ -1909,17 +2087,34 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               </div>
 
               {/* Service Fee per Delivered Order */}
-              <div>
-                <label className="block text-xs font-black text-slate-600 dark:text-slate-300 mb-1.5">
-                  عمولة الخدمة للطلب المسلم (ج.م)
-                </label>
-                <input
-                  type="number"
-                  value={flatServiceFee}
-                  onChange={e => setFlatServiceFee(Number(e.target.value) || 0)}
-                  placeholder="10"
-                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-xs text-center font-mono outline-none focus:ring-2 focus:ring-emerald-600"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-black text-slate-600 dark:text-slate-300 mb-1.5">
+                    عمولة الخدمة للطلب المسلم (ج.م)
+                  </label>
+                  <input
+                    type="number"
+                    value={flatServiceFee}
+                    onChange={e => setFlatServiceFee(Number(e.target.value) || 0)}
+                    placeholder="10"
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-xs text-center font-mono outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => setChargeServiceFeeOnReturns(!chargeServiceFeeOnReturns)}
+                  className={`w-full p-2.5 rounded-xl border flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    chargeServiceFeeOnReturns 
+                      ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' 
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                  }`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all ${chargeServiceFeeOnReturns ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 dark:border-slate-600'}`}>
+                    {chargeServiceFeeOnReturns && <Check size={10} className="text-white" strokeWidth={4} />}
+                  </div>
+                  <span className="text-[10px] font-black">احتساب العمولة حتى على المرتجعات</span>
+                </button>
               </div>
 
               {/* Return Shipping Deduction */}
@@ -2169,18 +2364,25 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                                 <div className="inline-flex items-center gap-1">
                                   <button
                                     type="button"
-                                    onClick={() => updateOrderOverride(ord.id, {
-                                      mode: calc.effectiveMode === 'profit_share' ? 'fixed_fee' : 'profit_share'
-                                    })}
+                                    onClick={() => {
+                                      const nextMode: 'fixed_fee' | 'profit_share' | 'wholesale' = 
+                                        calc.effectiveMode === 'fixed_fee' ? 'profit_share' :
+                                        calc.effectiveMode === 'profit_share' ? 'wholesale' : 'fixed_fee';
+                                      updateOrderOverride(ord.id, { mode: nextMode });
+                                    }}
                                     className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition-colors cursor-pointer ${
                                       calc.effectiveMode === 'profit_share'
                                         ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                        : calc.effectiveMode === 'wholesale'
+                                        ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                                         : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
                                     }`}
-                                    title="اضغط للتبديل بين العمولة الثابتة ومشاركة الأرباح لهذا الأوردر"
+                                    title="اضغط للتبديل بين: عمولة ثابتة / مشاركة أرباح / سعر جملة"
                                   >
                                     {calc.effectiveMode === 'profit_share'
                                       ? `مشاركة (${calc.effectiveSharePercent}%)`
+                                      : calc.effectiveMode === 'wholesale'
+                                      ? 'سعر جملة'
                                       : `عمولة (${calc.serviceFee} ج)`}
                                   </button>
                                 </div>
@@ -2395,7 +2597,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                                     <div className="flex flex-wrap items-center justify-between gap-2 font-bold">
                                       <span className="text-emerald-400 flex items-center gap-1">
                                         <Calculator size={14} />
-                                        <span>المعادلة الحسابية المعتمدة لهذا الأوردر ({calc.effectiveMode === 'profit_share' ? 'مشاركة أرباح' : 'عمولة ثابتة'}):</span>
+                                        <span>المعادلة الحسابية المعتمدة لهذا الأوردر ({calc.effectiveMode === 'profit_share' ? 'مشاركة أرباح' : calc.effectiveMode === 'wholesale' ? 'سعر جملة' : 'عمولة ثابتة'}):</span>
                                       </span>
                                       <span className="font-mono text-emerald-300 font-black">
                                         صافي المستحق = {calc.orderPayout.toLocaleString()} ج.م
@@ -2405,6 +2607,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                                     {calc.effectiveMode === 'profit_share' ? (
                                       <p className="text-[11px] text-slate-300 font-mono leading-relaxed">
                                         [ التحصيل ({calc.orderRevenue}) - تكلفة البضاعة ({calc.goodsCost}) - إجمالي الشحن والرسوم ({calc.shippingAndFees}) - التسويق ({calc.marketingCost}) ] = صافي ربح الأوردر ({Math.round((calc.orderRevenue - calc.goodsCost - calc.shippingAndFees - calc.marketingCost) * 100) / 100} ج.م) × {calc.effectiveSharePercent}% = ربح الموكل ({Math.round((calc.orderRevenue - calc.goodsCost - calc.shippingAndFees - calc.marketingCost) * (calc.effectiveSharePercent / 100) * 100) / 100}) + تكلفة البضاعة ({calc.goodsCost}) = <strong className="text-emerald-400 font-bold">{calc.orderPayout.toLocaleString()} ج.م</strong>
+                                      </p>
+                                    ) : calc.effectiveMode === 'wholesale' ? (
+                                      <p className="text-[11px] text-slate-300 font-mono leading-relaxed">
+                                        سعر الجملة ({calc.goodsCost}) - [ الشحن والرسوم ({calc.shippingAndFees}) + عمولة الخدمة ({calc.serviceFee}) + التسويق ({calc.marketingCost}) + المرتجع ({calc.returnFee}) ] = <strong className="text-emerald-400 font-bold">{calc.orderPayout.toLocaleString()} ج.م</strong>
                                       </p>
                                     ) : (
                                       <p className="text-[11px] text-slate-300 font-mono leading-relaxed">
@@ -2870,6 +3076,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                       {partner.settlementsCount} كشف سابق · عمولاتنا: {partner.totalAgencyEarned.toLocaleString()} ج.م
                     </span>
                     <div className="flex items-center gap-1.5">
+                      <Link
+                        to={`/store/${activeStoreId}/suppliers/${partner.id}`}
+                        className="px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border border-emerald-500/10 shadow-xs"
+                        title="عرض محفظة الموكل والتحليلات"
+                      >
+                        <Wallet size={13} />
+                        <span>محفظة الموكل</span>
+                      </Link>
                       <button
                         type="button"
                         onClick={() => {
@@ -2923,6 +3137,164 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB: INCOMING MERCHANT PAYOUT & WITHDRAWAL REQUESTS     */}
+      {/* ======================================================== */}
+      {activeTab === 'requests' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border border-amber-500/30 rounded-3xl p-6 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black text-2xl shadow-lg shrink-0">
+                <Coins size={24} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-black text-base text-white">طلبات سحب المستحقات الواردة من الموكلين</h3>
+                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    {merchantRequests.length} طلب إجمالي
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  مراجعة طلبات السحب المالية والمصروفات المقدمة من الموكلين وأصحاب البضائع بالأمانة، مع إمكانية الاعتماد والتحويل المباشر لحساباتهم.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={loadMerchantRequests}
+              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-amber-500/30 whitespace-nowrap shadow-sm"
+            >
+              <RefreshCw size={14} />
+              <span>تحديث الطلبات</span>
+            </button>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <div className="flex items-center gap-2">
+              <Filter size={15} className="text-slate-400" />
+              <span className="text-xs font-black text-slate-700 dark:text-slate-300">حالة الطلبات:</span>
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
+                {[
+                  { id: 'all', label: 'الكل' },
+                  { id: 'pending', label: `قيد المراجعة (${pendingMerchantRequestsCount})` },
+                  { id: 'approved', label: 'المعتمدة ✅' },
+                  { id: 'rejected', label: 'المرفوضة ❌' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setRequestsFilterStatus(f.id as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      requestsFilterStatus === f.id
+                        ? 'bg-[#008060] text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-xs font-bold text-slate-500">
+              إجمالي المعلق: <span className="font-mono text-amber-600 dark:text-amber-400 font-black">{pendingMerchantRequestsCount} طلبات</span>
+            </div>
+          </div>
+
+          {/* Requests List Table */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+            {merchantRequests.filter(r => requestsFilterStatus === 'all' || r.status === requestsFilterStatus).length === 0 ? (
+              <div className="py-16 text-center text-slate-400 space-y-2">
+                <Coins size={36} className="mx-auto opacity-30" />
+                <p className="font-bold text-xs">لا توجد طلبات سحب مستحقات متطابقة مع التصفية الحالية</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white font-black border-b border-slate-800">
+                      <th className="py-3.5 px-4">التاريخ والرقم</th>
+                      <th className="py-3.5 px-3">اسم الموكل / صاحب البضاعة</th>
+                      <th className="py-3.5 px-3">نوع الطلب والتفاصيل</th>
+                      <th className="py-3.5 px-3 text-center">المبلغ المطلوب</th>
+                      <th className="py-3.5 px-3 text-center">الحالة الحالية</th>
+                      <th className="py-3.5 px-4 text-center">الإجراءات والتحكم</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-bold">
+                    {merchantRequests
+                      .filter(r => requestsFilterStatus === 'all' || r.status === requestsFilterStatus)
+                      .map(req => {
+                        const isPending = req.status === 'pending';
+                        const isApproved = req.status === 'approved';
+                        const isRejected = req.status === 'rejected';
+
+                        return (
+                          <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="py-4 px-4">
+                              <div className="font-mono font-black text-slate-900 dark:text-white">#{req.id.slice(-8)}</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">{new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')}</div>
+                            </td>
+                            <td className="py-4 px-3">
+                              <div className="font-black text-slate-900 dark:text-white">{req.partnerName}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">كود: {req.partnerId}</div>
+                            </td>
+                            <td className="py-4 px-3">
+                              <div className="font-bold text-slate-800 dark:text-slate-200">{req.typeArabic || 'طلب سحب مستحقات'}</div>
+                              {req.notes && (
+                                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded-lg mt-1 border border-emerald-200 dark:border-emerald-800/50 max-w-md">
+                                  {req.notes}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-4 px-3 text-center font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                              {req.amount.toLocaleString()} ج.م
+                            </td>
+                            <td className="py-4 px-3 text-center">
+                              <span className={`inline-flex items-center gap-1 font-black px-3 py-1 rounded-full text-[10px] border ${
+                                isPending
+                                  ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                                  : isApproved
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                                  : 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
+                              }`}>
+                                {isPending ? 'قيد المراجعة ⏳' : isApproved ? 'تم الاعتماد والتحويل ✅' : 'تم الرفض ❌'}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              {isPending ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    onClick={() => handleApproveMerchantRequest(req)}
+                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                                  >
+                                    <Check size={14} />
+                                    <span>اعتماد وتخصيم ✅</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectMerchantRequest(req.id)}
+                                    className="px-3.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-bold text-xs transition-all cursor-pointer border border-rose-200 dark:border-rose-800 flex items-center gap-1"
+                                  >
+                                    <X size={14} />
+                                    <span>رفض ❌</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 font-bold">تم اتخاذ إجراء</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -2989,9 +3361,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             </div>
           </div>
 
-          {/* The PartnerPortal Component */}
+          {/* The MerchantPortal Component */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xl min-h-[700px]">
-            <PartnerPortal
+            <MerchantPortal
               allStoresData={{
                 default: {
                   id: 'default',

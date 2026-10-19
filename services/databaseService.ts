@@ -2428,6 +2428,7 @@ export interface PartnerPortalRequest {
     date: string;
     status: 'pending' | 'approved' | 'rejected';
     createdAt: string;
+    isMerchantRequest?: boolean;
 }
 
 export const submitPartnerRequest = async (storeId: string, req: Omit<PartnerPortalRequest, 'storeId' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { 
   Wallet as WalletIcon, Users, Plus, Minus, ArrowUpRight, ArrowDownLeft, Trash2, Calendar, Shield, Eye, 
@@ -44,6 +44,7 @@ interface WalletPageProps {
 
 const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders, settings, treasury, setTreasury }) => {
   const navigate = useNavigate();
+  const { storeId: activeStoreId } = useParams();
   const [modalMode, setModalMode] = useState<'none' | 'charge' | 'withdraw' | 'settings' | 'history' | 'bank' | 'cod_history' | 'withdraw_confirm' | 'error' | 'transfer_supply'>('none');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>('');
   const [errorConfig, setErrorConfig] = useState({ title: '', message: '' });
@@ -53,7 +54,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const [withdrawMode, setWithdrawMode] = useState<'normal' | 'same_day'>('normal');
   const [amount, setAmount] = useState('');
   const [walletViewMode, setWalletViewMode] = useState<'balance' | 'cycle'>('balance');
-  const [activeTab, setActiveTab] = useState<'all' | 'orders' | 'withdrawals' | 'manual' | 'supply_wallet'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'orders' | 'withdrawals' | 'manual' | 'supply_wallet' | 'merchants'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [settingsScreen, setSettingsScreen] = useState<'main' | 'payment_methods' | 'withdraw_settings'>('main');
   const [txToDelete, setTxToDelete] = useState<string | null>(null);
@@ -1652,6 +1653,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     { id: 'all', label: 'الجميع' },
                     { id: 'orders', label: 'طلبات' },
                     { id: 'withdrawals', label: 'سحوبات' },
+                    { id: 'merchants', label: 'أرصدة الموكلين' },
                     { id: 'supply_wallet', label: 'محفظة التوريد' },
                     { id: 'manual', label: 'يدوي' }
                 ].map(tab => (
@@ -1754,7 +1756,72 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           </div>
 
           {/* Transactions List */}
-          {activeTab === 'withdrawals' ? (
+          {activeTab === 'merchants' ? (
+              <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xl">
+                  <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                      <div>
+                          <h3 className="text-sm font-black text-slate-800 dark:text-white">أرصدة الموكلين</h3>
+                          <p className="text-[10px] text-slate-500 mt-1">إجمالي المبالغ المستحقة للموكلين (الموردين)</p>
+                      </div>
+                      <div className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-2xl text-xs font-black">
+                          {(Object.values(settings.suppliers || {}).reduce((sum, s) => sum + (s.balance || 0), 0)).toLocaleString('ar-EG')} ج.م
+                      </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right border-collapse">
+                        <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-200 dark:border-slate-800">
+                                <th className="p-8">الموكل</th>
+                                <th className="p-8 text-center">الرصيد الحالي</th>
+                                <th className="p-8 text-center">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
+                            {Object.values(settings.suppliers || {}).map((supplier, idx) => (
+                                <motion.tr 
+                                    key={supplier.id}
+                                    initial={{ opacity: 0, x: 20 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: idx * 0.05 }}
+                                    className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all cursor-default group"
+                                >
+                                    <td className="p-8">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 font-black text-sm">
+                                                {supplier.name.charAt(0)}
+                                            </div>
+                                            <div className="flex flex-col text-right">
+                                                <span className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider mb-1">
+                                                    {supplier.name}
+                                                </span>
+                                                <span className="text-[10px] font-bold text-slate-400">
+                                                    {supplier.email || 'لا يوجد بريد إلكتروني'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="p-8 text-center">
+                                        <span className={`text-sm font-black tabular-nums ${
+                                          (supplier.balance || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                                        }`}>
+                                          {(supplier.balance || 0).toLocaleString('ar-EG')} ج.م
+                                        </span>
+                                    </td>
+                                    <td className="p-8 text-center">
+                                        <button
+                                            onClick={() => navigate(`/store/${activeStoreId}/suppliers/${supplier.id}`)}
+                                            className="px-4 py-2 bg-indigo-500 text-white rounded-xl text-[10px] font-black shadow-lg shadow-indigo-500/20 hover:scale-105 transition-all"
+                                        >
+                                            عرض المحفظة
+                                        </button>
+                                    </td>
+                                </motion.tr>
+                            ))}
+                        </tbody>
+                    </table>
+                  </div>
+              </div>
+          ) : activeTab === 'withdrawals' ? (
               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 overflow-hidden shadow-2xl">
                   <table className="w-full text-right border-collapse">
                       <thead>

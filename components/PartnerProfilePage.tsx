@@ -1114,7 +1114,14 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
       {/* 🔔 طلبات الشريك المعلقة الواردة من البوابة */}
       {(() => {
         const partnerPendingRequests = allPartnerRequests.filter(
-          (r: any) => (r.partnerId === partner?.id || normalizeName(r.partnerName) === normalizeName(partner?.name || '')) && r.status === 'pending'
+          (r: any) => {
+            const isMatch = r.partnerId === partner?.id || normalizeName(r.partnerName) === normalizeName(partner?.name || '');
+            const isMerchant = r.id?.startsWith('REQ-M-') || 
+                               r.isMerchantRequest === true || 
+                               (r.typeArabic && r.typeArabic.includes('الموكل')) ||
+                               (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')));
+            return isMatch && !isMerchant && r.status === 'pending';
+          }
         );
         if (partnerPendingRequests.length === 0) return null;
 

@@ -11,6 +11,7 @@ import {
   Truck, Clock, Eye, Sparkles, ExternalLink, ChevronDown, ChevronUp, PackageCheck, Layers
 } from 'lucide-react';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
+import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
@@ -343,6 +344,13 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     return current || authenticatedPartner;
   }, [authenticatedPartner, partners]);
 
+  const isMerchantMode = useMemo(() => {
+    if (modeFromPath === 'merchant') return true;
+    if (!livePartner) return false;
+    const role = (livePartner.role || '').toLowerCase();
+    return role.includes('موكل') || role.includes('مورد') || role.includes('بضاعة') || role.includes('supplier') || role.includes('merchant');
+  }, [modeFromPath, livePartner]);
+
   // Sync fresh partner data with session storage
   useEffect(() => {
     if (livePartner && effectiveStoreId) {
@@ -393,12 +401,13 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     if (portalPerms.canViewTransparencyTab !== false) list.push('transparency');
     if (portalPerms.canViewWithdrawalsTab) list.push('withdrawals');
     if (portalPerms.canViewStatementTab) list.push('statement');
-    if (portalPerms.canViewPerformanceTab) list.push('performance');
-    if (portalPerms.canViewReportsTab) list.push('reports');
+    // Hide store-wide profit performance and store reports from consignment merchants/suppliers
+    if (!isMerchantMode && portalPerms.canViewPerformanceTab) list.push('performance');
+    if (!isMerchantMode && portalPerms.canViewReportsTab) list.push('reports');
     if (portalPerms.canViewProfileTab) list.push('profile');
     if (portalPerms.canChangeSecurity) list.push('account');
     return list;
-  }, [portalPerms]);
+  }, [portalPerms, isMerchantMode]);
 
   // Effective Active Tab
   const currentTab: TabKey = useMemo(() => {
@@ -1011,9 +1020,14 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   // Filtered partner requests for current partner
   const myPartnerRequests = useMemo(() => {
     if (!livePartner) return [];
-    return partnerRequestsList.filter(
-      r => r.partnerId === livePartner.id || normalizeName(r.partnerName) === normalizeName(livePartner.name)
-    );
+    return partnerRequestsList.filter(r => {
+      const isMyRequest = r.partnerId === livePartner.id || normalizeName(r.partnerName) === normalizeName(livePartner.name);
+      const isMerchant = r.id?.startsWith('REQ-M-') || 
+                         r.isMerchantRequest === true || 
+                         (r.typeArabic && r.typeArabic.includes('الموكل')) ||
+                         (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')));
+      return isMyRequest && !isMerchant;
+    });
   }, [partnerRequestsList, livePartner]);
 
   // Filtered Transactions for statement tab
@@ -1127,7 +1141,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                   {livePartner.name}
                 </h1>
                 <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-50 text-[#008060] border border-emerald-200">
-                  شريك معتمد ({livePartner.profitRatio || 0}%)
+                  {isMerchantMode ? 'موكل معتمد (صاحب بضاعة)' : `شريك معتمد (${livePartner.profitRatio || 0}%)`}
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 font-medium">
@@ -1251,7 +1265,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
               </button>
             )}
 
-            {portalPerms.canViewPerformanceTab && (
+            {portalPerms.canViewPerformanceTab && !isMerchantMode && (
               <button
                 onClick={() => handleTabChange('performance')}
                 className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-t-xl transition-all cursor-pointer border-b-2 whitespace-nowrap ${
@@ -1265,7 +1279,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
               </button>
             )}
 
-            {portalPerms.canViewReportsTab && (
+            {portalPerms.canViewReportsTab && !isMerchantMode && (
               <button
                 onClick={() => handleTabChange('reports')}
                 className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-t-xl transition-all cursor-pointer border-b-2 whitespace-nowrap ${
@@ -1303,7 +1317,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 }`}
               >
                 <ShieldCheck size={15} />
-                <span>بيانات الشراكة والأمان</span>
+                <span>{isMerchantMode ? 'بيانات الحساب والأمان' : 'بيانات الشراكة والأمان'}</span>
               </button>
             )}
           </nav>
@@ -1732,13 +1746,35 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                         const goodsCost = o.merchantItemCost || (o.items || []).reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
                         const shippingCost = Number(o.shippingFee) || 0;
                         const serviceFee = Number(o.serviceFeePerOrder) || 0;
-                        const netForMerchant = isDelivered 
-                          ? (collectedAmt - shippingCost - serviceFee) 
-                          : isReturn 
-                          ? (-shippingCost) 
-                          : goodsCost;
 
-                        const trackingNum = o.waybillNumber || o.bostaTrackingNumber || o.turboTrackingNumber || '';
+                        const partnerRatio = o.merchantProfitSharePercent || livePartner?.profitRatio;
+                        // Consignment suppliers/merchants DO NOT use profit share
+                        const isProfitShare = !isMerchantMode && (o.merchantSettlementMode === 'profit_share' || (partnerRatio !== undefined && partnerRatio > 0 && partnerRatio < 100));
+                        const ratio = (partnerRatio || 50) / 100;
+
+                        let netForMerchant = 0;
+                        let formulaExplanation = '';
+
+                        if (isDelivered) {
+                          if (isProfitShare) {
+                            const netMargin = Math.max(0, collectedAmt - goodsCost - shippingCost - serviceFee);
+                            const merchantShare = netMargin * ratio;
+                            netForMerchant = Math.round(goodsCost + merchantShare);
+                            formulaExplanation = `رأس المال (${goodsCost.toLocaleString()}) + نسبة أرباحك ${Math.round(ratio * 100)}% من صافي الطلب (${netMargin.toLocaleString()}) = ${netForMerchant.toLocaleString()} ج.م`;
+                          } else {
+                            netForMerchant = Math.round(collectedAmt - shippingCost - serviceFee);
+                            formulaExplanation = `المحصل من العميل (${collectedAmt.toLocaleString()}) - مصاريف الشحن والرسوم (${shippingCost.toLocaleString()}) ${serviceFee > 0 ? `- عمولة التشغيل (${serviceFee.toLocaleString()})` : ''} = ${netForMerchant.toLocaleString()} ج.م`;
+                          }
+                        } else if (isReturn) {
+                          netForMerchant = Math.round(-shippingCost);
+                          formulaExplanation = `خصم خسارة شحن المرتجع = -${shippingCost.toLocaleString()} ج.م`;
+                        } else {
+                          netForMerchant = Math.round(goodsCost);
+                          formulaExplanation = `رأس مال البضاعة قيد التوصيل = ${goodsCost.toLocaleString()} ج.م`;
+                        }
+
+                        const trackingNum = getTrackingNumber(o);
+                        const trackingUrl = getShippingTrackingUrl(o);
 
                         return (
                           <React.Fragment key={o.id}>
@@ -1758,13 +1794,29 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                                   <Truck size={13} className="text-slate-400 shrink-0" />
                                   <span>{o.shippingCompany || 'شركة الشحن'}</span>
                                 </div>
-                                {trackingNum ? (
-                                  <div className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded inline-block mt-0.5 border border-emerald-200">
-                                    بوليصة: {trackingNum}
-                                  </div>
-                                ) : (
-                                  <div className="text-[10px] text-slate-400 mt-0.5">قيد إصدار البوليصة</div>
-                                )}
+                                <div className="flex flex-col gap-1 mt-0.5 items-start">
+                                  {trackingNum ? (
+                                    <div className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded inline-block border border-emerald-200">
+                                      بوليصة: {trackingNum}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] text-slate-400">قيد إصدار البوليصة</div>
+                                  )}
+
+                                  {trackingUrl && (
+                                    <a
+                                      href={trackingUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-1 text-[10px] font-black text-white bg-indigo-600 hover:bg-indigo-700 px-2 py-0.5 rounded-md transition-all shadow-2xs shrink-0"
+                                      title="فتح صفحة تتبع الشحنة المباشرة لدى شركة الشحن"
+                                    >
+                                      <ExternalLink size={10} />
+                                      <span>تتبع الشحنة 🚚</span>
+                                    </a>
+                                  )}
+                                </div>
                               </td>
 
                               <td className="py-3.5 px-3">
@@ -1820,16 +1872,10 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                                     <div className="bg-white p-3.5 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
                                       <div className="flex items-center gap-2">
                                         <PackageCheck size={16} className="text-[#008060]" />
-                                        <span className="font-bold text-slate-800">بيانات الحساب المالي لهذا الطلب:</span>
+                                        <span className="font-bold text-slate-800">معادلة الحساب المالي لهذا الطلب:</span>
                                       </div>
-                                      <div className="font-mono text-xs font-bold text-slate-700 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
-                                        {isDelivered ? (
-                                          <span>التحصيل ({collectedAmt}) - الشحن ({shippingCost}) - عمولة الخدمة ({serviceFee}) = <span className="text-emerald-700 font-black">{netForMerchant} ج.م</span></span>
-                                        ) : isReturn ? (
-                                          <span>خسارة شحن المرتجع = <span className="text-rose-700 font-black">-{shippingCost} ج.م</span></span>
-                                        ) : (
-                                          <span>بضاعة قيد التوصيل، رأس المال المستحق عند التسليم: {goodsCost} ج.م</span>
-                                        )}
+                                      <div className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50/80 px-3.5 py-1.5 rounded-xl border border-emerald-200">
+                                        {formulaExplanation}
                                       </div>
                                     </div>
 
@@ -2396,7 +2442,9 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                   </div>
                   <div>
                     <h3 className="font-black text-base text-slate-900">{livePartner.name}</h3>
-                    <p className="text-xs text-slate-500">كود الشريك: {livePartner.id}</p>
+                    <p className="text-xs text-slate-500">
+                      {isMerchantMode ? 'كود الموكل / المورد' : 'كود الشريك'}: {livePartner.id}
+                    </p>
                   </div>
                 </div>
 
@@ -2406,8 +2454,12 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                     <span className="font-black text-slate-900">{storeName}</span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-100">
-                    <span className="text-slate-500 font-bold">نسبة الأرباح المعتمدة:</span>
-                    <span className="font-black text-[#008060]">{livePartner.profitRatio || 0}%</span>
+                    <span className="text-slate-500 font-bold">
+                      {isMerchantMode ? 'نوع وصفة الحساب:' : 'نسبة الأرباح المعتمدة:'}
+                    </span>
+                    <span className="font-black text-[#008060]">
+                      {isMerchantMode ? (livePartner.role || 'موكل صاحب بضاعة') : `${livePartner.profitRatio || 0}%`}
+                    </span>
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-100">
                     <span className="text-slate-500 font-bold">حالة الحساب:</span>

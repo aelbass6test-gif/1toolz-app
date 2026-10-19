@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { parseSafeDate } from '../utils/dateUtils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid } from 'recharts';
-import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown, Eye, EyeOff } from 'lucide-react';
+import { TrendingUp, Package, CheckCircle2, Wallet as WalletIcon, Truck, RefreshCcw, FileSearch, Check, PlayCircle, X, AlertTriangle, ArrowRight, Lightbulb, Loader, BrainCircuit, PhoneForwarded, PieChart as ChartIcon, Clock, AlertCircle, ShieldAlert, Layers, DollarSign, Monitor, ArrowLeft, Users2, ArrowUpLeft, ShoppingBag, Sparkles, Percent, ArrowDown, Eye, EyeOff, BarChart3 } from 'lucide-react';
 import { Order, Settings, Wallet, User, CustomerProfile, Store, Treasury } from '../types';
 import { Link } from 'react-router-dom';
 import { motion, Variants, Reorder } from 'framer-motion';
@@ -223,11 +223,16 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
   const KpisWidget = () => (
     <div className="space-y-10 h-full">
       {/* 📊 E-commerce Pro KPIs Hub */}
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div className="p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-[2.5rem] shadow-xs space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-4">
           <div className="space-y-1">
-            <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">كفاءة الأداء التشغيلي</h2>
-            <p className="text-sm font-bold text-slate-400">مؤشرات الأداء الرئيسية (KPIs) لنمو متجرك</p>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
+              <span className="p-2 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-2xl border border-indigo-200/60 dark:border-indigo-800/60">
+                <BarChart3 size={20} />
+              </span>
+              <span>كفاءة الأداء التشغيلي</span>
+            </h2>
+            <p className="text-xs sm:text-sm font-bold text-slate-400">مؤشرات الأداء الرئيسية (KPIs) لنمو متجرك</p>
           </div>
         </div>
 
@@ -323,12 +328,17 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
       </div>
 
       {/* 🔄 Pipeline and tracking */}
-      <div className="space-y-6 pt-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-900 dark:text-white">
-            <Layers size={18} />
+      <div className="p-6 sm:p-8 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-[2.5rem] shadow-xs space-y-6">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-2xl text-slate-900 dark:text-white border border-slate-200/80 dark:border-slate-700">
+              <Layers size={18} className="text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">دورة حياة الطلبات اليومية</h2>
+              <p className="text-xs text-slate-400 font-bold">تتبع لحظي وشامل لجميع شحنات المبيعات والتحصيلات</p>
+            </div>
           </div>
-          <h2 className="text-lg font-black text-slate-900 dark:text-white">دورة حياة الطلبات اليومية</h2>
         </div>
         
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -359,7 +369,7 @@ const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStor
           <button 
             type="button"
             onClick={() => setShowDetailedStats(!showDetailedStats)}
-            className="px-6 py-2 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-2"
+            className="px-6 py-2 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-2 border border-slate-200/60 dark:border-slate-700/60"
           >
             {showDetailedStats ? 'إخفاء الحالات الإضافية' : 'عرض كافة الحالات'}
             <ArrowDown className={`transition-transform duration-300 ${showDetailedStats ? 'rotate-180' : ''}`} size={12} />

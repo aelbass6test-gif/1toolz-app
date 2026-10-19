@@ -94,7 +94,14 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     fromSettings.forEach((r: any) => {
       if (!map.has(r.id)) map.set(r.id, r);
     });
-    const list = Array.from(map.values());
+    const list = Array.from(map.values()).filter((r: any) => {
+      // Exclude requests belonging to Merchants / Goods Owners
+      const isMerchant = r.id?.startsWith('REQ-M-') || 
+                         r.isMerchantRequest === true || 
+                         (r.typeArabic && r.typeArabic.includes('الموكل')) ||
+                         (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')));
+      return !isMerchant;
+    });
     list.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
     return list;
   }, [cloudRequests, settings]);

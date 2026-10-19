@@ -222,6 +222,7 @@ export interface Product {
   basePrice?: number;
   commissionPercentage?: number;
   stockThreshold?: number;
+  merchantId?: string;
 }
 
 export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_hr' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'pos_cash' | 'vat' | 'treasury_sync' | 'shipping_compensation' | 'compensation' | 'charge';
@@ -605,6 +606,7 @@ export interface Partner {
   lastLoginAt?: string; // تاريخ آخر دخول
   employeeId?: string; // ربط بحساب الموظف
   requireEmailOtp?: boolean; // فرض الدخول برمز تحقق OTP على البريد الإلكتروني
+  transactions?: any[];
   biometricCredentials?: BiometricCredentialRecord[]; // بصمات الأجهزة المسجلة (WebAuthn / Passkeys)
   allowBiometricAuth?: boolean; // تفعيل الدخول الحيوي بالبصمة
 }
@@ -639,6 +641,31 @@ export interface Supplier {
   rating?: 1 | 2 | 3 | 4 | 5; // تقييم المورد
   tier?: 'vip' | 'gold' | 'standard'; // مستوى الشراكة
   defaultMarketingFeePerOrder?: number; // مصاريف الإعلانات الافتراضية لكل أوردر
+  email?: string;
+  passcode?: string;
+  password?: string;
+  payoutAccounts?: {
+    walletPhone?: string;
+    instaPayHandle?: string;
+    bankName?: string;
+    bankAccount?: string;
+    beneficiaryName?: string;
+  };
+  transactions?: MerchantTransaction[];
+  isMerchantPortalActive?: boolean;
+}
+
+export interface MerchantTransaction {
+  id: string;
+  merchantId: string;
+  merchantName: string;
+  date: string;
+  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction';
+  amount: number; // Positive = Credit (Merchant gets money), Negative = Debit
+  balanceAfter: number;
+  notes: string;
+  referenceId?: string; // Order ID or Settlement ID or Request ID
+  performedBy?: string;
 }
 
 export interface SupplyOrderItem {
@@ -1053,6 +1080,8 @@ export interface Settings {
   enableAutoClosingDifference?: boolean;
   partners?: Partner[];
   partnerTransactions?: PartnerTransaction[];
+
+  merchantTransactions?: MerchantTransaction[];
   expenseCategories?: string[]; // Added expense categories
   warehouses?: Warehouse[]; // New field for stores/warehouses
   
@@ -1765,7 +1794,7 @@ export interface Order {
   merchantItemCost?: number;       // تكلفة قطعة العميل (سعر البضاعة فقط)
   serviceFeePerOrder?: number;     // عمولتك ورسوم خدمتك المسطحة على الأوردر (مثلاً 50 ج.م/أوردر)
   marketingFeePerOrder?: number;   // مصاريف الإعلانات المخصصة للأوردر
-  merchantSettlementMode?: 'fixed_fee' | 'profit_share'; // نظام المحاسبة (عمولة ثابتة أو نسبة من الربح)
+  merchantSettlementMode?: 'fixed_fee' | 'profit_share' | 'wholesale'; // نظام المحاسبة (عمولة ثابتة أو نسبة من الربح أو سعر الجملة)
   merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
   settlementStatus?: 'pending' | 'settled' | 'unsettled'; // حالة التسوية المالية مع صاحب البضاعة
   settlementId?: string;           // رقم كشف التسوية المرتبط
@@ -1820,7 +1849,7 @@ export interface MerchantSettlementOrderSnapshot {
   insuranceFee?: number;
   vatFee?: number;
   inspectionFee?: number;
-  mode?: 'fixed_fee' | 'profit_share';
+  mode?: 'fixed_fee' | 'profit_share' | 'wholesale';
   sharePercent?: number;
 }
 

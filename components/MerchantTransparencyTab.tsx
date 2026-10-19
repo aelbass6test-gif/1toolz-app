@@ -6,8 +6,9 @@ import {
   ArrowUpRight, ArrowDownLeft, ShieldAlert, Sparkles, X, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown, RefreshCw, MessageSquare, RotateCcw, Eye,
   Layers, Percent, PackageCheck, AlertTriangle, FileSpreadsheet, Info,
-  Package, Truck, ShieldCheck, ArrowRight, Check, Globe
+  Package, Truck, ShieldCheck, ArrowRight, Check, Globe, ExternalLink
 } from 'lucide-react';
+import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { 
   calculateMerchantTransparencyAnalytics, 
   exportMerchantTransparencyExcel, 
@@ -38,6 +39,12 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
 }) => {
   // Filter States
   const [selectedMerchant, setSelectedMerchant] = useState<string>(initialMerchantIdOrName);
+
+  React.useEffect(() => {
+    if (initialMerchantIdOrName) {
+      setSelectedMerchant(initialMerchantIdOrName);
+    }
+  }, [initialMerchantIdOrName]);
   const [dateRange, setDateRange] = useState<'all' | 'today' | '7days' | 'month' | 'custom'>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -244,9 +251,12 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
             <select
               value={selectedMerchant}
               onChange={e => setSelectedMerchant(e.target.value)}
-              className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all"
+              disabled={initialMerchantIdOrName !== 'all' && initialMerchantIdOrName !== ''}
+              className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all disabled:opacity-80 disabled:cursor-not-allowed"
             >
-              <option value="all">كافة الموكلين والشركاء (إجمالي عام)</option>
+              {initialMerchantIdOrName === 'all' && (
+                <option value="all">كافة الموكلين والشركاء (إجمالي عام)</option>
+              )}
               {merchantsList.map(m => (
                 <option key={m.id} value={m.id}>
                   {m.name} ({m.sourceLabel})
@@ -636,19 +646,25 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
             </div>
 
             {/* Product Movement Footer Summary */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs">
-              <div className="text-slate-600 font-semibold">
-                إجمالي حركة الأصناف: <span className="font-bold text-slate-900">{analytics.productMovements.length} صنف</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-4 font-mono font-bold">
-                <span className="text-emerald-700">مباع: {analytics.productMovements.reduce((s, p) => s + p.quantityDelivered, 0)} قطعة</span>
-                <span className="text-rose-700">مرتجع: {analytics.productMovements.reduce((s, p) => s + p.quantityReturned, 0)} قطعة</span>
-                <span className="text-sky-800">رأس مال البضاعة: {analytics.totalGoodsCostRecovered.toLocaleString()} ج.م</span>
-                <span className={`${isProfit ? 'text-emerald-700' : 'text-rose-700'}`}>
-                  صافي أرباح المنتجات: {isProfit ? '+' : ''}{analytics.merchantNetProfitOrLoss.toLocaleString()} ج.م
-                </span>
-              </div>
-            </div>
+            {(() => {
+              const sumProdProfit = analytics.productMovements.reduce((s, p) => s + p.netProfit, 0);
+              const isSumProfit = sumProdProfit >= 0;
+              return (
+                <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs">
+                  <div className="text-slate-600 font-semibold">
+                    إجمالي حركة الأصناف: <span className="font-bold text-slate-900">{analytics.productMovements.length} صنف</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 font-mono font-bold">
+                    <span className="text-emerald-700">مباع: {analytics.productMovements.reduce((s, p) => s + p.quantityDelivered, 0)} قطعة</span>
+                    <span className="text-rose-700">مرتجع: {analytics.productMovements.reduce((s, p) => s + p.quantityReturned, 0)} قطعة</span>
+                    <span className="text-sky-800">رأس مال البضاعة: {analytics.totalGoodsCostRecovered.toLocaleString()} ج.م</span>
+                    <span className={`${isSumProfit ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      صافي أرباح المنتجات: {isSumProfit ? '+' : ''}{sumProdProfit.toLocaleString()} ج.م
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -672,6 +688,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                 <thead>
                   <tr className="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
                     <th className="py-3 px-4">رقم الطلب والتاريخ</th>
+                    <th className="py-3 px-3">شركة الشحن والتتبع</th>
                     <th className="py-3 px-3">العميل والمحافظة</th>
                     <th className="py-3 px-3 text-center">الحالة</th>
                     <th className="py-3 px-3">الأصناف المشمولة</th>
@@ -687,7 +704,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                 <tbody className="divide-y divide-slate-100">
                   {analytics.orderRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-400">
+                      <td colSpan={12} className="py-12 text-center text-slate-400">
                         <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                         لا توجد طلبات مسجلة مطابقة للفلاتر المحددة
                       </td>
@@ -696,6 +713,9 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                     analytics.orderRows.map((o) => {
                       const isExpanded = expandedOrderId === o.orderId;
                       const isOrderProfit = o.merchantProfitOrLoss >= 0;
+                      const trackingNum = o.rawOrder ? getTrackingNumber(o.rawOrder) : '';
+                      const trackingUrl = o.rawOrder ? getShippingTrackingUrl(o.rawOrder) : null;
+
                       return (
                         <React.Fragment key={o.orderId}>
                           <tr 
@@ -705,6 +725,35 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                             <td className="py-3 px-4">
                               <div className="font-mono font-bold text-slate-900">#{o.orderNumber}</div>
                               <div className="text-[10px] text-slate-400">{new Date(o.date).toLocaleDateString('ar-EG')}</div>
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="font-bold text-slate-800 flex items-center gap-1">
+                                <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span>{o.shippingCompany || 'شركة الشحن'}</span>
+                              </div>
+                              <div className="flex flex-col gap-1 mt-0.5 items-start">
+                                {trackingNum ? (
+                                  <div className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    بوليصة: {trackingNum}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-slate-400">قيد إصدار البوليصة</div>
+                                )}
+
+                                {trackingUrl && (
+                                  <a
+                                    href={trackingUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-[10px] font-black text-white bg-indigo-600 hover:bg-indigo-700 px-2 py-0.5 rounded-md transition-all shadow-2xs shrink-0"
+                                    title="فتح صفحة تتبع الشحنة المباشرة لدى شركة الشحن"
+                                  >
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                    <span>تتبع الشحنة 🚚</span>
+                                  </a>
+                                )}
+                              </div>
                             </td>
                             <td className="py-3 px-3">
                               <div className="font-bold text-slate-800 truncate max-w-[140px]">{o.customerName}</div>
@@ -756,7 +805,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                           {/* Expanded Detail Row */}
                           {isExpanded && (
                             <tr className="bg-slate-50/90 border-y-2 border-indigo-100">
-                              <td colSpan={11} className="p-4">
+                              <td colSpan={12} className="p-4">
                                 <div className="space-y-4 max-w-5xl mx-auto">
                                   {/* Detailed Calculation Formula Ribbon */}
                                   <div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">

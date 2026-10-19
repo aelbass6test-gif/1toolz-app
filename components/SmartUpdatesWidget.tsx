@@ -207,33 +207,6 @@ export const SmartUpdatesWidget: React.FC<SmartUpdatesWidgetProps> = ({
 
   return (
     <>
-      {/* Invisible/Floating Glowing Indicator Trigger Button */}
-      <div className="fixed bottom-4 sm:bottom-6 right-4 sm:right-6 z-[100] font-sans">
-        <button
-          onClick={handleOpen}
-          style={{ backgroundColor: !isAdminView ? primaryColor : undefined }}
-          className={`group relative p-4 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-110 active:scale-95 transition-all duration-300 cursor-pointer ${
-            isAdminView ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/20' : 'shadow-black/15'
-          }`}
-          title="ما الجديد؟ اضغط للاطلاع على أحدث التحديثات والميزات الذكية المضافة"
-        >
-          {/* Subtle glowing ring if unseen */}
-          {hasNewHighlight && (
-            <span className="absolute inset-0 rounded-full border-2 border-white dark:border-indigo-400 animate-ping opacity-75"></span>
-          )}
-          
-          <Sparkles size={22} className="group-hover:rotate-12 transition-transform duration-300" />
-          
-          {/* Unread dot indicator */}
-          {hasNewHighlight && (
-            <span className="absolute -top-1 -right-1 flex h-4 w-4">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[9px] font-black items-center justify-center text-white">!</span>
-            </span>
-          )}
-        </button>
-      </div>
-
       {/* Slide-over Drawer with Backdrop */}
       {isOpen && (
         <div className="fixed inset-0 z-[110] font-sans text-right select-none" dir="rtl">

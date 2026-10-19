@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { 
   UserPlus, User, Phone, MapPin, DollarSign, FileText, ShoppingCart, 
   MessageCircle, Star, Shield, Award, CreditCard, Building, Building2, 
   Filter, Search, X, Check, ArrowUpRight, ArrowDownRight, RefreshCw, 
   Calendar, FileSpreadsheet, Printer, AlertCircle, Coins, Receipt, ArrowRight,
-  Plus, Edit2, Trash2, HelpCircle, ExternalLink, ShieldCheck, CheckCircle2
+  Plus, Edit2, Trash2, HelpCircle, ExternalLink, ShieldCheck, CheckCircle2,
+  Wallet
 } from 'lucide-react';
 import { Supplier, SupplyOrder, Settings } from '../types';
 import { audioSynth } from '../utils/audioSynth';
@@ -31,6 +33,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
   wallet,
   treasury
 }) => {
+  const { storeId } = useParams<{ storeId: string }>();
   const [searchTerm, setSearchTerm] = useState('');
   const [debtFilter, setDebtFilter] = useState<'all' | 'indebted' | 'cleared' | 'credit'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -833,6 +836,15 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                         <FileText size={13} />
                         <span>كشف حساب</span>
                       </button>
+
+                      <Link
+                        to={`/store/${storeId}/suppliers/${s.id}`}
+                        className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-black transition-all flex items-center gap-1 shadow-xs border border-emerald-500/10"
+                        title="محفظة الموكل والتحليلات"
+                      >
+                        <Wallet size={13} />
+                        <span>محفظة الموكل</span>
+                      </Link>
 
                       <button
                         onClick={() => onOpenNewOrderModal(s.id)}

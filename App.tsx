@@ -77,6 +77,9 @@ const SuppliersPage = lazyWithRetry(() => import('./components/SuppliersPage'));
 const PartnersPage = lazyWithRetry(() => import('./components/PartnersPage'));
 const PartnerProfilePage = lazyWithRetry(() => import('./components/PartnerProfilePage'));
 const PartnerPortal = lazyWithRetry(() => import('./components/PartnerPortal'));
+const MerchantPortal = lazyWithRetry(() => import('./components/MerchantPortal'));
+const MerchantProfilePage = lazyWithRetry(() => import('./components/MerchantProfilePage'));
+const MerchantsPage = lazyWithRetry(() => import('./components/MerchantsPage'));
 const ExcelReconciliationPage = lazyWithRetry(() => import('./components/ExcelReconciliationPage'));
 const PagesManager = lazyWithRetry(() => import('./components/PagesManager'));
 const PaymentSettingsPage = lazyWithRetry(() => import('./components/PaymentSettingsPage'));
@@ -161,7 +164,8 @@ const MainLayout = ({
     saveStatus,
     saveMessage,
     isShippingCalculatorOpen,
-    setIsShippingCalculatorOpen
+    setIsShippingCalculatorOpen,
+    pendingRequestsCounts
 }: any) => {
     const location = useLocation();
 
@@ -283,7 +287,6 @@ const MainLayout = ({
         } catch (e) {
             console.warn('[Notification] chat_messages subscription notice:', e);
         }
-
         return () => {
             if (unsubAudit) unsubAudit();
             if (unsubChat) unsubChat();
@@ -563,6 +566,8 @@ const MainLayout = ({
         return alerts;
     }, [settings, orders, sharedAudits, chatMessages, currentUser]);
 
+
+
     return (
         <div className="flex flex-col h-screen bg-[#f6f7f5] dark:bg-[#0b1210] text-slate-900 dark:text-slate-50 transition-colors duration-300 overflow-hidden relative" dir="rtl">
             {/* Immersive Floating Ambient Glow Elements */}
@@ -597,6 +602,7 @@ const MainLayout = ({
                                 onClose={() => setSidebarOpen(false)} 
                                 isDesktopCollapsed={isDesktopCollapsed}
                                 onToggleDesktopCollapse={toggleDesktopSidebar}
+                                pendingRequestsCounts={pendingRequestsCounts}
                             />
                         </div>
                     )}
@@ -833,6 +839,54 @@ const OwnerLayoutWrapper = ({
     const location = useLocation();
     const { storeId: urlStoreId } = useParams();
 
+    const [allPartnerRequests, setAllPartnerRequests] = useState<db.PartnerPortalRequest[]>([]);
+
+    useEffect(() => {
+        if (!activeStoreId) {
+            setAllPartnerRequests([]);
+            return;
+        }
+        try {
+            const q = query(
+                collection(firebaseDb, 'partner_requests'),
+                where('storeId', '==', activeStoreId)
+            );
+            return onSnapshot(q, (snapshot) => {
+                const list: db.PartnerPortalRequest[] = [];
+                snapshot.forEach(docSnap => {
+                    list.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest);
+                });
+                setAllPartnerRequests(list);
+            });
+        } catch (e) {
+            console.warn('[Notification] partner_requests subscription error:', e);
+        }
+    }, [activeStoreId]);
+
+    const pendingRequestsCounts = useMemo(() => {
+        const merchantReqs = allPartnerRequests.filter(r => {
+            return r.status === 'pending' && (
+                r.id?.startsWith('REQ-M-') || 
+                r.isMerchantRequest === true || 
+                (r.typeArabic && r.typeArabic.includes('الموكل')) ||
+                (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')))
+            );
+        });
+        
+        const partnerReqs = allPartnerRequests.filter(r => {
+            const isMerchant = r.id?.startsWith('REQ-M-') || 
+                               r.isMerchantRequest === true || 
+                               (r.typeArabic && r.typeArabic.includes('الموكل')) ||
+                               (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')));
+            return r.status === 'pending' && !isMerchant;
+        });
+
+        return {
+            merchants: merchantReqs.length,
+            partners: partnerReqs.length
+        };
+    }, [allPartnerRequests]);
+
     useEffect(() => {
         if (urlStoreId && urlStoreId !== activeStoreId) {
             handleSetActiveStore(urlStoreId);
@@ -978,6 +1032,7 @@ const OwnerLayoutWrapper = ({
             saveMessage={saveMessage}
             isShippingCalculatorOpen={isShippingCalculatorOpen}
             setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
+            pendingRequestsCounts={pendingRequestsCounts}
         />
     );
 };
@@ -3931,7 +3986,7 @@ export const AppComponent = () => {
                     <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
                     <Route path="merchant-settlement" element={<MerchantSettlementPage orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
                     <Route path="merchant-portal" element={
-                        <PartnerPortal 
+                        <MerchantPortal 
                             allStoresData={allStoresData} 
                             updateSettings={(newSettings) => {
                                 setAllStoresData(p => {
@@ -3943,7 +3998,7 @@ export const AppComponent = () => {
                         />
                     } />
                     <Route path="merchant-portal/:tab" element={
-                        <PartnerPortal 
+                        <MerchantPortal 
                             allStoresData={allStoresData} 
                             updateSettings={(newSettings) => {
                                 setAllStoresData(p => {
@@ -3957,6 +4012,7 @@ export const AppComponent = () => {
                     <Route path="partner-portal" element={
                         <PartnerPortal 
                             allStoresData={allStoresData} 
+                            portalMode="partner"
                             updateSettings={(newSettings) => {
                                 setAllStoresData(p => {
                                     const draft = { ...p };
@@ -3969,6 +4025,7 @@ export const AppComponent = () => {
                     <Route path="partner-portal/:tab" element={
                         <PartnerPortal 
                             allStoresData={allStoresData} 
+                            portalMode="partner"
                             updateSettings={(newSettings) => {
                                 setAllStoresData(p => {
                                     const draft = { ...p };
@@ -4015,8 +4072,10 @@ export const AppComponent = () => {
                     <Route path="collections-report" element={<CollectionsReportPage {...pageProps} />} />
                     <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings?.activityLogs || []} />} />
                     <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
+                    <Route path="merchants" element={<MerchantsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="suppliers/:supplierId" element={<MerchantProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
                     <Route path="reconciliation" element={<ExcelReconciliationPage allStoresData={allStoresData} updateStoreData={(id, updater) => { setAllStoresData(p => { const draft = { ...p }; if(draft[id]) { const cloned = JSON.parse(JSON.stringify(draft[id])); updater(cloned); draft[id] = cloned; } return draft; }); }} showToast={(msg, type) => {}} />} />
                     <Route path="pages" element={<PagesManager {...pageProps} />} />
                     <Route path="settings/payment" element={<PaymentSettingsPage {...pageProps} />} />
@@ -4070,6 +4129,7 @@ export const AppComponent = () => {
                 <Route path="/store/:storeId/partner-portal" element={
                     <PartnerPortal 
                         allStoresData={allStoresData} 
+                        portalMode="partner"
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
                                 const draft = { ...p };
@@ -4082,6 +4142,7 @@ export const AppComponent = () => {
                 <Route path="/store/:storeId/partner-portal/:tab" element={
                     <PartnerPortal 
                         allStoresData={allStoresData} 
+                        portalMode="partner"
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
                                 const draft = { ...p };
@@ -4092,7 +4153,7 @@ export const AppComponent = () => {
                     />
                 } />
                 <Route path="/store/:storeId/merchant-portal" element={
-                    <PartnerPortal 
+                    <MerchantPortal 
                         allStoresData={allStoresData} 
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
@@ -4104,7 +4165,7 @@ export const AppComponent = () => {
                     />
                 } />
                 <Route path="/store/:storeId/merchant-portal/:tab" element={
-                    <PartnerPortal 
+                    <MerchantPortal 
                         allStoresData={allStoresData} 
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
@@ -4116,7 +4177,7 @@ export const AppComponent = () => {
                     />
                 } />
                 <Route path="/merchant-portal" element={
-                    <PartnerPortal 
+                    <MerchantPortal 
                         allStoresData={allStoresData} 
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
@@ -4128,7 +4189,7 @@ export const AppComponent = () => {
                     />
                 } />
                 <Route path="/merchant-portal/:tab" element={
-                    <PartnerPortal 
+                    <MerchantPortal 
                         allStoresData={allStoresData} 
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
@@ -4142,6 +4203,7 @@ export const AppComponent = () => {
                 <Route path="/partner-portal" element={
                     <PartnerPortal 
                         allStoresData={allStoresData} 
+                        portalMode="partner"
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
                                 const draft = { ...p };
@@ -4154,6 +4216,7 @@ export const AppComponent = () => {
                 <Route path="/partner-portal/:tab" element={
                     <PartnerPortal 
                         allStoresData={allStoresData} 
+                        portalMode="partner"
                         updateSettings={(newSettings) => {
                             setAllStoresData(p => {
                                 const draft = { ...p };
