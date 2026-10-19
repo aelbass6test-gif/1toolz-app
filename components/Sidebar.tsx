@@ -134,6 +134,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 },
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
                 { to: `${storePrefix}/merchant-settlement`, label: 'تسوية حسابات الموكلين والبضائع 📄', icon: <Receipt size={18} />, badge: { text: "جديد", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px]" } },
+                { to: `${storePrefix}/merchant-portal`, label: 'بوابة الموكل الإلكترونية 🌐', icon: <Globe size={18} />, badge: { text: "دخول الموكل 🚀", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[9px] font-black" } },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
                 { to: `${storePrefix}/partners`, label: 'إدارة الشركاء والمسوقين', icon: <Users size={18} /> },
                 { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={18} /> },

@@ -5,12 +5,14 @@ import {
   Printer, Download, Plus, Search, Filter, Calendar, User, 
   ArrowUpRight, ArrowDownLeft, Wallet, ShieldAlert, Sparkles, X, Paperclip, ChevronDown, Check, Speaker,
   Landmark, TrendingUp, TrendingDown, RefreshCw, MessageSquare, RotateCcw, Eye, SlidersHorizontal,
-  Layers, Percent, PackageCheck, AlertTriangle, Trash2, ExternalLink, FileSpreadsheet, Info
+  Layers, Percent, PackageCheck, AlertTriangle, Trash2, ExternalLink, FileSpreadsheet, Info, Globe, Mail, Loader2
 } from 'lucide-react';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
+import { MerchantTransparencyTab } from './MerchantTransparencyTab';
+import PartnerPortal from './PartnerPortal';
 import * as XLSX from 'xlsx';
-import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee } from '../utils/financials';
+import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee, getCompanySpecificFees, calculateInsuranceFee, calculateBostaVat } from '../utils/financials';
 import { inAppAlert, inAppConfirm, inAppToast } from '../utils/inAppAlert';
 
 const SETTLEMENT_ELIGIBLE_STATUSES = [
@@ -37,38 +39,86 @@ const RETURN_STATUSES = [
 ];
 
 /**
- * تكلفة الشحن المحملة على الموكل:
- * السعر الرسمي لشركة الشحن ناقص ما دفعه العميل بعد الخصم،
- * مضافاً إليه الرسوم الإضافية الفعلية (تأمين/معاينة/VAT وغيرها).
+ * حساب تفاصيل الشحن والرسوم المحملة على الطلب:
+ * - في حالة الطلب المسلم:
+ *   مصاريف الشحن الفعلية + الرسوم الإضافية (تأمين + ضريبة 14% + معاينة + COD)
+ * - في حالة المرتجع:
+ *   مصاريف شحن المرتجع + الرسوم الإضافية
  */
-const calculateMerchantShippingBreakdown = (order: Order, settings: Settings) => {
-  if (!DELIVERED_STATUSES.includes(order.status)) {
-    const total = calculateOrderShippingAndFees(order, settings);
+const calculateMerchantShippingBreakdown = (
+  order: Order,
+  settings: Settings,
+  ov?: OrderCustomOverride
+) => {
+  const isDelivered = DELIVERED_STATUSES.includes(order.status);
+  const compFees = getCompanySpecificFees(settings, order.shippingCompany);
+  const useCustom = compFees?.useCustomFees ?? false;
+
+  // 1. Base Shipping Fee (actual shipping fee on the order or overridden)
+  const baseShippingFee = ov?.shippingFee !== undefined
+    ? ov.shippingFee
+    : (Number(order.shippingFee) > 0 ? Number(order.shippingFee) : Math.max(0, getStandardShippingFee(order, settings)));
+
+  // 2. Insurance Fee
+  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+  const isInsured = order.isInsured ?? true;
+  const calculatedInsurance = isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+  const rawInsurance = (order.insuranceFee !== undefined && order.insuranceFee !== null && Number(order.insuranceFee) > 0)
+    ? Number(order.insuranceFee)
+    : calculatedInsurance;
+  const insuranceFee = ov?.insuranceFee !== undefined ? ov.insuranceFee : rawInsurance;
+
+  // 3. Inspection Fee
+  const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
+  const rawInspection = (order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0)
+    ? Number(order.inspectionFee)
+    : (order.includeInspectionFee === false ? 0 : inspectionCost);
+  const inspectionFee = ov?.inspectionFee !== undefined ? ov.inspectionFee : rawInspection;
+
+  // 4. VAT Fee (14% VAT on shipping + inspection + insurance)
+  const rawVat = (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
+    ? Number(order.vatValue)
+    : calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings);
+  const vatFee = ov?.vatFee !== undefined ? ov.vatFee : rawVat;
+
+  // 5. COD Fee
+  const calculatedCod = isDelivered && order.status !== 'مدفوعة' ? calculateCodFee(order, settings) : 0;
+  const codFee = ov?.codFee !== undefined ? ov.codFee : calculatedCod;
+
+  // Additional carrier fees: insurance + vat + inspection
+  const carrierAdditionalFees = Math.round((insuranceFee + vatFee + inspectionFee) * 100) / 100;
+
+  if (!isDelivered) {
+    const totalReturnFees = ov?.returnFee !== undefined 
+      ? ov.returnFee 
+      : calculateOrderShippingAndFees(order, settings);
     return {
-      total,
+      baseShippingFee,
+      insuranceFee,
+      vatFee,
+      inspectionFee,
+      codFee,
+      carrierAdditionalFees,
+      total: totalReturnFees,
       customerPaidShipping: 0,
-      officialShippingFee: Math.max(0, getStandardShippingFee(order, settings)),
-      shippingDiscountDifference: 0,
-      carrierAdditionalFees: total
+      officialShippingFee: baseShippingFee,
+      shippingDiscountDifference: 0
     };
   }
 
-  const customerPaidShipping = Math.max(0, Number(order.shippingFee) || 0);
-  const officialShippingFee = Math.max(0, getStandardShippingFee(order, settings));
-  const actualCarrierFees = calculateOrderShippingAndFees({
-    ...order,
-    shippingFee: officialShippingFee,
-    isManualShippingOverride: false
-  }, settings);
+  const total = Math.round((baseShippingFee + carrierAdditionalFees + codFee) * 100) / 100;
 
-  const shippingDiscountDifference = Math.max(0, officialShippingFee - customerPaidShipping);
-  const additionalCarrierFees = Math.max(0, actualCarrierFees - officialShippingFee);
   return {
-    total: Math.round((shippingDiscountDifference + additionalCarrierFees) * 100) / 100,
-    customerPaidShipping,
-    officialShippingFee,
-    shippingDiscountDifference: Math.round(shippingDiscountDifference * 100) / 100,
-    carrierAdditionalFees: Math.round(additionalCarrierFees * 100) / 100
+    baseShippingFee,
+    insuranceFee,
+    vatFee,
+    inspectionFee,
+    codFee,
+    carrierAdditionalFees,
+    total,
+    customerPaidShipping: baseShippingFee,
+    officialShippingFee: baseShippingFee,
+    shippingDiscountDifference: 0
   };
 };
 
@@ -78,6 +128,12 @@ interface OrderCustomOverride {
   serviceFee?: number;
   mode?: 'fixed_fee' | 'profit_share';
   sharePercent?: number;
+  shippingFee?: number;
+  insuranceFee?: number;
+  vatFee?: number;
+  inspectionFee?: number;
+  codFee?: number;
+  returnFee?: number;
 }
 
 interface MerchantSettlementPageProps {
@@ -101,7 +157,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   customers = [],
   currentUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'partners'>('settlements');
+  const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'partners' | 'transparency' | 'portal'>('settlements');
+  const [transparencyMerchantId, setTransparencyMerchantId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMerchantId, setSelectedMerchantId] = useState<string>('');
   
@@ -141,23 +198,67 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const [showAddPartnerModal, setShowAddPartnerModal] = useState(false);
   const [newPartnerName, setNewPartnerName] = useState('');
   const [newPartnerPhone, setNewPartnerPhone] = useState('');
+  const [newPartnerEmail, setNewPartnerEmail] = useState('');
   const [newPartnerDefaultMarketing, setNewPartnerDefaultMarketing] = useState<number>(0);
 
+  // Edit / Link Partner Email Modal States
+  const [editingPartnerForEmail, setEditingPartnerForEmail] = useState<{ id: string; name: string; currentEmail?: string } | null>(null);
+  const [partnerEmailInput, setPartnerEmailInput] = useState('');
+  const [isSavingPartnerEmail, setIsSavingPartnerEmail] = useState(false);
+
+  // Quick SMTP Setup Modal States
+  const [showSmtpSetupModal, setShowSmtpSetupModal] = useState(false);
+  const [smtpProvider, setSmtpProvider] = useState<'gmail' | 'smtp' | 'resend' | 'brevo'>('gmail');
+  const [smtpHost, setSmtpHost] = useState('smtp.gmail.com');
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPass, setSmtpPass] = useState('');
+  const [smtpFrom, setSmtpFrom] = useState('');
+  const [smtpResendKey, setSmtpResendKey] = useState('');
+  const [isSavingSmtp, setIsSavingSmtp] = useState(false);
+  const [testMailRecipient, setTestMailRecipient] = useState('');
+  const [isTestingMail, setIsTestingMail] = useState(false);
+
   // Extract Merchants List strictly from:
-  // 1. Registered Suppliers / Partners (settings.suppliers)
+  // 1. Registered Suppliers / Partners (settings.suppliers & settings.partners)
   // 2. Customers explicitly tagged as 'merchant' / 'موكل' / 'صاحب بضاعة'
   // 3. Unique merchantId / merchantName assigned on orders (excluding 'pending')
   // 4. Historical settlements (settings.merchantSettlements)
   const merchantsList = useMemo(() => {
-    const list: Array<{ id: string; name: string; phone?: string; sourceLabel?: string }> = [];
+    const list: Array<{ id: string; name: string; phone?: string; email?: string; sourceLabel?: string }> = [];
     const seen = new Set<string>();
 
-    // 1. From Suppliers / Partners
+    // 1. From Suppliers
     (settings.suppliers || []).forEach(s => {
       if (s.id && s.name && !seen.has(s.id)) {
         seen.add(s.id);
         seen.add(s.name.trim());
-        list.push({ id: s.id, name: s.name.trim(), phone: s.phone, sourceLabel: 'مورد / صاحب بضاعة' });
+        list.push({ 
+          id: s.id, 
+          name: s.name.trim(), 
+          phone: s.phone, 
+
+          sourceLabel: 'مورد / صاحب بضاعة' 
+        });
+      }
+    });
+
+    // Also merge from settings.partners
+    (settings.partners || []).forEach(p => {
+      const existing = list.find(item => item.id === p.id || item.name === p.name);
+      if (existing) {
+        if (!existing.email && p.email) existing.email = p.email;
+        if (!existing.phone && p.phone) existing.phone = p.phone;
+      } else if (p.id && p.name && !seen.has(p.id) && !seen.has(p.name)) {
+        seen.add(p.id);
+        seen.add(p.name.trim());
+        list.push({
+          id: p.id,
+          name: p.name.trim(),
+          phone: p.phone,
+          email: p.email,
+          sourceLabel: 'شريك مسجل'
+        });
       }
     });
 
@@ -169,7 +270,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       if (isTaggedMerchant && c.phone && c.name && !seen.has(c.phone) && !seen.has(c.name.trim())) {
         seen.add(c.phone);
         seen.add(c.name.trim());
-        list.push({ id: c.phone, name: c.name.trim(), phone: c.phone, sourceLabel: 'موكل مسجل' });
+        list.push({ id: c.phone, name: c.name.trim(), phone: c.phone, email: c.email, sourceLabel: 'موكل مسجل' });
       }
     });
 
@@ -180,7 +281,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       if (mName && mId !== 'pending' && !seen.has(mName) && (!mId || !seen.has(mId))) {
         seen.add(mName);
         if (mId) seen.add(mId);
-        list.push({ id: mId || mName, name: mName, sourceLabel: 'موكل أوردرات' });
+        list.push({ id: mId || mName, name: mName, phone: o.merchantBrandPhone, sourceLabel: 'موكل أوردرات' });
       }
     });
 
@@ -196,7 +297,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     });
 
     return list;
-  }, [settings.suppliers, settings.merchantSettlements, customers, orders]);
+  }, [settings.suppliers, settings.partners, settings.merchantSettlements, customers, orders]);
 
   // Helper to check if an order belongs to a specific merchant/partner (never matching buyer customerPhone/customerName)
   const doesOrderBelongToMerchant = (o: Order, merchantIdOrName: string, merchantObj?: { id: string; name: string }) => {
@@ -216,27 +317,168 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       return;
     }
     const newId = `SUP-PARTNER-${Date.now()}`;
+    const cleanEmail = newPartnerEmail.trim().toLowerCase();
     const newPartner = {
       id: newId,
       name: newPartnerName.trim(),
       phone: newPartnerPhone.trim(),
-      email: '',
+      email: cleanEmail,
       address: '',
       notes: 'موكل / صاحب بضاعة (تمت إضافته من شاشة التسويات)',
       defaultMarketingFeePerOrder: newPartnerDefaultMarketing > 0 ? newPartnerDefaultMarketing : undefined
     };
 
+    const newPartnerInPartners = {
+      id: newId,
+      name: newPartnerName.trim(),
+      phone: newPartnerPhone.trim(),
+      email: cleanEmail,
+      balance: 0,
+      profitRatio: 50,
+      passcode: '0000',
+      role: 'موكل صاحب بضاعة'
+    };
+
     updateSettings(prev => ({
       ...prev,
-      suppliers: [newPartner, ...(prev.suppliers || [])]
+      suppliers: [newPartner, ...(prev.suppliers || [])],
+      partners: [newPartnerInPartners, ...(prev.partners || []).filter(p => p.id !== newId)]
     }));
 
     setSelectedMerchantId(newId);
     setNewPartnerName('');
     setNewPartnerPhone('');
+    setNewPartnerEmail('');
     setNewPartnerDefaultMarketing(0);
     setShowAddPartnerModal(false);
-    inAppToast(`تم تسجيل الموكل "${newPartner.name}" بنجاح.`, 'success');
+    inAppToast(`تم تسجيل الموكل "${newPartner.name}" بنجاح${cleanEmail ? ` وربط بريده (${cleanEmail})` : ''}.`, 'success');
+  };
+
+  // Save or Update Partner Email
+  const handleSavePartnerEmail = () => {
+    if (!editingPartnerForEmail) return;
+    const cleanEmail = partnerEmailInput.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      inAppToast('يرجى إدخال عنوان بريد إلكتروني صحيح (مثال: name@gmail.com)', 'warning');
+      return;
+    }
+
+    setIsSavingPartnerEmail(true);
+    try {
+      updateSettings(prev => {
+        const updatedSuppliers = (prev.suppliers || []).map(s => {
+          if (s.id === editingPartnerForEmail.id || s.name === editingPartnerForEmail.name) {
+            return { ...s, email: cleanEmail };
+          }
+          return s;
+        });
+
+        // Also update or add to partners list
+        const existingPartner = (prev.partners || []).find(p => p.id === editingPartnerForEmail.id || p.name === editingPartnerForEmail.name);
+        let updatedPartners = [...(prev.partners || [])];
+        if (existingPartner) {
+          updatedPartners = updatedPartners.map(p => 
+            p.id === existingPartner.id ? { ...p, email: cleanEmail } : p
+          );
+        } else {
+          updatedPartners.push({
+            id: editingPartnerForEmail.id,
+            name: editingPartnerForEmail.name,
+            phone: '',
+            email: cleanEmail,
+            balance: 0,
+            profitRatio: 50,
+            passcode: '0000',
+            role: 'موكل صاحب بضاعة'
+          });
+        }
+
+        return {
+          ...prev,
+          suppliers: updatedSuppliers,
+          partners: updatedPartners
+        };
+      });
+
+      inAppToast(`تم ربط وتفعيل البريد الإلكتروني (${cleanEmail}) للموكل "${editingPartnerForEmail.name}" بنجاح! يمكنه الآن تسجيل الدخول للبوابة باستخدامه.`, 'success');
+      setEditingPartnerForEmail(null);
+      setPartnerEmailInput('');
+    } catch (err: any) {
+      inAppToast(`تعذر حفظ البريد: ${err.message}`, 'error');
+    } finally {
+      setIsSavingPartnerEmail(false);
+    }
+  };
+
+  // Save SMTP Mail Server Settings
+  const handleSaveSmtp = async () => {
+    setIsSavingSmtp(true);
+    try {
+      const payload: any = {
+        provider: smtpProvider,
+        from: smtpFrom.trim()
+      };
+
+      if (smtpProvider === 'resend') {
+        payload.resendApiKey = smtpResendKey.trim();
+      } else if (smtpProvider === 'gmail') {
+        payload.host = 'smtp.gmail.com';
+        payload.port = 587;
+        payload.user = smtpUser.trim();
+        payload.pass = smtpPass.trim();
+      } else {
+        payload.host = smtpHost.trim();
+        payload.port = Number(smtpPort) || 587;
+        payload.user = smtpUser.trim();
+        payload.pass = smtpPass.trim();
+      }
+
+      const res = await fetch('/api/save-smtp-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        inAppToast('تم حفظ وتفعيل خادم إرسال البريد بنجاح! سيتم إرسال أكواد الدخول الفعلية للموكلين.', 'success');
+      } else {
+        inAppToast(data.error || 'تعذر حفظ إعدادات البريد', 'error');
+      }
+    } catch (err: any) {
+      inAppToast(`خطأ أثناء الحفظ: ${err.message}`, 'error');
+    } finally {
+      setIsSavingSmtp(false);
+    }
+  };
+
+  // Test Real Mail Dispatch
+  const handleSendTestMail = async () => {
+    if (!testMailRecipient || !testMailRecipient.includes('@')) {
+      inAppToast('يرجى إدخال بريد إلكتروني لاستلام الرسالة التجريبية', 'warning');
+      return;
+    }
+    setIsTestingMail(true);
+    try {
+      const res = await fetch('/api/send-test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toEmail: testMailRecipient.trim().toLowerCase(),
+          userName: 'المسؤول العزيز',
+          storeName: settings.storeName || 'بوابة الموكلين'
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        inAppToast(data.message || `تم إرسال بريد الاختبار بنجاح إلى (${testMailRecipient})! تفقد صندوق الوارد والبريد غير الهام (Spam).`, 'success');
+      } else {
+        inAppToast(data.error || 'تعذر إرسال البريد. تحقق من إعدادات الخادم أو كلمة مرور التطبيق.', 'error');
+      }
+    } catch (err: any) {
+      inAppToast(`خطأ في الإرسال: ${err.message}`, 'error');
+    } finally {
+      setIsTestingMail(false);
+    }
   };
 
   // Partner Analytics & Directory Summary
@@ -394,11 +636,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     const goodsCost = ov.goodsCost !== undefined ? ov.goodsCost : defaultGoodsCost;
 
     // 2. Shipping & Carrier Fees Breakdown
-    const shippingBreakdown = calculateMerchantShippingBreakdown(o, settings);
+    const shippingBreakdown = calculateMerchantShippingBreakdown(o, settings, ov);
     const shippingAndFees = shippingBreakdown.total;
 
     // 3. Collection Fees (COD fees)
-    const codFee = isDelivered ? calculateCodFee(o, settings) : 0;
+    const codFee = isDelivered ? shippingBreakdown.codFee : 0;
 
     // 4. Marketing Cost
     const defaultMarketing = o.marketingFeePerOrder !== undefined && o.marketingFeePerOrder > 0 ? o.marketingFeePerOrder : batchMarketingFee;
@@ -411,9 +653,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       : 0;
 
     // 6. Return Fee
-    const returnFee = isReturn && deductReturnsFee ? returnShippingFeeAmount : 0;
+    const returnFee = isReturn && deductReturnsFee ? (ov.returnFee !== undefined ? ov.returnFee : returnShippingFeeAmount) : 0;
 
-    const orderRevenue = isDelivered ? (o.totalPrice || 0) : 0;
+    // 7. Collected Cash Revenue from Customer
+    const orderRevenue = isDelivered 
+      ? (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && Number(o.totalAmountOverride) > 0
+          ? Number(o.totalAmountOverride)
+          : (Number(o.totalPrice) || 0))
+      : 0;
 
     let orderPayout = 0;
     let operatorOrderEarning = serviceFee;
@@ -427,11 +674,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       orderPayout = (isDelivered ? goodsCost : 0) + merchantProfitShare;
       operatorOrderEarning = Math.max(0, netProfitOrLoss * (1 - merchantShareRatio));
     } else {
+      // FIXED FEE / COMMISSION MODE
+      // صافي مستحق الموكل = إجمالي التحصيل - مصاريف الشحن - رسوم شركة الشحن (تأمين + ضريبة + معاينة + COD) - عمولة المنصة - مصاريف التسويق
       const totalDeductions = serviceFee + shippingAndFees + marketingCost + returnFee;
-      orderPayout = (isDelivered ? goodsCost : 0) - totalDeductions;
+      orderPayout = isDelivered ? (orderRevenue - totalDeductions) : (-totalDeductions);
     }
 
-    const returnLoss = isReturn ? shippingAndFees + marketingCost + returnFee : 0;
+    const returnLoss = isReturn ? (shippingAndFees + marketingCost + returnFee) : 0;
+    const merchantNetProfitOverCost = isDelivered ? (orderPayout - goodsCost) : (-returnLoss);
 
     return {
       isDelivered,
@@ -450,6 +700,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       orderPayout: Math.round(orderPayout * 100) / 100,
       operatorOrderEarning: Math.round(operatorOrderEarning * 100) / 100,
       returnLoss: Math.round(returnLoss * 100) / 100,
+      merchantNetProfitOverCost: Math.round(merchantNetProfitOverCost * 100) / 100,
       hasCustomOverride: Object.keys(ov).length > 0
     };
   };
@@ -475,6 +726,26 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
     let netPayoutToMerchant = 0;
 
+    // Lump sum ad spend deduction
+    let sharedLumpSumDeduction = lumpSumAdSpend;
+    if (isLumpSumShared && ordersToProcess.length > 0) {
+      const profitShareOrders = ordersToProcess.filter(o => {
+        const mode = orderOverrides[o.id]?.mode || (batchAccountingMode !== 'order_default' ? batchAccountingMode : o.merchantSettlementMode);
+        return mode === 'profit_share';
+      });
+      if (profitShareOrders.length > 0) {
+        const avgShare = profitShareOrders.reduce((sum, o) => {
+          const pct = orderOverrides[o.id]?.sharePercent ?? (batchAccountingMode === 'profit_share' ? batchProfitSharePercent : (o.merchantProfitSharePercent || 50));
+          return sum + pct;
+        }, 0) / profitShareOrders.length;
+        sharedLumpSumDeduction = lumpSumAdSpend * (avgShare / 100);
+      } else {
+        sharedLumpSumDeduction = lumpSumAdSpend;
+      }
+    }
+
+    const adSharePerOrder = ordersToProcess.length > 0 ? Math.round((sharedLumpSumDeduction / ordersToProcess.length) * 100) / 100 : 0;
+
     ordersToProcess.forEach(o => {
       const calc = computeOrderFinancials(o);
 
@@ -484,7 +755,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       totalServiceFees += calc.serviceFee;
       totalOperatorEarnings += calc.operatorOrderEarning;
       totalCollectionFees += calc.codFee;
-      totalShippingCosts += (calc.shippingAndFees - calc.codFee);
+      totalShippingCosts += calc.shippingBreakdown.baseShippingFee;
       totalShippingDiscountDifference += calc.shippingBreakdown.shippingDiscountDifference;
       totalCarrierAdditionalFees += calc.shippingBreakdown.carrierAdditionalFees;
       totalMarketingCosts += calc.marketingCost;
@@ -512,36 +783,24 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         shippingDiscountDifference: calc.shippingBreakdown.shippingDiscountDifference,
         carrierAdditionalFees: calc.shippingBreakdown.carrierAdditionalFees,
         collectionFee: calc.codFee,
-        marketingCost: calc.marketingCost,
+        marketingCost: Math.round((calc.marketingCost + adSharePerOrder) * 100) / 100,
         serviceFee: calc.serviceFee,
         returnLoss: calc.returnLoss,
-        netMerchantAmount: calc.orderPayout
+        insuranceFee: calc.shippingBreakdown.insuranceFee,
+        inspectionFee: calc.shippingBreakdown.inspectionFee,
+        vatFee: calc.shippingBreakdown.vatFee,
+        mode: calc.effectiveMode,
+        sharePercent: calc.effectiveSharePercent,
+        netMerchantAmount: Math.round((calc.orderPayout - adSharePerOrder) * 100) / 100
       });
     });
-
-    // Lump sum ad spend deduction
-    let sharedLumpSumDeduction = lumpSumAdSpend;
-    if (isLumpSumShared && ordersToProcess.length > 0) {
-      const profitShareOrders = ordersToProcess.filter(o => {
-        const mode = orderOverrides[o.id]?.mode || (batchAccountingMode !== 'order_default' ? batchAccountingMode : o.merchantSettlementMode);
-        return mode === 'profit_share';
-      });
-      if (profitShareOrders.length > 0) {
-        const avgShare = profitShareOrders.reduce((sum, o) => {
-          const pct = orderOverrides[o.id]?.sharePercent ?? (batchAccountingMode === 'profit_share' ? batchProfitSharePercent : (o.merchantProfitSharePercent || 50));
-          return sum + pct;
-        }, 0) / profitShareOrders.length;
-        sharedLumpSumDeduction = lumpSumAdSpend * (avgShare / 100);
-      } else {
-        sharedLumpSumDeduction = lumpSumAdSpend * 0.5;
-      }
-    }
 
     netPayoutToMerchant -= sharedLumpSumDeduction;
 
     const totalAllDeductions =
       totalServiceFees +
       totalShippingCosts +
+      totalCarrierAdditionalFees +
       totalCollectionFees +
       totalMarketingCosts +
       sharedLumpSumDeduction +
@@ -693,6 +952,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         ...(ov?.goodsCost !== undefined ? { merchantItemCost: ov.goodsCost } : {}),
         ...(ov?.marketingFee !== undefined ? { marketingFeePerOrder: ov.marketingFee } : {}),
         ...(ov?.serviceFee !== undefined ? { serviceFeePerOrder: ov.serviceFee } : {}),
+        ...(ov?.shippingFee !== undefined ? { shippingFee: ov.shippingFee, isManualShippingOverride: true } : {}),
+        ...(ov?.insuranceFee !== undefined ? { insuranceFee: ov.insuranceFee } : {}),
+        ...(ov?.vatFee !== undefined ? { vatValue: ov.vatFee } : {}),
+        ...(ov?.inspectionFee !== undefined ? { inspectionFee: ov.inspectionFee } : {}),
         ...(ov?.mode !== undefined ? { merchantSettlementMode: ov.mode } : {}),
         ...(ov?.sharePercent !== undefined ? { merchantProfitSharePercent: ov.sharePercent } : {})
       };
@@ -799,7 +1062,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       `• إجمالي الأوردرات بالكشف: ${settlement.ordersCount} أوردر`,
       `• إجمالي التحصيل الفعلي: ${settlement.totalCollected.toLocaleString()} ج.م`,
       `• رأس مال البضاعة المباعة: ${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م`,
-      `• مصاريف الشحن واللوجستيات: -${settlement.totalShippingCosts.toLocaleString()} ج.م`,
+      `• مصاريف الشحن الأساسية: -${settlement.totalShippingCosts.toLocaleString()} ج.م`,
+      ...(settlement.totalCarrierAdditionalFees ? [`• رسوم إضافية وتأمين وضريبة: -${settlement.totalCarrierAdditionalFees.toLocaleString()} ج.م`] : []),
       `• عمولات التحصيل (COD): -${settlement.totalCollectionFees.toLocaleString()} ج.م`,
       `• عمولة التشغيل والخدمة: -${settlement.totalServiceFees.toLocaleString()} ج.م`,
       ...(settlement.totalMarketingCosts > 0 ? [`• مصاريف الإعلانات والتسويق: -${settlement.totalMarketingCosts.toLocaleString()} ج.م`] : []),
@@ -845,10 +1109,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             <td class="num">${idx + 1}</td>
             <td class="num">#${s.orderNumber || s.orderId.slice(0, 8)}</td>
             <td>${s.customerName || '-'}</td>
-            <td>${s.status}</td>
+            <td>${s.status.replace(/_/g, ' ')}</td>
             <td class="num">${s.collectedAmount.toLocaleString()}</td>
             <td class="num" style="color:#008060;">${s.merchantGoodsCost.toLocaleString()}</td>
-            <td class="num" style="color:#b45309;">-${(s.shippingDiscountDifference + s.carrierAdditionalFees + s.collectionFee).toLocaleString()}</td>
+            <td class="num" style="color:#b45309;">-${(s.officialShippingFee || 0).toLocaleString()}</td>
+            <td class="num" style="color:#b45309;">-${(s.carrierAdditionalFees + s.collectionFee).toLocaleString()}</td>
             <td class="num" style="color:#e11d48;">-${(s.serviceFee + s.marketingCost + s.returnLoss).toLocaleString()}</td>
             <td class="num" style="font-weight:900;color:#0f172a;">${s.netMerchantAmount.toLocaleString()} ج.م</td>
           </tr>
@@ -904,7 +1169,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               <th>إجمالي التحصيل الفعلي</th>
               <th>رأس مال البضاعة المباعة</th>
               <th>عمولة الخدمة والتشغيل</th>
-              <th>فروق ورسوم الشحن</th>
+              <th>مصاريف الشحن الأساسية</th>
+              <th>رسوم إضافية وتأمين وضريبة</th>
               <th>عمولات التحصيل COD</th>
               <th>رسوم المرتجعات</th>
               <th>مصاريف الإعلانات</th>
@@ -916,6 +1182,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               <td class="num" style="color: #008060;">${settlement.totalMerchantGoodsCost.toLocaleString()} ج.م</td>
               <td class="num" style="color: #e11d48;">-${settlement.totalServiceFees.toLocaleString()} ج.م</td>
               <td class="num" style="color: #b45309;">-${settlement.totalShippingCosts.toLocaleString()} ج.م</td>
+              <td class="num" style="color: #b45309;">-${(settlement.totalCarrierAdditionalFees || 0).toLocaleString()} ج.م</td>
               <td class="num" style="color: #b45309;">-${settlement.totalCollectionFees.toLocaleString()} ج.م</td>
               <td class="num" style="color: #e11d48;">-${settlement.totalReturnFees.toLocaleString()} ج.م</td>
               <td class="num" style="color: #4f46e5;">-${settlement.totalMarketingCosts.toLocaleString()} ج.م</td>
@@ -952,7 +1219,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 <th>الحالة</th>
                 <th>المحصل</th>
                 <th>تكلفة البضاعة</th>
-                <th>الشحن وCOD</th>
+                <th>الشحن</th>
+                <th>رسوم إضافية وCOD</th>
                 <th>العمولة والإعلانات</th>
                 <th>صافي الموكل</th>
               </tr>
@@ -996,6 +1264,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         'السعر الرسمي للشحن': snapshot.officialShippingFee,
         'فرق خصم الشحن': snapshot.shippingDiscountDifference,
         'رسوم شركة الشحن الإضافية': snapshot.carrierAdditionalFees,
+        'رسوم التأمين': snapshot.insuranceFee ?? 0,
+        'رسوم المعاينة': snapshot.inspectionFee ?? 0,
+        'ضريبة القيمة المضافة': snapshot.vatFee ?? 0,
         'عمولة التحصيل COD': snapshot.collectionFee,
         'مصاريف الإعلانات': snapshot.marketingCost,
         'عمولة التشغيل': snapshot.serviceFee,
@@ -1178,6 +1449,21 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             </button>
 
             <button
+              onClick={() => setActiveTab('transparency')}
+              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'transparency' 
+                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-900/50' 
+                  : 'text-indigo-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Sparkles size={15} />
+              <span>تقرير الشفافية</span>
+              <span className="font-mono text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md text-white">
+                جديد
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('partners')}
               className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
                 activeTab === 'partners' 
@@ -1188,6 +1474,21 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               <User size={15} />
               <span>أرصدة الموكلين</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('portal')}
+              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'portal' 
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-900/50' 
+                  : 'text-teal-300 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Globe size={15} />
+              <span>بوابة الموكل الإلكترونية</span>
+              <span className="font-mono text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md text-white">
+                LIVE 🌐
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -1195,6 +1496,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       {/* ======================================================== */}
       {/* 2. EXECUTIVE FINANCIAL KPI STRIP                         */}
       {/* ======================================================== */}
+      {activeTab !== 'transparency' && activeTab !== 'portal' && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* KPI 1: Total Paid Out to Partners */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between">
@@ -1291,6 +1593,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* ======================================================== */}
       {/* TAB 1: SETTLEMENTS HISTORY LEDGER                        */}
@@ -1442,6 +1745,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                         </div>
                         <div className="text-[10px] text-slate-500 font-bold">الصافي المستحق للموكل</div>
                       </div>
+
+                      <button
+                        onClick={() => {
+                          setTransparencyMerchantId(st.merchantId || st.merchantName);
+                          setActiveTab('transparency');
+                        }}
+                        className="p-2.5 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-600 hover:text-white rounded-xl text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
+                        title="عرض كشف الشفافية وحركة البضاعة للموكل"
+                      >
+                        <Sparkles size={16} />
+                      </button>
 
                       <button
                         onClick={() => setViewingSettlement(st)}
@@ -1944,38 +2258,163 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                               </td>
                             </tr>
 
-                            {/* Expandable Order Financial Formula Row */}
+                            {/* Expandable Order Financial Formula & Customization Panel */}
                             {isExpanded && (
-                              <tr className="bg-slate-50/90 dark:bg-slate-800/60">
-                                <td colSpan={10} className="p-4">
-                                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-[11px]">
-                                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                      <span className="text-slate-400 block">الشحن المدفوع من العميل</span>
-                                      <strong className="font-mono text-slate-800 dark:text-white">{calc.shippingBreakdown.customerPaidShipping.toLocaleString()} ج.م</strong>
+                              <tr className="bg-slate-100/80 dark:bg-slate-900/80 border-y-2 border-indigo-500/30">
+                                <td colSpan={10} className="p-4 space-y-4">
+                                  {/* Section 1: Detailed Interactive Fee Adjustment Inputs */}
+                                  <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2.5">
+                                      <div className="flex items-center gap-2">
+                                        <SlidersHorizontal size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                        <span className="text-xs font-black text-slate-800 dark:text-slate-100">
+                                          تخصيص بنود ومصاريف الأوردر #{ord.orderNumber || ord.id.slice(0, 8)}
+                                        </span>
+                                        <span className="text-[11px] text-slate-400">
+                                          (يمكنك تعديل أي بند يدوياً وسيعاد حساب المستحق فوراً)
+                                        </span>
+                                      </div>
+                                      {calc.hasCustomOverride && (
+                                        <button
+                                          type="button"
+                                          onClick={() => resetOrderOverride(ord.id)}
+                                          className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-600 hover:bg-amber-100 text-[11px] font-black flex items-center gap-1 cursor-pointer transition-colors"
+                                        >
+                                          <RotateCcw size={12} />
+                                          <span>استعادة القيم الأصلية للطلب</span>
+                                        </button>
+                                      )}
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                      <span className="text-slate-400 block">السعر الرسمي لشركة الشحن</span>
-                                      <strong className="font-mono text-slate-800 dark:text-white">{calc.shippingBreakdown.officialShippingFee.toLocaleString()} ج.م</strong>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+                                      {/* مصاريف الشحن */}
+                                      <div className="space-y-1">
+                                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                                          مصاريف الشحن الأساسية
+                                        </label>
+                                        <input
+                                          type="number"
+                                          value={calc.shippingBreakdown.baseShippingFee}
+                                          onChange={e => updateOrderOverride(ord.id, { shippingFee: Number(e.target.value) || 0 })}
+                                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-amber-700 dark:text-amber-400 outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                      </div>
+
+                                      {/* رسوم التأمين */}
+                                      <div className="space-y-1">
+                                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                                          رسوم التأمين
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step="0.05"
+                                          value={calc.shippingBreakdown.insuranceFee}
+                                          onChange={e => updateOrderOverride(ord.id, { insuranceFee: Number(e.target.value) || 0 })}
+                                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-amber-700 dark:text-amber-400 outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                      </div>
+
+                                      {/* رسوم المعاينة */}
+                                      <div className="space-y-1">
+                                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                                          رسوم المعاينة والفتح
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step="0.5"
+                                          value={calc.shippingBreakdown.inspectionFee}
+                                          onChange={e => updateOrderOverride(ord.id, { inspectionFee: Number(e.target.value) || 0 })}
+                                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-amber-700 dark:text-amber-400 outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                      </div>
+
+                                      {/* ضريبة القيمة المضافة */}
+                                      <div className="space-y-1">
+                                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                                          ضريبة الشحن (VAT)
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step="0.05"
+                                          value={calc.shippingBreakdown.vatFee}
+                                          onChange={e => updateOrderOverride(ord.id, { vatFee: Number(e.target.value) || 0 })}
+                                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-amber-700 dark:text-amber-400 outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                      </div>
+
+                                      {/* عمولة COD */}
+                                      <div className="space-y-1">
+                                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                                          عمولة تحصيل COD
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step="0.5"
+                                          value={calc.codFee}
+                                          onChange={e => updateOrderOverride(ord.id, { codFee: Number(e.target.value) || 0 })}
+                                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-amber-700 dark:text-amber-400 outline-none focus:ring-2 focus:ring-indigo-500"
+                                        />
+                                      </div>
+
+                                      {/* عمولة الخدمة */}
+                                      <div className="space-y-1">
+                                        <label className="text-[11px] text-slate-500 dark:text-slate-400 font-bold block">
+                                          عمولة الخدمة / الأوردر
+                                        </label>
+                                        <input
+                                          type="number"
+                                          value={calc.serviceFee}
+                                          onChange={e => updateOrderOverride(ord.id, { serviceFee: Number(e.target.value) || 0 })}
+                                          disabled={calc.effectiveMode === 'profit_share'}
+                                          className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                                        />
+                                      </div>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                      <span className="text-slate-400 block">فرق خصم الشحن المحمل</span>
-                                      <strong className="font-mono text-amber-600">-{calc.shippingBreakdown.shippingDiscountDifference.toLocaleString()} ج.م</strong>
+
+                                    {/* نسبة المشاركة إذا كان وضع الأرباح */}
+                                    {calc.effectiveMode === 'profit_share' && (
+                                      <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center gap-3">
+                                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                                          نسبة الموكل من صافي أرباح الأوردر:
+                                        </span>
+                                        <div className="flex items-center gap-1.5">
+                                          <input
+                                            type="number"
+                                            value={calc.effectiveSharePercent}
+                                            onChange={e => updateOrderOverride(ord.id, { sharePercent: Number(e.target.value) || 0 })}
+                                            className="w-20 px-2 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-mono font-bold text-indigo-600 outline-none"
+                                          />
+                                          <span className="text-xs text-slate-400">%</span>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Section 2: Mathematical Step-by-Step Breakdown Banner */}
+                                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white border border-slate-700 text-xs space-y-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 font-bold">
+                                      <span className="text-emerald-400 flex items-center gap-1">
+                                        <Calculator size={14} />
+                                        <span>المعادلة الحسابية المعتمدة لهذا الأوردر ({calc.effectiveMode === 'profit_share' ? 'مشاركة أرباح' : 'عمولة ثابتة'}):</span>
+                                      </span>
+                                      <span className="font-mono text-emerald-300 font-black">
+                                        صافي المستحق = {calc.orderPayout.toLocaleString()} ج.م
+                                      </span>
                                     </div>
-                                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                      <span className="text-slate-400 block">رسوم شحن إضافية وتأمين</span>
-                                      <strong className="font-mono text-amber-600">-{calc.shippingBreakdown.carrierAdditionalFees.toLocaleString()} ج.م</strong>
-                                    </div>
-                                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                      <span className="text-slate-400 block">عمولة تحصيل COD</span>
-                                      <strong className="font-mono text-amber-600">-{calc.codFee.toLocaleString()} ج.م</strong>
-                                    </div>
-                                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                                      <span className="text-slate-400 block">عمولة الخدمة / حصة النظام</span>
-                                      <strong className="font-mono text-indigo-600">{calc.operatorOrderEarning.toLocaleString()} ج.م</strong>
-                                    </div>
-                                    <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800">
-                                      <span className="text-emerald-700 dark:text-emerald-300 block">صافي مستحق الموكل بالطلب</span>
-                                      <strong className="font-mono text-emerald-700 dark:text-emerald-300">{calc.orderPayout.toLocaleString()} ج.م</strong>
+                                    
+                                    {calc.effectiveMode === 'profit_share' ? (
+                                      <p className="text-[11px] text-slate-300 font-mono leading-relaxed">
+                                        [ التحصيل ({calc.orderRevenue}) - تكلفة البضاعة ({calc.goodsCost}) - إجمالي الشحن والرسوم ({calc.shippingAndFees}) - التسويق ({calc.marketingCost}) ] = صافي ربح الأوردر ({Math.round((calc.orderRevenue - calc.goodsCost - calc.shippingAndFees - calc.marketingCost) * 100) / 100} ج.م) × {calc.effectiveSharePercent}% = ربح الموكل ({Math.round((calc.orderRevenue - calc.goodsCost - calc.shippingAndFees - calc.marketingCost) * (calc.effectiveSharePercent / 100) * 100) / 100}) + تكلفة البضاعة ({calc.goodsCost}) = <strong className="text-emerald-400 font-bold">{calc.orderPayout.toLocaleString()} ج.م</strong>
+                                      </p>
+                                    ) : (
+                                      <p className="text-[11px] text-slate-300 font-mono leading-relaxed">
+                                        إجمالي التحصيل ({calc.orderRevenue}) - [ الشحن الأساسي ({calc.shippingBreakdown.baseShippingFee}) + التأمين ({calc.shippingBreakdown.insuranceFee}) + المعاينة ({calc.shippingBreakdown.inspectionFee}) + الضريبة ({calc.shippingBreakdown.vatFee}) + COD ({calc.codFee}) + عمولة الخدمة ({calc.serviceFee}) + التسويق ({calc.marketingCost}) + المرتجع ({calc.returnFee}) ] = <strong className="text-emerald-400 font-bold">{calc.orderPayout.toLocaleString()} ج.م</strong>
+                                      </p>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-slate-400 border-t border-white/10">
+                                      <span>إجمالي استقطاعات شركة الشحن: <strong className="text-amber-300 font-mono">{calc.shippingBreakdown.total} ج.م</strong> (شحن {calc.shippingBreakdown.baseShippingFee} + إضافية وتأمين وضريبة {calc.shippingBreakdown.carrierAdditionalFees} + COD {calc.codFee})</span>
+                                      <span>حصة المنصة / المشغل: <strong className="text-indigo-300 font-mono">{calc.operatorOrderEarning} ج.م</strong></span>
                                     </div>
                                   </div>
                                 </td>
@@ -2066,17 +2505,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                   </div>
                 </div>
 
-                {/* 3. Shipping Differences & Carrier Fees */}
+                {/* 3. Shipping & Carrier Logistics Deductions */}
                 <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/10 space-y-1.5">
                   <div className="flex items-center justify-between text-amber-300">
-                    <span>فروق الشحن ورسوم الشركة</span>
+                    <span>مصاريف الشحن ورسوم الشركة</span>
                     <ArrowDownLeft size={15} className="text-amber-400" />
                   </div>
                   <div className="text-xl font-black text-amber-400 font-mono tabular-nums">
-                    -{settlementCalculation.totalShippingCosts.toLocaleString()} <span className="text-xs text-slate-400">ج.م</span>
+                    -{Math.round((settlementCalculation.totalShippingCosts + settlementCalculation.totalCarrierAdditionalFees) * 100) / 100} <span className="text-xs text-slate-400">ج.م</span>
                   </div>
                   <div className="text-[11px] text-slate-400">
-                    فرق خصم: {settlementCalculation.totalShippingDiscountDifference.toLocaleString()} · إضافية: {settlementCalculation.totalCarrierAdditionalFees.toLocaleString()}
+                    شحن أساسي: {settlementCalculation.totalShippingCosts.toLocaleString()} · رسوم إضافية وتأمين وضريبة: {settlementCalculation.totalCarrierAdditionalFees.toLocaleString()}
                   </div>
                 </div>
 
@@ -2320,14 +2759,25 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 يظهر هنا فقط الموردون وأصحاب البضائع والموكلون المرتبطون بأوردرات الوكالة (وليس عملاء المتجر العاديين).
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAddPartnerModal(true)}
-              className="px-4 py-2.5 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black flex items-center gap-2 self-start sm:self-center cursor-pointer shadow-xs"
-            >
-              <Plus size={15} />
-              <span>تسجيل موكل / صاحب بضاعة جديد</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+              <button
+                type="button"
+                onClick={() => setShowSmtpSetupModal(true)}
+                className="px-3.5 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="إعداد خادم إرسال البريد الفعلي (Gmail / SMTP / Resend)"
+              >
+                <Mail size={14} />
+                <span>إعدادات خادم البريد (SMTP) ⚙️</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddPartnerModal(true)}
+                className="px-4 py-2.5 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs"
+              >
+                <Plus size={15} />
+                <span>تسجيل موكل / صاحب بضاعة جديد</span>
+              </button>
+            </div>
           </div>
 
           {partnersSummary.length === 0 ? (
@@ -2365,6 +2815,25 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                       <div className="text-xs text-slate-500 font-mono mt-0.5">
                         {partner.phone || 'بدون رقم هاتف مسجل'} · {partner.totalOrdersCount} أوردر وكالة
                       </div>
+                      <div className="flex items-center gap-1.5 text-[11px] font-mono mt-1.5">
+                        <Mail size={13} className={partner.email ? "text-emerald-500" : "text-amber-500"} />
+                        {partner.email ? (
+                          <span className="text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                            {partner.email}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPartnerForEmail({ id: partner.id, name: partner.name, currentEmail: partner.email });
+                              setPartnerEmailInput('');
+                            }}
+                            className="text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800 flex items-center gap-1"
+                          >
+                            <span>+ ربط إيميل لدخول البوابة</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${
                       partner.unsettledCount > 0
@@ -2400,21 +2869,145 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                     <span className="text-[11px] font-bold text-slate-400">
                       {partner.settlementsCount} كشف سابق · عمولاتنا: {partner.totalAgencyEarned.toLocaleString()} ج.م
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleSelectMerchant(partner.id);
-                        setActiveTab('create');
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black transition-colors cursor-pointer"
-                    >
-                      بدء تسوية الموكل
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPartnerForEmail({ id: partner.id, name: partner.name, currentEmail: partner.email });
+                          setPartnerEmailInput(partner.email || '');
+                        }}
+                        className="px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer border border-slate-200 dark:border-slate-700 flex items-center gap-1"
+                        title="تعديل أو ربط البريد الإلكتروني للموكل"
+                      >
+                        <Mail size={13} />
+                        <span>الإيميل</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            sessionStorage.setItem('partner_portal_auth_default', JSON.stringify(partner));
+                          } catch {}
+                          setActiveTab('portal');
+                        }}
+                        className="px-3 py-2 rounded-xl bg-teal-50 dark:bg-teal-950/50 hover:bg-teal-100 text-teal-700 dark:text-teal-300 text-xs font-bold transition-colors cursor-pointer border border-teal-200 flex items-center gap-1"
+                        title="دخول بوابة الموكل مباشرة لهذا الشريك"
+                      >
+                        <Globe size={13} />
+                        <span>دخول البوابة</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransparencyMerchantId(partner.id);
+                          setActiveTab('transparency');
+                        }}
+                        className="px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-colors cursor-pointer border border-indigo-200"
+                        title="عرض كشف الشفافية وحركة البضاعة للموكل"
+                      >
+                        كشف الشفافية
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSelectMerchant(partner.id);
+                          setActiveTab('create');
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black transition-colors cursor-pointer"
+                      >
+                        بدء تسوية الموكل
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB 4: MERCHANT TRANSPARENCY DASHBOARD & ACCOUNTABILITY  */}
+      {/* ======================================================== */}
+      {activeTab === 'transparency' && (
+        <MerchantTransparencyTab
+          orders={orders}
+          settings={settings}
+          customers={customers}
+          initialMerchantIdOrName={transparencyMerchantId}
+          onNavigateToSettlement={(mId) => {
+            handleSelectMerchant(mId);
+            setActiveTab('create');
+          }}
+          onOpenPortal={(mId) => {
+            if (mId && mId !== 'all') {
+              const partnerMatch = partnersSummary.find(p => p.id === mId || p.name === mId);
+              if (partnerMatch) {
+                try {
+                  sessionStorage.setItem('partner_portal_auth_default', JSON.stringify(partnerMatch));
+                } catch {}
+              }
+            }
+            setActiveTab('portal');
+          }}
+        />
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB 5: LIVE MERCHANT & PARTNER PORTAL VIEW              */}
+      {/* ======================================================== */}
+      {activeTab === 'portal' && (
+        <div className="space-y-4">
+          {/* Portal Top Bar with Control / Info */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-3xl p-5 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-slate-950 flex items-center justify-center font-black shadow-lg shrink-0">
+                <Globe size={24} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-black text-base text-white">معاينة بوابة الموكل الإلكترونية (Live Merchant Portal)</h3>
+                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    مباشر وحي 🚀
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                  هذه هي البوابة التي يدخل إليها الموكل (ببريده الإلكتروني أو رمزه السري)، ليتابع أوردراته كاملة (المشحونة، المحصلة، المرتجعة، والمعلقة)، ويتحكم بمحفظته المالية وسحب الأرباح.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+              <a
+                href="/merchant-portal"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-white/20 whitespace-nowrap shadow-sm"
+              >
+                <ExternalLink size={15} />
+                <span>فتح في نافذة كاملة مستقلة</span>
+              </a>
+            </div>
+          </div>
+
+          {/* The PartnerPortal Component */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xl min-h-[700px]">
+            <PartnerPortal
+              allStoresData={{
+                default: {
+                  id: 'default',
+                  name: settings.storeName || 'متجري',
+                  settings,
+                  orders,
+                  treasury: treasury || { accounts: [], transactions: [] },
+                  wallet: { balance: 0, transactions: [] }
+                } as any
+              }}
+              updateSettings={(newSettings) => updateSettings(newSettings)}
+              showToast={(msg, type) => {
+                inAppToast(msg, type === 'error' ? 'error' : 'success');
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -2467,6 +3060,18 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 />
               </div>
               <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                  <span>البريد الإلكتروني للموكل (مطلوب لدخول البوابة واستلام OTP) ✉️</span>
+                </label>
+                <input
+                  type="email"
+                  value={newPartnerEmail}
+                  onChange={e => setNewPartnerEmail(e.target.value)}
+                  placeholder="merchant@example.com"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+              <div>
                 <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
                   مصاريف تسويق افتراضية للأوردر (اختياري - ج.م)
                 </label>
@@ -2493,6 +3098,253 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 >
                   حفظ وتسجيل الموكل
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* EDIT / LINK PARTNER EMAIL MODAL                          */}
+      {/* ======================================================== */}
+      {editingPartnerForEmail && (
+        <div
+          className="fixed inset-0 z-[110] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setEditingPartnerForEmail(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+            dir="rtl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center">
+                  <Mail size={18} className="text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black">ربط البريد الإلكتروني للموكل</h3>
+                  <p className="text-[11px] text-slate-300 font-bold">{editingPartnerForEmail.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingPartnerForEmail(null)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
+                  عنوان البريد الإلكتروني الفعلي:
+                </label>
+                <input
+                  type="email"
+                  value={partnerEmailInput}
+                  onChange={e => setPartnerEmailInput(e.target.value)}
+                  placeholder="name@example.com"
+                  className="w-full p-3.5 bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none focus:border-emerald-600 text-slate-900 dark:text-white"
+                  autoFocus
+                />
+              </div>
+
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed font-bold">
+                💡 بمجرد حفظ هذا البريد، سيتمكن الموكل من فتح شاشة البوابة <strong>/merchant-portal</strong> وكتابة هذا الإيميل، وسيصله كود أمني (OTP) على بريده مباشرة للدخول الآمن.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPartnerForEmail(null)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePartnerEmail}
+                  disabled={isSavingPartnerEmail || !partnerEmailInput.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black cursor-pointer shadow-sm disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isSavingPartnerEmail ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>جاري الحفظ...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={15} />
+                      <span>حفظ وتفعيل البريد الآن</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* SMTP / GMAIL SERVER CONFIGURATION MODAL                  */}
+      {/* ======================================================== */}
+      {showSmtpSetupModal && (
+        <div
+          className="fixed inset-0 z-[110] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowSmtpSetupModal(false)}
+        >
+          <div
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+            dir="rtl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Mail size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black">إعدادات خادم البريد الفعلي (SMTP)</h3>
+                  <p className="text-[11px] text-slate-300">لإرسال أكواد الدخول الفعلية (OTP) إلى إيميلات الموكلين</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSmtpSetupModal(false)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
+                  مزود خدمة البريد:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSmtpProvider('gmail');
+                      setSmtpHost('smtp.gmail.com');
+                      setSmtpPort(587);
+                    }}
+                    className={`p-2.5 rounded-xl border text-xs font-black transition-all cursor-pointer ${
+                      smtpProvider === 'gmail' 
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 text-emerald-800 dark:text-emerald-300 shadow-xs' 
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    Gmail (App Password)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSmtpProvider('resend')}
+                    className={`p-2.5 rounded-xl border text-xs font-black transition-all cursor-pointer ${
+                      smtpProvider === 'resend' 
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 text-emerald-800 dark:text-emerald-300 shadow-xs' 
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    Resend API
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSmtpProvider('smtp')}
+                    className={`p-2.5 rounded-xl border text-xs font-black transition-all cursor-pointer ${
+                      smtpProvider === 'smtp' 
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-600 text-emerald-800 dark:text-emerald-300 shadow-xs' 
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    SMTP مخصص
+                  </button>
+                </div>
+              </div>
+
+              {smtpProvider === 'resend' ? (
+                <div>
+                  <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
+                    مفتاح Resend API Key:
+                  </label>
+                  <input
+                    type="password"
+                    value={smtpResendKey}
+                    onChange={e => setSmtpResendKey(e.target.value)}
+                    placeholder="re_xxxxxxxxxxxxxx"
+                    className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none"
+                  />
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5">
+                      عنوان بريدك الإلكتروني (Gmail / SMTP User):
+                    </label>
+                    <input
+                      type="email"
+                      value={smtpUser}
+                      onChange={e => setSmtpUser(e.target.value)}
+                      placeholder="your-store@gmail.com"
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
+                      <span>كلمة مرور التطبيق (App Password):</span>
+                      <span className="text-[10px] text-slate-400">16 حرفاً بدون مسافات</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={smtpPass}
+                      onChange={e => setSmtpPass(e.target.value)}
+                      placeholder="xxxx xxxx xxxx xxxx"
+                      className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      في حساب Google: الأمان ➔ التحقق بخطوتين ➔ كلمات مرور التطبيقات (App Passwords) ➔ أنشئ كلمة مرور لتطبيق "Mail".
+                    </p>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleSaveSmtp}
+                  disabled={isSavingSmtp}
+                  className="px-5 py-2.5 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  {isSavingSmtp ? 'جاري الحفظ...' : 'حفظ وتفعيل خادم البريد 💾'}
+                </button>
+              </div>
+
+              {/* Test Email Section */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                <div className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-amber-500" />
+                  <span>اختبار إرسال بريد حقيقي الآن:</span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={testMailRecipient}
+                    onChange={e => setTestMailRecipient(e.target.value)}
+                    placeholder="أدخل بريدك للتجربة..."
+                    className="flex-1 p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendTestMail}
+                    disabled={isTestingMail || !testMailRecipient.trim()}
+                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black whitespace-nowrap cursor-pointer disabled:opacity-50"
+                  >
+                    {isTestingMail ? 'جاري الإرسال...' : 'إرسال تجربة ✉️'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

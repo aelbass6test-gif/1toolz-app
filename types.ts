@@ -545,6 +545,8 @@ export interface PartnerAllowedReports {
 
 export interface PartnerPortalPermissions {
   canViewOverview?: boolean; // المركز المالي والأرصدة
+  canViewOrdersTab?: boolean; // تبويب أوردراتي وحركة الشحنات للموكل
+  canViewTransparencyTab?: boolean; // تبويب تقرير الشفافية وحركة البضاعة
   canViewCapital?: boolean; // رؤية رأس المال
   canViewProfits?: boolean; // رؤية الأرباح المحققة والمسحوبات
   canViewCustody?: boolean; // رؤية العهد النقدية
@@ -1765,7 +1767,7 @@ export interface Order {
   marketingFeePerOrder?: number;   // مصاريف الإعلانات المخصصة للأوردر
   merchantSettlementMode?: 'fixed_fee' | 'profit_share'; // نظام المحاسبة (عمولة ثابتة أو نسبة من الربح)
   merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
-  settlementStatus?: 'pending' | 'settled'; // حالة التسوية المالية مع صاحب البضاعة
+  settlementStatus?: 'pending' | 'settled' | 'unsettled'; // حالة التسوية المالية مع صاحب البضاعة
   settlementId?: string;           // رقم كشف التسوية المرتبط
 }
 
@@ -1815,6 +1817,11 @@ export interface MerchantSettlementOrderSnapshot {
   serviceFee: number;
   returnLoss: number;
   netMerchantAmount: number;
+  insuranceFee?: number;
+  vatFee?: number;
+  inspectionFee?: number;
+  mode?: 'fixed_fee' | 'profit_share';
+  sharePercent?: number;
 }
 
 export interface TreasuryAccount {

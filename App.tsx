@@ -3930,6 +3930,54 @@ export const AppComponent = () => {
                     <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
                     <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
                     <Route path="merchant-settlement" element={<MerchantSettlementPage orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
+                    <Route path="merchant-portal" element={
+                        <PartnerPortal 
+                            allStoresData={allStoresData} 
+                            updateSettings={(newSettings) => {
+                                setAllStoresData(p => {
+                                    const draft = { ...p };
+                                    return draft;
+                                });
+                            }} 
+                            showToast={(msg, type) => {}} 
+                        />
+                    } />
+                    <Route path="merchant-portal/:tab" element={
+                        <PartnerPortal 
+                            allStoresData={allStoresData} 
+                            updateSettings={(newSettings) => {
+                                setAllStoresData(p => {
+                                    const draft = { ...p };
+                                    return draft;
+                                });
+                            }} 
+                            showToast={(msg, type) => {}} 
+                        />
+                    } />
+                    <Route path="partner-portal" element={
+                        <PartnerPortal 
+                            allStoresData={allStoresData} 
+                            updateSettings={(newSettings) => {
+                                setAllStoresData(p => {
+                                    const draft = { ...p };
+                                    return draft;
+                                });
+                            }} 
+                            showToast={(msg, type) => {}} 
+                        />
+                    } />
+                    <Route path="partner-portal/:tab" element={
+                        <PartnerPortal 
+                            allStoresData={allStoresData} 
+                            updateSettings={(newSettings) => {
+                                setAllStoresData(p => {
+                                    const draft = { ...p };
+                                    return draft;
+                                });
+                            }} 
+                            showToast={(msg, type) => {}} 
+                        />
+                    } />
                     <Route path="dropshipping/new" element={<CreateDropshippingOrderPage {...pageProps} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />} />
@@ -4032,6 +4080,78 @@ export const AppComponent = () => {
                     />
                 } />
                 <Route path="/store/:storeId/partner-portal/:tab" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/store/:storeId/merchant-portal" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/store/:storeId/merchant-portal/:tab" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/merchant-portal" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/merchant-portal/:tab" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/partner-portal" element={
+                    <PartnerPortal 
+                        allStoresData={allStoresData} 
+                        updateSettings={(newSettings) => {
+                            setAllStoresData(p => {
+                                const draft = { ...p };
+                                return draft;
+                            });
+                        }} 
+                        showToast={(msg, type) => {}} 
+                    />
+                } />
+                <Route path="/partner-portal/:tab" element={
                     <PartnerPortal 
                         allStoresData={allStoresData} 
                         updateSettings={(newSettings) => {

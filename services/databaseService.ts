@@ -773,7 +773,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     const baseOrder = { ...detailsObj };
                     Object.entries(cleanTopLevel).forEach(([key, val]) => {
                         const detailsVal = detailsObj[key];
-                        const isValEmpty = val === null || val === undefined || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
+                        const isZeroOverwritingPositive = val === 0 && typeof detailsVal === 'number' && detailsVal > 0 && ['insuranceFee', 'inspectionFee', 'codFee', 'productPrice', 'productCost', 'shippingFee', 'totalPrice'].includes(key);
+                        const isValEmpty = val === null || val === undefined || isZeroOverwritingPositive || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
                         const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
                         if (isValEmpty && !isDetailsEmpty) {
                             // Keep non-empty value from detailsObj
@@ -1364,6 +1365,20 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             followUpReminder: cleanItem.followUpReminder || null,
                             auditLogs: cleanItem.auditLogs || [],
                             callAttempts: cleanItem.callAttempts || [],
+                            insuranceFee: cleanItem.insuranceFee !== undefined ? Number(cleanItem.insuranceFee) : (detailsObj.insuranceFee !== undefined ? Number(detailsObj.insuranceFee) : null),
+                            inspectionFee: cleanItem.inspectionFee !== undefined ? Number(cleanItem.inspectionFee) : (detailsObj.inspectionFee !== undefined ? Number(detailsObj.inspectionFee) : null),
+                            productPrice: cleanItem.productPrice !== undefined ? Number(cleanItem.productPrice) : (detailsObj.productPrice !== undefined ? Number(detailsObj.productPrice) : null),
+                            productCost: cleanItem.productCost !== undefined ? Number(cleanItem.productCost) : (detailsObj.productCost !== undefined ? Number(detailsObj.productCost) : null),
+                            merchantItemCost: cleanItem.merchantItemCost !== undefined ? Number(cleanItem.merchantItemCost) : (detailsObj.merchantItemCost !== undefined ? Number(detailsObj.merchantItemCost) : null),
+                            merchantId: cleanItem.merchantId || detailsObj.merchantId || null,
+                            merchantName: cleanItem.merchantName || detailsObj.merchantName || null,
+                            settlementStatus: cleanItem.settlementStatus || detailsObj.settlementStatus || 'unsettled',
+                            settlementId: cleanItem.settlementId || detailsObj.settlementId || null,
+                            serviceFeePerOrder: cleanItem.serviceFeePerOrder !== undefined ? Number(cleanItem.serviceFeePerOrder) : (detailsObj.serviceFeePerOrder !== undefined ? Number(detailsObj.serviceFeePerOrder) : null),
+                            marketingFeePerOrder: cleanItem.marketingFeePerOrder !== undefined ? Number(cleanItem.marketingFeePerOrder) : (detailsObj.marketingFeePerOrder !== undefined ? Number(detailsObj.marketingFeePerOrder) : null),
+                            merchantSettlementMode: cleanItem.merchantSettlementMode || detailsObj.merchantSettlementMode || null,
+                            merchantProfitSharePercent: cleanItem.merchantProfitSharePercent !== undefined ? Number(cleanItem.merchantProfitSharePercent) : (detailsObj.merchantProfitSharePercent !== undefined ? Number(detailsObj.merchantProfitSharePercent) : null),
+                            vatValue: cleanItem.vatValue !== undefined ? Number(cleanItem.vatValue) : (detailsObj.vatValue !== undefined ? Number(detailsObj.vatValue) : null),
                             details: detailsObj
                         };
                     } else if (table === 'warehouses') {

@@ -1398,6 +1398,35 @@ async function startServer() {
     }
   });
 
+  app.post("/api/send-test-email", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const toEmail = (body.toEmail || "").trim().toLowerCase();
+      if (!toEmail || !toEmail.includes("@")) {
+        return c.json({ success: false, error: "يرجى إدخال عنوان بريد إلكتروني صحيح للاختبار." }, 400);
+      }
+      const testCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const mailResult = await sendOtpByEmail({
+        toEmail,
+        userName: body.userName || "المسؤول / الموكل",
+        otpCode: testCode,
+        storeName: body.storeName || "بوابة الموكل"
+      });
+      if (mailResult.delivered) {
+        return c.json({ 
+          success: true, 
+          message: mailResult.note || `تم إرسال بريد الاختبار بنجاح إلى (${toEmail})! كود التحقق التجريبي هو: ${testCode}` 
+        });
+      }
+      return c.json({ 
+        success: false, 
+        error: mailResult.error || "تعذر إرسال البريد. تأكد من صحة بيانات الخادم وكلمة مرور التطبيق (App Password)." 
+      }, 400);
+    } catch (e: any) {
+      return c.json({ success: false, error: e.message || "حدث خطأ أثناء إرسال بريد الاختبار." }, 500);
+    }
+  });
+
   app.post("/api/verify-otp", async (c) => {
     try {
       const body = await c.req.json().catch(() => ({}));

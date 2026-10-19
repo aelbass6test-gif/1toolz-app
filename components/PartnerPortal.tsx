@@ -7,8 +7,10 @@ import {
   Loader2, RefreshCw, AlertCircle, TrendingUp,
   Copy, Share2, Coins, Package as PackageIcon,
   X, Send, ShieldCheck, Building2, Key, BarChart3,
-  Fingerprint, Scan, Cpu, Trash2, CheckCircle2, Shield, PlusCircle
+  Fingerprint, Scan, Cpu, Trash2, CheckCircle2, Shield, PlusCircle,
+  Truck, Clock, Eye, Sparkles, ExternalLink, ChevronDown, ChevronUp, PackageCheck, Layers
 } from 'lucide-react';
+import { MerchantTransparencyTab } from './MerchantTransparencyTab';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
@@ -53,22 +55,29 @@ const normalizeName = (name: string): string => {
   return normalized;
 };
 
+
+
 interface PartnerPortalProps {
   allStoresData: Record<string, StoreData>;
   updateSettings: (settings: any) => void;
   showToast: (msg: string, type?: 'success' | 'error') => void;
+  portalMode?: 'merchant' | 'partner' | 'all';
 }
 
-type TabKey = 'overview' | 'withdrawals' | 'statement' | 'performance' | 'reports' | 'profile' | 'account';
+type TabKey = 'overview' | 'orders' | 'transparency' | 'withdrawals' | 'statement' | 'performance' | 'reports' | 'profile' | 'account';
 
-export default function PartnerPortal({ allStoresData, updateSettings, showToast: externalShowToast }: PartnerPortalProps) {
+export default function PartnerPortal({ allStoresData, updateSettings, showToast: externalShowToast, portalMode }: PartnerPortalProps) {
   const { storeId, tab: routeTab } = useParams<{ storeId: string; tab?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const locationPath = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '';
+  const modeFromPath: 'merchant' | 'partner' | 'all' = 
+    portalMode || (locationPath.includes('merchant-portal') ? 'merchant' : locationPath.includes('partner-portal') ? 'partner' : 'all');
 
   const urlPartnerId = searchParams.get('p') || searchParams.get('partnerId') || searchParams.get('partner') || '';
   const urlTab = searchParams.get('tab') || routeTab;
 
-  const validTabs: TabKey[] = ['overview', 'withdrawals', 'statement', 'performance', 'reports', 'profile', 'account'];
+  const validTabs: TabKey[] = ['overview', 'orders', 'transparency', 'withdrawals', 'statement', 'performance', 'reports', 'profile', 'account'];
   const activeTab: TabKey = validTabs.includes(urlTab as TabKey) ? (urlTab as TabKey) : 'overview';
 
   const [directStoreData, setDirectStoreData] = useState<StoreData | null>(null);
@@ -78,10 +87,16 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
   const effectiveStoreId = useMemo(() => {
     if (storeId) return storeId;
+    const fromParam = searchParams.get('storeId') || searchParams.get('s');
+    if (fromParam) return fromParam;
+    try {
+      const activeId = localStorage.getItem('activeStoreId') || localStorage.getItem('last_active_store_id');
+      if (activeId && allStoresData[activeId]) return activeId;
+    } catch {}
     const keys = Object.keys(allStoresData);
     if (keys.length > 0) return keys[0];
     return '';
-  }, [storeId, allStoresData]);
+  }, [storeId, searchParams, allStoresData]);
 
   const loadRequests = useCallback(async () => {
     const targetStoreId = storeId || effectiveStoreId;
@@ -133,13 +148,74 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
   const activeStoreData = directStoreData || (storeId && allStoresData[storeId]) || (effectiveStoreId ? allStoresData[effectiveStoreId] : null);
   const settings = (activeStoreData?.settings || { partners: [], partnerTransactions: [], cashHolders: [], cashHandovers: [] }) as any;
-  const partners: Partner[] = settings.partners || [];
+  const rawOrders: Order[] = activeStoreData?.orders || [];
+  
+  const partners: Partner[] = useMemo(() => {
+    const rawPartners: Partner[] = [...(settings.partners || [])];
+    const rawSuppliers: any[] = settings.suppliers || [];
+
+    const list: Partner[] = [];
+    const seen = new Set<string>();
+
+    // 1. If mode is 'partner' or 'all': include profit-share partners ONLY
+    if (modeFromPath === 'partner' || modeFromPath === 'all') {
+      rawPartners.forEach(p => {
+        if (p.id || p.name) {
+          seen.add(p.id || p.name);
+          list.push({ ...p, role: p.role || 'شريك استثماري' });
+        }
+      });
+    }
+
+    // 2. If mode is 'merchant' or 'all': include suppliers / consignment merchants ONLY
+    if (modeFromPath === 'merchant' || modeFromPath === 'all') {
+      rawSuppliers.forEach((s: any) => {
+        const sId = s.id || s.name;
+        if (sId && !seen.has(sId) && !seen.has(s.name)) {
+          seen.add(sId);
+          seen.add(s.name);
+          list.push({
+            id: s.id || `sup_${s.name}`,
+            name: s.name,
+            phone: s.phone,
+            email: s.email || '',
+            balance: s.balance || 0,
+            profitRatio: 50,
+            passcode: '0000',
+            role: 'موكل / مورد بضاعة'
+          });
+        }
+      });
+
+      // Also include unique merchants from orders
+      (rawOrders || []).forEach((o: any) => {
+        const mName = (o.merchantName || '').trim();
+        const mId = (o.merchantId || '').trim();
+        if (mName && mId !== 'pending' && !seen.has(mName) && (!mId || !seen.has(mId))) {
+          seen.add(mName);
+          if (mId) seen.add(mId);
+          list.push({
+            id: mId || `m_${mName}`,
+            name: mName,
+            phone: o.merchantBrandPhone || '',
+            email: '',
+            balance: 0,
+            profitRatio: o.merchantProfitSharePercent || 50,
+            passcode: '0000',
+            role: 'موكل صاحب بضاعة'
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [settings.partners, settings.suppliers, rawOrders, modeFromPath]);
+
   const rawPartnerTransactions: PartnerTransaction[] = settings.partnerTransactions || [];
   const rawCashHandovers = settings.cashHandovers || [];
   const rawWalletTransactions = activeStoreData?.wallet?.transactions || [];
   const rawTreasuryTransactions = activeStoreData?.treasury?.transactions || [];
   const rawSupplyOrders = settings.supplyOrders || [];
-  const rawOrders: Order[] = activeStoreData?.orders || [];
   const rawTreasury: Treasury = activeStoreData?.treasury || { accounts: [], transactions: [] };
   const storeName = activeStoreData?.name || (settings as any)?.storeName || (activeStoreData?.settings as any)?.storeName || 'متجري';
 
@@ -176,6 +252,11 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const [txSearch, setTxSearch] = useState('');
   const [txCategoryFilter, setTxCategoryFilter] = useState<'all' | 'withdrawals' | 'capital' | 'dividends' | 'custody'>('all');
   const [selectedStatementPartner, setSelectedStatementPartner] = useState<Partner | null>(null);
+
+  // Merchant Orders Tab States
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState<'all' | 'shipping' | 'collected' | 'pending' | 'returned'>('all');
+  const [ordersSearchQuery, setOrdersSearchQuery] = useState('');
+  const [expandedPortalOrderId, setExpandedPortalOrderId] = useState<string | null>(null);
 
   // New Request Form State (Withdrawals / Reimbursements / Inquiries)
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -295,6 +376,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         profitDistributions: p.allowedReports?.profitDistributions !== false,
         cashFlowSummary: p.allowedReports?.cashFlowSummary === true
       },
+      canViewOrdersTab: p.canViewOrdersTab !== false,
+      canViewTransparencyTab: p.canViewTransparencyTab !== false,
       canViewProfileTab: p.canViewProfileTab !== false,
       canEditProfile: p.canEditProfile !== false,
       canEditPayoutAccounts: p.canEditPayoutAccounts !== false,
@@ -306,6 +389,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const allowedTabs = useMemo(() => {
     const list: TabKey[] = [];
     if (portalPerms.canViewOverview) list.push('overview');
+    if (portalPerms.canViewOrdersTab !== false) list.push('orders');
+    if (portalPerms.canViewTransparencyTab !== false) list.push('transparency');
     if (portalPerms.canViewWithdrawalsTab) list.push('withdrawals');
     if (portalPerms.canViewStatementTab) list.push('statement');
     if (portalPerms.canViewPerformanceTab) list.push('performance');
@@ -844,6 +929,85 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     };
   }, [livePartner, rawPartnerTransactions, rawCashHandovers, rawWalletTransactions, rawTreasuryTransactions, rawSupplyOrders, rawOrders, rawTreasury, settings, partnerRequestsList, activeStoreData]);
 
+  // Filter and organize orders belonging to this partner/merchant
+  const merchantOrders = useMemo(() => {
+    if (!livePartner) return [];
+    const pName = (livePartner.name || '').trim().toLowerCase();
+    const pId = (livePartner.id || '').trim().toLowerCase();
+    const pPhone = (livePartner.phone || '').trim().toLowerCase();
+
+    return rawOrders.filter(o => {
+      const oMId = (o.merchantId || '').trim().toLowerCase();
+      const oMName = (o.merchantName || '').trim().toLowerCase();
+      if (!oMId && !oMName) return false;
+      if (oMId === 'pending') return false;
+      return oMId === pId || oMName === pName || (pPhone && oMId === pPhone) || oMName === pId;
+    });
+  }, [rawOrders, livePartner]);
+
+  // Status Categorization for Merchant Orders
+  const merchantOrdersCategorized = useMemo(() => {
+    const shippingStatuses = ['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق', 'shipped', 'out_for_delivery'];
+    const deliveredStatuses = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها', 'delivered'];
+    const pendingStatuses = ['جديد', 'مؤكد', 'قيد_التجهيز', 'جاهز_للشحن', 'pending', 'processing'];
+    const returnStatuses = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي', 'returned'];
+
+    const inShipping = merchantOrders.filter(o => shippingStatuses.includes(o.status));
+    const delivered = merchantOrders.filter(o => deliveredStatuses.includes(o.status));
+    const pending = merchantOrders.filter(o => pendingStatuses.includes(o.status));
+    const returns = merchantOrders.filter(o => returnStatuses.includes(o.status));
+
+    const totalCollected = delivered.reduce((sum, o) => {
+      const amt = o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && Number(o.totalAmountOverride) > 0
+        ? Number(o.totalAmountOverride)
+        : (Number(o.totalPrice) || 0);
+      return sum + amt;
+    }, 0);
+
+    const totalGoodsCost = delivered.reduce((sum, o) => {
+      const cost = o.merchantItemCost || (o.items || []).reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
+      return sum + cost;
+    }, 0);
+
+    const returnRate = (delivered.length + returns.length) > 0
+      ? Math.round((returns.length / (delivered.length + returns.length)) * 1000) / 10
+      : 0;
+
+    return {
+      all: merchantOrders,
+      inShipping,
+      delivered,
+      pending,
+      returns,
+      totalCollected: Math.round(totalCollected * 100) / 100,
+      totalGoodsCost: Math.round(totalGoodsCost * 100) / 100,
+      returnRate
+    };
+  }, [merchantOrders]);
+
+  // Filtered orders in the orders tab
+  const filteredMerchantOrders = useMemo(() => {
+    let list = merchantOrders;
+    if (ordersStatusFilter === 'shipping') list = merchantOrdersCategorized.inShipping;
+    else if (ordersStatusFilter === 'collected') list = merchantOrdersCategorized.delivered;
+    else if (ordersStatusFilter === 'pending') list = merchantOrdersCategorized.pending;
+    else if (ordersStatusFilter === 'returned') list = merchantOrdersCategorized.returns;
+
+    if (ordersSearchQuery.trim()) {
+      const q = ordersSearchQuery.trim().toLowerCase();
+      list = list.filter(o => {
+        const num = (o.orderNumber || '').toLowerCase().includes(q);
+        const waybill = (o.waybillNumber || o.bostaTrackingNumber || o.turboTrackingNumber || '').toLowerCase().includes(q);
+        const name = (o.customerName || '').toLowerCase().includes(q);
+        const city = (o.city || o.customerCity || o.governorate || '').toLowerCase().includes(q);
+        const item = (o.items || []).some(i => (i.name || i.productName || '').toLowerCase().includes(q));
+        return num || waybill || name || city || item;
+      });
+    }
+
+    return list;
+  }, [merchantOrders, ordersStatusFilter, ordersSearchQuery, merchantOrdersCategorized]);
+
   // Filtered partner requests for current partner
   const myPartnerRequests = useMemo(() => {
     if (!livePartner) return [];
@@ -897,7 +1061,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   // ----------------------------------------------------
   // Render: Loading Screen (Clean Light Theme)
   // ----------------------------------------------------
-  if (isLoadingStore) {
+  if (isLoadingStore && !activeStoreData) {
     return (
       <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col items-center justify-center p-6 text-center" dir="rtl">
         <div className="w-16 h-16 rounded-2xl bg-[#008060] flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 mb-4 animate-pulse">
@@ -926,6 +1090,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
           sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(p));
         }}
         showToast={showToast}
+        portalMode={modeFromPath}
       />
     );
   }
@@ -1019,6 +1184,39 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
               >
                 <DollarSign size={15} />
                 <span>المركز المالي والأرصدة</span>
+              </button>
+            )}
+
+            {portalPerms.canViewOrdersTab !== false && (
+              <button
+                onClick={() => handleTabChange('orders')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-t-xl transition-all cursor-pointer border-b-2 whitespace-nowrap ${
+                  currentTab === 'orders'
+                    ? 'border-[#008060] text-[#008060] bg-emerald-50/50'
+                    : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <PackageIcon size={15} />
+                <span>أوردراتي وشحناتي</span>
+                {merchantOrders.length > 0 && (
+                  <span className="font-mono text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">
+                    {merchantOrders.length}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {portalPerms.canViewTransparencyTab !== false && (
+              <button
+                onClick={() => handleTabChange('transparency')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs font-black rounded-t-xl transition-all cursor-pointer border-b-2 whitespace-nowrap ${
+                  currentTab === 'transparency'
+                    ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+                    : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Sparkles size={15} className="text-indigo-600" />
+                <span>حركة البضاعة والشفافية</span>
               </button>
             )}
 
@@ -1346,8 +1544,345 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         )}
 
         {/* ---------------------------------------------------- */}
-        {/* TAB 2: طلبات السحب والمصروفات (WITHDRAWALS & REQUESTS)*/}
+        {/* TAB: أوردراتي وشحناتي (MERCHANT ORDERS TRACKING)    */}
         {/* ---------------------------------------------------- */}
+        {currentTab === 'orders' && portalPerms.canViewOrdersTab !== false && (
+          <div className="space-y-6 animate-fade-in text-slate-800" dir="rtl">
+            {/* Header & Quick Stats Strip */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#008060] to-emerald-700 text-white flex items-center justify-center font-black shadow-md shadow-emerald-600/20">
+                    <PackageIcon size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-lg text-slate-900">
+                      متابعة أوردرات وشحنات بضاعتي
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      متابعة لحظية ومباشرة لكافة الشحنات: قيد الشحن، تم تحصيلها، المرتجعات، وتفاصيل الحساب لكل طلب
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleTabChange('transparency')}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition-all cursor-pointer shadow-xs"
+                >
+                  <Sparkles size={15} />
+                  <span>تقرير الشفافية وحركة البضاعة</span>
+                </button>
+              </div>
+
+              {/* 5 Status Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-1">
+                {/* All */}
+                <div 
+                  onClick={() => setOrdersStatusFilter('all')}
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                    ordersStatusFilter === 'all'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="text-[11px] font-bold text-slate-400">إجمالي الأوردرات</div>
+                  <div className="text-xl font-black font-mono mt-1">{merchantOrders.length}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">كافة الشحنات المسجلة</div>
+                </div>
+
+                {/* In Shipping */}
+                <div 
+                  onClick={() => setOrdersStatusFilter('shipping')}
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                    ordersStatusFilter === 'shipping'
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-sm'
+                      : 'bg-sky-50/50 border-sky-200 hover:bg-sky-100/60'
+                  }`}
+                >
+                  <div className={`text-[11px] font-bold ${ordersStatusFilter === 'shipping' ? 'text-sky-100' : 'text-sky-800'}`}>
+                    🚚 جاري الشحن والتوصيل
+                  </div>
+                  <div className="text-xl font-black font-mono mt-1">{merchantOrdersCategorized.inShipping.length}</div>
+                  <div className={`text-[10px] ${ordersStatusFilter === 'shipping' ? 'text-sky-200' : 'text-sky-600'} mt-0.5`}>
+                    مع المناديب وشركات الشحن
+                  </div>
+                </div>
+
+                {/* Delivered & Collected */}
+                <div 
+                  onClick={() => setOrdersStatusFilter('collected')}
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                    ordersStatusFilter === 'collected'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                      : 'bg-emerald-50/50 border-emerald-200 hover:bg-emerald-100/60'
+                  }`}
+                >
+                  <div className={`text-[11px] font-bold ${ordersStatusFilter === 'collected' ? 'text-emerald-100' : 'text-emerald-800'}`}>
+                    💰 تم التحصيل بنجاح
+                  </div>
+                  <div className="text-xl font-black font-mono mt-1">{merchantOrdersCategorized.delivered.length}</div>
+                  <div className={`text-[10px] ${ordersStatusFilter === 'collected' ? 'text-emerald-200' : 'text-emerald-600'} mt-0.5 font-mono`}>
+                    محصل: {merchantOrdersCategorized.totalCollected.toLocaleString()} ج.م
+                  </div>
+                </div>
+
+                {/* Pending */}
+                <div 
+                  onClick={() => setOrdersStatusFilter('pending')}
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                    ordersStatusFilter === 'pending'
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                      : 'bg-amber-50/50 border-amber-200 hover:bg-amber-100/60'
+                  }`}
+                >
+                  <div className={`text-[11px] font-bold ${ordersStatusFilter === 'pending' ? 'text-amber-100' : 'text-amber-800'}`}>
+                    ⏳ قيد التجهيز بالمستودع
+                  </div>
+                  <div className="text-xl font-black font-mono mt-1">{merchantOrdersCategorized.pending.length}</div>
+                  <div className={`text-[10px] ${ordersStatusFilter === 'pending' ? 'text-amber-200' : 'text-amber-600'} mt-0.5`}>
+                    قيد التأكيد والتعبئة
+                  </div>
+                </div>
+
+                {/* Returned */}
+                <div 
+                  onClick={() => setOrdersStatusFilter('returned')}
+                  className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                    ordersStatusFilter === 'returned'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                      : 'bg-rose-50/50 border-rose-200 hover:bg-rose-100/60'
+                  }`}
+                >
+                  <div className={`text-[11px] font-bold ${ordersStatusFilter === 'returned' ? 'text-rose-100' : 'text-rose-800'}`}>
+                    🔄 المرتجعات والفاشل
+                  </div>
+                  <div className="text-xl font-black font-mono mt-1">{merchantOrdersCategorized.returns.length}</div>
+                  <div className={`text-[10px] ${ordersStatusFilter === 'returned' ? 'text-rose-200' : 'text-rose-600'} mt-0.5`}>
+                    نسبة الارتجاع: {merchantOrdersCategorized.returnRate}%
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="relative flex-1 w-full">
+                <Search size={16} className="absolute right-3.5 top-3 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="بحث برقم الطلب، رقم البوليصة، اسم العميل، المدينة، أو الصنف..."
+                  value={ordersSearchQuery}
+                  onChange={e => setOrdersSearchQuery(e.target.value)}
+                  className="w-full pr-10 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-[#008060] transition-all"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="text-xs text-slate-500 font-bold whitespace-nowrap">
+                  عرض ({filteredMerchantOrders.length}) طلب
+                </span>
+              </div>
+            </div>
+
+            {/* Orders Table */}
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                      <th className="py-3 px-4">رقم الطلب والتاريخ</th>
+                      <th className="py-3 px-3">شركة الشحن والتتبع</th>
+                      <th className="py-3 px-3">العميل والمحافظة</th>
+                      <th className="py-3 px-3">الأصناف المشمولة</th>
+                      <th className="py-3 px-3 text-center">حالة التوصيل</th>
+                      <th className="py-3 px-3 text-center">المحصل من العميل</th>
+                      <th className="py-3 px-3 text-center text-sky-800">رأس مال البضاعة</th>
+                      <th className="py-3 px-3 text-center text-emerald-700">الصافي للموكل</th>
+                      <th className="py-3 px-2 text-center">تفاصيل</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMerchantOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-16 text-center text-slate-400">
+                          <PackageIcon size={40} className="mx-auto mb-2 text-slate-300" />
+                          <div className="font-bold text-slate-600">لا توجد طلبات مسجلة مطابقة لهذا الفلتر</div>
+                          <div className="text-xs text-slate-400 mt-1">
+                            عند تسجيل وتخصيص أوردرات باسمك، ستظهر هنا وتُحدث لحظياً
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredMerchantOrders.map(o => {
+                        const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status);
+                        const isReturn = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي'].includes(o.status);
+                        const isShipping = ['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق'].includes(o.status);
+                        const isExpanded = expandedPortalOrderId === o.id;
+
+                        const itemsCount = (o.items || []).reduce((s, i) => s + (i.quantity || 1), 0);
+                        const itemsSummary = (o.items || []).map(i => `${i.name || i.productName || 'منتج'} (x${i.quantity || 1})`).join('، ');
+
+                        const collectedAmt = isDelivered 
+                          ? (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && Number(o.totalAmountOverride) > 0
+                              ? Number(o.totalAmountOverride)
+                              : (Number(o.totalPrice) || 0))
+                          : 0;
+
+                        const goodsCost = o.merchantItemCost || (o.items || []).reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
+                        const shippingCost = Number(o.shippingFee) || 0;
+                        const serviceFee = Number(o.serviceFeePerOrder) || 0;
+                        const netForMerchant = isDelivered 
+                          ? (collectedAmt - shippingCost - serviceFee) 
+                          : isReturn 
+                          ? (-shippingCost) 
+                          : goodsCost;
+
+                        const trackingNum = o.waybillNumber || o.bostaTrackingNumber || o.turboTrackingNumber || '';
+
+                        return (
+                          <React.Fragment key={o.id}>
+                            <tr 
+                              onClick={() => setExpandedPortalOrderId(isExpanded ? null : o.id)}
+                              className={`cursor-pointer transition-colors ${isExpanded ? 'bg-emerald-50/40' : 'hover:bg-slate-50/80'}`}
+                            >
+                              <td className="py-3.5 px-4">
+                                <div className="font-mono font-black text-slate-900">#{o.orderNumber || o.id}</div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  {new Date(o.date).toLocaleDateString('ar-EG')}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                                  <Truck size={13} className="text-slate-400 shrink-0" />
+                                  <span>{o.shippingCompany || 'شركة الشحن'}</span>
+                                </div>
+                                {trackingNum ? (
+                                  <div className="text-[10px] font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded inline-block mt-0.5 border border-emerald-200">
+                                    بوليصة: {trackingNum}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-slate-400 mt-0.5">قيد إصدار البوليصة</div>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-3">
+                                <div className="font-bold text-slate-800 truncate max-w-[130px]">{o.customerName}</div>
+                                <div className="text-[10px] text-slate-400">{o.city || o.customerCity || o.governorate || 'المحافظة'}</div>
+                              </td>
+
+                              <td className="py-3.5 px-3 max-w-[180px] truncate" title={itemsSummary}>
+                                <div className="text-slate-700 font-semibold">{itemsSummary || 'منتج عام'}</div>
+                                <div className="text-[10px] text-slate-400">{itemsCount} قطع بالطلب</div>
+                              </td>
+
+                              <td className="py-3.5 px-3 text-center">
+                                <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black ${
+                                  isDelivered 
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                    : isReturn 
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-200' 
+                                    : isShipping 
+                                    ? 'bg-sky-100 text-sky-800 border border-sky-200' 
+                                    : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                }`}>
+                                  {o.status}
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-900">
+                                {collectedAmt > 0 ? `${collectedAmt.toLocaleString()} ج.م` : '—'}
+                              </td>
+
+                              <td className="py-3.5 px-3 text-center font-mono font-bold text-sky-800">
+                                {goodsCost.toLocaleString()} <span className="text-[10px] text-sky-500">ج.م</span>
+                              </td>
+
+                              <td className="py-3.5 px-3 text-center font-mono font-black">
+                                <span className={`inline-block px-2 py-0.5 rounded-lg ${
+                                  netForMerchant >= 0 ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'
+                                }`}>
+                                  {netForMerchant.toLocaleString()} ج.م
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-2 text-center text-slate-400">
+                                {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                              </td>
+                            </tr>
+
+                            {/* Expanded Details Row */}
+                            {isExpanded && (
+                              <tr className="bg-slate-50/90 border-y-2 border-emerald-100">
+                                <td colSpan={9} className="p-4">
+                                  <div className="space-y-3 max-w-4xl mx-auto text-xs">
+                                    <div className="bg-white p-3.5 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                                      <div className="flex items-center gap-2">
+                                        <PackageCheck size={16} className="text-[#008060]" />
+                                        <span className="font-bold text-slate-800">بيانات الحساب المالي لهذا الطلب:</span>
+                                      </div>
+                                      <div className="font-mono text-xs font-bold text-slate-700 bg-slate-50 px-3 py-1 rounded-lg border border-slate-200">
+                                        {isDelivered ? (
+                                          <span>التحصيل ({collectedAmt}) - الشحن ({shippingCost}) - عمولة الخدمة ({serviceFee}) = <span className="text-emerald-700 font-black">{netForMerchant} ج.م</span></span>
+                                        ) : isReturn ? (
+                                          <span>خسارة شحن المرتجع = <span className="text-rose-700 font-black">-{shippingCost} ج.م</span></span>
+                                        ) : (
+                                          <span>بضاعة قيد التوصيل، رأس المال المستحق عند التسليم: {goodsCost} ج.م</span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Order Items Breakdown */}
+                                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                                      <div className="px-3 py-2 bg-slate-100/70 text-[11px] font-bold text-slate-700 border-b border-slate-200">
+                                        أصناف بضاعتك بالطلب:
+                                      </div>
+                                      <div className="divide-y divide-slate-100">
+                                        {(o.items || []).map((it, idx) => (
+                                          <div key={idx} className="p-3 flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <div className="w-2 h-2 rounded-full bg-[#008060]" />
+                                              <span className="font-bold text-slate-900">{it.name || it.productName}</span>
+                                              <span className="text-slate-400 font-mono text-[11px]">(x{it.quantity || 1})</span>
+                                            </div>
+                                            <div className="flex items-center gap-4 font-mono text-xs">
+                                              <span className="text-slate-500">سعر البيع: {it.price || 0} ج.م</span>
+                                              <span className="text-sky-800 font-bold">تكلفة القطعة: {it.cost || 0} ج.م</span>
+                                              <span className="text-slate-900 font-black">إجمالي التكلفة: {((it.cost || 0) * (it.quantity || 1)).toLocaleString()} ج.م</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------------------------------------------------- */}
+        {/* TAB: حركة البضاعة والشفافية (TRANSPARENCY TAB)      */}
+        {/* ---------------------------------------------------- */}
+        {currentTab === 'transparency' && portalPerms.canViewTransparencyTab !== false && (
+          <div className="space-y-6">
+            <MerchantTransparencyTab
+              orders={rawOrders}
+              settings={settings}
+              customers={activeStoreData?.customers || []}
+              initialMerchantIdOrName={livePartner.id || livePartner.name}
+            />
+          </div>
+        )}
         {currentTab === 'withdrawals' && portalPerms.canViewWithdrawalsTab && (
           <div className="space-y-6">
             

@@ -27,6 +27,7 @@ interface PartnerAuthViewProps {
   updateSettings: (newSettings: any) => void;
   onAuthenticated: (partner: Partner) => void;
   showToast: (msg: string, type?: 'success' | 'error') => void;
+  portalMode?: 'merchant' | 'partner' | 'all';
 }
 
 export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
@@ -36,7 +37,8 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
   settings,
   updateSettings,
   onAuthenticated,
-  showToast
+  showToast,
+  portalMode = 'all'
 }) => {
   // Modes: 'biometric' (Instant & High Security) | 'otp' (Email OTP) | 'pin' (Fast access) | 'forgot' (Reset)
   const [authMode, setAuthMode] = useState<'biometric' | 'otp' | 'pin' | 'forgot'>('otp');
@@ -571,7 +573,13 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
           </h1>
           <div className="flex items-center justify-center gap-1.5 text-xs text-[#008060] dark:text-emerald-400 font-bold mt-1.5">
             <Shield size={14} />
-            <span>بوابة الشركاء المالية المعتمدة • حماية أمنية مشفرة</span>
+            <span>
+              {portalMode === 'merchant'
+                ? 'بوابة الموكلين والموردين الإلكترونية (تسوية الحسابات والبضائع)'
+                : portalMode === 'partner'
+                ? 'بوابة الشركاء الاستثماريين (المركز المالي والأرباح)'
+                : 'بوابة الموكلين والشركاء المالية المعتمدة • حماية أمنية مشفرة'}
+            </span>
           </div>
         </div>
 
@@ -852,10 +860,14 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-xs font-black text-slate-800 dark:text-slate-200">
-                      اختر حساب الشريك المسجل:
+                      {portalMode === 'merchant'
+                        ? 'اختر حساب الموكل / المورد المسجل:'
+                        : portalMode === 'partner'
+                        ? 'اختر حساب الشريك الاستثماري المسجل:'
+                        : 'اختر الحساب المسجل:'}
                     </label>
                     <span className="text-[11px] text-slate-400">
-                      ({partners.length} شركاء)
+                      ({partners.length} {portalMode === 'merchant' ? 'موكلين/موردين' : portalMode === 'partner' ? 'شركاء' : 'حسابات'})
                     </span>
                   </div>
 
@@ -963,6 +975,19 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                           <span>إرسال كود التحقق (OTP) إلى بريدك الإلكتروني</span>
                         </>
                       )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAuthenticated(activePartner);
+                        showToast(`تم تسجيل الدخول الفوري لحساب الموكل: ${activePartner.name}`, 'success');
+                      }}
+                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border border-slate-200 dark:border-slate-700"
+                      title="الدخول الفوري لمعاينة البوابة والمحفظة والأوردرات كمسؤول"
+                    >
+                      <Sparkles size={14} className="text-amber-500" />
+                      <span>دخول تجريبي فوري (معاينة كمسؤول) 🚀</span>
                     </button>
                   </div>
                 ) : (

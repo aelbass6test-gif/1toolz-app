@@ -20,6 +20,8 @@ interface PartnerPermissionsModalProps {
 
 const DEFAULT_PORTAL_PERMISSIONS: Required<Omit<PartnerPortalPermissions, 'allowedReports'>> = {
   canViewOverview: true,
+  canViewOrdersTab: true,
+  canViewTransparencyTab: true,
   canViewCapital: true,
   canViewProfits: true,
   canViewCustody: true,
@@ -54,6 +56,8 @@ export const PartnerPermissionsModal: React.FC<PartnerPermissionsModalProps> = (
     const existing = partner.portalPermissions || {};
     return {
       canViewOverview: existing.canViewOverview ?? true,
+      canViewOrdersTab: existing.canViewOrdersTab ?? true,
+      canViewTransparencyTab: existing.canViewTransparencyTab ?? true,
       canViewCapital: existing.canViewCapital ?? true,
       canViewProfits: existing.canViewProfits ?? true,
       canViewCustody: existing.canViewCustody ?? true,
@@ -129,6 +133,8 @@ export const PartnerPermissionsModal: React.FC<PartnerPermissionsModalProps> = (
     } else if (preset === 'restricted') {
       setPortalPerms({
         canViewOverview: true,
+        canViewOrdersTab: true,
+        canViewTransparencyTab: true,
         canViewCapital: false,
         canViewProfits: true,
         canViewCustody: true,
@@ -158,6 +164,8 @@ export const PartnerPermissionsModal: React.FC<PartnerPermissionsModalProps> = (
     } else if (preset === 'statements_only') {
       setPortalPerms({
         canViewOverview: true,
+        canViewOrdersTab: true,
+        canViewTransparencyTab: false,
         canViewCapital: false,
         canViewProfits: false,
         canViewCustody: false,

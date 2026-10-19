@@ -677,9 +677,15 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
   
   const isInsured = o.isInsured ?? true;
-  const insuranceFee = o.insuranceFee ?? (isInsured ? calculateInsuranceFee(o, insuranceRate, settings) : 0);
-  const effectiveInspectionCost = o.inspectionFee ?? (o.includeInspectionFee === false ? 0 : inspectionCost);
-  const bostaVat = calculateBostaVat(o, insuranceFee, settings);
+  const insuranceFee = (o.insuranceFee !== undefined && o.insuranceFee !== null && Number(o.insuranceFee) > 0)
+    ? Number(o.insuranceFee)
+    : (isInsured ? calculateInsuranceFee(o, insuranceRate, settings) : 0);
+  const effectiveInspectionCost = (o.inspectionFee !== undefined && o.inspectionFee !== null && Number(o.inspectionFee) > 0)
+    ? Number(o.inspectionFee)
+    : (o.includeInspectionFee === false ? 0 : inspectionCost);
+  const bostaVat = (o.vatValue !== undefined && o.vatValue !== null && Number(o.vatValue) > 0 && !o.vatOnStandardShipping)
+    ? Number(o.vatValue)
+    : calculateBostaVat(o, insuranceFee, settings);
   
   const manualShippingFee = (o.isManualShippingOverride && o.shippingFee !== undefined) ? o.shippingFee : null;
   const isSuccessful = o.status === 'تم_الاستبدال' || o.status === 'تم_التحصيل' || o.status === 'مدفوعة' || o.status === 'تم_توصيلها' || o.status === 'تم_التوصيل';

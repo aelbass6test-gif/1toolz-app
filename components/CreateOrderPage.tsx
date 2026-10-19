@@ -318,7 +318,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             });
         }
 
-        const orderWithId: Order = { 
+        let orderWithId: Order = { 
             ...orderToAdd, 
             id,
             insuranceFee,
@@ -660,7 +660,7 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                             store_id: activeStore.id,
                             order_id: orderWithId.id,
                             customer_phone: orderWithId.customerPhone || '',
-                            provider: settings.whatsappConfig?.providerType === 'direct_web' ? 'direct_web' : 'meta_cloud',
+                            provider: (settings.whatsappConfig?.providerType as any) === 'direct_web' ? 'direct_web' : 'meta_cloud',
                             provider_message_id: sendResult.messageId || `local_${Date.now()}`,
                             direction: 'outgoing',
                             message_type: 'interactive',
