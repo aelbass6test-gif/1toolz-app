@@ -10,7 +10,8 @@ import {
     deleteDoc, 
     query, 
     where, 
-    onSnapshot 
+    onSnapshot,
+    runTransaction
 } from 'firebase/firestore';
 import { 
     Store, 
@@ -2504,12 +2505,22 @@ export const updatePartnerRequestStatus = async (requestId: string, storeId: str
     try {
         if (firebaseDb) {
             const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            await setDoc(reqRef, { status, updatedAt: new Date().toISOString() }, { merge: true });
+            const updated = await runTransaction(firebaseDb, async (transaction) => {
+                const snapshot = await transaction.get(reqRef);
+                if (!snapshot.exists()) return false;
+                const data = snapshot.data() as PartnerPortalRequest;
+                if (data.storeId !== storeId || data.status !== 'pending') return false;
+                transaction.update(reqRef, { status, updatedAt: new Date().toISOString() });
+                return true;
+            });
+            if (!updated) return false;
         }
 
         try {
             const localKey = `partner_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const matchingRequest = existing.find((r: any) => r.id === requestId && r.storeId === storeId);
+            if (!firebaseDb && (!matchingRequest || matchingRequest.status !== 'pending')) return false;
             const updated = existing.map((r: any) => r.id === requestId ? { ...r, status } : r);
             localStorage.setItem(localKey, JSON.stringify(updated));
         } catch (_) {}

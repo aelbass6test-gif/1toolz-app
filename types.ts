@@ -1816,6 +1816,9 @@ export interface MerchantSettlement {
   totalCollectionFees: number;     // عمولات التحصيل النقدية (COD Fees)
   netPayoutToMerchant: number;      // الصافي المستحق للتحويل لصاحب البضاعة
   status: 'draft' | 'paid';         // حالة التسوية (مسودة / تم تحويل المبالغ)
+  reversedAt?: string;
+  reversedBy?: string;
+  reversalNote?: string;
   paidFromTreasuryAccountId?: string;// الخزينة التي تم الصرف منها
   paidFromTreasuryAccountName?: string;
   notes?: string;                   // ملاحظات التسوية

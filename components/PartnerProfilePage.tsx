@@ -1165,10 +1165,10 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                     <button
                       onClick={async () => {
                         const amt = Number(req.amount || 0);
-                        if (storeId) {
-                          await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
-                          setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
-                        }
+                        if (!storeId || req.status !== 'pending') return;
+                        const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+                        if (!statusUpdated) return;
+                        setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
                         const updatedRequests = allPartnerRequests.map((r: any) => r.id === req.id ? { ...r, status: 'approved' } : r);
                         let updatedTxs = settings.partnerTransactions || [];
                         if (req.type === 'withdrawal' && amt > 0) {
@@ -1245,10 +1245,8 @@ const PartnerProfilePage: React.FC<PartnerProfilePageProps> = ({ settings, updat
                     </button>
                     <button
                       onClick={async () => {
-                        if (storeId) {
-                          await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
-                          setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
-                        }
+                        if (!storeId || !(await db.updatePartnerRequestStatus(req.id, storeId, 'rejected'))) return;
+                        setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
                         const updatedRequests = allPartnerRequests.map((r: any) => r.id === req.id ? { ...r, status: 'rejected' } : r);
                         updateSettings({
                           ...settings,

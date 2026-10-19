@@ -87,7 +87,9 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
 
   const stats = useMemo(() => {
     const totalBalance = merchants.reduce((sum, m) => sum + (m.balance || 0), 0);
-    const totalSettlements = (settings.merchantSettlements || []).reduce((sum, s) => sum + (s.netPayoutToMerchant || 0), 0);
+    const totalSettlements = (settings.merchantSettlements || [])
+      .filter(s => s.status === 'paid' && !s.reversedAt)
+      .reduce((sum, s) => sum + (s.netPayoutToMerchant || 0), 0);
     const activeMerchants = merchants.filter(m => (m.balance || 0) !== 0).length;
     
     return {
@@ -99,25 +101,37 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
   }, [merchants, settings.merchantSettlements]);
 
   const handleApproveRequest = async (req: any) => {
-    if (storeId) {
-      await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
-      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
-    }
-
     const amt = Number(req.amount || 0);
     const supplierId = req.partnerId;
-    const supplier = (settings.suppliers || {})[supplierId];
+    const supplierList = Array.isArray(settings.suppliers)
+      ? settings.suppliers
+      : Object.values(settings.suppliers || {}) as any[];
+    const supplier = supplierList.find(m => m.id === supplierId);
 
-    if (!supplier) {
-        showToast('فشل العثور على الموكل المرتبط بالطلب', 'error');
-        return;
+    if (req.status !== 'pending') {
+      showToast('تمت معالجة هذا الطلب مسبقاً أو لم يعد معلقاً', 'error');
+      return;
     }
+    if (!storeId || !Number.isFinite(amt) || amt <= 0) {
+      showToast('بيانات الطلب غير مكتملة أو مبلغ السحب غير صالح', 'error');
+      return;
+    }
+    if (!supplier) {
+      showToast('فشل العثور على الموكل المرتبط بالطلب', 'error');
+      return;
+    }
+    if (amt > (supplier.balance || 0)) {
+      showToast('مبلغ السحب يتجاوز الرصيد المتاح للموكل', 'error');
+      return;
+    }
+    const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+    if (!statusUpdated) {
+      showToast('تعذر اعتماد الطلب؛ ربما تمت معالجته من شاشة أخرى. حدّث القائمة وحاول مجدداً.', 'error');
+      return;
+    }
+    setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     const newBalance = (supplier.balance || 0) - amt;
-    const updatedSuppliers = {
-        ...settings.suppliers,
-        [supplierId]: { ...supplier, balance: newBalance }
-    };
 
     const newTx: MerchantTransaction = {
         id: generateSafeId('mtx'),
@@ -126,9 +140,14 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
         type: 'withdrawal',
         amount: -amt,
         date: new Date().toISOString(),
-        notes: `اعتماد طلب سحب من البوابة: ${req.notes || ''}`,
-        balanceAfter: newBalance
+      notes: `اعتماد طلب سحب من البوابة: ${req.notes || ''}`,
+      balanceAfter: newBalance,
+      referenceId: req.id
     };
+
+    const updatedSuppliers = supplierList.map(m => m.id === supplierId
+      ? { ...m, balance: newBalance, transactions: [newTx, ...(m.transactions || [])] }
+      : m);
 
     const updatedSettings = {
       ...settings,
@@ -501,7 +520,11 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
                         <button
                           onClick={async () => {
                             if (storeId) {
-                                await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
+                                const rejected = await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
+                                if (!rejected) {
+                                  showToast('لم يتم رفض الطلب؛ ربما تمت معالجته مسبقاً. حدّث القائمة.', 'error');
+                                  return;
+                                }
                                 setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
                                 showToast('تم رفض طلب الموكل', 'error');
                             }
