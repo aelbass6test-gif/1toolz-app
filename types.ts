@@ -600,6 +600,7 @@ export interface Partner {
     instaPayHandle?: string; // حساب إنستاباي
     bankName?: string; // اسم البنك
     bankAccount?: string; // رقم الحساب أو الآيبان
+    beneficiaryName?: string; // اسم المستفيد
   };
   isEmailVerified?: boolean; // هل تم تأكيد البريد الإلكتروني بكود
   emailVerifiedAt?: string; // تاريخ تأكيد البريد
@@ -665,6 +666,8 @@ export interface MerchantTransaction {
   balanceAfter: number;
   notes: string;
   referenceId?: string; // Order ID or Settlement ID or Request ID
+  transferReference?: string; // رقم المرجع البنكي / التحويل
+  receiptImage?: string; // صورة إيصال التحويل المرفقة
   performedBy?: string;
 }
 
@@ -1838,22 +1841,32 @@ export interface MerchantSettlementOrderSnapshot {
   status: string;
   customerName?: string;
   shippingCompany?: string;
-  collectedAmount: number;
-  merchantGoodsCost: number;
-  customerPaidShipping: number;
-  officialShippingFee: number;
-  shippingDiscountDifference: number;
-  carrierAdditionalFees: number;
-  collectionFee: number;
-  marketingCost: number;
-  serviceFee: number;
-  returnLoss: number;
-  netMerchantAmount: number;
+  collectedAmount?: number;
+  merchantGoodsCost?: number;
+  customerPaidShipping?: number;
+  officialShippingFee?: number;
+  shippingDiscountDifference?: number;
+  carrierAdditionalFees?: number;
+  collectionFee?: number;
+  marketingCost?: number;
+  serviceFee?: number;
+  returnLoss?: number;
+  netMerchantAmount?: number;
   insuranceFee?: number;
   vatFee?: number;
   inspectionFee?: number;
   mode?: 'fixed_fee' | 'profit_share' | 'wholesale';
   sharePercent?: number;
+  accountingMode?: 'fixed_fee' | 'profit_share' | 'wholesale' | string;
+  goodsCost?: number;
+  shippingFee?: number;
+  codFee?: number;
+  totalShippingAndCarrierFees?: number;
+  marketingFee?: number;
+  returnFee?: number;
+  collectedRevenue?: number;
+  netPayoutToMerchant?: number;
+  operatorEarnings?: number;
 }
 
 export interface TreasuryAccount {

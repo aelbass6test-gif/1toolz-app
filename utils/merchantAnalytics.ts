@@ -16,7 +16,7 @@ export const TRANSPARENCY_RETURN_STATUSES = [
   'تمت_الاعادة_لشركة_الشحن',
   'مرتجع_جزئي',
   'مرتجع_بعد_الاستلام',
-  'ملغي'
+  'تم_الاستبدال'
 ];
 
 export interface ProductMovementItem {
@@ -126,36 +126,47 @@ export function computeOrderCarrierBreakdown(order: Order, settings: Settings) {
 
   // 2. Insurance fee
   const insuranceRate = useCustom 
-    ? (compFees?.insuranceFeePercent ?? 0) 
-    : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+    ? (compFees?.insuranceFeePercent ?? 1) 
+    : (settings?.enableInsurance !== false ? (settings?.insuranceFeePercent ?? 1) : 0);
   const isInsured = order.isInsured ?? true;
   const calculatedInsurance = isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
-  const insuranceFee = (order.insuranceFee !== undefined && order.insuranceFee !== null && Number(order.insuranceFee) > 0)
-    ? Number(order.insuranceFee)
-    : calculatedInsurance;
+  const insuranceFee = Number((
+    (order.insuranceFee !== undefined && order.insuranceFee !== null && Number(order.insuranceFee) > 0)
+      ? Number(order.insuranceFee)
+      : calculatedInsurance
+  ).toFixed(2));
 
-  // 3. Inspection fee
+  // 3. Inspection fee (المعاينة / السماح بفتح الطرد: 7.00 ج.م)
+  const isCompanyBosta = order.shippingCompany?.toLowerCase().includes('bosta') || order.shippingCompany === 'بوسطة';
+  const defaultInspection = isCompanyBosta ? 7 : 0;
   const inspectionCost = useCustom 
-    ? (compFees?.inspectionFee ?? 0) 
-    : (settings.enableInspection ? settings.inspectionFee : 0);
-  const inspectionFee = (order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0)
-    ? Number(order.inspectionFee)
-    : (order.includeInspectionFee === false ? 0 : inspectionCost);
+    ? (compFees?.inspectionFee ?? defaultInspection) 
+    : (settings?.enableInspection !== false ? (settings?.inspectionFee ?? defaultInspection) : 0);
+  const isInspectionEnabled = (order.includeInspectionFee ?? true) || order.allowOpenShipment === true;
+  const inspectionFee = Number((
+    (order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0)
+      ? Number(order.inspectionFee)
+      : (baseShippingFee > 0 && isInspectionEnabled ? inspectionCost : 0)
+  ).toFixed(2));
 
-  // 4. VAT 14%
-  const vatFee = (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
-    ? Number(order.vatValue)
-    : calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings);
+  // 4. COD Fee
+  const codFee = Number((isDelivered && order.status !== 'مدفوعة' ? calculateCodFee(order, settings) : 0).toFixed(2));
 
-  // 5. COD Fee
-  const codFee = isDelivered && order.status !== 'مدفوعة' ? calculateCodFee(order, settings) : 0;
+  // 5. VAT 14% (ضريبة القيمة المضافة 14% على الشحن + التأمين + المعاينة + رسوم التحصيل)
+  const calculatedVat = calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings);
+  const fallbackVat = baseShippingFee > 0 ? Number(((baseShippingFee + insuranceFee + inspectionFee + codFee) * 0.14).toFixed(2)) : 0;
+  const vatFee = Number((
+    (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
+      ? Number(order.vatValue)
+      : (calculatedVat > 0 ? calculatedVat : fallbackVat)
+  ).toFixed(2));
 
   // Carrier Additional: insurance + vat + inspection
-  const carrierAdditionalFees = Math.round((insuranceFee + vatFee + inspectionFee) * 100) / 100;
-  const totalShippingAndCarrier = Math.round((baseShippingFee + carrierAdditionalFees + codFee) * 100) / 100;
+  const carrierAdditionalFees = Number((insuranceFee + vatFee + inspectionFee).toFixed(2));
+  const totalShippingAndCarrier = Number((baseShippingFee + carrierAdditionalFees + codFee).toFixed(2));
 
   return {
-    baseShippingFee,
+    baseShippingFee: Number(baseShippingFee.toFixed(2)),
     insuranceFee,
     inspectionFee,
     vatFee,
@@ -420,9 +431,15 @@ export function calculateMerchantTransparencyAnalytics(
 
     orderItems.forEach(item => {
       const key = item.productId || item.name || 'unknown';
+      const rawSku = String((item as any).sku || item.productId || '').trim();
+      const formattedSku = !rawSku || rawSku === 'general' || rawSku === 'p_unknown' || rawSku === '-'
+        ? '—'
+        : (rawSku.startsWith('wuilt_prod_') || rawSku.length > 14)
+          ? `SKU-${rawSku.replace(/^wuilt_prod_/i, '').split('_')[0].slice(-6).toUpperCase()}`
+          : rawSku;
       const existing = productMovementMap.get(key) || {
         productId: item.productId || 'p_unknown',
-        sku: (item as any).sku || item.productId || '-',
+        sku: formattedSku,
         name: item.name || (item as any).productName || 'منتج',
         image: item.thumbnail || item.image,
         totalQuantityOrdered: 0,
@@ -635,325 +652,550 @@ export function printMerchantTransparencyReport(
   storeName: string = 'المتجر الإلكتروني'
 ) {
   const isProfit = analytics.merchantNetProfitOrLoss >= 0;
+  const formatSku = (sku?: string) => {
+    if (!sku || sku === '-') return '';
+    if (sku.startsWith('imported-')) {
+      const parts = sku.split('-');
+      return `SKU-${parts[parts.length - 1] || sku.slice(-4)}`;
+    }
+    return sku.length > 18 ? sku.slice(0, 16) + '…' : sku;
+  };
+
+  const totalOrderedUnits = analytics.productMovements.reduce((s, p) => s + p.totalQuantityOrdered, 0);
+  const totalDeliveredUnits = analytics.productMovements.reduce((s, p) => s + p.quantityDelivered, 0);
+  const totalReturnedUnits = analytics.productMovements.reduce((s, p) => s + p.quantityReturned, 0);
+  const totalSalesSum = analytics.productMovements.reduce((s, p) => s + p.totalDeliveredSales, 0);
+  const totalCostSum = analytics.productMovements.reduce((s, p) => s + p.totalDeliveredCost, 0);
+  const totalExpSum = analytics.productMovements.reduce((s, p) => s + p.allocatedExpenses, 0);
+  const totalNetProfitSum = analytics.productMovements.reduce((s, p) => s + p.netProfit, 0);
+
+  const printDate = new Date().toLocaleDateString('ar-EG', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
   const printHtml = `
     <!DOCTYPE html>
     <html dir="rtl" lang="ar">
     <head>
       <meta charset="utf-8">
       <title>تقرير الشفافية ومحاسبة الموكل - ${analytics.merchantDisplayName}</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap" rel="stylesheet">
       <style>
-        @page { size: A4; margin: 12mm 10mm; }
-        * { box-sizing: border-box; }
+        @page { size: A4 portrait; margin: 10mm 10mm; }
+        * {
+          box-sizing: border-box;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
         body {
-          font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+          font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif;
           color: #0f172a;
           background: #ffffff;
           margin: 0;
-          padding: 10px;
+          padding: 8px;
           font-size: 11px;
-          line-height: 1.4;
+          line-height: 1.45;
+          direction: rtl;
         }
-        .header {
+        .report-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          border-bottom: 2px solid #0f172a;
-          padding-bottom: 12px;
-          margin-bottom: 16px;
+          background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+          color: #ffffff;
+          padding: 16px 20px;
+          border-radius: 12px;
+          border-bottom: 4px solid #10b981;
+          margin-bottom: 14px;
         }
-        .header h1 {
-          margin: 0 0 4px 0;
+        .report-header h1 {
+          margin: 0;
           font-size: 18px;
-          color: #0f172a;
-          font-weight: 800;
+          font-weight: 900;
+          color: #ffffff;
+          letter-spacing: -0.2px;
         }
-        .header .subtitle {
-          color: #475569;
+        .report-header .subtitle {
+          color: #94a3b8;
           font-size: 11px;
-          font-weight: 500;
+          font-weight: 600;
+          margin-top: 3px;
         }
-        .meta-grid {
+        .merchant-badge {
+          text-align: left;
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.16);
+          padding: 8px 14px;
+          border-radius: 10px;
+        }
+        .merchant-badge .m-name {
+          font-weight: 900;
+          font-size: 14px;
+          color: #34d399;
+        }
+        .merchant-badge .m-date {
+          font-size: 10px;
+          color: #cbd5e1;
+          margin-top: 2px;
+        }
+        .meta-strip {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
-          gap: 10px;
+          gap: 8px;
           background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
           padding: 10px 14px;
-          margin-bottom: 16px;
+          margin-bottom: 14px;
         }
         .meta-item .label {
           color: #64748b;
-          font-size: 9px;
-          font-weight: 600;
-          text-transform: uppercase;
+          font-size: 9.5px;
+          font-weight: 700;
         }
         .meta-item .val {
           color: #0f172a;
-          font-size: 12px;
-          font-weight: 700;
+          font-size: 11.5px;
+          font-weight: 800;
           margin-top: 2px;
         }
-        .kpi-row {
+        .kpi-grid {
           display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 10px;
+          grid-template-columns: repeat(6, 1fr);
+          gap: 8px;
           margin-bottom: 16px;
         }
-        .kpi-card {
+        .kpi-box {
           border: 1px solid #cbd5e1;
-          border-radius: 8px;
-          padding: 10px;
+          border-radius: 10px;
+          padding: 9px 8px;
           text-align: center;
           background: #ffffff;
         }
-        .kpi-card.highlight {
-          background: #f0fdf4;
-          border-color: #86efac;
-        }
-        .kpi-card.highlight-profit {
-          background: #ecfdf5;
-          border-color: #10b981;
-        }
-        .kpi-card .kpi-label {
-          font-size: 10px;
+        .kpi-box.capital { background: #f0f9ff; border-color: #bae6fd; }
+        .kpi-box.deduction { background: #fff1f2; border-color: #fecdd3; }
+        .kpi-box.profit { background: ${isProfit ? '#ecfdf5' : '#fef2f2'}; border-color: ${isProfit ? '#6ee7b7' : '#fca5a5'}; }
+        .kpi-box.net-final { background: #0f172a; border-color: #0f172a; color: #ffffff; }
+        .kpi-box .k-lbl {
+          font-size: 9.5px;
+          font-weight: 700;
           color: #475569;
-          font-weight: 600;
         }
-        .kpi-card .kpi-val {
-          font-size: 15px;
-          font-weight: 800;
-          color: #0f172a;
-          margin-top: 4px;
-          font-family: monospace;
+        .kpi-box.net-final .k-lbl { color: #94a3b8; }
+        .kpi-box .k-val {
+          font-size: 13.5px;
+          font-weight: 900;
+          margin-top: 3px;
+          font-variant-numeric: tabular-nums;
+          direction: ltr;
         }
-        .section-title {
-          font-size: 13px;
-          font-weight: 800;
-          color: #1e293b;
-          border-bottom: 1.5px solid #e2e8f0;
-          padding-bottom: 6px;
-          margin: 16px 0 10px 0;
+        .section-bar {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          background: #f1f5f9;
+          border-right: 4px solid #0f172a;
+          padding: 7px 12px;
+          border-radius: 6px;
+          margin: 14px 0 8px 0;
+        }
+        .section-bar .sec-title {
+          font-size: 12.5px;
+          font-weight: 900;
+          color: #0f172a;
+        }
+        .section-bar .sec-count {
+          font-size: 10px;
+          font-weight: 700;
+          color: #475569;
+          background: #ffffff;
+          padding: 2px 8px;
+          border-radius: 99px;
+          border: 1px solid #cbd5e1;
         }
         table {
           width: 100%;
           border-collapse: collapse;
+          table-layout: fixed;
           margin-bottom: 14px;
           font-size: 10px;
+          background: #ffffff;
+        }
+        thead {
+          display: table-header-group;
+        }
+        tfoot {
+          display: table-footer-group;
+        }
+        tr {
+          display: table-row !important;
+          page-break-inside: avoid;
+        }
+        th, td {
+          display: table-cell !important;
+          vertical-align: middle;
+          padding: 6px 6px;
+          border: 1px solid #cbd5e1;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
         }
         th {
-          background: #f1f5f9;
-          color: #334155;
-          font-weight: 700;
+          background: #0f172a;
+          color: #ffffff;
+          font-weight: 800;
+          text-align: center;
+          font-size: 9.5px;
+        }
+        th.text-right, td.text-right {
           text-align: right;
-          padding: 6px 8px;
-          border: 1px solid #cbd5e1;
-          white-space: nowrap;
         }
         td {
-          padding: 6px 8px;
-          border: 1px solid #e2e8f0;
+          text-align: center;
           color: #1e293b;
+          font-weight: 600;
         }
-        tr:nth-child(even) td {
+        tbody tr:nth-child(even) td {
           background: #f8fafc;
+        }
+        tfoot td {
+          background: #f1f5f9 !important;
+          font-weight: 900;
+          color: #0f172a;
+          border-top: 2px solid #0f172a;
+          font-size: 10.5px;
+        }
+        .num-cell {
+          font-variant-numeric: tabular-nums;
+          font-weight: 700;
+          text-align: center;
+        }
+        .ltr-val {
+          direction: ltr;
+          unicode-bidi: embed;
+        }
+        .sku-sub {
+          display: block;
+          font-size: 8.5px;
+          color: #64748b;
+          font-family: monospace;
+          margin-top: 1px;
         }
         .badge {
           display: inline-block;
           padding: 2px 6px;
           border-radius: 4px;
           font-size: 9px;
-          font-weight: 700;
+          font-weight: 800;
+          white-space: nowrap;
         }
-        .badge-delivered { background: #dcfce7; color: #166534; }
-        .badge-return { background: #fee2e2; color: #991b1b; }
-        .num { font-family: monospace; direction: ltr; display: inline-block; }
+        .badge-delivered { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+        .badge-return { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+        .badge-pending { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
         .summary-banner {
           background: #0f172a;
           color: #ffffff;
           padding: 14px 18px;
-          border-radius: 8px;
+          border-radius: 10px;
+          border: 2px solid #10b981;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-top: 20px;
+          margin-top: 14px;
           page-break-inside: avoid;
         }
         .summary-banner .title {
-          font-size: 13px;
-          font-weight: 700;
+          font-size: 13.5px;
+          font-weight: 900;
+          color: #ffffff;
         }
         .summary-banner .formula {
           font-size: 10px;
-          color: #94a3b8;
+          color: #cbd5e1;
           margin-top: 3px;
+          font-weight: 600;
         }
         .summary-banner .amount {
-          font-size: 22px;
+          font-size: 20px;
           font-weight: 900;
           color: #34d399;
-          font-family: monospace;
+          direction: ltr;
         }
-        .footer-note {
-          margin-top: 14px;
-          font-size: 9px;
-          color: #64748b;
-          text-align: center;
+        .signatures-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          margin-top: 18px;
+          padding-top: 12px;
           border-top: 1px dashed #cbd5e1;
-          padding-top: 8px;
+          page-break-inside: avoid;
+          text-align: center;
+          font-size: 10px;
+          color: #475569;
+          font-weight: 700;
+        }
+        .sig-line {
+          margin-top: 22px;
+          border-bottom: 1px solid #94a3b8;
+          width: 75%;
+          margin-left: auto;
+          margin-right: auto;
         }
       </style>
     </head>
     <body>
-      <div class="header">
+      <!-- Header -->
+      <div class="report-header">
         <div>
-          <h1>كشف الشفافية وحركة البضاعة للموكل</h1>
-          <div class="subtitle">${storeName} • تقرير الشفافية والمساءلة المالية التفاعلية</div>
+          <h1>كشف الشفافية وحركة البضاعة والحساب المالي للموكل</h1>
+          <div class="subtitle">${storeName} • بيان محاسبي تفصيلي معتمد لحركة المبيعات والمرتجعات وصافي المستحقات</div>
         </div>
-        <div style="text-align: left;">
-          <div style="font-weight: 800; font-size: 13px; color: #0f172a;">${analytics.merchantDisplayName}</div>
-          <div style="font-size: 10px; color: #64748b;">تاريخ الطباعة: ${new Date().toLocaleDateString('ar-EG')}</div>
+        <div class="merchant-badge">
+          <div class="m-name">${analytics.merchantDisplayName}</div>
+          <div class="m-date">تاريخ الإصدار: ${printDate}</div>
         </div>
       </div>
 
-      <div class="meta-grid">
+      <!-- Meta Info Strip -->
+      <div class="meta-strip">
         <div class="meta-item">
-          <div class="label">الموكل / الشريك</div>
+          <div class="label">اسم الموكل / الشريك</div>
           <div class="val">${analytics.merchantDisplayName}</div>
         </div>
         <div class="meta-item">
-          <div class="label">الفترة المشمولة</div>
+          <div class="label">الفترة المشمولة بالتقرير</div>
           <div class="val">${analytics.dateRangeLabel}</div>
         </div>
         <div class="meta-item">
-          <div class="label">إجمالي الطلبات المسجلة</div>
+          <div class="label">إجمالي الشحنات المسجلة</div>
           <div class="val">${analytics.totalOrdersCount} طلب (${analytics.deliveredCount} مسلّم • ${analytics.returnCount} مرتجع)</div>
         </div>
         <div class="meta-item">
-          <div class="label">معدل التسليم والارتجاع</div>
+          <div class="label">مؤشر التسليم والارتجاع</div>
           <div class="val">تسليم ${analytics.deliverySuccessRate}% • ارتجاع ${analytics.returnRate}%</div>
         </div>
       </div>
 
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">إجمالي المحصل من العملاء</div>
-          <div class="kpi-val">${analytics.totalCollected.toLocaleString()} ج.م</div>
+      <!-- 6 Executive Financial KPIs -->
+      <div class="kpi-grid">
+        <div class="kpi-box">
+          <div class="k-lbl">إجمالي المحصل</div>
+          <div class="k-val" style="color: #0f172a;">${analytics.totalCollected.toLocaleString()} ج.م</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">استرداد رأس مال البضاعة</div>
-          <div class="kpi-val" style="color: #0284c7;">${analytics.totalGoodsCostRecovered.toLocaleString()} ج.م</div>
+        <div class="kpi-box capital">
+          <div class="k-lbl">رأس مال البضاعة</div>
+          <div class="k-val" style="color: #0369a1;">${analytics.totalGoodsCostRecovered.toLocaleString()} ج.م</div>
         </div>
-        <div class="kpi-card">
-          <div class="kpi-label">إجمالي الشحن والرسوم</div>
-          <div class="kpi-val" style="color: #dc2626;">-${analytics.totalShippingAndCarrier.toLocaleString()} ج.م</div>
+        <div class="kpi-box deduction">
+          <div class="k-lbl">الشحن والرسوم</div>
+          <div class="k-val" style="color: #be123c;">-${analytics.totalShippingAndCarrier.toLocaleString()} ج.م</div>
         </div>
-        <div class="kpi-card highlight-profit">
-          <div class="kpi-label">صافي ربح الموكل فوق رأس المال</div>
-          <div class="kpi-val" style="color: ${isProfit ? '#059669' : '#dc2626'};">
+        <div class="kpi-box deduction">
+          <div class="k-lbl">العمولة والتسويق</div>
+          <div class="k-val" style="color: #b45309;">-${(analytics.totalServiceFees + analytics.totalMarketingCosts).toLocaleString()} ج.م</div>
+        </div>
+        <div class="kpi-box profit">
+          <div class="k-lbl">صافي الربح / الخسارة</div>
+          <div class="k-val" style="color: ${isProfit ? '#047857' : '#b91c1c'};">
             ${isProfit ? '+' : ''}${analytics.merchantNetProfitOrLoss.toLocaleString()} ج.م
           </div>
         </div>
+        <div class="kpi-box net-final">
+          <div class="k-lbl">الصافي النهائي للموكل</div>
+          <div class="k-val" style="color: #34d399;">${analytics.netPayoutToMerchant.toLocaleString()} ج.م</div>
+        </div>
       </div>
 
-      <!-- Section: حركة وتجميع المنتجات المباعة والمرتجعة -->
-      <div class="section-title">
-        <span>أولاً: بيان حركة المنتجات المباعة والمرتجعة (Product Movement Breakdown)</span>
-        <span style="font-size: 10px; font-weight: normal; color: #64748b;">${analytics.productMovements.length} أصناف</span>
+      <!-- Section 1: Product Movement Breakdown -->
+      <div class="section-bar">
+        <span class="sec-title">أولاً: بيان حركة المنتجات المباعة والمرتجعة وأرباح كل صنف</span>
+        <span class="sec-count">${analytics.productMovements.length} أصناف</span>
       </div>
       <table>
+        <colgroup>
+          <col style="width: 4%;" />
+          <col style="width: 31%;" />
+          <col style="width: 7%;" />
+          <col style="width: 7%;" />
+          <col style="width: 7%;" />
+          <col style="width: 8%;" />
+          <col style="width: 11%;" />
+          <col style="width: 11%;" />
+          <col style="width: 11%;" />
+          <col style="width: 13%;" />
+        </colgroup>
         <thead>
           <tr>
-            <th>كود SKU</th>
-            <th>اسم المنتج</th>
+            <th>#</th>
+            <th class="text-right">اسم المنتج / الصنف</th>
             <th>المطلوب</th>
             <th>المسلّم</th>
             <th>المرتجع</th>
-            <th>نسبة الارتجاع</th>
-            <th>مبيعات الصنف</th>
-            <th>تكلفة رأس المال</th>
+            <th>الارتجاع</th>
+            <th>إجمالي المبيعات</th>
+            <th>تكلفة البضاعة</th>
             <th>المصروفات المحملة</th>
             <th>صافي ربح الصنف</th>
           </tr>
         </thead>
         <tbody>
-          ${analytics.productMovements.map(p => `
+          ${analytics.productMovements.length === 0 ? `
             <tr>
-              <td class="num">${p.sku}</td>
-              <td style="font-weight: 700;">${p.name}</td>
-              <td class="num">${p.totalQuantityOrdered}</td>
-              <td class="num" style="color: #166534; font-weight: 700;">${p.quantityDelivered}</td>
-              <td class="num" style="color: #991b1b; font-weight: 700;">${p.quantityReturned}</td>
-              <td class="num" style="color: ${p.returnRate > 20 ? '#dc2626' : '#475569'};">${p.returnRate}%</td>
-              <td class="num">${p.totalDeliveredSales.toLocaleString()} ج.م</td>
-              <td class="num">${p.totalDeliveredCost.toLocaleString()} ج.م</td>
-              <td class="num" style="color: #dc2626;">-${p.allocatedExpenses.toLocaleString()} ج.م</td>
-              <td class="num" style="font-weight: 700; color: ${p.netProfit >= 0 ? '#166534' : '#991b1b'};">
-                ${p.netProfit >= 0 ? '+' : ''}${p.netProfit.toLocaleString()} ج.م
+              <td colspan="10" style="padding: 16px; color: #64748b;">لا توجد حركة منتجات مسجلة في هذه الفترة</td>
+            </tr>
+          ` : analytics.productMovements.map((p, idx) => {
+            const shortSku = formatSku(p.sku);
+            const pProfit = p.netProfit >= 0;
+            return `
+              <tr>
+                <td class="num-cell">${idx + 1}</td>
+                <td class="text-right" style="font-weight: 800; color: #0f172a;">
+                  <div>${p.name}</div>
+                  ${shortSku ? `<span class="sku-sub">كود: ${shortSku}</span>` : ''}
+                </td>
+                <td class="num-cell">${p.totalQuantityOrdered}</td>
+                <td class="num-cell" style="color: #15803d; font-weight: 800;">${p.quantityDelivered}</td>
+                <td class="num-cell" style="color: #b91c1c; font-weight: 800;">${p.quantityReturned}</td>
+                <td class="num-cell" style="color: ${p.returnRate > 25 ? '#dc2626' : '#475569'};">${p.returnRate}%</td>
+                <td class="num-cell"><span class="ltr-val">${p.totalDeliveredSales.toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="color: #0369a1;"><span class="ltr-val">${p.totalDeliveredCost.toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="color: #be123c;"><span class="ltr-val">-${p.allocatedExpenses.toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="font-weight: 900; color: ${pProfit ? '#15803d' : '#b91c1c'}; background: ${pProfit ? '#f0fdf4' : '#fef2f2'};">
+                  <span class="ltr-val">${pProfit ? '+' : ''}${p.netProfit.toLocaleString()}</span> ج.م
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        ${analytics.productMovements.length > 0 ? `
+          <tfoot>
+            <tr>
+              <td colspan="2" class="text-right">إجمالي حركة الأصناف (${analytics.productMovements.length} صنف)</td>
+              <td>${totalOrderedUnits}</td>
+              <td style="color: #15803d;">${totalDeliveredUnits}</td>
+              <td style="color: #b91c1c;">${totalReturnedUnits}</td>
+              <td>${analytics.returnRate}%</td>
+              <td><span class="ltr-val">${Math.round(totalSalesSum * 100) / 100}</span> ج.م</td>
+              <td style="color: #0369a1;"><span class="ltr-val">${Math.round(totalCostSum * 100) / 100}</span> ج.م</td>
+              <td style="color: #be123c;"><span class="ltr-val">-${Math.round(totalExpSum * 100) / 100}</span> ج.م</td>
+              <td style="color: ${totalNetProfitSum >= 0 ? '#15803d' : '#b91c1c'};">
+                <span class="ltr-val">${totalNetProfitSum >= 0 ? '+' : ''}${Math.round(totalNetProfitSum * 100) / 100}</span> ج.م
               </td>
             </tr>
-          `).join('')}
-        </tbody>
+          </tfoot>
+        ` : ''}
       </table>
 
-      <!-- Section: تفاصيل الأوردرات -->
-      <div class="section-title">
-        <span>ثانياً: البيان المحاسبي التفصيلي للطلبات (Itemized Order Ledger)</span>
-        <span style="font-size: 10px; font-weight: normal; color: #64748b;">${analytics.orderRows.length} طلبات</span>
+      <!-- Section 2: Itemized Order Ledger -->
+      <div class="section-bar">
+        <span class="sec-title">ثانياً: البيان المحاسبي التفصيلي للطلبات والشحنات</span>
+        <span class="sec-count">${analytics.orderRows.length} طلبات</span>
       </div>
       <table>
+        <colgroup>
+          <col style="width: 9%;" />
+          <col style="width: 9%;" />
+          <col style="width: 14%;" />
+          <col style="width: 18%;" />
+          <col style="width: 9%;" />
+          <col style="width: 8%;" />
+          <col style="width: 8%;" />
+          <col style="width: 8%;" />
+          <col style="width: 8%;" />
+          <col style="width: 9%;" />
+        </colgroup>
         <thead>
           <tr>
             <th>رقم الطلب</th>
             <th>التاريخ</th>
-            <th>العميل</th>
+            <th class="text-right">العميل والمحافظة</th>
+            <th class="text-right">الأصناف</th>
             <th>الحالة</th>
             <th>التحصيل</th>
             <th>رأس المال</th>
             <th>الشحن والرسوم</th>
             <th>العمولة والتسويق</th>
-            <th>الصافي للموكل</th>
+            <th>صافي الموكل</th>
           </tr>
         </thead>
         <tbody>
-          ${analytics.orderRows.slice(0, 100).map(o => `
+          ${analytics.orderRows.length === 0 ? `
             <tr>
-              <td class="num" style="font-weight: 700;">${o.orderNumber}</td>
-              <td>${new Date(o.date).toLocaleDateString('ar-EG')}</td>
-              <td>${o.customerName}</td>
-              <td>
-                <span class="badge ${o.isDelivered ? 'badge-delivered' : o.isReturn ? 'badge-return' : ''}">
-                  ${o.status}
-                </span>
-              </td>
-              <td class="num">${o.collectedAmount.toLocaleString()} ج.م</td>
-              <td class="num">${o.merchantGoodsCost.toLocaleString()} ج.م</td>
-              <td class="num" style="color: #dc2626;">-${o.totalShippingAndCarrier.toLocaleString()} ج.م</td>
-              <td class="num" style="color: #475569;">-${(o.serviceFee + o.marketingFee).toLocaleString()} ج.م</td>
-              <td class="num" style="font-weight: 800; color: ${o.netMerchantAmount >= 0 ? '#166534' : '#991b1b'};">
-                ${o.netMerchantAmount.toLocaleString()} ج.م
+              <td colspan="10" style="padding: 16px; color: #64748b;">لا توجد طلبات مسجلة في هذه الفترة</td>
+            </tr>
+          ` : analytics.orderRows.slice(0, 150).map(o => {
+            const netPos = o.netMerchantAmount >= 0;
+            const cleanStatus = String(o.status || '').replace(/_/g, ' ');
+            return `
+              <tr>
+                <td class="num-cell" style="font-weight: 900; color: #0f172a;">#${o.orderNumber}</td>
+                <td class="num-cell">${new Date(o.date).toLocaleDateString('ar-EG')}</td>
+                <td class="text-right">
+                  <div style="font-weight: 800; color: #0f172a;">${o.customerName}</div>
+                  ${o.city ? `<div style="font-size: 8.5px; color: #64748b;">${o.city}</div>` : ''}
+                </td>
+                <td class="text-right" style="font-size: 9px; color: #334155;">${o.itemsSummary || 'منتج عام'}</td>
+                <td>
+                  <span class="badge ${o.isDelivered ? 'badge-delivered' : o.isReturn ? 'badge-return' : 'badge-pending'}">
+                    ${cleanStatus}
+                  </span>
+                </td>
+                <td class="num-cell"><span class="ltr-val">${o.collectedAmount.toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="color: #0369a1;"><span class="ltr-val">${o.merchantGoodsCost.toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="color: #be123c;"><span class="ltr-val">-${o.totalShippingAndCarrier.toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="color: #b45309;"><span class="ltr-val">-${(o.serviceFee + o.marketingFee).toLocaleString()}</span> ج.م</td>
+                <td class="num-cell" style="font-weight: 900; color: ${netPos ? '#15803d' : '#b91c1c'}; background: ${netPos ? '#f0fdf4' : '#fef2f2'};">
+                  <span class="ltr-val">${o.netMerchantAmount.toLocaleString()}</span> ج.م
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        ${analytics.orderRows.length > 0 ? `
+          <tfoot>
+            <tr>
+              <td colspan="5" class="text-right">الإجمالي الكلي للطلبات (${analytics.orderRows.length} طلب)</td>
+              <td><span class="ltr-val">${analytics.totalCollected.toLocaleString()}</span> ج.م</td>
+              <td style="color: #0369a1;"><span class="ltr-val">${analytics.totalGoodsCostRecovered.toLocaleString()}</span> ج.م</td>
+              <td style="color: #be123c;"><span class="ltr-val">-${analytics.totalShippingAndCarrier.toLocaleString()}</span> ج.م</td>
+              <td style="color: #b45309;"><span class="ltr-val">-${(analytics.totalServiceFees + analytics.totalMarketingCosts).toLocaleString()}</span> ج.م</td>
+              <td style="color: ${analytics.netPayoutToMerchant >= 0 ? '#15803d' : '#b91c1c'};">
+                <span class="ltr-val">${analytics.netPayoutToMerchant.toLocaleString()}</span> ج.م
               </td>
             </tr>
-          `).join('')}
-        </tbody>
+          </tfoot>
+        ` : ''}
       </table>
 
+      <!-- Final Payout Banner -->
       <div class="summary-banner">
         <div>
-          <div class="title">الصافي النهائي المستحق للتحويل للموكل</div>
+          <div class="title">الصافي النهائي المستحق للتحويل للموكل (${analytics.merchantDisplayName})</div>
           <div class="formula">
-            المعادلة: رأس مال البضاعة المسترد (${analytics.totalGoodsCostRecovered.toLocaleString()} ج.م) 
-            ${isProfit ? `+ صافي الربح (${analytics.merchantNetProfitOrLoss.toLocaleString()} ج.م)` : `- صافي الخسارة (${Math.abs(analytics.merchantNetProfitOrLoss).toLocaleString()} ج.م)`}
+            المعادلة المحاسبية: استرداد رأس مال البضاعة المباعة (${analytics.totalGoodsCostRecovered.toLocaleString()} ج.م)
+            ${isProfit ? `+ صافي أرباح الموكل بعد المصاريف (${analytics.merchantNetProfitOrLoss.toLocaleString()} ج.م)` : `- صافي خسائر المرتجعات والمصاريف (${Math.abs(analytics.merchantNetProfitOrLoss).toLocaleString()} ج.م)`}
           </div>
         </div>
         <div class="amount">${analytics.netPayoutToMerchant.toLocaleString()} ج.م</div>
       </div>
 
-      <div class="footer-note">
-        تم استخراج هذا الكشف آلياً لضمان الشفافية والمساءلة والمطابقة الدورية بين الموكل وإدارة المتجر.
+      <!-- Official Signatures -->
+      <div class="signatures-grid">
+        <div>
+          <div>إعداد ومراجعة الحسابات</div>
+          <div class="sig-line"></div>
+        </div>
+        <div>
+          <div>اعتماد إدارة ${storeName}</div>
+          <div class="sig-line"></div>
+        </div>
+        <div>
+          <div>توقيع ومطابقة الموكل (${analytics.merchantDisplayName})</div>
+          <div class="sig-line"></div>
+        </div>
       </div>
     </body>
     </html>

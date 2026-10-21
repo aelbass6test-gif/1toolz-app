@@ -17,7 +17,7 @@ service cloud.firestore {
       allow write: if isSignedIn() && isValidId(storeId);
       
       match /{allChildren=**} {
-        allow read: if true;
+        allow read: if isValidId(storeId);
         allow write: if isSignedIn();
       }
     }
@@ -30,7 +30,8 @@ service cloud.firestore {
 
     // --- Orders (Public Storefront Placement & Store Staff Management) ---
     match /orders/{orderId} {
-      allow read: if isValidId(orderId);
+      // Customer orders reading is restricted to authenticated store operators
+      allow read: if isSignedIn() && isValidId(orderId);
       // Public customer can create orders via storefront checkout
       allow create: if isValidId(orderId);
       // Only authenticated store operators/admins can update or delete orders
@@ -39,16 +40,14 @@ service cloud.firestore {
 
     // --- Customers & Profiles ---
     match /customers/{customerId} {
-      allow read: if isValidId(customerId);
-      allow write: if isValidId(customerId);
+      // Allow read/write for authenticated store operators or authenticated users
+      allow read, write: if isSignedIn() && isValidId(customerId);
     }
 
     // --- Users & Team Directory ---
     match /users/{userId} {
-      // Allow read for authenticated sessions and initial login lookups
-      allow read: if isValidId(userId);
-      // Protect user document creation/updates
-      allow write: if isValidId(userId);
+      // Protect user document creation/updates and directory lookups
+      allow read, write: if isSignedIn() && isValidId(userId);
     }
 
     // --- Employees ---
@@ -68,18 +67,19 @@ service cloud.firestore {
       allow update, delete: if isSignedIn() && isValidId(reportId);
     }
 
-    // --- Partner Requests (Public Partner Portal Submission & Admin Management) ---
+    // --- Partner Requests (Partner Portal Submission & Admin Management) ---
     match /partner_requests/{requestId} {
-      allow read, create: if isValidId(requestId);
-      allow update, delete: if isSignedIn() && isValidId(requestId);
+      allow create: if isValidId(requestId);
+      allow read, update, delete: if isSignedIn() && isValidId(requestId);
     }
 
     // --- Shared Inventory Audits ---
     match /shared_audits/{auditId} {
-      allow read, write: if isValidId(auditId);
+      allow read: if isValidId(auditId);
+      allow write: if isSignedIn() && isValidId(auditId);
       
       match /{allAuditChildren=**} {
-        allow read, write: if true;
+        allow read, write: if isSignedIn();
       }
     }
     

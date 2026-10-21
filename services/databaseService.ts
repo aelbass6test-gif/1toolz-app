@@ -73,7 +73,14 @@ const defaultMissingColumns = [
     'partners:employee_id',
     'partners:permissions',
     'partners:portalPermissions',
-    'partners:payoutAccounts'
+    'partners:payoutAccounts',
+    'suppliers:email',
+    'suppliers:passcode',
+    'suppliers:transactions',
+    'suppliers:profitRatio',
+    'suppliers:profit_ratio',
+    'suppliers:role',
+    'suppliers:payoutAccounts'
 ];
 let storedMissingCols: string[] = [];
 try {
@@ -417,7 +424,10 @@ export const saveLocal = async (key: string, data: any) => {
         
         if (data.orders) {
             const ordersWithId = data.orders.map((o: any) => ({ ...o, store_id: storeId }));
-            await localDb.orders.bulkPut(ordersWithId);
+            await localDb.orders.where('store_id').equals(storeId).delete();
+            if (ordersWithId.length > 0) {
+                await localDb.orders.bulkPut(ordersWithId);
+            }
         }
 
         if (data.settings) {
@@ -689,8 +699,32 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             images: candidateImages
                         };
                     }),
-                    suppliers: suppliers.length > 0 ? suppliers : (storeSettings.suppliers || local?.settings?.suppliers || []),
-                    supplyOrders: supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || []),
+                    suppliers: (suppliers.length > 0 ? suppliers : (storeSettings.suppliers || local?.settings?.suppliers || [])).map((s: any) => {
+                        const sNameNorm = String(s.name || '').trim().toLowerCase();
+                        const fallbackSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === s.id || (sNameNorm && String(fs.name || '').trim().toLowerCase() === sNameNorm))
+                            || (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
+                        const matchingPartner = (storeSettings.partners || []).find((fp: any) => fp.id === s.id || (sNameNorm && String(fp.name || '').trim().toLowerCase() === sNameNorm))
+                            || (local?.settings?.partners || []).find((lp: any) => lp.id === s.id || (sNameNorm && String(lp.name || '').trim().toLowerCase() === sNameNorm));
+                        const details = s.details && typeof s.details === 'object' ? s.details : (typeof s.details === 'string' && s.details ? JSON.parse(s.details) : {});
+                        return {
+                            ...fallbackSupplier,
+                            ...s,
+                            email: s.email || details.email || fallbackSupplier?.email || matchingPartner?.email || '',
+                            passcode: s.passcode || details.passcode || fallbackSupplier?.passcode || matchingPartner?.passcode || '0000',
+                            payoutAccounts: s.payoutAccounts || details.payoutAccounts || fallbackSupplier?.payoutAccounts || matchingPartner?.payoutAccounts || {},
+                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? details.profitRatio ?? fallbackSupplier?.profitRatio ?? matchingPartner?.profitRatio ?? 0),
+                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (fallbackSupplier?.transactions || matchingPartner?.transactions || [])
+                        };
+                    }),
+                    supplyOrders: (supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || [])).map((so: any) => {
+                        const details = (so.details && typeof so.details === 'object') ? so.details : {};
+                        return {
+                            ...details,
+                            ...so,
+                            supplierId: so.supplierId || so.supplier_id || details.supplierId || '',
+                            totalCost: Number(so.totalCost ?? so.total_cost ?? details.totalCost ?? 0)
+                        };
+                    }),
                     reviews: reviews.length > 0 ? reviews : (storeSettings.reviews || local?.settings?.reviews || []),
                     abandonedCarts: abandonedCarts.length > 0 ? abandonedCarts : (storeSettings.abandonedCarts || local?.settings?.abandonedCarts || []),
                     activityLogs: activityLogs.length > 0 ? activityLogs : (storeSettings.activityLogs || local?.settings?.activityLogs || []),
@@ -712,13 +746,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         };
                     }),
                     partners: (partners.length > 0 ? partners : (storeSettings.partners || local?.settings?.partners || [])).map((p: any) => {
-                        const fallbackPartner = (storeSettings.partners || local?.settings?.partners || []).find((fp: any) => fp.id === p.id);
+                        const pNameNorm = String(p.name || '').trim().toLowerCase();
+                        const fallbackPartner = (storeSettings.partners || []).find((fp: any) => fp.id === p.id || (pNameNorm && String(fp.name || '').trim().toLowerCase() === pNameNorm))
+                            || (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
+                        const matchingSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === p.id || (pNameNorm && String(fs.name || '').trim().toLowerCase() === pNameNorm))
+                            || (local?.settings?.suppliers || []).find((ls: any) => ls.id === p.id || (pNameNorm && String(ls.name || '').trim().toLowerCase() === pNameNorm));
                         const details = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
                         return {
                             ...fallbackPartner,
                             ...p,
-                            email: p.email || details.email || fallbackPartner?.email || '',
-                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || '0000',
+                            email: p.email || details.email || fallbackPartner?.email || matchingSupplier?.email || '',
+                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || matchingSupplier?.passcode || '0000',
                             password: p.password || details.password || fallbackPartner?.password || '',
                             requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? details.requireEmailOtp ?? fallbackPartner?.requireEmailOtp ?? true),
                             isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? details.isEmailVerified ?? fallbackPartner?.isEmailVerified ?? false),
@@ -899,7 +937,20 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                                 images: candidateImages
                             };
                         }),
-                        suppliers: storeSettings.suppliers || local?.settings?.suppliers || [],
+                        suppliers: (storeSettings.suppliers || local?.settings?.suppliers || []).map((s: any) => {
+                            const sNameNorm = String(s.name || '').trim().toLowerCase();
+                            const localSupplier = (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
+                            const matchingPartner = (storeSettings.partners || local?.settings?.partners || []).find((p: any) => p.id === s.id || (sNameNorm && String(p.name || '').trim().toLowerCase() === sNameNorm));
+                            return {
+                                ...(localSupplier || {}),
+                                ...s,
+                                email: s.email || localSupplier?.email || matchingPartner?.email || '',
+                                passcode: s.passcode || localSupplier?.passcode || matchingPartner?.passcode || '0000',
+                                payoutAccounts: s.payoutAccounts || localSupplier?.payoutAccounts || matchingPartner?.payoutAccounts || {},
+                                profitRatio: Number(s.profitRatio ?? localSupplier?.profitRatio ?? matchingPartner?.profitRatio ?? 0),
+                                transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (localSupplier?.transactions || matchingPartner?.transactions || [])
+                            };
+                        }),
                         supplyOrders: storeSettings.supplyOrders || local?.settings?.supplyOrders || [],
                         reviews: storeSettings.reviews || local?.settings?.reviews || [],
                         abandonedCarts: storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [],
@@ -911,7 +962,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         paymentMethods: storeSettings.paymentMethods || local?.settings?.paymentMethods || [],
                         globalOptions: storeSettings.globalOptions || local?.settings?.globalOptions || [],
                         shippingIntegrations: storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [],
-                        partners: storeSettings.partners || local?.settings?.partners || [],
+                        partners: (storeSettings.partners || local?.settings?.partners || []).map((p: any) => {
+                            const pNameNorm = String(p.name || '').trim().toLowerCase();
+                            const localPartner = (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
+                            const matchingSupplier = (storeSettings.suppliers || local?.settings?.suppliers || []).find((s: any) => s.id === p.id || (pNameNorm && String(s.name || '').trim().toLowerCase() === pNameNorm));
+                            return {
+                                ...(localPartner || {}),
+                                ...p,
+                                email: p.email || localPartner?.email || matchingSupplier?.email || '',
+                                passcode: p.passcode || localPartner?.passcode || matchingSupplier?.passcode || '0000'
+                            };
+                        }),
                         partnerTransactions: storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [],
                         warehouses: storeSettings.warehouses || local?.settings?.warehouses || [],
                         inventoryAudits: storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [],
@@ -981,6 +1042,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     if (collections.length < 50) redundantSettings.collections = collections;
     if (customPages.length < 50) redundantSettings.customPages = customPages;
     redundantSettings.partners = partners;
+    redundantSettings.suppliers = suppliers;
     redundantSettings.partnerTransactions = partnerTransactions;
     redundantSettings.cashHolders = cashHolders;
     redundantSettings.cashHandovers = cashHandovers;
@@ -1003,6 +1065,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             const cleanSettingsSupabase = cleanUndefined({
                 ...cleanSettings,
                 partners: partners || [],
+                suppliers: suppliers || [],
                 wallet_settings: wallet.settings || null,
                 withdraw_requests: wallet.withdrawRequests || [],
                 supply_balance: wallet.supplyBalance || 0,
@@ -1118,10 +1181,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     let mappedItem = { ...cleanItem, store_id: store.id };
 
                     if (table === 'supply_orders') {
+                        const rawSupId = String(cleanItem.supplierId || cleanItem.supplier_id || '').trim();
+                        const validSupplierIds = new Set((suppliers || []).map((s: any) => String(s?.id || '').trim()).filter(Boolean));
+                        const fkSafeSupplierId = rawSupId && validSupplierIds.has(rawSupId) ? rawSupId : null;
+                        const existingDetails = (cleanItem.details && typeof cleanItem.details === 'object') ? cleanItem.details : {};
                         mappedItem = {
                             ...mappedItem,
-                            supplier_id: cleanItem.supplierId || cleanItem.supplier_id || '',
-                            total_cost: Number(cleanItem.totalCost ?? cleanItem.total_cost ?? 0)
+                            supplier_id: fkSafeSupplierId,
+                            supplierId: rawSupId || null,
+                            total_cost: Number(cleanItem.totalCost ?? cleanItem.total_cost ?? 0),
+                            details: rawSupId ? { ...existingDetails, supplierId: rawSupId } : existingDetails
                         };
                     } else if (table === 'cash_holders') {
                         mappedItem = {
@@ -1636,12 +1705,54 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                                 continue;
                             }
 
-                            // Record schema error only if self-healing wasn't possible
+                                // Record schema error only if self-healing wasn't possible
                             (window as any).SUPABASE_SCHEMA_ERROR = {
                                 table,
                                 message: error.message,
                                 code: error.code
                             };
+                        }
+
+                        // 4. Handle Deadlocks (40P01) or Lock Failures (55P03)
+                        if (error.code === '40P01' || error.code === '55P03' || (error.message || '').toLowerCase().includes('deadlock detected')) {
+                            console.warn(`[SYNC-RETRY] Deadlock or lock failure on table ${table}. Retrying in ${attempts * 200}ms...`);
+                            attempts++;
+                            // Randomized exponential backoff to reduce collision probability
+                            await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 500) + (attempts * 200)));
+                            continue;
+                        }
+
+                        // Self-heal PostgreSQL foreign key constraint violations (23503) e.g. supply_orders_supplier_id_fkey
+                        if (error.code === '23503' || (error.message || '').includes('violates foreign key constraint')) {
+                            const fkMsg = error.message || '';
+                            console.warn(`[SYNC-SELF-HEAL] Foreign key violation on table ${table}: ${fkMsg}. Attempting fallback to details...`);
+                            
+                            if (table === 'supply_orders' || fkMsg.includes('supplier_id')) {
+                                currentItemsToUpsert = currentItemsToUpsert.map(item => {
+                                    const copy = { ...item };
+                                    const origSup = copy.supplier_id || copy.supplierId;
+                                    if (origSup) {
+                                        copy.details = (copy.details && typeof copy.details === 'object')
+                                            ? { ...copy.details, supplierId: origSup }
+                                            : { supplierId: origSup };
+                                    }
+                                    copy.supplier_id = null;
+                                    // Also set supplierId to null to be safe if that's the column name in Postgres
+                                    if (copy.supplierId !== undefined) copy.supplierId = null;
+                                    return copy;
+                                });
+                                attempts++;
+                                continue;
+                            }
+                            if (table === 'reviews' || fkMsg.includes('product_id')) {
+                                currentItemsToUpsert = currentItemsToUpsert.map(item => ({
+                                    ...item,
+                                    product_id: null,
+                                    productId: null
+                                }));
+                                attempts++;
+                                continue;
+                            }
                         }
                         
                         throw error;
@@ -1665,10 +1776,14 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 () => syncTable('products', products, ['updatedAt']),
                 () => syncTable('orders', orders),
                 () => syncTable('transactions', wallet.transactions),
-                () => syncTable('treasury_accounts', treasury?.accounts || []),
-                () => syncTable('treasury_transactions', treasury?.transactions || []),
-                () => syncTable('suppliers', suppliers),
-                () => syncTable('supply_orders', supplyOrders),
+                async () => {
+                    await syncTable('treasury_accounts', treasury?.accounts || []);
+                    await syncTable('treasury_transactions', treasury?.transactions || []);
+                },
+                async () => {
+                    await syncTable('suppliers', suppliers);
+                    await syncTable('supply_orders', supplyOrders);
+                },
                 () => syncTable('reviews', reviews),
                 () => syncTable('abandoned_carts', abandonedCarts),
                 () => syncTable('activity_logs', activityLogs || []),
@@ -1680,22 +1795,28 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 () => syncTable('customers', customers),
                 () => syncTable('global_options', globalOptions),
                 () => syncTable('shipping_integrations', shippingIntegrations),
-                () => syncTable('partners', partners || [], [
-                    'permissions', 'portalPermissions', 'payoutAccounts', 
-                    'isEmailVerified', 'is_email_verified', 'emailVerifiedAt', 'email_verified_at',
-                    'lastLoginAt', 'last_login_at', 'employeeId', 'employee_id',
-                    'email', 'passcode', 'password', 'requireEmailOtp', 'require_email_otp',
-                    'biometricCredentials', 'biometric_credentials', 'allowBiometricAuth', 'allow_biometric_auth'
-                ]),
-                () => syncTable('partner_transactions', partnerTransactions || []),
-                () => syncTable('warehouses', warehouses || []),
+                async () => {
+                    await syncTable('partners', partners || [], [
+                        'permissions', 'portalPermissions', 'payoutAccounts', 
+                        'isEmailVerified', 'is_email_verified', 'emailVerifiedAt', 'email_verified_at',
+                        'lastLoginAt', 'last_login_at', 'employeeId', 'employee_id',
+                        'email', 'passcode', 'password', 'requireEmailOtp', 'require_email_otp',
+                        'biometricCredentials', 'biometric_credentials', 'allowBiometricAuth', 'allow_biometric_auth'
+                    ]);
+                    await syncTable('partner_transactions', partnerTransactions || []);
+                },
+                async () => {
+                    await syncTable('warehouses', warehouses || []);
+                    await syncTable('stock_transfers', stockTransfers || []);
+                },
                 () => syncTable('inventory_audits', inventoryAudits || []),
-                () => syncTable('stock_transfers', stockTransfers || []),
                 () => syncTable('order_returns', orderReturns || []),
                 () => syncTable('purchase_returns', purchaseReturns || []),
                 () => syncTable('pos_sales', posSales || []),
-                () => syncTable('cash_holders', cashHolders || []),
-                () => syncTable('cash_handovers', cashHandovers || []),
+                async () => {
+                    await syncTable('cash_holders', cashHolders || []);
+                    await syncTable('cash_handovers', cashHandovers || []);
+                },
                 () => syncTable('whatsapp_templates', whatsappTemplates || []),
                 () => syncTable('call_scripts', callScripts || []),
                 () => syncTable('quotations', data.quotations || []),
@@ -2430,6 +2551,10 @@ export interface PartnerPortalRequest {
     status: 'pending' | 'approved' | 'rejected';
     createdAt: string;
     isMerchantRequest?: boolean;
+    receiptImage?: string;
+    transferReference?: string;
+    approvedBy?: string;
+    approvedAt?: string;
 }
 
 export const submitPartnerRequest = async (storeId: string, req: Omit<PartnerPortalRequest, 'storeId' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
@@ -2474,25 +2599,17 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
         }
     } catch (_) {}
 
-    // 2. Fetch from Firestore
+    // 2. Fetch from Firestore (authoritative source of truth when online)
     if (firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            if (!snap.empty) {
-                const cloudRequests = snap.docs.map(d => d.data() as PartnerPortalRequest);
-                const map = new Map<string, PartnerPortalRequest>();
-                cloudRequests.forEach(r => map.set(r.id, r));
-                requests.forEach(r => {
-                    if (!map.has(r.id)) map.set(r.id, r);
-                });
-                requests = Array.from(map.values());
-                requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-                
-                try {
-                    localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
-                } catch (_) {}
-            }
+            const cloudRequests = snap.docs.map(d => d.data() as PartnerPortalRequest);
+            cloudRequests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+            requests = cloudRequests;
+            try {
+                localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
+            } catch (_) {}
         } catch (err) {
             console.warn('[PARTNER-REQUEST] Error reading partner requests from Firestore:', err);
         }
@@ -2501,8 +2618,20 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
     return requests;
 };
 
-export const updatePartnerRequestStatus = async (requestId: string, storeId: string, status: 'approved' | 'rejected'): Promise<boolean> => {
+export const updatePartnerRequestStatus = async (
+    requestId: string,
+    storeId: string,
+    status: 'approved' | 'rejected',
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+): Promise<boolean> => {
     try {
+        const extraFields = cleanUndefined({
+            ...(meta?.receiptImage ? { receiptImage: meta.receiptImage } : {}),
+            ...(meta?.transferReference ? { transferReference: meta.transferReference } : {}),
+            ...(meta?.approvedBy ? { approvedBy: meta.approvedBy } : {}),
+            ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
+        });
+
         if (firebaseDb) {
             const reqRef = doc(firebaseDb, 'partner_requests', requestId);
             const updated = await runTransaction(firebaseDb, async (transaction) => {
@@ -2510,7 +2639,11 @@ export const updatePartnerRequestStatus = async (requestId: string, storeId: str
                 if (!snapshot.exists()) return false;
                 const data = snapshot.data() as PartnerPortalRequest;
                 if (data.storeId !== storeId || data.status !== 'pending') return false;
-                transaction.update(reqRef, { status, updatedAt: new Date().toISOString() });
+                transaction.update(reqRef, {
+                    status,
+                    updatedAt: new Date().toISOString(),
+                    ...extraFields
+                });
                 return true;
             });
             if (!updated) return false;
@@ -2521,7 +2654,7 @@ export const updatePartnerRequestStatus = async (requestId: string, storeId: str
             const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
             const matchingRequest = existing.find((r: any) => r.id === requestId && r.storeId === storeId);
             if (!firebaseDb && (!matchingRequest || matchingRequest.status !== 'pending')) return false;
-            const updated = existing.map((r: any) => r.id === requestId ? { ...r, status } : r);
+            const updated = existing.map((r: any) => r.id === requestId ? { ...r, status, ...extraFields } : r);
             localStorage.setItem(localKey, JSON.stringify(updated));
         } catch (_) {}
 
@@ -2552,3 +2685,446 @@ export const deletePartnerRequestDoc = async (requestId: string, storeId: string
         return false;
     }
 };
+
+export const updatePartnerSettings = async (storeId: string, partners: any[], suppliers?: any[]): Promise<{ success: boolean; error?: string }> => {
+    try {
+        if (!storeId) return { success: false, error: 'Missing storeId' };
+
+        // 1. Update local IndexedDB cache immediately
+        try {
+            const localData = await getLocal(storeId);
+            if (localData && localData.settings) {
+                const nextLocalSettings = {
+                    ...localData.settings,
+                    partners: partners || localData.settings.partners || [],
+                    ...(suppliers ? { suppliers } : {})
+                };
+                await saveLocal(storeId, {
+                    ...localData,
+                    settings: nextLocalSettings
+                });
+            }
+        } catch (_) {}
+
+        // 2. Update Firestore stores_data and subcollections
+        if (firebaseDb) {
+            const storeRef = doc(firebaseDb, 'stores_data', storeId);
+            const snap = await getDoc(storeRef);
+            const existingSettings = snap.exists() ? (snap.data()?.settings || {}) : {};
+            const updatedSettingsPayload: any = {
+                ...existingSettings,
+                partners: cleanUndefined(partners)
+            };
+            if (suppliers) {
+                updatedSettingsPayload.suppliers = cleanUndefined(suppliers);
+            }
+            await setDoc(storeRef, {
+                settings: updatedSettingsPayload,
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+
+            const partnerWrites = (partners || []).map(async (p) => {
+                if (!p || !p.id) return;
+                const docId = String(p.id).startsWith(storeId) ? String(p.id) : `${storeId}_${p.id}`;
+                const pRef = doc(firebaseDb, 'partners', docId);
+                await setDoc(pRef, cleanUndefined({
+                    ...p,
+                    storeId,
+                    store_id: storeId,
+                    updatedAt: new Date().toISOString()
+                }), { merge: true }).catch(() => {});
+            });
+
+            const supplierWrites = (suppliers || []).map(async (s) => {
+                if (!s || !s.id) return;
+                const docId = String(s.id).startsWith(storeId) ? String(s.id) : `${storeId}_${s.id}`;
+                const sRef = doc(firebaseDb, 'suppliers', docId);
+                await setDoc(sRef, cleanUndefined({
+                    ...s,
+                    storeId,
+                    store_id: storeId,
+                    updatedAt: new Date().toISOString()
+                }), { merge: true }).catch(() => {});
+            });
+
+            await Promise.all([...partnerWrites, ...supplierWrites]);
+        }
+
+        // 3. Update Supabase stores_data settings JSON
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                const { data: row } = await supabase.from('stores_data').select('settings').eq('id', storeId).maybeSingle();
+                const currentSettings = row?.settings || {};
+                const nextSettings: any = {
+                    ...currentSettings,
+                    partners: cleanUndefined(partners)
+                };
+                if (suppliers) {
+                    nextSettings.suppliers = cleanUndefined(suppliers);
+                }
+                await supabase.from('stores_data').upsert({
+                    id: storeId,
+                    settings: nextSettings
+                }, { onConflict: 'id' });
+            } catch (_) {}
+        }
+
+        return { success: true };
+    } catch (err: any) {
+        console.warn('[DATABASE-SERVICE] Could not update partner settings directly:', err);
+        return { success: false, error: err?.message || 'Error' };
+    }
+};
+
+export const resetMerchantAccountData = async (
+    storeId: string,
+    merchantId: string,
+    merchantName: string
+): Promise<{ success: boolean; remainingOrders: Order[]; updatedSuppliers: any[]; updatedPartners: any[] }> => {
+    const cleanMId = String(merchantId || '').trim().toLowerCase();
+    const cleanMName = String(merchantName || '').trim().toLowerCase();
+
+    const isMerchantOrder = (o: any): boolean => {
+        if (!o) return false;
+        const det = (o.details && typeof o.details === 'object') ? o.details : {};
+        const oId = String(o.merchantId || o.merchant_id || det.merchantId || '').trim().toLowerCase();
+        const oName = String(o.merchantName || o.merchant_name || det.merchantName || '').trim().toLowerCase();
+        if (cleanMId && oId === cleanMId) return true;
+        if (cleanMName && oName && (oName === cleanMName || oName.includes(cleanMName) || cleanMName.includes(oName))) return true;
+        return false;
+    };
+
+    const isMerchantEntity = (e: any): boolean => {
+        if (!e) return false;
+        const eId = String(e.id || '').trim().toLowerCase();
+        const eName = String(e.name || '').trim().toLowerCase();
+        if (cleanMId && eId === cleanMId) return true;
+        if (cleanMName && eName && (eName === cleanMName || eName.includes(cleanMName) || cleanMName.includes(eName))) return true;
+        return false;
+    };
+
+    let remainingOrders: Order[] = [];
+    let updatedSuppliers: any[] = [];
+    let updatedPartners: any[] = [];
+
+    try {
+        // 1. Clean IndexedDB & LocalStorage
+        const localData = await getLocal(storeId);
+        if (localData) {
+            const oldOrders: Order[] = Array.isArray(localData.orders) ? localData.orders : [];
+            const removedOrders = oldOrders.filter(isMerchantOrder);
+            remainingOrders = oldOrders.filter(o => !isMerchantOrder(o));
+
+            for (const ro of removedOrders) {
+                if (ro?.id) {
+                    await deleteStoreItem(storeId, 'orders', ro.id).catch(() => {});
+                }
+            }
+
+            updatedSuppliers = (localData.settings?.suppliers || []).map((s: any) =>
+                isMerchantEntity(s) ? { ...s, balance: 0, transactions: [] } : s
+            );
+            updatedPartners = (localData.settings?.partners || []).map((p: any) =>
+                isMerchantEntity(p) ? { ...p, balance: 0, transactions: [] } : p
+            );
+            const updatedPartnerTxs = (localData.settings?.partnerTransactions || []).filter(
+                (pt: any) => !isMerchantEntity({ id: pt.partnerId || pt.supplierId, name: pt.partnerName || pt.supplierName })
+            );
+
+            const nextLocalData = {
+                ...localData,
+                orders: remainingOrders,
+                settings: {
+                    ...localData.settings,
+                    suppliers: updatedSuppliers,
+                    partners: updatedPartners,
+                    partnerTransactions: updatedPartnerTxs
+                }
+            };
+            await saveLocal(storeId, nextLocalData);
+        }
+
+        // 2. Clean local partner_requests cache
+        try {
+            const localKey = `partner_requests_${storeId}`;
+            const existingReqs = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const filteredReqs = existingReqs.filter(
+                (r: any) => !isMerchantEntity({ id: r.partnerId, name: r.partnerName }) && !r.isMerchantRequest
+            );
+            localStorage.setItem(localKey, JSON.stringify(filteredReqs));
+        } catch (_) {}
+
+        // 3. Clean Firestore partner_requests & orders & settings
+        if (firebaseDb) {
+            try {
+                const qReq = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
+                const reqSnap = await getDocs(qReq);
+                for (const d of reqSnap.docs) {
+                    const rData = d.data();
+                    if (isMerchantEntity({ id: rData.partnerId, name: rData.partnerName }) || rData.isMerchantRequest) {
+                        await deleteDoc(d.ref).catch(() => {});
+                    }
+                }
+            } catch (_) {}
+
+            if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
+                await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
+            }
+        }
+
+        // 4. Clean Supabase orders & suppliers/partners
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                const { data: sbOrders } = await supabase.from('orders').select('*').eq('store_id', storeId);
+                const toDeleteIds = (sbOrders || []).filter(isMerchantOrder).map((o: any) => o.id);
+                if (toDeleteIds.length > 0) {
+                    await supabase.from('orders').delete().in('id', toDeleteIds);
+                }
+            } catch (_) {}
+        }
+
+        return { success: true, remainingOrders, updatedSuppliers, updatedPartners };
+    } catch (e) {
+        console.error('[resetMerchantAccountData] Error:', e);
+        return { success: false, remainingOrders, updatedSuppliers, updatedPartners };
+    }
+};
+
+// ============================================================================
+// RESOURCE SAVING & REALTIME OPTIMIZATION UTILITIES
+// ============================================================================
+
+/**
+ * 1. Strict Row-Level Filtered Realtime Subscription Manager
+ * Opens a Supabase/Firestore real-time subscription strictly scoped to the target store ID.
+ * Enforces row-level filtering at the subscription level so the browser only receives
+ * signals for the active store and ignores data from other stores/tenants.
+ */
+export interface RealtimeSubscriptionOptions {
+    tables?: string[];
+    onUpdate?: (payload: { table: string; eventType: string; newRecord?: any }) => void;
+}
+
+export const subscribeToStoreRealtimeOptimized = (
+    storeId: string,
+    options: RealtimeSubscriptionOptions = {}
+): (() => void) => {
+    if (!storeId) return () => {};
+
+    const cleanStoreId = storeId.trim();
+    const tablesToListen = options.tables || ['orders', 'partner_requests', 'products', 'transactions'];
+    const unsubs: Array<() => void> = [];
+
+    // A. Supabase Realtime Channel with Strict Row-Level Filter (.eq('store_id', cleanStoreId))
+    const supabase = getSupabaseClient();
+    if (supabase) {
+        try {
+            const channelName = `realtime_store_${cleanStoreId}_${Date.now().toString(36)}`;
+            const channel = supabase.channel(channelName);
+
+            tablesToListen.forEach(table => {
+                const filterField = table === 'partner_requests' ? 'storeId' : 'store_id';
+                
+                channel.on(
+                    'postgres_changes' as any,
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: table,
+                        filter: `${filterField}=eq.${cleanStoreId}`
+                    },
+                    (payload: any) => {
+                        if (options.onUpdate) {
+                            options.onUpdate({
+                                table,
+                                eventType: payload.eventType || 'UPDATE',
+                                newRecord: payload.new || payload.record
+                            });
+                        }
+                    }
+                );
+            });
+
+            channel.subscribe((status: string) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`[REALTIME-OPTIMIZED] Subscribed to store '${cleanStoreId}' with strict row-level filters.`);
+                }
+            });
+
+            unsubs.push(() => {
+                try {
+                    supabase.removeChannel(channel);
+                } catch (_) {}
+            });
+        } catch (err) {
+            console.warn('[REALTIME-OPTIMIZED] Error creating Supabase channel:', err);
+        }
+    }
+
+    // B. Firestore Realtime Listeners with Strict Query Filters (where('storeId', '==', cleanStoreId))
+    if (firebaseDb) {
+        try {
+            tablesToListen.forEach(colName => {
+                const filterField = colName === 'partner_requests' ? 'storeId' : 'store_id';
+                const q = query(collection(firebaseDb, colName), where(filterField, '==', cleanStoreId));
+
+                const unsubFs = onSnapshot(
+                    q,
+                    (snapshot) => {
+                        if (options.onUpdate && !snapshot.metadata.hasPendingWrites) {
+                            snapshot.docChanges().forEach((change) => {
+                                if (change.type === 'added' || change.type === 'modified') {
+                                    options.onUpdate!({
+                                        table: colName,
+                                        eventType: change.type.toUpperCase(),
+                                        newRecord: change.doc.data()
+                                    });
+                                }
+                            });
+                        }
+                    },
+                    (err) => {
+                        console.warn(`[REALTIME-OPTIMIZED] Firestore listener notice for ${colName}:`, err?.message);
+                    }
+                );
+
+                unsubs.push(unsubFs);
+            });
+        } catch (err) {
+            console.warn('[REALTIME-OPTIMIZED] Error opening Firestore listeners:', err);
+        }
+    }
+
+    // Teardown / Clean Cleanup
+    return () => {
+        unsubs.forEach(fn => {
+            try { fn(); } catch (_) {}
+        });
+        console.log(`[REALTIME-OPTIMIZED] Unsubscribed all listeners for store '${cleanStoreId}'.`);
+    };
+};
+
+/**
+ * 2. Throttling & Debouncing Data Refresh Manager
+ * Prevents rapid cascading re-fetches when multiple real-time signals arrive in quick succession.
+ * Ensures data refreshes occur at most once every `minIntervalMs` (default 3000ms).
+ */
+const refreshTimersMap = new Map<string, { timer: ReturnType<typeof setTimeout> | null; lastExecTime: number }>();
+
+export const throttledRefreshStoreData = (
+    storeId: string,
+    onDataUpdated: (data: StoreData) => void,
+    minIntervalMs: number = 3000
+) => {
+    if (!storeId) return;
+
+    const state = refreshTimersMap.get(storeId) || { timer: null, lastExecTime: 0 };
+    const now = Date.now();
+    const elapsed = now - state.lastExecTime;
+
+    const executeFetch = async () => {
+        state.lastExecTime = Date.now();
+        state.timer = null;
+        refreshTimersMap.set(storeId, state);
+
+        try {
+            const fresh = await getStoreData(storeId, true);
+            if (fresh) {
+                onDataUpdated(fresh);
+            }
+        } catch (err) {
+            console.warn(`[THROTTLED-REFRESH] Error refreshing store ${storeId}:`, err);
+        }
+    };
+
+    if (elapsed >= minIntervalMs) {
+        if (state.timer) {
+            clearTimeout(state.timer);
+            state.timer = null;
+        }
+        executeFetch();
+    } else {
+        if (!state.timer) {
+            const delay = minIntervalMs - elapsed;
+            state.timer = setTimeout(() => {
+                executeFetch();
+            }, delay);
+            refreshTimersMap.set(storeId, state);
+        }
+    }
+};
+
+/**
+ * 3. Incremental Sync & Partial Data Fetching
+ * Fetches only records updated or created since `lastSyncIsoTimestamp`
+ * instead of re-downloading the full store dataset on every change.
+ */
+export const syncIncrementalStoreData = async (
+    storeId: string,
+    lastSyncIsoTimestamp: string
+): Promise<{
+    updatedOrders: Order[];
+    updatedPartnerRequests: PartnerPortalRequest[];
+    timestamp: string;
+}> => {
+    const cleanStoreId = storeId.trim();
+    const currentIso = new Date().toISOString();
+    let updatedOrders: Order[] = [];
+    let updatedPartnerRequests: PartnerPortalRequest[] = [];
+
+    const supabase = getSupabaseClient();
+    if (supabase) {
+        try {
+            const [ordersRes, reqsRes] = await Promise.all([
+                supabase
+                    .from('orders')
+                    .select('*')
+                    .eq('store_id', cleanStoreId)
+                    .gt('updated_at', lastSyncIsoTimestamp),
+                supabase
+                    .from('partner_requests')
+                    .select('*')
+                    .eq('storeId', cleanStoreId)
+                    .gt('created_at', lastSyncIsoTimestamp)
+            ]);
+
+            if (ordersRes.data) {
+                updatedOrders = ordersRes.data as Order[];
+            }
+            if (reqsRes.data) {
+                updatedPartnerRequests = reqsRes.data as PartnerPortalRequest[];
+            }
+
+            return { updatedOrders, updatedPartnerRequests, timestamp: currentIso };
+        } catch (err) {
+            console.warn('[INCREMENTAL-SYNC] Supabase incremental sync failed, trying Firestore:', err);
+        }
+    }
+
+    if (firebaseDb) {
+        try {
+            const qOrders = query(
+                collection(firebaseDb, 'orders'),
+                where('store_id', '==', cleanStoreId),
+                where('updatedAt', '>', lastSyncIsoTimestamp)
+            );
+            const snapOrders = await getDocs(qOrders);
+            updatedOrders = snapOrders.docs.map(d => d.data() as Order);
+
+            const qReqs = query(
+                collection(firebaseDb, 'partner_requests'),
+                where('storeId', '==', cleanStoreId),
+                where('createdAt', '>', lastSyncIsoTimestamp)
+            );
+            const snapReqs = await getDocs(qReqs);
+            updatedPartnerRequests = snapReqs.docs.map(d => d.data() as PartnerPortalRequest);
+        } catch (err) {
+            console.warn('[INCREMENTAL-SYNC] Firestore incremental sync error:', err);
+        }
+    }
+
+    return { updatedOrders, updatedPartnerRequests, timestamp: currentIso };
+};
+

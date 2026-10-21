@@ -132,6 +132,7 @@ import { turboService } from "../utils/turboService";
 import { getShippingAdapter, ShippingAdapter } from "../utils/shippingAdapters";
 import { BostaTrackingModal } from "./BostaTrackingModal";
 import { inAppConfirm, inAppAlert, inAppToast } from "../utils/inAppAlert";
+import { BulkOrderSettlementModal } from "./BulkOrderSettlementModal";
 import {
   AreaChart,
   Area,
@@ -401,6 +402,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [showSummaryModal, setShowSummaryModal] = useState<Order | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState<Order | null>(null);
   const [quickViewOrder, setQuickViewOrder] = useState<Order | null>(null);
+  const [showBulkSettlementModal, setShowBulkSettlementModal] = useState(false);
 
   const customerHistoryMap = useMemo(() => {
     const map: Record<string, {
@@ -5826,6 +5828,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               <span className="hidden sm:block">{isBulkPrintingBosta ? "جاري تجهيز البوالص..." : "بوالص بوسطة A4/A6"}</span>
             </button>
             <button
+              onClick={() => setShowBulkSettlementModal(true)}
+              className="p-2 sm:px-4 flex items-center gap-2 hover:bg-emerald-500/25 hover:text-emerald-300 border border-emerald-500/30 transition-all bg-emerald-600/30 text-emerald-300 rounded-xl text-xs font-black shadow-md cursor-pointer"
+              title="تسوية مالية للأوردرات المحددة للموكلين"
+            >
+              <Calculator size={18} />{" "}
+              <span className="hidden sm:block">تسوية الموكلين 💼</span>
+            </button>
+            <button
               onClick={handleBulkDelete}
               className="p-2 sm:px-4 flex items-center gap-2 hover:bg-red-500/20 hover:text-red-400 border border-transparent hover:border-red-500/30 transition-all bg-white/5 rounded-xl text-xs font-bold text-red-400/80"
               title="حذف"
@@ -6472,6 +6482,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               transactions: [newTx, ...prev.transactions]
             }));
           }}
+        />
+      )}
+      {showBulkSettlementModal && (
+        <BulkOrderSettlementModal
+          isOpen={showBulkSettlementModal}
+          onClose={() => {
+            setShowBulkSettlementModal(false);
+            setSelectedOrders([]);
+          }}
+          orderIds={selectedOrders}
+          orders={orders}
+          settings={settings}
+          updateSettings={setSettings}
+          setOrders={setOrders}
+          treasury={treasury}
+          setTreasury={setTreasury}
+          currentUser={currentUser}
         />
       )}
       {orderToDelete && (

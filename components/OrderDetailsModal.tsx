@@ -20,6 +20,7 @@ import { printHTMLDirectly } from '../utils/printHelper';
 import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
 import { OrderWhatsAppChatModal } from './OrderWhatsAppChatModal';
 import { createMoneyHashIntent, buildMoneyHashWhatsAppMessage, DEFAULT_MONEYHASH_CONFIG } from '../utils/moneyHashService';
+import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
 
 interface OrderDetailsModalProps {
   order: Order;
@@ -264,7 +265,27 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
       walletStatusStyle = 'slate';
   }
   
-  const orderWarehouseName = order.warehouseId && settings.warehouses ? settings.warehouses.find(w => w.id === order.warehouseId)?.name : (settings.warehouses?.[0]?.name || 'الفرع الرئيسي');
+  const orderWarehouseName = (() => {
+    const targetId = order.warehouseId || order.bostaBusinessLocationId;
+    if (targetId) {
+      const fromWh = (settings.warehouses || []).find(w => w.id === targetId)?.name;
+      if (fromWh) return fromWh;
+      const fromBosta = ((settings as any).bostaBusinessLocations || []).find((l: any) => l.id === targetId)?.name;
+      if (fromBosta) return fromBosta;
+      const fromDefBosta = (DEFAULT_BOSTA_BUSINESS_LOCATIONS as any[]).find(l => l.id === targetId)?.name;
+      if (fromDefBosta) return fromDefBosta;
+      const fromBranch = (settings.storeBranches || []).find((b: any) => b.id === targetId)?.name;
+      if (fromBranch) return fromBranch;
+    }
+    return (
+      settings.warehouses?.find(w => w.isDefault)?.name ||
+      settings.warehouses?.[0]?.name ||
+      ((settings as any).bostaBusinessLocations as any)?.[0]?.name ||
+      (settings.storeBranches as any)?.[0]?.name ||
+      (DEFAULT_BOSTA_BUSINESS_LOCATIONS as any[]).find(l => l.isDefault)?.locationName ||
+      'المخزن الرئيسي'
+    );
+  })();
 
   let building = '-', floor = '-', flat = '-', landmark = '-';
   if (order.shippingArea) {

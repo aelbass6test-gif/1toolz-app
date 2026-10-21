@@ -258,7 +258,8 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         const vatBasis = useCustom ? (compFees?.vatBasis || 'shipping_only') : (settings?.vatBasis || 'shipping_only');
         const hasVat = useCustom ? (compFees?.enableVat !== false) : true;
         const insuranceValueForVat = (vatBasis === 'shipping_and_insurance' || vatBasis === 'shipping_insurance_and_cod') ? insuranceFee : 0;
-        const codValueForVat = vatBasis === 'shipping_insurance_and_cod' ? calculateCodFee(orderToAdd as Order, settings) : 0;
+        const codFee = calculateCodFee(orderToAdd as Order, settings);
+        const codValueForVat = vatBasis === 'shipping_insurance_and_cod' ? codFee : 0;
         const useStandard = orderToAdd.vatOnStandardShipping === true;
         const standardShippingFee = useStandard ? getStandardShippingFee(orderToAdd as Order, settings) : (orderToAdd.shippingFee || 0);
         const taxableBase = standardShippingFee + inspectionFee + insuranceValueForVat + codValueForVat;
@@ -321,7 +322,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         let orderWithId: Order = { 
             ...orderToAdd, 
             id,
-            insuranceFee,
+            insuranceFee: Number(insuranceFee.toFixed(2)),
+            inspectionFee: Number(inspectionFee.toFixed(2)),
+            codFee: Number(codFee.toFixed(2)),
+            vatValue: Number(vatValue.toFixed(2)),
             insurancePackageId: orderToAdd.insurancePackageId,
             insurancePackageName: orderToAdd.insurancePackageName,
             date: orderToAdd.date || new Date().toISOString(),

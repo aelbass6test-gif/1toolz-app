@@ -27,6 +27,8 @@ interface MerchantTransparencyTabProps {
   initialMerchantIdOrName?: string;
   onNavigateToSettlement?: (merchantId: string) => void;
   onOpenPortal?: (merchantId?: string) => void;
+  isEmbeddedInPortal?: boolean;
+  isDark?: boolean;
 }
 
 export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = ({
@@ -35,7 +37,9 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
   customers,
   initialMerchantIdOrName = 'all',
   onNavigateToSettlement,
-  onOpenPortal
+  onOpenPortal,
+  isEmbeddedInPortal = false,
+  isDark = false
 }) => {
   // Filter States
   const [selectedMerchant, setSelectedMerchant] = useState<string>(initialMerchantIdOrName);
@@ -174,96 +178,106 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
   const isProfit = analytics.merchantNetProfitOrLoss >= 0;
 
   return (
-    <div className="space-y-6 animate-fade-in text-slate-800" dir="rtl">
+    <div className={`space-y-5 animate-fade-in ${isDark ? 'text-slate-100' : 'text-slate-800'}`} dir="rtl">
       
       {/* 1. Header & Filtering Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+      <div className={`${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'} rounded-3xl border shadow-xs p-4 sm:p-5 space-y-4`}>
+        <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b ${isDark ? 'border-slate-800' : 'border-slate-100'} pb-4`}>
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-100">
-              <Sparkles className="w-6 h-6" />
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#008060] to-[#0a664e] flex items-center justify-center text-white shadow-md shadow-emerald-600/20 shrink-0">
+              <Layers className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-xl font-black text-slate-900">تقرير الشفافية ومحاسبة الموكل</h2>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Transparency Portal
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className={`text-base sm:text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  كشف الشفافية وحركة البضاعة والمخزن
+                </h2>
+                <span className={`text-[11px] font-bold ${isDark ? 'text-emerald-400' : 'text-[#008060]'}`}>
+                  · محاسبة تفصيلية معتمدة
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                كشف متكامل بحركة البضاعة المباعة والمرتجعة ومصروفات الشحن والتسويق وصافي الأرباح والخسائر
+              <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'} mt-0.5`}>
+                متابعة شاملة لحركة الأصناف المباعة والمرتجعة ومصروفات الشحن وصافي المستحقات
               </p>
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => {
-                if (onOpenPortal) {
-                  onOpenPortal(selectedMerchant);
-                } else {
-                  const targetUrl = `/merchant-portal${selectedMerchant && selectedMerchant !== 'all' ? `?p=${encodeURIComponent(selectedMerchant)}` : ''}`;
-                  window.location.href = targetUrl;
-                }
-              }}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 transition-all shadow-sm shadow-indigo-200 cursor-pointer"
-              title="فتح بوابة الموكل الإلكترونية (تسجيل الدخول، المحفظة، وتتبع الأوردرات)"
-            >
-              <Globe className="w-4 h-4" />
-              <span>دخول بوابة الموكل (Portal) 🚀</span>
-            </button>
+            {!isEmbeddedInPortal && (
+              <button
+                onClick={() => {
+                  if (onOpenPortal) {
+                    onOpenPortal(selectedMerchant);
+                  } else {
+                    const targetUrl = `/merchant-portal${selectedMerchant && selectedMerchant !== 'all' ? `?p=${encodeURIComponent(selectedMerchant)}` : ''}`;
+                    window.location.href = targetUrl;
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black text-white bg-[#008060] hover:bg-[#0a664e] transition-all shadow-xs cursor-pointer"
+                title="فتح بوابة الموكل الإلكترونية"
+              >
+                <Globe className="w-4 h-4" />
+                <span>دخول بوابة الموكل</span>
+              </button>
+            )}
             <button
               onClick={handlePrint}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all shadow-sm"
+              className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                isDark
+                  ? 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
+                  : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200'
+              }`}
               title="طباعة تقرير الشفافية الرسمي A4"
             >
-              <Printer className="w-4 h-4 text-slate-600" />
-              طباعة كشف A4
+              <Printer className="w-4 h-4 text-[#008060]" />
+              <span>طباعة كشف A4 (PDF)</span>
             </button>
             <button
               onClick={handleExportExcel}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all shadow-sm"
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all cursor-pointer"
               title="تصدير ملف إكسيل متعدد الأوراق"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              تصدير Excel مفصل
+              <FileSpreadsheet className="w-4 h-4 text-[#008060]" />
+              <span>تصدير Excel</span>
             </button>
             <button
               onClick={handleShareWhatsApp}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-all shadow-sm shadow-emerald-200"
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black text-white bg-[#008060] hover:bg-[#0a664e] transition-all shadow-xs cursor-pointer"
               title="مشاركة التقرير عبر واتساب"
             >
               <MessageSquare className="w-4 h-4" />
-              مشاركة واتساب
+              <span>مشاركة واتساب</span>
             </button>
           </div>
         </div>
 
         {/* Filter Controls Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-          {/* Merchant Selector */}
-          <div>
-            <label className="block text-xs font-bold text-slate-600 mb-1.5 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-indigo-500" />
-              الموكل / صاحب البضاعة
-            </label>
-            <select
-              value={selectedMerchant}
-              onChange={e => setSelectedMerchant(e.target.value)}
-              disabled={initialMerchantIdOrName !== 'all' && initialMerchantIdOrName !== ''}
-              className="w-full text-xs font-semibold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all disabled:opacity-80 disabled:cursor-not-allowed"
-            >
-              {initialMerchantIdOrName === 'all' && (
-                <option value="all">كافة الموكلين والشركاء (إجمالي عام)</option>
-              )}
-              {merchantsList.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.sourceLabel})
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${isEmbeddedInPortal ? 'lg:grid-cols-3' : 'lg:grid-cols-4'} gap-3 pt-1`}>
+          {/* Merchant Selector (Hidden when locked inside portal) */}
+          {!isEmbeddedInPortal && (
+            <div>
+              <label className={`block text-xs font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'} mb-1.5 flex items-center gap-1.5`}>
+                <User className="w-3.5 h-3.5 text-[#008060]" />
+                الموكل / صاحب البضاعة
+              </label>
+              <select
+                value={selectedMerchant}
+                onChange={e => setSelectedMerchant(e.target.value)}
+                disabled={initialMerchantIdOrName !== 'all' && initialMerchantIdOrName !== ''}
+                className={`w-full text-xs font-semibold px-3 py-2.5 ${isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'} border rounded-xl focus:outline-none focus:border-[#008060] transition-all disabled:opacity-80 disabled:cursor-not-allowed`}
+              >
+                {initialMerchantIdOrName === 'all' && (
+                  <option value="all">كافة الموكلين والشركاء (إجمالي عام)</option>
+                )}
+                {merchantsList.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.sourceLabel})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Date Range Selector */}
           <div>
@@ -489,34 +503,34 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
       </div>
 
       {/* 4. Sub-Navigation Tabs: Products Movement vs Orders Ledger */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="flex items-center gap-2 p-1.5 bg-slate-200/70 dark:bg-slate-800/80 rounded-2xl w-fit">
         <button
           onClick={() => setSubTab('products')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
             subTab === 'products'
-              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              ? 'bg-[#008060] text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>حركة وتجميع المنتجات المباعة والمرتجعة</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] ${subTab === 'products' ? 'bg-indigo-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-            {analytics.productMovements.length}
+          <span>حركة وتجميع الأصناف</span>
+          <span className={`font-mono text-[11px] ${subTab === 'products' ? 'text-emerald-100' : 'text-slate-500'}`}>
+            ({analytics.productMovements.length})
           </span>
         </button>
 
         <button
           onClick={() => setSubTab('orders')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
             subTab === 'orders'
-              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-200'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              ? 'bg-[#008060] text-white shadow-sm'
+              : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
           }`}
         >
           <FileText className="w-4 h-4" />
-          <span>البيان المحاسبي التفصيلي للأوردرات</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] ${subTab === 'orders' ? 'bg-indigo-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
-            {analytics.orderRows.length}
+          <span>البيان المحاسبي للأوردرات</span>
+          <span className={`font-mono text-[11px] ${subTab === 'orders' ? 'text-emerald-100' : 'text-slate-500'}`}>
+            ({analytics.orderRows.length})
           </span>
         </button>
       </div>
@@ -549,8 +563,56 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
+            {/* Mobile Product Cards (md:hidden) */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {sortedProducts.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-xs font-bold">
+                  لا توجد منتجات مسجلة لهذا الموكل في الفترة المحددة
+                </div>
+              ) : (
+                sortedProducts.map((prod, idx) => {
+                  const isProdProfit = prod.netProfit >= 0;
+                  return (
+                    <div key={prod.productId + '_mob_' + idx} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#008060] flex items-center justify-center font-black text-xs shrink-0 border border-emerald-100">
+                            <Package className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-black text-xs text-slate-900 truncate">{prod.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{prod.sku} · إجمالي المطلوب: {prod.totalQuantityOrdered} ق</div>
+                          </div>
+                        </div>
+                        <div className="text-left shrink-0">
+                          <div className={`text-xs font-black font-mono tabular-nums ${isProdProfit ? 'text-[#008060]' : 'text-rose-600'}`}>
+                            {isProdProfit ? '+' : ''}{prod.netProfit.toLocaleString()} ج.م
+                          </div>
+                          <div className="text-[10px] text-slate-400">صافي الربح</div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center bg-slate-50 rounded-xl p-2.5 border border-slate-100 text-[11px]">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">المسلّم</span>
+                          <span className="font-mono font-black text-emerald-700">{prod.quantityDelivered} ق</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">المرتجع ({prod.returnRate}%)</span>
+                          <span className="font-mono font-black text-rose-600">{prod.quantityReturned} ق</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">رأس المال</span>
+                          <span className="font-mono font-black text-sky-800">{prod.totalDeliveredCost.toLocaleString()} ج.م</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop Table (hidden md:block) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-right text-xs">
                 <thead>
                   <tr className="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
@@ -588,7 +650,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                                   className="w-9 h-9 rounded-lg object-cover border border-slate-200 flex-shrink-0"
                                 />
                               ) : (
-                                <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs flex-shrink-0 border border-indigo-100">
+                                <div className="w-9 h-9 rounded-lg bg-emerald-50 text-[#008060] flex items-center justify-center font-bold text-xs flex-shrink-0 border border-emerald-100">
                                   <Package className="w-4 h-4" />
                                 </div>
                               )}

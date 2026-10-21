@@ -73,11 +73,12 @@ const calculateMerchantShippingBreakdown = (
     : calculatedInsurance;
   const insuranceFee = ov?.insuranceFee !== undefined ? ov.insuranceFee : rawInsurance;
 
-  // 3. Inspection Fee
+  // 3. Inspection Fee (Only charged to merchant if explicitly included and not paid by customer)
   const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0);
-  const rawInspection = (order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0)
+  const isInspectionExplicitlyCharged = (order.includeInspectionFee === true || order.allowOpenShipment === true) && order.inspectionFeePaidByCustomer !== true;
+  const rawInspection = (order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0 && order.inspectionFeePaidByCustomer !== true)
     ? Number(order.inspectionFee)
-    : (order.includeInspectionFee === false ? 0 : inspectionCost);
+    : (isInspectionExplicitlyCharged ? inspectionCost : 0);
   const inspectionFee = ov?.inspectionFee !== undefined ? ov.inspectionFee : rawInspection;
 
   // 4. VAT Fee (14% VAT on shipping + inspection + insurance)
@@ -226,7 +227,51 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     return merchantRequests.filter(r => r.status === 'pending').length;
   }, [merchantRequests]);
 
-  const handleApproveMerchantRequest = async (req: db.PartnerPortalRequest) => {
+  const [selectedReqForApproval, setSelectedReqForApproval] = useState<db.PartnerPortalRequest | null>(null);
+  const [approvalTreasuryAccountId, setApprovalTreasuryAccountId] = useState<string>('');
+  const [approvalTransferRef, setApprovalTransferRef] = useState<string>('');
+  const [approvalReceiptImage, setApprovalReceiptImage] = useState<string>('');
+  const [previewReceiptImage, setPreviewReceiptImage] = useState<string | null>(null);
+
+  const handleReceiptFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 900;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          setApprovalReceiptImage(canvas.toDataURL('image/jpeg', 0.78));
+        } else {
+          setApprovalReceiptImage(dataUrl);
+        }
+      };
+      img.onerror = () => setApprovalReceiptImage(dataUrl);
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleApproveMerchantRequest = async (req: db.PartnerPortalRequest, treasuryAccountId?: string) => {
     try {
       const amount = Number(req.amount);
       const supplier = (settings.suppliers || []).find(s => s.id === req.partnerId);
@@ -234,12 +279,52 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         inAppToast('تعذر اعتماد الطلب: تحقق من حالته والمبلغ والرصيد المرتبط بحساب الموكل.', 'error');
         return;
       }
-      const statusUpdated = await db.updatePartnerRequestStatus(req.id, activeStoreId, 'approved');
+
+      const selectedAcc = (treasury?.accounts || []).find(a => a.id === treasuryAccountId);
+      if (selectedAcc && selectedAcc.balance < amount) {
+        inAppToast(`رصيد حساب الخزينة (${selectedAcc.name}) غير كافٍ لصرف هذا الطلب (${selectedAcc.balance.toLocaleString()} ج.م)`, 'error');
+        return;
+      }
+
+      const cleanRef = approvalTransferRef.trim() || undefined;
+      const cleanImg = approvalReceiptImage || undefined;
+
+      const statusUpdated = await db.updatePartnerRequestStatus(req.id, activeStoreId, 'approved', {
+        receiptImage: cleanImg,
+        transferReference: cleanRef
+      });
       if (!statusUpdated) {
         inAppToast('لم يتم اعتماد الطلب؛ ربما عولج بالفعل من شاشة أخرى. حدّث القائمة.', 'error');
         return;
       }
-      setRawRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+      setRawRequests(prev => prev.map(r => r.id === req.id ? {
+        ...r,
+        status: 'approved',
+        ...(cleanImg ? { receiptImage: cleanImg } : {}),
+        ...(cleanRef ? { transferReference: cleanRef } : {})
+      } : r));
+
+      // Deduct from central Treasury if selected
+      if (selectedAcc && setTreasury && treasury) {
+        const treasuryTx = {
+          id: `tx-${Date.now()}`,
+          date: new Date().toISOString(),
+          amount,
+          type: 'withdrawal' as const,
+          description: `صرف طلب سحب مستحقات الموكل: ${req.partnerName} (طلب #${req.id.slice(-6)})${cleanRef ? ` - مرجع: ${cleanRef}` : ''}`,
+          fromAccountId: selectedAcc.id,
+          operatorName: currentUser?.fullName || 'الإدارة',
+          reference: cleanRef || req.id
+        };
+
+        setTreasury(current => current ? ({
+          ...current,
+          accounts: current.accounts.map(acc => acc.id === selectedAcc.id
+            ? { ...acc, balance: acc.balance - amount }
+            : acc),
+          transactions: [treasuryTx, ...(current.transactions || [])]
+        }) : current);
+      }
 
       // Update Merchant Balance and record Withdrawal Transaction
       updateSettings(currentSettings => {
@@ -254,13 +339,15 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               type: 'withdrawal',
               amount: -amount,
               balanceAfter: currentBalance - amount,
-              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) - ${req.notes || ''}`,
+              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
               referenceId: req.id,
+              receiptImage: cleanImg,
+              transferReference: cleanRef,
               performedBy: currentUser?.fullName || 'الإدارة'
             };
             return {
               ...s,
-              balance: currentBalance - req.amount,
+              balance: currentBalance - amount,
               transactions: [newTx, ...(s.transactions || [])]
             };
           }
@@ -274,21 +361,36 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         };
       });
 
-      inAppToast(`تم اعتماد طلب السحب للموكل ${req.partnerName} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+      setSelectedReqForApproval(null);
+      setApprovalTreasuryAccountId('');
+      setApprovalTransferRef('');
+      setApprovalReceiptImage('');
+      inAppToast(`تم اعتماد وصرف طلب السحب للموكل ${req.partnerName} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
     } catch (err: any) {
       inAppToast('حدث خطأ أثناء اعتماد الطلب: ' + (err.message || ''), 'error');
     }
   };
 
-  const handleRejectMerchantRequest = async (reqId: string) => {
+  const handleRejectMerchantRequest = async (req: db.PartnerPortalRequest) => {
     try {
-      const updated = await db.updatePartnerRequestStatus(reqId, activeStoreId, 'rejected');
+      const confirmed = await inAppConfirm(
+        `هل أنت متأكد من رفض طلب السحب بمبلغ (${req.amount.toLocaleString()} ج.م) للموكل "${req.partnerName}"؟ سيتم إلغاء الحجز المؤقت وإتاحة المبلغ فوراً في محفظته.`,
+        {
+          title: 'تأكيد رفض طلب السحب',
+          confirmText: 'نعم، رفض الطلب',
+          cancelText: 'تراجع',
+          type: 'danger'
+        }
+      );
+      if (!confirmed) return;
+
+      const updated = await db.updatePartnerRequestStatus(req.id, activeStoreId, 'rejected');
       if (!updated) {
         inAppToast('لم يتم رفض الطلب؛ ربما عولج مسبقاً. حدّث القائمة.', 'error');
         return;
       }
-      setRawRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
-      inAppToast('تم رفض طلب السحب للموكل', 'info');
+      setRawRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
+      inAppToast('تم رفض طلب السحب للموكل وأصبح المبلغ متاحاً بالكامل في محفظته', 'info');
     } catch (err: any) {
       inAppToast('حدث خطأ أثناء رفض الطلب', 'error');
     }
@@ -370,18 +472,33 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           id: s.id, 
           name: s.name.trim(), 
           phone: s.phone, 
-
+          email: s.email || '',
           sourceLabel: 'مورد / صاحب بضاعة' 
         });
       }
     });
 
-    // Also merge email/phone from settings.partners if person exists in suppliers list
+    // Also merge email/phone from settings.partners if person exists in suppliers list, or add consignment partners
     (settings.partners || []).forEach(p => {
-      const existing = list.find(item => item.id === p.id || item.name === p.name);
+      if (!p) return;
+      const pName = (p.name || '').trim();
+      const existing = list.find(item => item.id === p.id || (pName && item.name.trim().toLowerCase() === pName.toLowerCase()));
       if (existing) {
         if (!existing.email && p.email) existing.email = p.email;
         if (!existing.phone && p.phone) existing.phone = p.phone;
+      } else if (p.id && pName && !seen.has(p.id) && !seen.has(pName)) {
+        const isConsignmentRole = !p.role || String(p.role).includes('موكل') || String(p.role).includes('مورد') || String(p.role).includes('بضاعة');
+        if (isConsignmentRole || p.email) {
+          seen.add(p.id);
+          seen.add(pName);
+          list.push({
+            id: p.id,
+            name: pName,
+            phone: p.phone,
+            email: p.email || '',
+            sourceLabel: p.role || 'موكل / شريك'
+          });
+        }
       }
     });
 
@@ -446,6 +563,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       name: newPartnerName.trim(),
       phone: newPartnerPhone.trim(),
       email: cleanEmail,
+      passcode: '0000',
       address: '',
       notes: 'موكل / صاحب بضاعة (تمت إضافته من شاشة التسويات)',
       defaultMarketingFeePerOrder: newPartnerDefaultMarketing > 0 ? newPartnerDefaultMarketing : undefined
@@ -462,11 +580,18 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       role: 'موكل صاحب بضاعة'
     };
 
-    updateSettings(prev => ({
-      ...prev,
-      suppliers: [newPartner, ...(prev.suppliers || [])],
-      partners: [newPartnerInPartners, ...(prev.partners || []).filter(p => p.id !== newId)]
-    }));
+    updateSettings(prev => {
+      const nextSuppliers = [newPartner, ...(prev.suppliers || [])];
+      const nextPartners = [newPartnerInPartners, ...(prev.partners || []).filter(p => p.id !== newId)];
+      if (activeStoreId) {
+        db.updatePartnerSettings(activeStoreId, nextPartners, nextSuppliers).catch(() => {});
+      }
+      return {
+        ...prev,
+        suppliers: nextSuppliers,
+        partners: nextPartners
+      };
+    });
 
     setSelectedMerchantId(newId);
     setNewPartnerName('');
@@ -489,23 +614,40 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     setIsSavingPartnerEmail(true);
     try {
       updateSettings(prev => {
+        const targetId = editingPartnerForEmail.id;
+        const targetName = (editingPartnerForEmail.name || '').trim().toLowerCase();
+
+        let supplierMatched = false;
         const updatedSuppliers = (prev.suppliers || []).map(s => {
-          if (s.id === editingPartnerForEmail.id || s.name === editingPartnerForEmail.name) {
-            return { ...s, email: cleanEmail };
+          if (s.id === targetId || (targetName && (s.name || '').trim().toLowerCase() === targetName)) {
+            supplierMatched = true;
+            return { ...s, email: cleanEmail, passcode: s.passcode || '0000' };
           }
           return s;
         });
 
+        if (!supplierMatched) {
+          updatedSuppliers.push({
+            id: targetId,
+            name: editingPartnerForEmail.name,
+            phone: '',
+            email: cleanEmail,
+            passcode: '0000',
+            address: '',
+            notes: 'موكل / مورد معتمد'
+          });
+        }
+
         // Also update or add to partners list
-        const existingPartner = (prev.partners || []).find(p => p.id === editingPartnerForEmail.id || p.name === editingPartnerForEmail.name);
+        const existingPartner = (prev.partners || []).find(p => p.id === targetId || (targetName && (p.name || '').trim().toLowerCase() === targetName));
         let updatedPartners = [...(prev.partners || [])];
         if (existingPartner) {
           updatedPartners = updatedPartners.map(p => 
-            p.id === existingPartner.id ? { ...p, email: cleanEmail } : p
+            p.id === existingPartner.id ? { ...p, email: cleanEmail, passcode: p.passcode || '0000' } : p
           );
         } else {
           updatedPartners.push({
-            id: editingPartnerForEmail.id,
+            id: targetId,
             name: editingPartnerForEmail.name,
             phone: '',
             email: cleanEmail,
@@ -514,6 +656,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             passcode: '0000',
             role: 'موكل صاحب بضاعة'
           });
+        }
+
+        if (activeStoreId) {
+          db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
         }
 
         return {
@@ -666,9 +812,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     };
   }, [settings.merchantSettlements, partnersSummary]);
 
-  // Unsettled Orders for the Selected Merchant
+  // Unsettled Orders for the Selected Merchant or All Merchants
   const eligibleOrders = useMemo(() => {
     if (!selectedMerchantId) return [];
+    if (selectedMerchantId === 'all') {
+      return orders.filter(o => {
+        const isUnsettled = o.settlementStatus !== 'settled';
+        const isEligibleStatus = SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status);
+        const hasMerchant = Boolean((o.merchantId && o.merchantId !== 'pending') || o.merchantName);
+        return isUnsettled && isEligibleStatus && hasMerchant;
+      });
+    }
     const selectedPartner = merchantsList.find(m => m.id === selectedMerchantId);
 
     return orders.filter(o => {
@@ -692,7 +846,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         const numMatch = String(o.orderNumber || o.id).toLowerCase().includes(q);
         const custMatch = String(o.customerName || '').toLowerCase().includes(q);
         const phoneMatch = String(o.customerPhone || '').toLowerCase().includes(q);
-        return numMatch || custMatch || phoneMatch;
+        const merchantMatch = String(o.merchantName || '').toLowerCase().includes(q);
+        return numMatch || custMatch || phoneMatch || merchantMatch;
       }
       return true;
     });
@@ -701,6 +856,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   // Auto-select all eligible orders when merchant changes
   const handleSelectMerchant = (mId: string) => {
     setSelectedMerchantId(mId);
+    if (mId === 'all') {
+      const allOrders = orders.filter(o => {
+        const isUnsettled = o.settlementStatus !== 'settled';
+        const isEligibleStatus = SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status);
+        const hasMerchant = Boolean((o.merchantId && o.merchantId !== 'pending') || o.merchantName);
+        return isUnsettled && isEligibleStatus && hasMerchant;
+      });
+      setSelectedOrderIds(allOrders.map(o => o.id));
+      setExpandedOrderId(null);
+      return;
+    }
     const selectedPartner = merchantsList.find(m => m.id === mId);
     const mOrders = orders.filter(o => {
       const isMatch = doesOrderBelongToMerchant(o, mId, selectedPartner);
@@ -1038,6 +1204,196 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     }
     if (selectedOrderIds.length === 0 || settlementCalculation.ordersCount === 0) {
       await inAppAlert('يرجى تحديد أوردر واحد على الأقل من جدول الأوردرات الجاهزة للتسوية.', { title: 'لا توجد أوردرات محددة', type: 'warning' });
+      return;
+    }
+
+    // MULTI-MERCHANT BATCH SETTLEMENT
+    if (selectedMerchantId === 'all') {
+      const ordersToProcess = eligibleOrders.filter(o => selectedOrderIds.includes(o.id));
+      const merchantGroups = new Map<string, { merchantId: string; merchantName: string; orders: Order[] }>();
+
+      ordersToProcess.forEach(o => {
+        const mId = o.merchantId || o.merchantName || 'general';
+        const mName = o.merchantName || 'موكل عام';
+        if (!merchantGroups.has(mId)) {
+          merchantGroups.set(mId, { merchantId: mId, merchantName: mName, orders: [] });
+        }
+        merchantGroups.get(mId)!.orders.push(o);
+      });
+
+      const confirmed = await inAppConfirm(
+        `هل ترغب في اعتماد تسوية مجمعة لـ (${ordersToProcess.length}) أوردر موزعة على (${merchantGroups.size}) موكل دفعة واحدة؟`,
+        {
+          title: 'تأكيد التسوية المجمعة لكافة الموكلين',
+          confirmText: 'نعم، اعتماد وتسوية الجميع',
+          cancelText: 'تراجع',
+          type: 'info'
+        }
+      );
+      if (!confirmed) return;
+
+      const now = new Date().toISOString();
+      const generatedSettlements: MerchantSettlement[] = [];
+      const updatedOrderIdsMap = new Map<string, string>();
+      const supplierBalanceAdditions = new Map<string, number>();
+      const newLedgerTxs: MerchantTransaction[] = [];
+
+      let groupIndex = 0;
+      for (const group of merchantGroups.values()) {
+        groupIndex++;
+        const sId = `SETT-${Date.now()}-${groupIndex}`;
+        const sNum = `ST-${String((settings.merchantSettlements || []).length + groupIndex).padStart(5, '0')}`;
+
+        let totalCollected = 0;
+        let totalGoodsCost = 0;
+        let totalServiceFees = 0;
+        let totalShippingCosts = 0;
+        let netPayout = 0;
+
+        const snapshots: MerchantSettlementOrderSnapshot[] = group.orders.map(o => {
+          const calc = computeOrderFinancials(o);
+          totalCollected += calc.orderRevenue;
+          totalGoodsCost += calc.goodsCost;
+          totalServiceFees += calc.serviceFee;
+          totalShippingCosts += calc.shippingAndFees;
+          netPayout += calc.orderPayout;
+
+          updatedOrderIdsMap.set(o.id, sId);
+
+          return {
+            orderId: o.id,
+            orderNumber: o.orderNumber || o.id,
+            date: o.date,
+            customerName: o.customerName || 'عميل',
+            status: o.status,
+            shippingCompany: o.shippingCompany,
+            accountingMode: calc.effectiveMode,
+            mode: calc.effectiveMode,
+            sharePercent: calc.effectiveSharePercent,
+            goodsCost: calc.goodsCost,
+            merchantGoodsCost: calc.isDelivered ? calc.goodsCost : 0,
+            shippingFee: calc.shippingBreakdown.baseShippingFee,
+            officialShippingFee: calc.shippingBreakdown.officialShippingFee,
+            customerPaidShipping: calc.shippingBreakdown.customerPaidShipping,
+            shippingDiscountDifference: calc.shippingBreakdown.shippingDiscountDifference,
+            insuranceFee: calc.shippingBreakdown.insuranceFee,
+            vatFee: calc.shippingBreakdown.vatFee,
+            inspectionFee: calc.shippingBreakdown.inspectionFee,
+            codFee: calc.shippingBreakdown.codFee,
+            collectionFee: calc.codFee,
+            carrierAdditionalFees: calc.shippingBreakdown.carrierAdditionalFees,
+            totalShippingAndCarrierFees: calc.shippingAndFees,
+            serviceFee: calc.serviceFee,
+            marketingFee: calc.marketingCost,
+            marketingCost: calc.marketingCost,
+            returnFee: calc.returnFee,
+            returnLoss: calc.returnLoss,
+            collectedRevenue: calc.orderRevenue,
+            collectedAmount: calc.orderRevenue,
+            netPayoutToMerchant: calc.orderPayout,
+            netMerchantAmount: calc.orderPayout,
+            operatorEarnings: calc.operatorOrderEarning
+          };
+        });
+
+        const settleRecord: MerchantSettlement = {
+          id: sId,
+          settlementNumber: sNum,
+          merchantId: group.merchantId,
+          merchantName: group.merchantName,
+          date: now,
+          ordersCount: group.orders.length,
+          totalCollected,
+          totalMerchantGoodsCost: totalGoodsCost,
+          totalServiceFees,
+          totalShippingCosts,
+          totalMarketingCosts: 0,
+          totalReturnFees: 0,
+          totalCollectionFees: 0,
+          netPayoutToMerchant: Math.round(netPayout * 100) / 100,
+          status: saveAsStatus,
+          paidFromTreasuryAccountId: saveAsStatus === 'paid' && payoutChannel !== 'ledger_only' ? selectedTreasuryAccountId || undefined : undefined,
+          notes: `تسوية مجمعة (${group.orders.length} أوردر) - طريقة الصرف: ${payoutChannel === 'ledger_only' ? 'تسوية دفترية' : payoutChannel}`,
+          performedBy: currentUser?.fullName || 'الإدارة',
+          orderSnapshots: snapshots
+        };
+
+        generatedSettlements.push(settleRecord);
+
+        if (saveAsStatus === 'paid') {
+          supplierBalanceAdditions.set(group.merchantId, (supplierBalanceAdditions.get(group.merchantId) || 0) + settleRecord.netPayoutToMerchant);
+
+          newLedgerTxs.push({
+            id: `mtx-${Date.now()}-${groupIndex}`,
+            merchantId: group.merchantId,
+            merchantName: group.merchantName,
+            date: now,
+            type: 'order_delivered',
+            amount: settleRecord.netPayoutToMerchant,
+            balanceAfter: 0,
+            notes: `كشف تسوية أوردرات رقم ${sNum} - (${group.orders.length} أوردر)`,
+            referenceId: sId,
+            performedBy: currentUser?.fullName || 'الإدارة'
+          });
+        }
+      }
+
+      if (saveAsStatus === 'paid') {
+        setOrders(currentOrders => currentOrders.map(o => {
+          const matchedSettleId = updatedOrderIdsMap.get(o.id);
+          if (!matchedSettleId) return o;
+          const ov = orderOverrides[o.id];
+          return {
+            ...o,
+            settlementStatus: 'settled' as const,
+            settlementId: matchedSettleId,
+            ...(ov?.goodsCost !== undefined ? { merchantItemCost: ov.goodsCost } : {}),
+            ...(ov?.marketingFee !== undefined ? { marketingFeePerOrder: ov.marketingFee } : {}),
+            ...(ov?.serviceFee !== undefined ? { serviceFeePerOrder: ov.serviceFee } : {}),
+            ...(ov?.shippingFee !== undefined ? { shippingFee: ov.shippingFee, isManualShippingOverride: true } : {}),
+            ...(ov?.insuranceFee !== undefined ? { insuranceFee: ov.insuranceFee } : {}),
+            ...(ov?.vatFee !== undefined ? { vatValue: ov.vatFee } : {}),
+            ...(ov?.inspectionFee !== undefined ? { inspectionFee: ov.inspectionFee } : {}),
+            ...(ov?.mode !== undefined ? { merchantSettlementMode: ov.mode } : {}),
+            ...(ov?.sharePercent !== undefined ? { merchantProfitSharePercent: ov.sharePercent } : {})
+          };
+        }));
+      }
+
+      updateSettings(currentSettings => {
+        const suppliersList = currentSettings.suppliers || [];
+        const updatedSuppliers = suppliersList.map(s => {
+          const addition = supplierBalanceAdditions.get(s.id);
+          if (addition !== undefined && saveAsStatus === 'paid') {
+            const currentBal = s.balance || 0;
+            const newBal = currentBal + addition;
+            const txsForThisSupplier = newLedgerTxs
+              .filter(tx => tx.merchantId === s.id)
+              .map(tx => ({ ...tx, balanceAfter: newBal }));
+
+            return {
+              ...s,
+              balance: newBal,
+              transactions: [...txsForThisSupplier, ...(s.transactions || [])]
+            };
+          }
+          return s;
+        });
+
+        return {
+          ...currentSettings,
+          suppliers: updatedSuppliers,
+          merchantTransactions: [...newLedgerTxs, ...(currentSettings.merchantTransactions || [])],
+          merchantSettlements: [...generatedSettlements, ...(currentSettings.merchantSettlements || [])]
+        };
+      });
+
+      setSelectedMerchantId('');
+      setSelectedOrderIds([]);
+      setOrderOverrides({});
+      setActiveTab('settlements');
+
+      inAppToast(`تم إصدار واعتماد التسويات المجمعة لـ (${ordersToProcess.length}) أوردر عبر (${merchantGroups.size}) موكل بنجاح! 🚀`, 'success', 5000);
       return;
     }
 
@@ -2102,6 +2458,22 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                   وصول سريع للموكلين الذين لديهم أوردرات جاهزة للتسوية:
                 </label>
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectMerchant('all')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 shrink-0 cursor-pointer border ${
+                      selectedMerchantId === 'all'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-md'
+                        : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:border-emerald-500'
+                    }`}
+                  >
+                    <span>🌟 تسوية مجمعة لكافة الموكلين</span>
+                    <span className={`font-mono text-[11px] px-1.5 py-0.5 rounded-md ${
+                      selectedMerchantId === 'all' ? 'bg-white/20 text-white' : 'bg-emerald-200 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200'
+                    }`}>
+                      {orders.filter(o => o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status) && (o.merchantId || o.merchantName)).length} أوردر
+                    </span>
+                  </button>
                   {partnersSummary.filter(p => p.unsettledCount > 0).map(p => {
                     const isActive = selectedMerchantId === p.id;
                     return (
@@ -2140,6 +2512,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                   className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-black text-xs outline-none focus:ring-2 focus:ring-emerald-600"
                 >
                   <option value="">-- اختر صاحب البضاعة من القائمة --</option>
+                  <option value="all" className="font-black text-emerald-700 bg-emerald-50 dark:bg-emerald-950/60">
+                    🌟 تسوية مجمعة لكافة الموكلين ({orders.filter(o => o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status) && (o.merchantId || o.merchantName)).length} أوردر متاح)
+                  </option>
                   {partnersSummary.map(m => (
                     <option key={m.id} value={m.id}>
                       {m.name} {m.phone ? `(${m.phone})` : ''} — [{m.unsettledCount} أوردر جاهز]
@@ -2437,8 +2812,13 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                                     {ord.customerName}
                                   </span>
                                 </div>
-                                <div className="text-[11px] text-slate-400 font-mono mt-0.5">
-                                  {new Date(ord.date).toLocaleDateString('ar-EG')} · {ord.shippingCompany || 'شحن افتراضي'}
+                                <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+                                  <span>{new Date(ord.date).toLocaleDateString('ar-EG')} · {ord.shippingCompany || 'شحن افتراضي'}</span>
+                                  {selectedMerchantId === 'all' && (
+                                    <span className="bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md text-[10px] font-black border border-indigo-200 dark:border-indigo-800">
+                                      💼 {ord.merchantName || 'موكل عام'}
+                                    </span>
+                                  )}
                                 </div>
                               </td>
 
@@ -3341,11 +3721,29 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                               <div className="font-black text-slate-900 dark:text-white">{req.partnerName}</div>
                               <div className="text-[10px] text-slate-400 font-mono">كود: {req.partnerId}</div>
                             </td>
-                            <td className="py-4 px-3">
+                              <td className="py-4 px-3">
                               <div className="font-bold text-slate-800 dark:text-slate-200">{req.typeArabic || 'طلب سحب مستحقات'}</div>
                               {req.notes && (
                                 <div className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded-lg mt-1 border border-emerald-200 dark:border-emerald-800/50 max-w-md">
                                   {req.notes}
+                                </div>
+                              )}
+                              {(req.transferReference || req.receiptImage) && (
+                                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                  {req.transferReference && (
+                                    <span className="text-[10px] font-mono font-black bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
+                                      مرجع التحويل: {req.transferReference}
+                                    </span>
+                                  )}
+                                  {req.receiptImage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewReceiptImage(req.receiptImage || null)}
+                                      className="text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-2.5 py-0.5 rounded-md border border-emerald-300 flex items-center gap-1 cursor-pointer transition-all"
+                                    >
+                                      <Eye size={11} /> عرض إيصال التحويل 🧾
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -3367,14 +3765,18 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                               {isPending ? (
                                 <div className="flex items-center justify-center gap-2">
                                   <button
-                                    onClick={() => handleApproveMerchantRequest(req)}
+                                    onClick={() => {
+                                      setApprovalTransferRef('');
+                                      setApprovalReceiptImage('');
+                                      setSelectedReqForApproval(req);
+                                    }}
                                     className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all cursor-pointer shadow-xs flex items-center gap-1"
                                   >
                                     <Check size={14} />
                                     <span>اعتماد وتخصيم ✅</span>
                                   </button>
                                   <button
-                                    onClick={() => handleRejectMerchantRequest(req.id)}
+                                    onClick={() => handleRejectMerchantRequest(req)}
                                     className="px-3.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-bold text-xs transition-all cursor-pointer border border-rose-200 dark:border-rose-800 flex items-center gap-1"
                                   >
                                     <X size={14} />
@@ -3477,6 +3879,143 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 inAppToast(msg, type === 'error' ? 'error' : 'success');
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* TREASURY-LINKED APPROVAL MODAL FOR PARTNER REQUEST       */}
+      {/* ======================================================== */}
+      {selectedReqForApproval && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl space-y-4 border border-slate-200 dark:border-slate-800 text-right font-sans max-h-[92vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl">
+                  <Check size={18} />
+                </div>
+                <h3 className="font-black text-base text-slate-900 dark:text-white">اعتماد وصرف طلب سحب المستحقات</h3>
+              </div>
+              <button 
+                onClick={() => { setSelectedReqForApproval(null); setApprovalTreasuryAccountId(''); setApprovalTransferRef(''); setApprovalReceiptImage(''); }}
+                className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-1 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-600 dark:text-slate-400 font-bold">الموكل / الشريك:</span>
+                <span className="font-black text-slate-900 dark:text-white">{selectedReqForApproval.partnerName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-600 dark:text-slate-400 font-bold">مبلغ الطلب:</span>
+                <span className="font-black font-mono text-emerald-700 dark:text-emerald-400 text-sm">{selectedReqForApproval.amount.toLocaleString()} ج.م</span>
+              </div>
+              {selectedReqForApproval.notes && (
+                <div className="text-[11px] text-slate-500 pt-1 border-t border-emerald-200/60 dark:border-emerald-800/60">
+                  📝 {selectedReqForApproval.notes}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3 text-xs font-bold">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  حساب الخزينة المركزية للصرف المباشر:
+                </label>
+                <select
+                  value={approvalTreasuryAccountId}
+                  onChange={e => setApprovalTreasuryAccountId(e.target.value)}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-bold text-xs text-slate-900 dark:text-white"
+                >
+                  <option value="">تسوية دفترية فقط (خصم من رصيد الموكل دون الخزينة المركزية)</option>
+                  {(treasury?.accounts || []).map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} — الرصيد: {acc.balance.toLocaleString()} ج.م
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 font-medium">
+                  عند اختيار حساب خزينة، سيتم التحقق من كفاية رصيده وخصم المبلغ منه وتوثيق حركة الصرف آلياً في سجل الخزينة.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  رقم المرجع البنكي / عملية التحويل (اختياري):
+                </label>
+                <input
+                  type="text"
+                  value={approvalTransferRef}
+                  onChange={e => setApprovalTransferRef(e.target.value)}
+                  placeholder="مثال: INSTA-982341 أو رقم عملية فودافون كاش..."
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl outline-none font-mono font-bold text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  إرفاق صورة إيصال التحويل البنكي / المحفظة (تظهر للموكل في بوابته):
+                </label>
+                <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl p-3 text-center bg-slate-50/50 dark:bg-slate-800/40">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleReceiptFileUpload}
+                    className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                  />
+                  {approvalReceiptImage && (
+                    <div className="mt-2 relative inline-block">
+                      <img src={approvalReceiptImage} alt="إيصال التحويل" className="max-h-36 rounded-xl border border-slate-200 mx-auto object-contain" />
+                      <button
+                        type="button"
+                        onClick={() => setApprovalReceiptImage('')}
+                        className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full p-1 shadow-md cursor-pointer"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleApproveMerchantRequest(selectedReqForApproval, approvalTreasuryAccountId)}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md transition-all cursor-pointer"
+                >
+                  تأكيد الاعتماد والصرف ✅
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedReqForApproval(null); setApprovalTreasuryAccountId(''); setApprovalTransferRef(''); setApprovalReceiptImage(''); }}
+                  className="px-4 py-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs transition-all cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewReceiptImage && (
+        <div
+          className="fixed inset-0 z-[150] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPreviewReceiptImage(null)}
+          dir="rtl"
+        >
+          <div className="relative max-w-2xl w-full bg-white dark:bg-slate-900 rounded-3xl p-4 shadow-2xl border border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+              <h4 className="font-black text-sm text-slate-900 dark:text-white">صورة إيصال التحويل البنكي / المحفظة 🧾</h4>
+              <button onClick={() => setPreviewReceiptImage(null)} className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+            <img src={previewReceiptImage} alt="إيصال التحويل" className="max-h-[75vh] w-auto mx-auto rounded-2xl object-contain" />
           </div>
         </div>
       )}

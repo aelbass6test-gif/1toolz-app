@@ -11,12 +11,14 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
 import { calculateMerchantTransparencyAnalytics } from '../utils/merchantAnalytics';
-import { inAppToast } from '../utils/inAppAlert';
+import { inAppToast, inAppConfirm, inAppAlert } from '../utils/inAppAlert';
+import { BulkOrderSettlementModal } from './BulkOrderSettlementModal';
 
 interface MerchantProfilePageProps {
   settings: Settings;
   updateSettings: (updater: (prev: Settings) => Settings) => void;
   orders: Order[];
+  setOrders?: React.Dispatch<React.SetStateAction<Order[]>>;
   treasury?: Treasury;
   setTreasury?: (updater: (prev: Treasury | undefined) => Treasury | undefined) => void;
   customers?: CustomerProfile[];
@@ -41,6 +43,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
   settings, 
   updateSettings, 
   orders, 
+  setOrders,
   treasury, 
   setTreasury,
   customers = [],
@@ -55,6 +58,58 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
   const [merchantPinInput, setMerchantPinInput] = useState('');
   const [cloudRequests, setCloudRequests] = useState<db.PartnerPortalRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
+
+  // Direct Financial Transactions & Approval Modal States
+  const [showDirectTxModal, setShowDirectTxModal] = useState(false);
+  const [directTxType, setDirectTxType] = useState<'withdrawal' | 'expense' | 'deposit'>('withdrawal');
+  const [directTxAmount, setDirectTxAmount] = useState('');
+  const [directTxNotes, setDirectTxNotes] = useState('');
+  const [directTxRef, setDirectTxRef] = useState('');
+  const [directTxTreasuryId, setDirectTxTreasuryId] = useState('');
+  const [selectedReqForApproval, setSelectedReqForApproval] = useState<db.PartnerPortalRequest | null>(null);
+  const [approvalTreasuryAccountId, setApprovalTreasuryAccountId] = useState('');
+  const [approvalTransferRef, setApprovalTransferRef] = useState('');
+  const [approvalReceiptImage, setApprovalReceiptImage] = useState('');
+  const [previewReceiptImage, setPreviewReceiptImage] = useState<string | null>(null);
+
+  const handleReceiptFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (!dataUrl) return;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 900;
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          setApprovalReceiptImage(canvas.toDataURL('image/jpeg', 0.78));
+        } else {
+          setApprovalReceiptImage(dataUrl);
+        }
+      };
+      img.onerror = () => setApprovalReceiptImage(dataUrl);
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Find the merchant (supplier)
   const merchant = useMemo(() => {
@@ -113,6 +168,15 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
     });
   }, [orders, merchant]);
 
+  const unsettledOrders = useMemo(() => {
+    const eligibleStatuses = [
+      'تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'مرتجع',
+      'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي',
+      'مرتجع_بعد_الاستلام', 'ملغي'
+    ];
+    return merchantOrders.filter(o => o.settlementStatus !== 'settled' && eligibleStatuses.includes(o.status));
+  }, [merchantOrders]);
+
   const analytics = useMemo(() => {
     if (!merchant) return null;
     return calculateMerchantTransparencyAnalytics(merchantOrders, settings, merchant.id);
@@ -144,19 +208,64 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
     );
   }
 
-  const handleApproveRequest = async (req: db.PartnerPortalRequest) => {
+  // 1. Approve Request with optional central Treasury Deduction
+  const handleApproveRequest = async (req: db.PartnerPortalRequest, treasuryAccountId?: string) => {
     try {
       const amount = Number(req.amount);
-      if (!storeId || req.status !== 'pending' || !Number.isFinite(amount) || amount <= 0 || amount > (merchant.balance || 0)) {
-        inAppToast('تعذر اعتماد الطلب: تحقق من حالته والمبلغ والرصيد المتاح.', 'error');
+      if (!storeId || req.status !== 'pending' || !Number.isFinite(amount) || amount <= 0) {
+        inAppToast('تعذر اعتماد الطلب: المبلغ غير صالح.', 'error');
         return;
       }
-      const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+      if (amount > (merchant.balance || 0)) {
+        inAppToast(`مبلغ السحب (${amount.toLocaleString()} ج.م) يتجاوز رصيد محفظة الموكل (${(merchant.balance || 0).toLocaleString()} ج.م)`, 'error');
+        return;
+      }
+
+      const selectedAcc = (treasury?.accounts || []).find(a => a.id === treasuryAccountId);
+      if (selectedAcc && selectedAcc.balance < amount) {
+        inAppToast(`رصيد حساب الخزينة (${selectedAcc.name}) غير كافٍ لصرف هذا الطلب (${selectedAcc.balance.toLocaleString()} ج.م)`, 'error');
+        return;
+      }
+
+      const cleanRef = approvalTransferRef.trim() || undefined;
+      const cleanImg = approvalReceiptImage || undefined;
+
+      const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved', {
+        receiptImage: cleanImg,
+        transferReference: cleanRef
+      });
       if (!statusUpdated) {
         inAppToast('لم يتم اعتماد الطلب؛ ربما عولج بالفعل من شاشة أخرى. حدّث القائمة.', 'error');
         return;
       }
-      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+      setCloudRequests(prev => prev.map(r => r.id === req.id ? {
+        ...r,
+        status: 'approved',
+        ...(cleanImg ? { receiptImage: cleanImg } : {}),
+        ...(cleanRef ? { transferReference: cleanRef } : {})
+      } : r));
+
+      // Deduct from central Treasury if selected
+      if (selectedAcc && setTreasury && treasury) {
+        const treasuryTx = {
+          id: `tx-${Date.now()}`,
+          date: new Date().toISOString(),
+          amount,
+          type: 'withdrawal' as const,
+          description: `صرف طلب سحب مستحقات الموكل: ${merchant.name} (طلب #${req.id.slice(-6)})${cleanRef ? ` - مرجع: ${cleanRef}` : ''}`,
+          fromAccountId: selectedAcc.id,
+          operatorName: currentUser?.fullName || 'الإدارة',
+          reference: cleanRef || req.id
+        };
+
+        setTreasury(current => current ? ({
+          ...current,
+          accounts: current.accounts.map(acc => acc.id === selectedAcc.id
+            ? { ...acc, balance: acc.balance - amount }
+            : acc),
+          transactions: [treasuryTx, ...(current.transactions || [])]
+        }) : current);
+      }
 
       // Update Merchant Balance and record Withdrawal Transaction
       updateSettings(currentSettings => {
@@ -171,8 +280,10 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
               type: 'withdrawal',
               amount: -amount,
               balanceAfter: currentBalance - amount,
-              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) - ${req.notes || ''}`,
+              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
               referenceId: req.id,
+              receiptImage: cleanImg,
+              transferReference: cleanRef,
               performedBy: currentUser?.fullName || 'الإدارة'
             };
             return {
@@ -191,10 +302,149 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         };
       });
 
-      inAppToast(`تم اعتماد طلب السحب للموكل ${merchant.name} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+      setSelectedReqForApproval(null);
+      setApprovalTreasuryAccountId('');
+      setApprovalTransferRef('');
+      setApprovalReceiptImage('');
+      inAppToast(`تم اعتماد وصرف طلب السحب للموكل ${merchant.name} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
     } catch (err: any) {
-      inAppToast('حدث خطأ أثناء اعتماد الطلب', 'error');
+      inAppToast('حدث خطأ أثناء اعتماد الطلب: ' + (err.message || ''), 'error');
     }
+  };
+
+  // 2. Reject Request (Restores / unfreezes amount in merchant's portal immediately)
+  const handleRejectRequest = async (req: db.PartnerPortalRequest) => {
+    try {
+      if (!storeId || req.status !== 'pending') return;
+      const confirmed = await inAppConfirm(
+        `هل أنت متأكد من رفض طلب السحب بمبلغ (${req.amount.toLocaleString()} ج.م) للموكل "${req.partnerName}"؟ سيتم إلغاء الحجز المؤقت وإتاحة المبلغ فوراً في محفظته.`,
+        {
+          title: 'تأكيد رفض طلب السحب',
+          confirmText: 'نعم، رفض الطلب',
+          cancelText: 'تراجع',
+          type: 'danger'
+        }
+      );
+      if (!confirmed) return;
+
+      const updated = await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
+      if (!updated) {
+        inAppToast('تعذر تحديث حالة الطلب؛ ربما عولج بالفعل.', 'error');
+        return;
+      }
+      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
+      inAppToast('تم رفض طلب السحب بنجاح وأصبح المبلغ متاحاً بالكامل في محفظة الموكل.', 'info');
+    } catch (err: any) {
+      inAppToast('حدث خطأ أثناء رفض الطلب', 'error');
+    }
+  };
+
+  // 3. Direct Manual Transaction (Cash Advance / Direct Payout / Expense / Deposit)
+  const handleExecuteDirectTx = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!merchant) return;
+    const amount = Number(directTxAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      inAppToast('يرجى إدخال مبلغ صحيح أكبر من الصفر', 'error');
+      return;
+    }
+
+    const currentBalance = merchant.balance || 0;
+    const selectedAcc = (treasury?.accounts || []).find(a => a.id === directTxTreasuryId);
+
+    if (directTxType === 'withdrawal' && selectedAcc) {
+      if (selectedAcc.balance < amount) {
+        inAppToast(`رصيد حساب الخزينة (${selectedAcc.name}) غير كافٍ لصرف هذا المبلغ (${selectedAcc.balance.toLocaleString()} ج.م)`, 'error');
+        return;
+      }
+    }
+
+    const isNegativeDelta = directTxType === 'withdrawal' || directTxType === 'expense';
+    const delta = isNegativeDelta ? -amount : amount;
+    const newBalance = currentBalance + delta;
+
+    const typeLabels: Record<string, string> = {
+      withdrawal: 'سحب نقدي مباشر / دفعة تحت الحساب',
+      expense: 'خصم مصروفات إضافية',
+      deposit: 'إضافة رصيد / إيداع'
+    };
+
+    const txTypeMapped: 'withdrawal' | 'adjustment' | 'deposit' = 
+      directTxType === 'withdrawal' ? 'withdrawal' : 'adjustment';
+
+    const fullNotes = [
+      typeLabels[directTxType],
+      directTxNotes.trim(),
+      selectedAcc ? `(خزينة: ${selectedAcc.name})` : '',
+      directTxRef.trim() ? `مرجع: ${directTxRef.trim()}` : ''
+    ].filter(Boolean).join(' - ');
+
+    const newTx: MerchantTransaction = {
+      id: `mtx-${Date.now()}`,
+      merchantId: merchant.id,
+      merchantName: merchant.name,
+      date: new Date().toISOString(),
+      type: txTypeMapped,
+      amount: delta,
+      balanceAfter: newBalance,
+      notes: fullNotes,
+      referenceId: directTxRef.trim() || undefined,
+      performedBy: currentUser?.fullName || 'الإدارة'
+    };
+
+    // Update central Treasury if selected
+    if (selectedAcc && setTreasury && treasury) {
+      const treasuryDelta = directTxType === 'withdrawal' ? -amount : (directTxType === 'deposit' ? amount : 0);
+      if (treasuryDelta !== 0) {
+        const treasuryTx = {
+          id: `tx-${Date.now()}`,
+          date: new Date().toISOString(),
+          amount: Math.abs(treasuryDelta),
+          type: directTxType === 'withdrawal' ? ('withdrawal' as const) : ('deposit' as const),
+          description: `${typeLabels[directTxType]} للموكل: ${merchant.name} - ${directTxNotes || ''}`,
+          fromAccountId: directTxType === 'withdrawal' ? selectedAcc.id : undefined,
+          toAccountId: directTxType === 'deposit' ? selectedAcc.id : undefined,
+          operatorName: currentUser?.fullName || 'الإدارة',
+          reference: directTxRef || undefined
+        };
+
+        setTreasury(current => current ? ({
+          ...current,
+          accounts: current.accounts.map(acc => acc.id === selectedAcc.id
+            ? { ...acc, balance: acc.balance + treasuryDelta }
+            : acc),
+          transactions: [treasuryTx, ...(current.transactions || [])]
+        }) : current);
+      }
+    }
+
+    // Update Merchant and Settings
+    updateSettings(currentSettings => {
+      const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
+        if (s.id === merchant.id) {
+          return {
+            ...s,
+            balance: newBalance,
+            transactions: [newTx, ...(s.transactions || [])]
+          };
+        }
+        return s;
+      });
+
+      return {
+        ...currentSettings,
+        suppliers: updatedSuppliers,
+        merchantTransactions: [newTx, ...(currentSettings.merchantTransactions || [])]
+      };
+    });
+
+    setShowDirectTxModal(false);
+    setDirectTxAmount('');
+    setDirectTxNotes('');
+    setDirectTxRef('');
+    setDirectTxTreasuryId('');
+
+    inAppToast(`تم تسجيل ${typeLabels[directTxType]} بمبلغ ${amount.toLocaleString()} ج.م وتحديث المحفظة بنجاح ✅`, 'success');
   };
 
   const copyPortalLink = () => {
@@ -225,7 +475,28 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
           العودة لدليل الموكلين
         </button>
 
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button 
+            onClick={() => setShowDirectTxModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black shadow-md transition-all cursor-pointer"
+            title="تسجيل سحب نقدي مباشر أو خصم مصاريف أو إيداع بحساب الموكل"
+          >
+            <Coins size={16} className="text-amber-400" />
+            <span className="text-xs">سحب / خصم / إيداع مباشر 💳</span>
+          </button>
+          <button 
+            onClick={() => {
+              if (unsettledOrders.length === 0) {
+                inAppToast('لا توجد أوردرات جاهزة للتسوية لهذا الموكل حالياً.', 'info');
+                return;
+              }
+              setShowSettlementModal(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+          >
+            <Calculator size={16} />
+            <span className="text-xs">تسوية أوردرات الموكل ({unsettledOrders.length}) 💼</span>
+          </button>
           <button 
             onClick={copyPortalLink}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl font-black border border-indigo-200 hover:bg-indigo-100 transition-all cursor-pointer"
@@ -296,7 +567,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
               </div>
               <div>
                 <h3 className="text-base font-black text-slate-800">طلبات سحب معلقة من الموكل ({pendingRequests.length})</h3>
-                <p className="text-xs text-slate-500">هذه الطلبات مقدمة من بوابة الموكل وبانتظار اعتمادك المالي وتخصيمها من المحفظة</p>
+                <p className="text-xs text-slate-500">هذه الطلبات مقدمة من بوابة الموكل ومحجوزة مؤقتاً في حسابه لحين اعتمادك أو رفضك</p>
               </div>
             </div>
             <Link to={`/store/${storeId}/merchant-settlement?tab=requests`} className="text-xs font-black text-amber-700 hover:underline">إدارة كافة الطلبات ←</Link>
@@ -315,10 +586,20 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                 </div>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
                   <button 
-                    onClick={() => handleApproveRequest(req)}
-                    className="flex-1 sm:flex-none px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-sm transition-all cursor-pointer"
+                    onClick={() => {
+                      setApprovalTransferRef('');
+                      setApprovalReceiptImage('');
+                      setSelectedReqForApproval(req);
+                    }}
+                    className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-sm transition-all cursor-pointer"
                   >
-                    اعتماد وتخصيم الرصيد ✅
+                    اعتماد وصرف ✅
+                  </button>
+                  <button 
+                    onClick={() => handleRejectRequest(req)}
+                    className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black text-xs transition-all cursor-pointer"
+                  >
+                    رفض ❌
                   </button>
                 </div>
               </div>
@@ -494,15 +775,25 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                   <h3 className="text-sm font-black text-slate-900">سجل المعاملات المالية التاريخي</h3>
                   <p className="text-[11px] text-slate-500 font-medium">بيان تفصيلي بجميع التسويات والمسحوبات والتعديلات اليدوية على رصيد الموكل</p>
                </div>
-               <div className="relative">
-                  <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="text" 
-                    placeholder="بحث في المعاملات..." 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="bg-white border border-slate-200 rounded-xl px-4 py-2 pr-9 text-xs outline-none focus:border-emerald-600 w-full sm:w-64" 
-                  />
+               <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  <button 
+                    onClick={() => setShowDirectTxModal(true)}
+                    className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                    title="تسجيل سحب نقدي مباشر أو خصم مصاريف أو إيداع"
+                  >
+                    <Coins size={14} className="text-amber-400" />
+                    <span>+ حركة مالية جديدة</span>
+                  </button>
+                  <div className="relative w-full sm:w-auto">
+                     <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                     <input 
+                       type="text" 
+                       placeholder="بحث في المعاملات..." 
+                       value={searchTerm}
+                       onChange={(e) => setSearchTerm(e.target.value)}
+                       className="bg-white border border-slate-200 rounded-xl px-4 py-2 pr-9 text-xs outline-none focus:border-emerald-600 w-full sm:w-64" 
+                     />
+                  </div>
                </div>
             </div>
             
@@ -707,6 +998,24 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                                 <span className="text-[10px] font-bold text-slate-400">({new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')})</span>
                               </div>
                               <p className="text-[11px] text-slate-500 max-w-md">{req.notes || 'لا يوجد ملاحظات إضافية'}</p>
+                              {(req.transferReference || req.receiptImage) && (
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  {req.transferReference && (
+                                    <span className="text-[10px] font-mono font-black bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md border border-indigo-200">
+                                      مرجع التحويل: {req.transferReference}
+                                    </span>
+                                  )}
+                                  {req.receiptImage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewReceiptImage(req.receiptImage || null)}
+                                      className="text-[10px] font-black bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-2.5 py-0.5 rounded-md border border-emerald-300 flex items-center gap-1 cursor-pointer transition-all"
+                                    >
+                                      <Eye size={11} /> عرض إيصال التحويل 🧾
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                            </div>
                         </div>
                         
@@ -723,12 +1032,24 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                            </div>
                            
                            {isPending && (
-                             <button 
-                                onClick={() => handleApproveRequest(req)}
-                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm"
-                             >
-                               اعتماد وصرف ✅
-                             </button>
+                             <div className="flex items-center gap-2">
+                               <button 
+                                  onClick={() => {
+                                    setApprovalTransferRef('');
+                                    setApprovalReceiptImage('');
+                                    setSelectedReqForApproval(req);
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm"
+                               >
+                                 اعتماد وصرف ✅
+                               </button>
+                               <button 
+                                  onClick={() => handleRejectRequest(req)}
+                                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[10px] font-black transition-all cursor-pointer"
+                               >
+                                 رفض ❌
+                               </button>
+                             </div>
                            )}
                         </div>
                      </div>
@@ -739,7 +1060,294 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
           </div>
         )}
       </div>
+      {/* Modal 1: Direct Financial Transaction (Cash Advance / Direct Payout / Expense / Deposit) */}
+      {showDirectTxModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl">
+          <div className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-2xl space-y-5 text-right font-sans">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2.5 bg-slate-900 text-white rounded-2xl">
+                  <Coins size={20} className="text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900">تسجيل حركة مالية بحساب الموكل</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">سحب نقدي مباشر أو خصم مصاريف أو إيداع يظهر في بوابته وتخصم من حسابه</p>
+                </div>
+              </div>
+              <button onClick={() => setShowDirectTxModal(false)} className="p-1 rounded-lg hover:bg-slate-100 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
 
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-xs">
+              <span className="text-slate-600 font-bold">رصيد محفظة الموكل الحالي:</span>
+              <span className="font-mono font-black text-emerald-700 text-sm">{(merchant.balance || 0).toLocaleString()} ج.م</span>
+            </div>
+
+            <form onSubmit={handleExecuteDirectTx} className="space-y-4 text-xs font-bold">
+              {/* Transaction Type */}
+              <div>
+                <label className="block text-slate-700 mb-1.5">نوع المعاملة المالية:</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDirectTxType('withdrawal')}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                      directTxType === 'withdrawal'
+                        ? 'bg-rose-50 text-rose-800 border-rose-300 ring-2 ring-rose-400/20'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    سحب نقدي مباشر 💸
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDirectTxType('expense')}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                      directTxType === 'expense'
+                        ? 'bg-amber-50 text-amber-800 border-amber-300 ring-2 ring-amber-400/20'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    خصم مصروفات 📉
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDirectTxType('deposit')}
+                    className={`py-2.5 px-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                      directTxType === 'deposit'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-400/20'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    إضافة رصيد / إيداع 📈
+                  </button>
+                </div>
+              </div>
+
+              {/* Amount */}
+              <div>
+                <label className="block text-slate-700 mb-1">المبلغ (ج.م):</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  value={directTxAmount}
+                  onChange={e => setDirectTxAmount(e.target.value)}
+                  placeholder="مثال: 1500"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono font-black text-sm"
+                />
+              </div>
+
+              {/* Central Treasury Linkage */}
+              {(treasury?.accounts || []).length > 0 && (
+                <div>
+                  <label className="block text-slate-700 mb-1">حساب الخزينة المركزية للصرف / الإيداع:</label>
+                  <select
+                    value={directTxTreasuryId}
+                    onChange={e => setDirectTxTreasuryId(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs"
+                  >
+                    <option value="">تسوية دفترية فقط (بدون التأثير على أرصدة الخزينة المركزية)</option>
+                    {(treasury?.accounts || []).map(acc => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} — الرصيد المتاح: {acc.balance.toLocaleString()} ج.م
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                    إذا اخترت حساب خزينة، سيتم خصم أو إضافة المبلغ إلى الخزينة المركزية تلقائياً وتوثيق الحركة في سجل الخزينة.
+                  </p>
+                </div>
+              )}
+
+              {/* Notes / Description */}
+              <div>
+                <label className="block text-slate-700 mb-1">البيان والسبب (يظهر في كشف حساب الموكل ببوابته):</label>
+                <input
+                  type="text"
+                  required
+                  value={directTxNotes}
+                  onChange={e => setDirectTxNotes(e.target.value)}
+                  placeholder={
+                    directTxType === 'withdrawal'
+                      ? 'مثال: سحب نقدي باليد دفعة تحت الحساب أثناء الزيارة'
+                      : directTxType === 'expense'
+                      ? 'مثال: خصم تكلفة إعلانات فيسبوك ممولة خاصة بالبضاعة'
+                      : 'مثال: تعويض بضاعة تالفة أو بونص مبيعات'
+                  }
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-xs"
+                />
+              </div>
+
+              {/* Reference */}
+              <div>
+                <label className="block text-slate-700 mb-1">رقم الإيصال / مرجع المعاملة (اختياري):</label>
+                <input
+                  type="text"
+                  value={directTxRef}
+                  onChange={e => setDirectTxRef(e.target.value)}
+                  placeholder="مثال: REC-98234"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-xs"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowDirectTxModal(false)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black cursor-pointer shadow-md"
+                >
+                  حفظ وتسجيل الحركة فـ المحفظة ✅
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Treasury-linked Request Approval Dialog */}
+      {selectedReqForApproval && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl space-y-4 text-right font-sans max-h-[92vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="font-black text-base text-slate-900">اعتماد وصرف طلب سحب المستحقات</h3>
+              <button onClick={() => { setSelectedReqForApproval(null); setApprovalTransferRef(''); setApprovalReceiptImage(''); }} className="p-1 rounded-lg hover:bg-slate-100 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">الموكل:</span>
+                <span className="font-black text-slate-900">{selectedReqForApproval.partnerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">مبلغ السحب المطلوب:</span>
+                <span className="font-mono font-black text-indigo-700 text-sm">{selectedReqForApproval.amount.toLocaleString()} ج.م</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">رصيد محفظة الموكل:</span>
+                <span className="font-mono font-black text-emerald-700">{(merchant.balance || 0).toLocaleString()} ج.م</span>
+              </div>
+              {selectedReqForApproval.notes && (
+                <div className="pt-1 border-t border-slate-200 text-slate-600">
+                  <span className="font-bold">الملاحظات وطريقة الاستلام: </span>
+                  <span>{selectedReqForApproval.notes}</span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-slate-700 text-xs font-bold mb-1.5">صرف المبلغ من حساب الخزينة المركزية:</label>
+              <select
+                value={approvalTreasuryAccountId}
+                onChange={e => setApprovalTreasuryAccountId(e.target.value)}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs"
+              >
+                <option value="">تسوية دفترية فقط (خصم من محفظة الموكل دون الخزينة)</option>
+                {(treasury?.accounts || []).map(acc => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name} — الرصيد: {acc.balance.toLocaleString()} ج.م
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-slate-700 text-xs font-bold mb-1.5">رقم المرجع البنكي / عملية التحويل (اختياري):</label>
+              <input
+                type="text"
+                value={approvalTransferRef}
+                onChange={e => setApprovalTransferRef(e.target.value)}
+                placeholder="مثال: INSTA-982341 أو رقم عملية المحفظة..."
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono font-bold text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-700 text-xs font-bold mb-1.5">إرفاق صورة إيصال التحويل البنكي / المحفظة (تظهر للموكل في بوابته):</label>
+              <div className="border-2 border-dashed border-slate-200 rounded-2xl p-3 text-center bg-slate-50/50">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleReceiptFileUpload}
+                  className="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                />
+                {approvalReceiptImage && (
+                  <div className="mt-2 relative inline-block">
+                    <img src={approvalReceiptImage} alt="إيصال التحويل" className="max-h-36 rounded-xl border border-slate-200 mx-auto object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setApprovalReceiptImage('')}
+                      className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full p-1 shadow-md cursor-pointer"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 text-xs">
+              <button
+                type="button"
+                onClick={() => { setSelectedReqForApproval(null); setApprovalTransferRef(''); setApprovalReceiptImage(''); }}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApproveRequest(selectedReqForApproval, approvalTreasuryAccountId)}
+                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black cursor-pointer shadow-md"
+              >
+                تأكيد الاعتماد والصرف ✅
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewReceiptImage && (
+        <div
+          className="fixed inset-0 z-[150] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPreviewReceiptImage(null)}
+          dir="rtl"
+        >
+          <div className="relative max-w-2xl w-full bg-white rounded-3xl p-4 shadow-2xl border border-slate-200" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+              <h4 className="font-black text-sm text-slate-900">صورة إيصال التحويل البنكي / المحفظة 🧾</h4>
+              <button onClick={() => setPreviewReceiptImage(null)} className="p-1.5 rounded-xl bg-slate-100 text-slate-600 cursor-pointer">
+                <X size={16} />
+              </button>
+            </div>
+            <img src={previewReceiptImage} alt="إيصال التحويل" className="max-h-[75vh] w-auto mx-auto rounded-2xl object-contain" />
+          </div>
+        </div>
+      )}
+
+      {showSettlementModal && setOrders && (
+        <BulkOrderSettlementModal
+          isOpen={showSettlementModal}
+          onClose={() => setShowSettlementModal(false)}
+          orderIds={unsettledOrders.map(o => o.id)}
+          orders={orders}
+          settings={settings}
+          updateSettings={updateSettings as any}
+          setOrders={setOrders}
+          treasury={treasury}
+          setTreasury={setTreasury as any}
+          currentUser={currentUser}
+        />
+      )}
     </div>
   );
 };

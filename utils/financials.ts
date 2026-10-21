@@ -373,8 +373,9 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
     const serviceBase = isMaintenance ? (Number((order as any).maintenanceCost) || 0) : 0;
     
     // Auto-calculate inspection fee internally
+    const defaultInspection = isCompanyBosta ? 7 : 0;
     const inspectionFeeParams = !isMaintenance && (order.includeInspectionFee ?? true) 
-         ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? (settings?.inspectionFee || 0) : 0)) 
+         ? (useCustom ? (compFees?.inspectionFee ?? defaultInspection) : (settings?.enableInspection ? (settings?.inspectionFee || defaultInspection) : defaultInspection)) 
          : 0;
     
     const result = (baseShippingFee + insuranceValue + codValue + inspectionFeeParams + serviceBase) * vatRate;

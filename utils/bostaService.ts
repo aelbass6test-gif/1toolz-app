@@ -2,64 +2,14 @@ import { Order, BostaConfig, BostaPickupRequest } from '../types';
 
 export const DEFAULT_BOSTA_BUSINESS_LOCATIONS = [
   {
-    _id: "loc_abuzahra",
-    id: "loc_abuzahra",
-    locationName: "مخزن ابو زهره",
-    firstLine: "بلطيم - كفر الشيخ",
-    city: "كفر الشيخ - بلطيم",
-    contactPersonName: "عبدالرحمن زهره",
-    contactPersonPhone: "+201098944669",
+    _id: "loc_main",
+    id: "loc_main",
+    locationName: "المخزن الرئيسي (الافتراضي)",
+    firstLine: "القاهرة - مصر",
+    city: "Cairo",
+    contactPersonName: "مدير المخزن",
+    contactPersonPhone: "+201000000000",
     isDefault: true
-  },
-  {
-    _id: "loc_hanoura",
-    id: "loc_hanoura",
-    locationName: "حنوره اعلاف",
-    firstLine: "بلطيم - كفر الشيخ",
-    city: "كفر الشيخ - بلطيم",
-    contactPersonName: "محمد حنورة",
-    contactPersonPhone: "+201064527923",
-    isDefault: false
-  },
-  {
-    _id: "loc_mahad",
-    id: "loc_mahad",
-    locationName: "مخزن شارع المعهد الديني",
-    firstLine: "بلطيم - شارع المعهد الديني",
-    city: "كفر الشيخ - بلطيم",
-    contactPersonName: "عبدالرحمن سعيد",
-    contactPersonPhone: "+201003296123",
-    isDefault: false
-  },
-  {
-    _id: "loc_ebda_xpower",
-    id: "loc_ebda_xpower",
-    locationName: "ابداع اكس باور",
-    firstLine: "بلطيم - كفر الشيخ",
-    city: "كفر الشيخ - بلطيم",
-    contactPersonName: "عبدالرحمن محمد",
-    contactPersonPhone: "+201012011755",
-    isDefault: false
-  },
-  {
-    _id: "loc_elaraby_tools",
-    id: "loc_elaraby_tools",
-    locationName: "مخزن العربي تولز",
-    firstLine: "بلطيم - كفر الشيخ",
-    city: "كفر الشيخ - بلطيم",
-    contactPersonName: "محمد عرب",
-    contactPersonPhone: "+201029807779",
-    isDefault: false
-  },
-  {
-    _id: "loc_dr_sanaa",
-    id: "loc_dr_sanaa",
-    locationName: "مخزن دكتور الصنعة",
-    firstLine: "بلطيم - كفر الشيخ",
-    city: "كفر الشيخ - بلطيم",
-    contactPersonName: "وليد عصام",
-    contactPersonPhone: "+201094143723",
-    isDefault: false
   }
 ];
 

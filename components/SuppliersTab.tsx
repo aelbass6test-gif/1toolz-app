@@ -6,11 +6,12 @@ import {
   Filter, Search, X, Check, ArrowUpRight, ArrowDownRight, RefreshCw, 
   Calendar, FileSpreadsheet, Printer, AlertCircle, Coins, Receipt, ArrowRight,
   Plus, Edit2, Trash2, HelpCircle, ExternalLink, ShieldCheck, CheckCircle2,
-  Wallet
+  Wallet, Mail, Lock
 } from 'lucide-react';
 import { Supplier, SupplyOrder, Settings } from '../types';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
+import * as db from '../services/databaseService';
 
 interface SuppliersTabProps {
   settings: Settings;
@@ -45,6 +46,8 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
   const [newSupplier, setNewSupplier] = useState<Partial<Supplier>>({
     name: '',
     phone: '',
+    email: '',
+    passcode: '0000',
     address: '',
     notes: '',
     balance: 0,
@@ -139,12 +142,14 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       const name = s.name || 'مورد بدون اسم';
       const address = s.address || '';
       const phone = s.phone || '';
+      const email = s.email || '';
       const tax = s.taxNumber || '';
       const bank = s.bankAccount || '';
       const matchesSearch = 
         !searchTerm ||
         name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         phone.includes(searchTerm) ||
+        email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         address.toLowerCase().includes(searchTerm.toLowerCase()) ||
         tax.includes(searchTerm) ||
         bank.toLowerCase().includes(searchTerm.toLowerCase());
@@ -206,6 +211,8 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
     setNewSupplier({
       name: '',
       phone: '',
+      email: '',
+      passcode: '0000',
       address: '',
       notes: '',
       balance: 0,
@@ -221,7 +228,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
 
   const handleOpenEditModal = (s: Supplier) => {
     setEditingSupplier(s);
-    setNewSupplier({ ...s });
+    setNewSupplier({ ...s, email: s.email || '', passcode: s.passcode || '0000' });
     setShowSupplierModal(true);
   };
 
@@ -231,17 +238,29 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       return;
     }
 
+    const cleanEmail = (newSupplier.email || '').trim().toLowerCase();
+    const cleanPasscode = (newSupplier.passcode || '0000').trim() || '0000';
+
     setSettings(prev => {
       const suppliers = prev.suppliers || [];
+      const partners = prev.partners || [];
       let updatedSuppliers: Supplier[];
+      let targetId = editingSupplier?.id || Date.now().toString();
 
       if (editingSupplier) {
-        updatedSuppliers = suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...newSupplier } as Supplier : s);
+        updatedSuppliers = suppliers.map(s => s.id === editingSupplier.id ? {
+          ...s,
+          ...newSupplier,
+          email: cleanEmail,
+          passcode: cleanPasscode
+        } as Supplier : s);
       } else {
         const created: Supplier = {
-          id: Date.now().toString(),
+          id: targetId,
           name: newSupplier.name || 'مورد جديد',
           phone: newSupplier.phone || '',
+          email: cleanEmail,
+          passcode: cleanPasscode,
           address: newSupplier.address || '',
           notes: newSupplier.notes || '',
           balance: Number(newSupplier.balance || 0),
@@ -255,7 +274,42 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
         updatedSuppliers = [...suppliers, created];
       }
 
-      return { ...prev, suppliers: updatedSuppliers };
+      // Sync email/passcode with partners array if matching partner exists or if email is provided
+      const normName = (newSupplier.name || '').trim().toLowerCase();
+      let partnerFound = false;
+      const updatedPartners = partners.map(p => {
+        if (p.id === targetId || (normName && (p.name || '').trim().toLowerCase() === normName)) {
+          partnerFound = true;
+          return {
+            ...p,
+            name: newSupplier.name || p.name,
+            phone: newSupplier.phone || p.phone || '',
+            email: cleanEmail || p.email || '',
+            passcode: cleanPasscode || p.passcode || '0000'
+          };
+        }
+        return p;
+      });
+
+      if (!partnerFound && cleanEmail) {
+        updatedPartners.push({
+          id: targetId,
+          name: newSupplier.name || 'مورد جديد',
+          phone: newSupplier.phone || '',
+          email: cleanEmail,
+          passcode: cleanPasscode,
+          profitRatio: 0,
+          balance: Number(newSupplier.balance || 0),
+          role: 'موكل / مورد صاحب بضاعة'
+        } as any);
+      }
+
+      const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+      if (activeStore) {
+        db.updatePartnerSettings(activeStore, updatedPartners, updatedSuppliers).catch(() => {});
+      }
+
+      return { ...prev, suppliers: updatedSuppliers, partners: updatedPartners };
     });
 
     audioSynth.announce(editingSupplier ? "تم تحديث بيانات المورد" : "تم تسجيل المورد الجديد بنجاح", "success");
@@ -684,6 +738,12 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                           <Phone size={12} className="text-emerald-500" />
                           <span>{s.phone || 'بلا رقم هاتف'}</span>
                         </p>
+                        {s.email && (
+                          <p className="text-indigo-500 dark:text-indigo-400 text-[11px] font-bold flex items-center gap-1 mt-0.5" dir="ltr">
+                            <Mail size={11} className="text-indigo-500 shrink-0" />
+                            <span className="truncate max-w-[170px]">{s.email}</span>
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -932,6 +992,40 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                       value={newSupplier.phone || ''}
                       onChange={e => setNewSupplier({ ...newSupplier, phone: e.target.value })}
                       className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all text-left"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                {/* Portal Email & PIN Passcode */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl">
+                  <div>
+                    <label className="block text-xs font-black text-indigo-900 dark:text-indigo-300 mb-1.5 flex items-center gap-1.5">
+                      <Mail size={13} className="text-indigo-600" />
+                      البريد الإلكتروني (لدخول بوابة الموكلين/الموردين)
+                    </label>
+                    <input
+                      type="email"
+                      placeholder="supplier@example.com"
+                      value={newSupplier.email || ''}
+                      onChange={e => setNewSupplier({ ...newSupplier, email: e.target.value })}
+                      className="w-full p-2.5 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all text-left font-mono"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-black text-indigo-900 dark:text-indigo-300 mb-1.5 flex items-center gap-1.5">
+                      <Lock size={13} className="text-indigo-600" />
+                      رمز الدخول السري لبوابة الموكل (PIN)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="0000"
+                      maxLength={8}
+                      value={newSupplier.passcode || ''}
+                      onChange={e => setNewSupplier({ ...newSupplier, passcode: e.target.value })}
+                      className="w-full p-2.5 bg-white dark:bg-slate-800 border border-indigo-200 dark:border-slate-700 rounded-xl text-xs font-black text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all text-center font-mono tracking-widest"
                       dir="ltr"
                     />
                   </div>
