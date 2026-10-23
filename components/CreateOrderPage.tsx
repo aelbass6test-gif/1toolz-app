@@ -13,6 +13,7 @@ import { deductOrderStock } from '../utils/inventoryManager';
 import { normalizePhone } from '../utils/phoneUtils';
 import { getSupabaseClient } from '../services/databaseService';
 import { showOrderWebNotification, isPendingOrderStatus } from '../utils/webNotification';
+import { buildOrderPlanSnapshot } from '../utils/merchantSubscriptions';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -333,6 +334,90 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             totalPrice: Math.round(finalCollectedTotal),
             advancePaymentHistory: advanceHistory.length > 0 ? advanceHistory : undefined
         } as Order;
+
+        // Stamp merchant order with creation-time plan snapshot & deduct per-order manager fee if applicable
+        if (orderWithId.merchantId || orderWithId.merchantName) {
+            const supplierList: any[] = Array.isArray(settings.suppliers) ? settings.suppliers : Object.values(settings.suppliers || {});
+            const partnerList: any[] = Array.isArray(settings.partners) ? settings.partners : Object.values(settings.partners || {});
+            const targetMId = String(orderWithId.merchantId || '').trim().toLowerCase();
+            const targetMName = normalizeName(orderWithId.merchantName || '').toLowerCase();
+            const matchedMerchant =
+                supplierList.find(s => (targetMId && String(s?.id || '').toLowerCase() === targetMId) || (targetMName && normalizeName(s?.name || '').toLowerCase() === targetMName)) ||
+                partnerList.find(p => (targetMId && String(p?.id || '').toLowerCase() === targetMId) || (targetMName && normalizeName(p?.name || '').toLowerCase() === targetMName));
+
+            if (matchedMerchant) {
+                const planSnap = buildOrderPlanSnapshot(matchedMerchant);
+                orderWithId = { ...orderWithId, ...planSnap };
+
+                const activeMgr = matchedMerchant.managerPlan;
+                let managerFeeToDeduct = 0;
+                let isQuotaIncluded = false;
+                const isConfirmedAtCreation = orderWithId.status === 'مؤكد';
+
+                if (isConfirmedAtCreation && activeMgr && activeMgr.status === 'active' && activeMgr.planId && activeMgr.planId !== 'none') {
+                    if (activeMgr.planId === 'monthly_1000' || activeMgr.planId === 'monthly_700') {
+                        // Count existing confirmed orders in current cycle
+                        const cycleId = activeMgr.cycleId || orderWithId.planCycleId;
+                        const existingConfirmedInCycle = (orders || []).filter((o: any) => {
+                            if (o.status === 'ملغي') return false;
+                            const matchCycle = o.planCycleId === cycleId || (!o.planCycleId && o.planModeAtCreation === 'manager');
+                            return matchCycle && Boolean(o.quotaConsumedAt || o.status === 'مؤكد');
+                        });
+                        const cycleLimit = activeMgr.includedOrdersQuota ?? 50;
+                        if (existingConfirmedInCycle.length < cycleLimit) {
+                            managerFeeToDeduct = 0;
+                            isQuotaIncluded = true;
+                        } else {
+                            managerFeeToDeduct = activeMgr.extraOrderFee ?? 20;
+                            isQuotaIncluded = false;
+                        }
+                    } else if (activeMgr.planId === 'per_order_20') {
+                        managerFeeToDeduct = Number(activeMgr.orderFee) || 20;
+                    } else if (activeMgr.planId === 'custom_manager' && !activeMgr.customPrepaidQuota) {
+                        managerFeeToDeduct = Number(activeMgr.customOrderFee ?? activeMgr.orderFee ?? 20);
+                    }
+                }
+
+                if (isConfirmedAtCreation) {
+                    (orderWithId as any).managerFeeDeducted = true;
+                    (orderWithId as any).managerFeeAmount = managerFeeToDeduct;
+                    (orderWithId as any).quotaIncludedOrder = isQuotaIncluded;
+                    (orderWithId as any).quotaConsumedAt = new Date().toISOString();
+                    orderWithId.lockedManagerFee = managerFeeToDeduct;
+
+                    if (managerFeeToDeduct > 0) {
+                        const curWallet = Number(matchedMerchant.balance || 0);
+                        const nextWallet = Number((curWallet - managerFeeToDeduct).toFixed(2));
+                        const feeTx = {
+                            id: `MGR-FEE-${Date.now()}`,
+                            merchantId: matchedMerchant.id,
+                            merchantName: matchedMerchant.name,
+                            date: new Date().toISOString(),
+                            type: 'manager_order_fee' as const,
+                            amount: -managerFeeToDeduct,
+                            balanceAfter: nextWallet,
+                            referenceId: orderWithId.id,
+                            notes: `خصم رسوم المدير المخصص (${managerFeeToDeduct} ج.م) عند تأكيد الأوردر #${orderWithId.orderNumber}`
+                        };
+
+                        setSettings(prev => ({
+                            ...prev,
+                            suppliers: (Array.isArray(prev.suppliers) ? prev.suppliers : Object.values(prev.suppliers || {})).map((s: any) =>
+                                s.id === matchedMerchant.id ? { ...s, balance: nextWallet, transactions: [feeTx, ...(s.transactions || [])] } : s
+                            ),
+                            partners: (Array.isArray(prev.partners) ? prev.partners : Object.values(prev.partners || {})).map((p: any) =>
+                                p.id === matchedMerchant.id ? { ...p, balance: nextWallet, transactions: [feeTx, ...(p.transactions || [])] } : p
+                            )
+                        }));
+                    }
+                } else {
+                    // Draft/Pending: Zero fee deducted, quota unconsumed
+                    (orderWithId as any).managerFeeDeducted = false;
+                    (orderWithId as any).managerFeeAmount = 0;
+                    (orderWithId as any).quotaIncludedOrder = false;
+                }
+            }
+        }
 
         const senderInfo = (orderWithId as any).advancePaymentSenderDetails ? ` | بيانات المحول: ${(orderWithId as any).advancePaymentSenderDetails}` : '';
         const phoneInfo = (orderWithId as any).advancePaymentRecipientPhone ? ` | هاتف المستلم: ${(orderWithId as any).advancePaymentRecipientPhone}` : '';

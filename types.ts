@@ -4,7 +4,7 @@
 // FIX: Declaring the 'google' object in the global scope to make it accessible across all files.
 
 
-export type OrderStatus = 'في_انتظار_المكالمة' | 'جاري_المراجعة' | 'قيد_التنفيذ' | 'تم_الارسال' | 'قيد_الشحن' | 'تم_توصيلها' | 'تم_التوصيل' | 'تم_التحصيل' | 'مرتجع' | 'مرتجع_جزئي' | 'فشل_التوصيل' | 'ملغي' | 'مؤرشف' | 'مرتجع_بعد_الاستلام' | 'تم_الاستبدال' | 'تمت_الاعادة_لشركة_الشحن' | 'مدفوعة' | 'مؤجل' | 'مجدول';
+export type OrderStatus = 'في_انتظار_المكالمة' | 'جاري_المراجعة' | 'قيد_التنفيذ' | 'تم_الارسال' | 'قيد_الشحن' | 'تم_توصيلها' | 'تم_التوصيل' | 'تم_التحصيل' | 'مرتجع' | 'مرتجع_جزئي' | 'فشل_التوصيل' | 'ملغي' | 'مؤرشف' | 'مرتجع_بعد_الاستلام' | 'تم_الاستبدال' | 'تمت_الاعادة_لشركة_الشحن' | 'مدفوعة' | 'مؤجل' | 'مجدول' | 'مؤكد';
 export type PaymentStatus = 'بانتظار الدفع' | 'مدفوع' | 'مدفوع جزئياً' | 'مرتجع';
 export type PreparationStatus = 'بانتظار التجهيز' | 'جاهز';
 
@@ -610,6 +610,154 @@ export interface Partner {
   transactions?: any[];
   biometricCredentials?: BiometricCredentialRecord[]; // بصمات الأجهزة المسجلة (WebAuthn / Passkeys)
   allowBiometricAuth?: boolean; // تفعيل الدخول الحيوي بالبصمة
+  subscriptionPlan?: MerchantSubscriptionConfig; // باقة العمل الذاتي للمتجر/الأوردرات
+  managerPlan?: MerchantManagerConfig; // باقة المدير المخصص للأوردرات
+  pendingPlanRequest?: MerchantPlanChangeRequest | null; // طلب تغيير باقة أو تسعير باقة مخصصة معلق
+  planCyclesHistory?: MerchantPlanCycleRecord[]; // سجل دورات الباقات السابقة لتأمين حسابات الأوردرات
+  scheduledNextPlan?: ScheduledMerchantPlanTransition | null; // باقة مجدولة للتفعيل تلقائياً بعد انتهاء الكوتة الحالية
+  // Payout Frequency (Daily / Weekly), Schedule, Holding & Manager Commission Config
+  payoutFrequency?: 'daily' | 'weekly'; // تكرار السحب النقدي: يومي أو أسبوعي
+  weeklyPayoutDay?: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  weeklyPayoutMethod?: 'instapay' | 'wallet' | 'bank' | 'cash';
+  weeklyPayoutAccount?: string;
+  holdingDaysAfterSettlement?: number; // مدة تعليق الأوردر بعد التسوية المالية (افتراضي 7 أيام)
+  minWeeklyPayout?: number; // الحد الأدنى للسحبة
+  maxWeeklyPayout?: number; // الحد الأقصى للسحبة
+  weeklyPayoutMode?: 'auto' | 'admin_confirm'; // تحويل آلي أو بتأكيد الإدارة
+  weeklyTransferFee?: number; // عمولة/رسوم التحويل الأسبوعي التي يحددها المدير (مثلاً 25 ج.م)
+  weeklyTransferFeeType?: 'fixed' | 'percentage'; // نوع عمولة الأسبوعي: مبلغ ثابت ج.م أو نسبة %
+  dailyTransferFee?: number; // عمولة/رسوم التحويل اليومي التي يحددها المدير (مثلاً 1%)
+  dailyTransferFeeType?: 'fixed' | 'percentage'; // نوع عمولة اليومي: نسبة % أو مبلغ ثابت ج.م
+  lastPayoutFrequencyChangeAt?: string; // تاريخ آخر تغيير لنظام السحب (لمنع التغيير قبل مرور أسبوع)
+  lastWeeklyPayoutDate?: string;
+}
+
+export interface ScheduledMerchantPlanTransition {
+  id: string;
+  scheduledAt: string;
+  targetMode: 'self_service' | 'manager';
+  planNameAr: string;
+  targetPlanNameAr?: string;
+  targetPlanId?: string;
+  billingCycle: BillingCycleType;
+  upfrontPaidAmount: number;
+  prepaidAmount?: number;
+  quotaOrders?: number;
+  orderFee?: number;
+  trigger: 'after_current_quota';
+  subscriptionPlan?: MerchantSubscriptionConfig;
+  managerPlan?: MerchantManagerConfig;
+}
+
+export type BillingCycleType = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+export type SelfServicePlanId = 'free' | 'basic' | 'pro' | 'business' | 'ultimate';
+export type DedicatedManagerPlanId = 'none' | 'per_order_20' | 'monthly_1000' | 'monthly_700' | 'custom_manager';
+
+export interface MerchantPlanChangeRequest {
+  id: string;
+  requestedAt: string;
+  targetMode: 'self_service' | 'manager';
+  targetSelfPlanId?: SelfServicePlanId;
+  targetManagerPlanId?: DedicatedManagerPlanId;
+  targetPlanId?: string; // Alias for targetSelfPlanId or targetManagerPlanId used in UI
+  billingCycle: BillingCycleType;
+  planNameAr: string;
+  targetPlanNameAr?: string;
+  upfrontCost?: number;
+  calculatedAmount?: number;
+  ordersLimit?: number | null;
+  // حقول طلب الباقة المخصصة
+  requestedOrdersTarget?: number;
+  requestedCustomQuota?: number;
+  requestedPrepaidQuota?: boolean;
+  requestedCustomBillingPreference?: string;
+  merchantNotes?: string;
+  // حقول تسعير الإدارة للباقة المخصصة
+  quotedOrderFee?: number;
+  quotedOrdersTarget?: number;
+  quotedTotalUpfront?: number;
+  adminNotes?: string;
+  quotedAt?: string;
+  activationTiming?: 'immediate' | 'after_current_quota'; // فوري مع أرشفة الدورة الحالية أو مجدول بعد انتهاء الكوتة
+  status:
+    | 'pending_admin_approval'
+    | 'pending_admin_quote'
+    | 'quoted_waiting_merchant'
+    | 'approved'
+    | 'rejected'
+    | 'cancelled';
+}
+
+export interface MerchantPlanCycleRecord {
+  cycleId: string;
+  mode: 'self_service' | 'manager';
+  planId: string;
+  planName?: string;
+  planNameAr?: string;
+  billingCycle?: BillingCycleType;
+  orderFee?: number;
+  totalPaidAmount?: number;
+  paidAmount?: number; // Alias for totalPaidAmount
+  ordersLimit?: number | null;
+  ordersUsedCount?: number;
+  usedOrders?: number; // Alias for ordersUsedCount
+  quotaOrders?: number;
+  startDate?: string;
+  activatedAt?: string;
+  endedAt: string;
+  endReason: 'admin_approved_switch' | 'merchant_accepted_quote' | 'admin_direct_update' | 'refunded' | 'switched_mode' | 'upgraded' | 'quota_exhausted';
+}
+
+export interface MerchantSubscriptionConfig {
+  cycleId?: string;
+  planId: SelfServicePlanId;
+  planName?: string;
+  planNameAr?: string;
+  billingCycle?: BillingCycleType;
+  monthlyPrice?: number;
+  totalPaidAmount?: number;
+  paidAmount?: number;
+  pricePerMonth?: number;
+  ordersLimit?: number | null; // null = غير محدود
+  monthlyOrderLimit?: number;
+  unlimitedOrders?: boolean;
+  startDate?: string;
+  endDate?: string;
+  expiresAt?: string; // Alias for endDate
+  activatedAt?: string;
+  status: 'active' | 'inactive' | 'pending_refund' | 'refunded' | 'expired' | 'cancelled';
+  refundRequestedAt?: string;
+  refundRequestId?: string;
+  refundedAmount?: number;
+}
+
+export interface MerchantManagerConfig {
+  cycleId?: string;
+  planId: DedicatedManagerPlanId;
+  planName?: string;
+  planNameAr?: string;
+  billingCycle?: BillingCycleType;
+  orderFee?: number; // e.g. 20 EGP per order or custom rate set by admin
+  customOrderFee?: number; // السعر المخصص للأوردر المعتمد من الإدارة
+  monthlyFee?: number; // e.g. 1000 EGP/month or custom bundle
+  includedOrdersQuota?: number; // e.g. 50 orders quota per cycle for monthly_1000
+  extraOrderFee?: number; // e.g. 20 EGP per order beyond quota
+  totalPaidAmount?: number;
+  totalPrepaidAmount?: number;
+  usedOrdersInCycle?: number;
+  customOrdersTarget?: number; // عدد الأوردرات المخصص
+  customOrderQuota?: number;
+  customPrepaidQuota?: boolean; // هل تم دفع حصة الأوردرات مسبقاً أم خصم مع كل أوردر
+  startDate?: string;
+  endDate?: string;
+  expiresAt?: string; // Alias for endDate
+  activatedAt?: string;
+  enabled?: boolean;
+  notes?: string;
+  status: 'active' | 'inactive' | 'pending_refund' | 'refunded' | 'cancelled';
+  refundRequestedAt?: string;
+  refundRequestId?: string;
+  refundedAmount?: number;
 }
 
 export interface PartnerTransaction {
@@ -654,6 +802,26 @@ export interface Supplier {
   };
   transactions?: MerchantTransaction[];
   isMerchantPortalActive?: boolean;
+  subscriptionPlan?: MerchantSubscriptionConfig;
+  managerPlan?: MerchantManagerConfig;
+  pendingPlanRequest?: MerchantPlanChangeRequest | null;
+  planCyclesHistory?: MerchantPlanCycleRecord[];
+  scheduledNextPlan?: ScheduledMerchantPlanTransition | null;
+  // Weekly / Daily Payout & Post-Settlement Holding & Manager Commission Config
+  payoutFrequency?: 'daily' | 'weekly'; // تكرار السحب النقدي: يومي أو أسبوعي
+  weeklyPayoutDay?: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday (default 1 = Monday)
+  weeklyPayoutMethod?: 'instapay' | 'wallet' | 'bank' | 'cash';
+  weeklyPayoutAccount?: string;
+  holdingDaysAfterSettlement?: number; // Default 7 days after Admin settlement
+  minWeeklyPayout?: number; // Minimum amount per weekly payout set by Store Manager
+  maxWeeklyPayout?: number; // Maximum amount per weekly payout set by Store Manager
+  weeklyPayoutMode?: 'auto' | 'admin_confirm'; // Store Manager choice: full auto vs 1-click confirmation
+  weeklyTransferFee?: number; // عمولة/رسوم التحويل الأسبوعي التي يحددها المدير (مثلاً 25 ج.م)
+  weeklyTransferFeeType?: 'fixed' | 'percentage';
+  dailyTransferFee?: number; // عمولة/رسوم التحويل اليومي التي يحددها المدير (مثلاً 1%)
+  dailyTransferFeeType?: 'fixed' | 'percentage';
+  lastPayoutFrequencyChangeAt?: string;
+  lastWeeklyPayoutDate?: string;
 }
 
 export interface MerchantTransaction {
@@ -661,7 +829,7 @@ export interface MerchantTransaction {
   merchantId: string;
   merchantName: string;
   date: string;
-  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction';
+  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit';
   amount: number; // Positive = Credit (Merchant gets money), Negative = Debit
   balanceAfter: number;
   notes: string;
@@ -1609,6 +1777,8 @@ export interface WhatsAppMessageLog {
 export interface Order {
   id: string;
   createdAt?: string;
+  confirmedAt?: string;
+  updatedAt?: string;
   store_id?: string;
   source?: 'manual' | 'synced' | 'saas';
   platform?: string;
@@ -1780,7 +1950,6 @@ export interface Order {
   returnCashToCustomer?: boolean;
   cashToReturnAmount?: number;
   creditAmount?: number;
-  updatedAt?: string;
   exchangeDifference?: number;
   storeBranchId?: string;
   allowOpenShipment?: boolean;
@@ -1801,6 +1970,23 @@ export interface Order {
   merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
   settlementStatus?: 'pending' | 'settled' | 'unsettled'; // حالة التسوية المالية مع صاحب البضاعة
   settlementId?: string;           // رقم كشف التسوية المرتبط
+  settledAt?: string;              // تاريخ تسوية الأوردر مالياً من الإدارة (يبدأ منه عدّاد الـ 7 أيام)
+  customHoldingDays?: number;      // مدة تعليق مخصصة لهذا الأوردر يحددها مدير المتجر (افتراضي 7 أيام، أو 0 للصرف الفوري)
+  payoutStatus?: 'unsettled' | 'holding' | 'ready' | 'paid'; // حالة السداد للموكل (بانتظار التسوية / قيد التعليق / جاهز للتحويل الأسبوعي / مدفوع)
+  paidOutAt?: string;              // تاريخ تحويل مستحقات الأوردر للموكل فعلياً
+  payoutReferenceId?: string;      // رقم مرجع التحويل الأسبوعي المرتبط
+  managerFeeDeducted?: boolean;    // هل تم خصم رسوم المدير المخصص لهذا الأوردر من محفظة الموكل
+  managerFeeAmount?: number;       // قيمة رسوم المدير المخصص المخصومة على هذا الأوردر (مثلاً 20 ج.م أو السعر المخصص)
+  planCycleId?: string;            // معرّف دورة الباقة وقت إنشاء الأوردر (لتثبيت الحسابات ومنع التداخل)
+  planModeAtCreation?: 'self_service' | 'manager'; // نظام الباقة وقت إنشاء الأوردر
+  planIdAtCreation?: string;       // نوع الباقة وقت إنشاء الأوردر
+  planNameAtCreation?: string;     // اسم الباقة المثبت وقت إنشاء الأوردر
+  lockedManagerFee?: number;       // رسوم المدير المخصص المثبتة على الأوردر وقت إنشائه
+  isQuotaCovered?: boolean;        // هل هذا الأوردر مغطى بالكوتة المجانية أو المدفوعة مسبقاً
+  planSnapshotAt?: string;         // توقيت ختم الباقة على الأوردر
+  quotaIncludedOrder?: boolean;    // هل هذا الأوردر مجاني مشمول ضمن كوتة الباقة (مثلاً أول 50 أوردر)
+  cycleOrderNumber?: number;       // رقم تسلسل الأوردر داخل دورة الباقة
+  quotaConsumedAt?: string;        // توقيت استهلاك الكوتة/الخصم لأول مرة (لمنع التكرار)
 }
 
 export interface MerchantSettlement {

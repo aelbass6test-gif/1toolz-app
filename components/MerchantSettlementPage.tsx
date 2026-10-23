@@ -151,6 +151,7 @@ interface OrderCustomOverride {
   inspectionFee?: number;
   codFee?: number;
   returnFee?: number;
+  customHoldingDays?: number;
 }
 
 interface MerchantSettlementPageProps {
@@ -232,6 +233,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const [approvalTransferRef, setApprovalTransferRef] = useState<string>('');
   const [approvalReceiptImage, setApprovalReceiptImage] = useState<string>('');
   const [previewReceiptImage, setPreviewReceiptImage] = useState<string | null>(null);
+  const [customQuoteFeeMap, setCustomQuoteFeeMap] = useState<Record<string, number>>({});
 
   const handleReceiptFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -271,12 +273,193 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     reader.readAsDataURL(file);
   };
 
+  const handleCustomQuoteAction = async (
+    req: db.PartnerPortalRequest,
+    mode: 'send_quote' | 'activate_now',
+    customFeeInput?: number
+  ) => {
+    try {
+      const quotedFee = Math.max(1, Number(customFeeInput ?? customQuoteFeeMap[req.id] ?? 20));
+      const supplier = (settings.suppliers || []).find(
+        s => s.id === req.partnerId || (req.partnerName && s.name?.trim() === req.partnerName?.trim())
+      );
+      if (!supplier) {
+        inAppToast('تعذر العثور على حساب الموكل المرتبط بطلب التسعير.', 'error');
+        return;
+      }
+
+      const baseReqMeta = req.planRequestMeta || supplier.pendingPlanRequest || {};
+      const targetOrders = Number(
+        baseReqMeta.requestedCustomQuota ||
+          baseReqMeta.requestedOrdersTarget ||
+          baseReqMeta.ordersLimit ||
+          500
+      );
+      const isPrepaid = Boolean(
+        baseReqMeta.requestedPrepaidQuota ??
+          (baseReqMeta.requestedCustomBillingPreference === 'prepaid_quota')
+      );
+      const upfrontCharge = isPrepaid ? Number((quotedFee * targetOrders).toFixed(2)) : 0;
+      const currentBal = Number(supplier.balance || 0);
+
+      if (mode === 'activate_now' && isPrepaid && upfrontCharge > currentBal) {
+        inAppToast(
+          `رصيد محفظة الموكل (${currentBal.toLocaleString()} ج.م) أقل من قيمة الدفع المقدم (${upfrontCharge.toLocaleString()} ج.م). يمكنك إرسال عرض السعر للموكل أولاً.`,
+          'error'
+        );
+        return;
+      }
+
+      await db.updatePartnerRequestStatus(req.id, activeStoreId, 'approved');
+      setRawRequests(prev => prev.map(r => (r.id === req.id ? { ...r, status: 'approved' } : r)));
+
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
+      const newCycleId = `CYC-MGR-CUSTOM-${Date.now()}`;
+
+      updateSettings(currentSettings => {
+        const updateItem = (m: any) => {
+          if (m.id !== supplier.id && m.name?.trim() !== supplier.name?.trim()) return m;
+          if (mode === 'send_quote') {
+            return {
+              ...m,
+              pendingPlanRequest: {
+                ...baseReqMeta,
+                id: baseReqMeta.id || req.id || `PLAN-REQ-${Date.now()}`,
+                requestedAt: baseReqMeta.requestedAt || req.createdAt || nowIso,
+                targetMode: 'manager',
+                targetPlanId: 'custom_manager',
+                targetManagerPlanId: 'custom_manager',
+                targetPlanNameAr: 'باقة المدير المخصصة',
+                planNameAr: 'باقة المدير المخصصة',
+                status: 'quoted_waiting_merchant',
+                quotedOrderFee: quotedFee,
+                quotedOrdersTarget: targetOrders,
+                requestedCustomQuota: targetOrders,
+                requestedOrdersTarget: targetOrders,
+                requestedPrepaidQuota: isPrepaid,
+                requestedCustomBillingPreference: isPrepaid ? 'prepaid_quota' : 'per_order',
+                quotedTotalUpfront: upfrontCharge,
+                quotedAt: nowIso,
+                adminNotes: `تم تحديد سعر الأوردر المخصص بـ ${quotedFee} ج.م من الإدارة (${isPrepaid ? 'دفع مسبق' : 'خصم مع كل أوردر بدون رصيد مقدم'})`
+              }
+            };
+          }
+
+          const nextBal = Number((Number(m.balance || 0) - upfrontCharge).toFixed(2));
+          const newTx: MerchantTransaction | undefined =
+            upfrontCharge > 0
+              ? {
+                  id: `mtx-custom-${Date.now()}`,
+                  merchantId: m.id,
+                  merchantName: m.name,
+                  date: nowIso,
+                  type: 'subscription_charge',
+                  amount: -upfrontCharge,
+                  balanceAfter: nextBal,
+                  notes: `تفعيل باقة المدير المخصصة (${quotedFee} ج.م/أوردر - ${targetOrders} أوردر)`
+                }
+              : undefined;
+
+          return {
+            ...m,
+            subscriptionPlan: {
+              ...(m.subscriptionPlan || {}),
+              planId: 'free',
+              planName: 'None',
+              planNameAr: 'موقوفة (يعمل بنظام المدير المخصص)',
+              cycleId: newCycleId,
+              billingCycle: 'monthly',
+              monthlyPrice: 0,
+              totalPaidAmount: 0,
+              pricePerMonth: 0,
+              paidAmount: 0,
+              ordersLimit: 0,
+              monthlyOrderLimit: 0,
+              unlimitedOrders: false,
+              startDate: nowIso,
+              endDate: expIso,
+              activatedAt: nowIso,
+              expiresAt: expIso,
+              status: 'cancelled'
+            },
+            managerPlan: {
+              enabled: true,
+              planId: 'custom_manager',
+              planName: `باقة المدير المخصصة (${quotedFee} ج.م / أوردر)`,
+              planNameAr: `باقة المدير المخصصة (${quotedFee} ج.م / أوردر)`,
+              cycleId: newCycleId,
+              billingCycle: 'monthly',
+              orderFee: quotedFee,
+              customOrderFee: quotedFee,
+              customOrdersTarget: targetOrders,
+              customOrderQuota: targetOrders,
+              customPrepaidQuota: isPrepaid,
+              monthlyFee: upfrontCharge,
+              totalPaidAmount: upfrontCharge,
+              totalPrepaidAmount: upfrontCharge,
+              usedOrdersInCycle: 0,
+              startDate: nowIso,
+              endDate: expIso,
+              activatedAt: nowIso,
+              expiresAt: expIso,
+              status: 'active',
+              notes: `تم تفعيل التسعير المخصص (${quotedFee} ج.م لكل أوردر — ${isPrepaid ? 'دفع مسبق' : 'خصم تلقائي مع كل أوردر'})`
+            },
+            pendingPlanRequest: null,
+            ...(upfrontCharge > 0 ? { balance: nextBal } : {}),
+            ...(newTx ? { transactions: [newTx, ...(m.transactions || [])] } : {})
+          };
+        };
+
+        const updatedSuppliers = (currentSettings.suppliers || []).map(updateItem);
+        const updatedPartners = (currentSettings.partners || []).map(updateItem);
+        if (activeStoreId) {
+          db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+        }
+        return {
+          ...currentSettings,
+          suppliers: updatedSuppliers,
+          partners: updatedPartners
+        };
+      });
+
+      setSelectedReqForApproval(null);
+      inAppToast(
+        mode === 'send_quote'
+          ? `تم إرسال عرض السعر (${quotedFee} ج.م / أوردر) إلى بوابة الموكل ${supplier.name} بنجاح 📤`
+          : `تم تفعيل الباقة المخصصة للموكل ${supplier.name} بسعر (${quotedFee} ج.م / أوردر) فوراً بدون اشتراط رصيد مقدم ⚡`,
+        'success'
+      );
+    } catch (err: any) {
+      inAppToast('حدث خطأ أثناء معالجة طلب التسعير: ' + (err.message || ''), 'error');
+    }
+  };
+
   const handleApproveMerchantRequest = async (req: db.PartnerPortalRequest, treasuryAccountId?: string) => {
     try {
+      if (req.type === 'custom_plan_quote') {
+        await handleCustomQuoteAction(req, 'activate_now');
+        return;
+      }
       const amount = Number(req.amount);
       const supplier = (settings.suppliers || []).find(s => s.id === req.partnerId);
-      if (req.status !== 'pending' || !Number.isFinite(amount) || amount <= 0 || !supplier || amount > (supplier.balance || 0)) {
-        inAppToast('تعذر اعتماد الطلب: تحقق من حالته والمبلغ والرصيد المرتبط بحساب الموكل.', 'error');
+      const isCreditToWallet = req.type === 'wallet_topup' || req.type === 'subscription_refund';
+      if (
+        req.status !== 'pending' ||
+        !Number.isFinite(amount) ||
+        amount < 0 ||
+        !supplier ||
+        (!isCreditToWallet && req.type !== 'plan_change_request' && (amount <= 0 || amount > (supplier.balance || 0)))
+      ) {
+        if (supplier && !isCreditToWallet && amount > (supplier.balance || 0)) {
+          inAppToast(
+            `رصيد المحفظة المسوّى للموكل (${(supplier.balance || 0).toLocaleString()} ج.م) أقل من مبلغ السحب المطلوب (${amount.toLocaleString()} ج.م). قم بتسوية الأوردرات المسلمة أولاً من تبويب (إصدار تسوية) أو ارفض الطلب المعلق.`,
+            'error'
+          );
+        } else {
+          inAppToast('تعذر اعتماد الطلب: تحقق من حالته والمبلغ والرصيد المرتبط بحساب الموكل.', 'error');
+        }
         return;
       }
 
@@ -361,6 +544,23 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         };
       });
 
+      // Mark settled orders for this merchant as paid out when withdrawal is approved
+      if (!isCreditToWallet && req.type !== 'plan_change_request') {
+        const paidNowIso = new Date().toISOString();
+        setOrders(currentOrders => currentOrders.map(o => {
+          const isForThisMerchant = o.merchantId === req.partnerId || (req.partnerName && o.merchantName === req.partnerName);
+          if (isForThisMerchant && o.settlementStatus === 'settled' && o.payoutStatus !== 'paid') {
+            return {
+              ...o,
+              payoutStatus: 'paid' as const,
+              paidOutAt: paidNowIso,
+              payoutReferenceId: cleanRef || req.id
+            };
+          }
+          return o;
+        }));
+      }
+
       setSelectedReqForApproval(null);
       setApprovalTreasuryAccountId('');
       setApprovalTransferRef('');
@@ -394,6 +594,194 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     } catch (err: any) {
       inAppToast('حدث خطأ أثناء رفض الطلب', 'error');
     }
+  };
+
+  // ========================================================
+  // WEEKLY SCHEDULED PAYOUTS & 7-DAY HOLDING ADMIN CONTROLS
+  // ========================================================
+  const [editingPayoutPolicyMerchant, setEditingPayoutPolicyMerchant] = useState<any | null>(null);
+  const [policyHoldingDays, setPolicyHoldingDays] = useState<number>(7);
+  const [policyWeeklyDay, setPolicyWeeklyDay] = useState<number>(1);
+  const [policyMinPayout, setPolicyMinPayout] = useState<number>(100);
+  const [policyMaxPayout, setPolicyMaxPayout] = useState<number>(50000);
+  const [policyPayoutMode, setPolicyPayoutMode] = useState<'auto' | 'admin_confirm'>('admin_confirm');
+  const [policyPayoutFrequency, setPolicyPayoutFrequency] = useState<'weekly' | 'daily'>('weekly');
+  const [policyWeeklyTransferFee, setPolicyWeeklyTransferFee] = useState<number>(25);
+  const [policyWeeklyTransferFeeType, setPolicyWeeklyTransferFeeType] = useState<'fixed' | 'percentage'>('fixed');
+  const [policyDailyTransferFee, setPolicyDailyTransferFee] = useState<number>(1);
+  const [policyDailyTransferFeeType, setPolicyDailyTransferFeeType] = useState<'fixed' | 'percentage'>('percentage');
+
+  const openMerchantPayoutPolicyModal = (supplier: any) => {
+    setEditingPayoutPolicyMerchant(supplier);
+    setPolicyHoldingDays(typeof supplier.holdingDaysAfterSettlement === 'number' ? supplier.holdingDaysAfterSettlement : 7);
+    setPolicyWeeklyDay(typeof supplier.weeklyPayoutDay === 'number' ? supplier.weeklyPayoutDay : 1);
+    setPolicyMinPayout(typeof supplier.minWeeklyPayout === 'number' ? supplier.minWeeklyPayout : 100);
+    setPolicyMaxPayout(typeof supplier.maxWeeklyPayout === 'number' ? supplier.maxWeeklyPayout : 50000);
+    setPolicyPayoutMode(supplier.weeklyPayoutMode || 'admin_confirm');
+    setPolicyPayoutFrequency(supplier.payoutFrequency === 'daily' ? 'daily' : 'weekly');
+    setPolicyWeeklyTransferFee(typeof supplier.weeklyTransferFee === 'number' ? supplier.weeklyTransferFee : 25);
+    setPolicyWeeklyTransferFeeType(supplier.weeklyTransferFeeType === 'percentage' ? 'percentage' : 'fixed');
+    setPolicyDailyTransferFee(typeof supplier.dailyTransferFee === 'number' ? supplier.dailyTransferFee : 1);
+    setPolicyDailyTransferFeeType(supplier.dailyTransferFeeType === 'fixed' ? 'fixed' : 'percentage');
+  };
+
+  const handleSaveMerchantPayoutPolicy = () => {
+    if (!editingPayoutPolicyMerchant) return;
+    const targetId = editingPayoutPolicyMerchant.id;
+    const targetName = normalizeName(editingPayoutPolicyMerchant.name || '');
+
+    updateSettings(prev => {
+      const patchFn = (item: any) => {
+        if (item.id === targetId || (targetName && normalizeName(item.name || '') === targetName)) {
+          return {
+            ...item,
+            holdingDaysAfterSettlement: Math.max(0, Number(policyHoldingDays)),
+            weeklyPayoutDay: Number(policyWeeklyDay),
+            minWeeklyPayout: Math.max(0, Number(policyMinPayout)),
+            maxWeeklyPayout: Math.max(0, Number(policyMaxPayout)),
+            weeklyPayoutMode: policyPayoutMode,
+            payoutFrequency: policyPayoutFrequency,
+            weeklyTransferFee: Math.max(0, Number(policyWeeklyTransferFee)),
+            weeklyTransferFeeType: policyWeeklyTransferFeeType,
+            dailyTransferFee: Math.max(0, Number(policyDailyTransferFee)),
+            dailyTransferFeeType: policyDailyTransferFeeType
+          };
+        }
+        return item;
+      };
+      const updatedSuppliers = (prev.suppliers || []).map(patchFn);
+      const updatedPartners = (prev.partners || []).map(patchFn);
+      if (activeStoreId) {
+        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+      }
+      return {
+        ...prev,
+        suppliers: updatedSuppliers,
+        partners: updatedPartners
+      };
+    });
+
+    inAppToast(`تم حفظ سياسة التحويل والعمولة وفترة تعليق الأوردرات للموكل "${editingPayoutPolicyMerchant.name}" بنجاح ✅`, 'success');
+    setEditingPayoutPolicyMerchant(null);
+  };
+
+  // Release 7-day hold for a single settled order immediately
+  const handleReleaseOrderHold = (orderId: string) => {
+    setOrders(currentOrders =>
+      currentOrders.map(o =>
+        o.id === orderId
+          ? {
+              ...o,
+              customHoldingDays: 0,
+              payoutStatus: o.payoutStatus === 'paid' ? 'paid' : 'ready'
+            }
+          : o
+      )
+    );
+    inAppToast('تم فك تعليق الأوردر فوراً وأصبح جاهزاً للتحويل الأسبوعي ⚡', 'success');
+  };
+
+  // Release 7-day hold for ALL settled orders belonging to a merchant
+  const handleReleaseAllMerchantHoldOrders = (merchantId: string, merchantName: string) => {
+    setOrders(currentOrders =>
+      currentOrders.map(o => {
+        const isMatch = o.merchantId === merchantId || (merchantName && o.merchantName === merchantName);
+        if (isMatch && o.settlementStatus === 'settled' && o.payoutStatus !== 'paid') {
+          return {
+            ...o,
+            customHoldingDays: 0,
+            payoutStatus: 'ready' as const
+          };
+        }
+        return o;
+      })
+    );
+    inAppToast(`تم فك تعليق كافة الأوردرات المسواة للموكل "${merchantName}" وأصبحت جاهزة للتحويل فوراً ⚡`, 'success');
+  };
+
+  // Execute Weekly Scheduled Payout for a Merchant
+  const handleExecuteWeeklyScheduledPayout = async (merchantRow: {
+    supplier: any;
+    payoutAmount: number;
+    readyOrdersIds: string[];
+  }) => {
+    const { supplier, payoutAmount, readyOrdersIds } = merchantRow;
+    if (!supplier || payoutAmount <= 0) {
+      inAppToast('لا يوجد رصيد جاهز للتحويل الأسبوعي حالياً لهذا الموكل', 'warning');
+      return;
+    }
+    if (payoutAmount > (supplier.balance || 0)) {
+      inAppToast('المبلغ المطلوب تحويله يتجاوز الرصيد المسوّى الفعلي في محفظة الموكل', 'error');
+      return;
+    }
+
+    const confirmed = await inAppConfirm(
+      `هل ترغب في اعتماد وصرف التحويل الأسبوعي للموكل "${supplier.name}" بمبلغ (${payoutAmount.toLocaleString()} ج.م) وتحديث حالة الأوردرات المستحقة إلى (مدفوع ✅)؟`,
+      {
+        title: 'تأكيد صرف الدفعة الأسبوعية للموكل',
+        confirmText: 'نعم، تأكيد وصرف التحويل الأسبوعي',
+        cancelText: 'تراجع',
+        type: 'info'
+      }
+    );
+    if (!confirmed) return;
+
+    const nowIso = new Date().toISOString();
+    const refId = `WK-PAY-${Date.now().toString().slice(-6)}`;
+
+    updateSettings(currentSettings => {
+      const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
+        if (s.id === supplier.id) {
+          const currentBalance = Number(s.balance || 0);
+          const nextBalance = Number((currentBalance - payoutAmount).toFixed(2));
+          const newTx: MerchantTransaction = {
+            id: `mtx-wk-${Date.now()}`,
+            merchantId: s.id,
+            merchantName: s.name,
+            date: nowIso,
+            type: 'withdrawal',
+            amount: -payoutAmount,
+            balanceAfter: nextBalance,
+            notes: `صرف التحويل الأسبوعي المجدول (مرجع #${refId}) بعد إتمام فترة تعليق التسوية`,
+            referenceId: refId,
+            performedBy: currentUser?.fullName || 'الإدارة'
+          };
+          return {
+            ...s,
+            balance: nextBalance,
+            transactions: [newTx, ...(s.transactions || [])]
+          };
+        }
+        return s;
+      });
+      const addedTx = updatedSuppliers.find(s => s.id === supplier.id)?.transactions?.[0];
+      if (activeStoreId) {
+        db.updatePartnerSettings(activeStoreId, currentSettings.partners || [], updatedSuppliers).catch(() => {});
+      }
+      return {
+        ...currentSettings,
+        suppliers: updatedSuppliers,
+        ...(addedTx ? { merchantTransactions: [addedTx, ...(currentSettings.merchantTransactions || [])] } : {})
+      };
+    });
+
+    const readySet = new Set(readyOrdersIds);
+    setOrders(currentOrders =>
+      currentOrders.map(o => {
+        const isForMerchant = o.merchantId === supplier.id || (supplier.name && o.merchantName === supplier.name);
+        if (isForMerchant && o.settlementStatus === 'settled' && o.payoutStatus !== 'paid' && (readySet.size === 0 || readySet.has(o.id))) {
+          return {
+            ...o,
+            payoutStatus: 'paid' as const,
+            paidOutAt: nowIso,
+            payoutReferenceId: refId
+          };
+        }
+        return o;
+      })
+    );
+
+    inAppToast(`تم صرف التحويل الأسبوعي للموكل "${supplier.name}" بمبلغ ${payoutAmount.toLocaleString()} ج.م بنجاح ✅`, 'success');
   };
   
   // History Filters
@@ -784,6 +1172,96 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       };
     }).sort((a, b) => b.unsettledCount - a.unsettledCount || b.totalOrdersCount - a.totalOrdersCount);
   }, [merchantsList, orders, settings.merchantSettlements]);
+
+  // Weekly Scheduled Payouts & 7-Day Holding Summary per Supplier
+  const weeklyScheduledPayoutsSummary = useMemo(() => {
+    const dayNamesAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const now = new Date();
+    const todayDayIndex = now.getDay();
+
+    return (settings.suppliers || []).map(s => {
+      const weeklyDayIndex = typeof s.weeklyPayoutDay === 'number' ? s.weeklyPayoutDay : 1;
+      const holdingDaysSetting = typeof s.holdingDaysAfterSettlement === 'number' ? s.holdingDaysAfterSettlement : 7;
+      const minWeeklyPayout = typeof s.minWeeklyPayout === 'number' ? s.minWeeklyPayout : 100;
+      const maxWeeklyPayout = typeof s.maxWeeklyPayout === 'number' ? s.maxWeeklyPayout : 50000;
+      const weeklyPayoutMode: 'auto' | 'admin_confirm' = s.weeklyPayoutMode || 'admin_confirm';
+
+      let daysUntilNext = (weeklyDayIndex - todayDayIndex + 7) % 7;
+      const nextDate = new Date(now);
+      nextDate.setDate(now.getDate() + daysUntilNext);
+      const nextDateFormatted = nextDate.toLocaleDateString('ar-EG', {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric'
+      });
+
+      const mOrders = orders.filter(o => doesOrderBelongToMerchant(o, s.id, s));
+      const settledUnpaidOrders = mOrders.filter(o => o.settlementStatus === 'settled' && o.payoutStatus !== 'paid');
+
+      let holdingAmount = 0;
+      let holdingOrdersCount = 0;
+      const readyOrdersIds: string[] = [];
+
+      const isWeeklyFreq = (s.payoutFrequency || 'weekly') === 'weekly';
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const daysSinceLastPayoutDay = (todayDayIndex - weeklyDayIndex + 7) % 7;
+      const currentWeekCycleStart = todayStart - daysSinceLastPayoutDay * 86400000;
+      const daysUntilNextPayoutDay = ((weeklyDayIndex - todayDayIndex + 7) % 7) || 7;
+
+      settledUnpaidOrders.forEach(o => {
+        const orderHoldDays = typeof o.customHoldingDays === 'number' ? o.customHoldingDays : holdingDaysSetting;
+        const settledAtTime = o.settledAt ? new Date(o.settledAt).getTime() : new Date(o.date || Date.now()).getTime();
+        const elapsedDays = Math.max(0, (Date.now() - settledAtTime) / 86400000);
+        const baseRemDays = Math.max(0, Math.ceil(orderHoldDays - elapsedDays));
+        const isSettledThisWeekCycle = isWeeklyFreq && orderHoldDays > 0 && settledAtTime >= currentWeekCycleStart;
+        const remDays = o.payoutStatus === 'ready'
+          ? 0
+          : isSettledThisWeekCycle
+          ? Math.max(baseRemDays, daysUntilNextPayoutDay)
+          : baseRemDays;
+
+        // Find net amount from settlement snapshot if available
+        let orderNet = 0;
+        if (o.settlementId) {
+          const st = (settings.merchantSettlements || []).find(x => x.id === o.settlementId);
+          const snap = st?.orderSnapshots?.find(sn => sn.orderId === o.id);
+          if (snap) orderNet = snap.netMerchantAmount;
+        }
+        if (remDays > 0) {
+          holdingOrdersCount++;
+          holdingAmount += Math.max(0, orderNet);
+        } else {
+          readyOrdersIds.push(o.id);
+        }
+      });
+
+      const currentWalletBalance = Math.max(0, Number(s.balance || 0));
+      const maturedReadyBalance = Math.max(0, Number((currentWalletBalance - holdingAmount).toFixed(2)));
+      const nextScheduledPayoutAmount = maxWeeklyPayout > 0
+        ? Math.min(maturedReadyBalance, maxWeeklyPayout)
+        : maturedReadyBalance;
+
+      return {
+        supplier: s,
+        weeklyDayIndex,
+        weeklyDayNameAr: dayNamesAr[weeklyDayIndex] || 'الإثنين',
+        daysUntilNext,
+        nextDateFormatted,
+        holdingDaysSetting,
+        minWeeklyPayout,
+        maxWeeklyPayout,
+        weeklyPayoutMode,
+        currentWalletBalance,
+        holdingAmount: Math.round(holdingAmount * 100) / 100,
+        holdingOrdersCount,
+        readyOrdersCount: readyOrdersIds.length,
+        readyOrdersIds,
+        maturedReadyBalance,
+        nextScheduledPayoutAmount: Math.round(nextScheduledPayoutAmount * 100) / 100,
+        isEligibleForPayout: nextScheduledPayoutAmount >= minWeeklyPayout && nextScheduledPayoutAmount > 0
+      };
+    });
+  }, [settings.suppliers, settings.merchantSettlements, orders]);
 
   // Global Executive KPIs
   const executiveMetrics = useMemo(() => {
@@ -1339,14 +1817,19 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       }
 
       if (saveAsStatus === 'paid') {
+        const settledNowIso = new Date().toISOString();
         setOrders(currentOrders => currentOrders.map(o => {
           const matchedSettleId = updatedOrderIdsMap.get(o.id);
           if (!matchedSettleId) return o;
           const ov = orderOverrides[o.id];
+          const holdDays = ov?.customHoldingDays !== undefined ? ov.customHoldingDays : o.customHoldingDays;
           return {
             ...o,
             settlementStatus: 'settled' as const,
             settlementId: matchedSettleId,
+            settledAt: o.settledAt || settledNowIso,
+            payoutStatus: (holdDays === 0 ? 'ready' : 'holding') as 'ready' | 'holding',
+            ...(ov?.customHoldingDays !== undefined ? { customHoldingDays: ov.customHoldingDays } : {}),
             ...(ov?.goodsCost !== undefined ? { merchantItemCost: ov.goodsCost } : {}),
             ...(ov?.marketingFee !== undefined ? { marketingFeePerOrder: ov.marketingFee } : {}),
             ...(ov?.serviceFee !== undefined ? { serviceFeePerOrder: ov.serviceFee } : {}),
@@ -1453,14 +1936,21 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     }
 
     if (saveAsStatus === 'paid') {
+      const settledNowIso = new Date().toISOString();
       // Drafts save a calculation only; they must not lock orders or persist overrides.
       setOrders(currentOrders => currentOrders.map(o => {
         if (!selectedOrderIds.includes(o.id)) return o;
         const ov = orderOverrides[o.id];
+        const holdDays = ov?.customHoldingDays !== undefined ? ov.customHoldingDays : o.customHoldingDays;
+        const isImmediatePaid = payoutChannel !== 'ledger_only' && Boolean(selectedTreasuryAccountId) && settlementCalculation.netPayoutToMerchant > 0;
         return {
           ...o,
           settlementStatus: 'settled' as const,
           settlementId: newSettlement.id,
+          settledAt: o.settledAt || settledNowIso,
+          payoutStatus: (isImmediatePaid ? 'paid' : holdDays === 0 ? 'ready' : 'holding') as 'paid' | 'ready' | 'holding',
+          ...(isImmediatePaid ? { paidOutAt: settledNowIso, payoutReferenceId: newSettlement.settlementNumber } : {}),
+          ...(ov?.customHoldingDays !== undefined ? { customHoldingDays: ov.customHoldingDays } : {}),
           ...(ov?.goodsCost !== undefined ? { merchantItemCost: ov.goodsCost } : {}),
           ...(ov?.marketingFee !== undefined ? { marketingFeePerOrder: ov.marketingFee } : {}),
           ...(ov?.serviceFee !== undefined ? { serviceFeePerOrder: ov.serviceFee } : {}),
@@ -3047,6 +3537,31 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                                       </div>
                                     </div>
 
+                                    {/* مدة تعليق رصيد هذا الأوردر بعد التسوية (تحكم مدير المتجر لكل أوردر) */}
+                                    <div className="pt-2.5 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[11px] font-black text-teal-700 dark:text-teal-400">
+                                          مدة تعليق رصيد هذا الأوردر بعد التسوية قبل التحويل الأسبوعي:
+                                        </span>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          max={60}
+                                          value={orderOverrides[ord.id]?.customHoldingDays ?? ord.customHoldingDays ?? 7}
+                                          onChange={e => updateOrderOverride(ord.id, { customHoldingDays: Math.max(0, Number(e.target.value) || 0) })}
+                                          className="w-20 px-2.5 py-1 bg-teal-50 dark:bg-slate-900 border border-teal-300 dark:border-teal-700 rounded-lg text-center font-mono font-black text-teal-700 dark:text-teal-300 outline-none"
+                                        />
+                                        <span className="text-xs font-bold text-slate-400">يوم</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => updateOrderOverride(ord.id, { customHoldingDays: 0 })}
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-black cursor-pointer hover:bg-emerald-100"
+                                      >
+                                        إتاحة فورية للتحويل (0 يوم تعليق) ⚡
+                                      </button>
+                                    </div>
+
                                     {/* نسبة المشاركة إذا كان وضع الأرباح */}
                                     {calc.effectiveMode === 'profit_share' && (
                                       <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center gap-3">
@@ -3651,6 +4166,125 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             </button>
           </div>
 
+          {/* ======================================================== */}
+          {/* WEEKLY SCHEDULED PAYOUTS & 7-DAY HOLDING CONTROL CENTER  */}
+          {/* ======================================================== */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                  <Calendar size={20} />
+                </div>
+                <div>
+                  <h4 className="font-black text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>جدول التحويلات الأسبوعية وتعليق الأوردرات المسواة (٧ أيام)</span>
+                    <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      تحكم مدير المتجر
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 font-bold mt-0.5">
+                    يبدأ حساب مدة الـ 7 أيام من لحظة تسوية الأوردر مالياً، وبعد انتهائها يصبح الرصيد جاهزاً للتحويل في اليوم الأسبوعي الذي اختاره الموكل.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {weeklyScheduledPayoutsSummary.length === 0 ? (
+              <div className="py-8 text-center text-xs font-bold text-slate-400">
+                لا يوجد موكلون مسجلون حالياً لعرض جدول التحويلات الأسبوعية.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {weeklyScheduledPayoutsSummary.map(row => (
+                  <div
+                    key={row.supplier.id}
+                    className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 flex flex-col justify-between space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h5 className="font-black text-xs text-slate-900 dark:text-white">{row.supplier.name}</h5>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300">
+                            يوم التحويل: {row.weeklyDayNameAr} ({row.daysUntilNext === 0 ? 'اليوم 🔔' : `بعد ${row.daysUntilNext} يوم`})
+                          </span>
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                            row.weeklyPayoutMode === 'auto'
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300'
+                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+                          }`}>
+                            {row.weeklyPayoutMode === 'auto' ? 'تحويل آلي ⚡' : 'تأكيد بضغطة زر 👆'}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openMerchantPayoutPolicyModal(row.supplier)}
+                        className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-900 hover:bg-indigo-50 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-black cursor-pointer transition-all"
+                        title="تعديل مدة التعليق والحد الأدنى والأقصى للسحبة الأسبوعية"
+                      >
+                        تعديل السياسة ⚙️
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                        <div className="text-[10px] font-bold text-slate-400">رصيد المحفظة المسوّى</div>
+                        <div className="text-xs font-black font-mono text-slate-900 dark:text-white mt-0.5">
+                          {row.currentWalletBalance.toLocaleString()} ج.م
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/50">
+                        <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                          قيد التعليق ({row.holdingDaysSetting} أيام)
+                        </div>
+                        <div className="text-xs font-black font-mono text-amber-700 dark:text-amber-300 mt-0.5">
+                          {row.holdingAmount.toLocaleString()} ج.م ({row.holdingOrdersCount} طلب)
+                        </div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/50">
+                        <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">جاهز للتحويل</div>
+                        <div className="text-xs font-black font-mono text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          {row.nextScheduledPayoutAmount.toLocaleString()} ج.م
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] font-bold text-slate-500 flex items-center justify-between">
+                      <span>الحدود: {row.minWeeklyPayout.toLocaleString()} - {row.maxWeeklyPayout.toLocaleString()} ج.م</span>
+                      <span>التحويل القادم: {row.nextDateFormatted}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      {row.holdingOrdersCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleReleaseAllMerchantHoldOrders(row.supplier.id, row.supplier.name)}
+                          className="flex-1 py-2 px-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[10px] cursor-pointer transition-all shadow-xs"
+                        >
+                          فك تعليق ({row.holdingOrdersCount}) أوردر فوراً ⚡
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={row.nextScheduledPayoutAmount <= 0}
+                        onClick={() =>
+                          handleExecuteWeeklyScheduledPayout({
+                            supplier: row.supplier,
+                            payoutAmount: row.nextScheduledPayoutAmount,
+                            readyOrdersIds: row.readyOrdersIds
+                          })
+                        }
+                        className="flex-1 py-2 px-2.5 rounded-xl bg-[#008060] hover:bg-[#006e52] disabled:opacity-40 text-white font-black text-[10px] cursor-pointer transition-all shadow-xs"
+                      >
+                        صرف الدفعة الأسبوعية ({row.nextScheduledPayoutAmount.toLocaleString()} ج.م) 💸
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Filter Bar */}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-xs">
             <div className="flex items-center gap-2">
@@ -3710,6 +4344,23 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                         const isPending = req.status === 'pending';
                         const isApproved = req.status === 'approved';
                         const isRejected = req.status === 'rejected';
+                        const isCustomQuote = req.type === 'custom_plan_quote';
+                        const isPlanChange = req.type === 'plan_change_request';
+                        const quoteFeeVal = customQuoteFeeMap[req.id] ?? 20;
+                        const targetOrders = Number(
+                          req.planRequestMeta?.requestedCustomQuota ||
+                            req.planRequestMeta?.requestedOrdersTarget ||
+                            req.planRequestMeta?.ordersLimit ||
+                            500
+                        );
+                        const isPrepaidQuote = Boolean(
+                          req.planRequestMeta?.requestedPrepaidQuota ??
+                            (req.planRequestMeta?.requestedCustomBillingPreference === 'prepaid_quota')
+                        );
+                        const resolvedPlanName =
+                          req.planRequestMeta?.targetPlanNameAr ||
+                          req.planRequestMeta?.planNameAr ||
+                          (req.payoutAccount && req.payoutAccount !== 'undefined' ? req.payoutAccount : 'باقة المدير المخصصة');
 
                         return (
                           <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
@@ -3721,11 +4372,41 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                               <div className="font-black text-slate-900 dark:text-white">{req.partnerName}</div>
                               <div className="text-[10px] text-slate-400 font-mono">كود: {req.partnerId}</div>
                             </td>
-                              <td className="py-4 px-3">
-                              <div className="font-bold text-slate-800 dark:text-slate-200">{req.typeArabic || 'طلب سحب مستحقات'}</div>
+                            <td className="py-4 px-3">
+                              <div className="font-bold text-slate-800 dark:text-slate-200">
+                                {isCustomQuote
+                                  ? 'طلب تسعير باقة مدير مخصصة (تسعير خاص لكل أوردر)'
+                                  : isPlanChange
+                                  ? `طلب تغيير باقة (${resolvedPlanName})`
+                                  : req.typeArabic || 'طلب سحب مستحقات'}
+                              </div>
                               {req.notes && (
                                 <div className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 rounded-lg mt-1 border border-emerald-200 dark:border-emerald-800/50 max-w-md">
-                                  {req.notes}
+                                  {String(req.notes).replace(/\(undefined\)/g, '(باقة المدير المخصصة)')}
+                                </div>
+                              )}
+                              {isCustomQuote && isPending && (
+                                <div className="mt-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 max-w-md space-y-1.5">
+                                  <label className="block text-[11px] font-black text-amber-900 dark:text-amber-300">
+                                    حدد سعر إدارة الأوردر الواحد للموكل (ج.م):
+                                  </label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={quoteFeeVal}
+                                      onChange={e =>
+                                        setCustomQuoteFeeMap(prev => ({
+                                          ...prev,
+                                          [req.id]: Math.max(1, Number(e.target.value) || 0)
+                                        }))
+                                      }
+                                      className="w-28 px-2.5 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-xs font-black font-mono"
+                                    />
+                                    <span className="text-[11px] font-black text-amber-700 dark:text-amber-400">
+                                      ج.م / أوردر ({isPrepaidQuote ? 'دفع مسبق' : 'خصم تلقائي مع كل أوردر — ٠ ج.م مقدم'})
+                                    </span>
+                                  </div>
                                 </div>
                               )}
                               {(req.transferReference || req.receiptImage) && (
@@ -3748,7 +4429,18 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                               )}
                             </td>
                             <td className="py-4 px-3 text-center font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                              {req.amount.toLocaleString()} ج.م
+                              {isCustomQuote ? (
+                                <div className="space-y-0.5">
+                                  <div className="text-xs font-black text-amber-600 dark:text-amber-400">
+                                    {targetOrders} أوردر مستهدف
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-bold">
+                                    {isPrepaidQuote ? 'دفع مسبق للحصة' : 'خصم لكل أوردر (٠ ج.م الآن)'}
+                                  </div>
+                                </div>
+                              ) : (
+                                `${req.amount.toLocaleString()} ج.م`
+                              )}
                             </td>
                             <td className="py-4 px-3 text-center">
                               <span className={`inline-flex items-center gap-1 font-black px-3 py-1 rounded-full text-[10px] border ${
@@ -3758,31 +4450,56 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                                   ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
                                   : 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
                               }`}>
-                                {isPending ? 'قيد المراجعة ⏳' : isApproved ? 'تم الاعتماد والتحويل ✅' : 'تم الرفض ❌'}
+                                {isPending ? 'قيد المراجعة ⏳' : isApproved ? 'تم الاعتماد ✅' : 'تم الرفض ❌'}
                               </span>
                             </td>
                             <td className="py-4 px-4 text-center">
                               {isPending ? (
-                                <div className="flex items-center justify-center gap-2">
-                                  <button
-                                    onClick={() => {
-                                      setApprovalTransferRef('');
-                                      setApprovalReceiptImage('');
-                                      setSelectedReqForApproval(req);
-                                    }}
-                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all cursor-pointer shadow-xs flex items-center gap-1"
-                                  >
-                                    <Check size={14} />
-                                    <span>اعتماد وتخصيم ✅</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleRejectMerchantRequest(req)}
-                                    className="px-3.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-bold text-xs transition-all cursor-pointer border border-rose-200 dark:border-rose-800 flex items-center gap-1"
-                                  >
-                                    <X size={14} />
-                                    <span>رفض ❌</span>
-                                  </button>
-                                </div>
+                                isCustomQuote ? (
+                                  <div className="flex flex-col items-center justify-center gap-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleCustomQuoteAction(req, 'send_quote', quoteFeeVal)}
+                                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] transition-all cursor-pointer shadow-xs"
+                                      >
+                                        إرسال عرض السعر ({quoteFeeVal} ج/أوردر) 📤
+                                      </button>
+                                      <button
+                                        onClick={() => handleRejectMerchantRequest(req)}
+                                        className="px-2.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-bold text-[11px] transition-all cursor-pointer border border-rose-200 dark:border-rose-800"
+                                      >
+                                        رفض ❌
+                                      </button>
+                                    </div>
+                                    <button
+                                      onClick={() => handleCustomQuoteAction(req, 'activate_now', quoteFeeVal)}
+                                      className="w-full px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-[11px] transition-all cursor-pointer shadow-xs"
+                                    >
+                                      تفعيل فوري للموكل ({quoteFeeVal} ج/أوردر) ⚡
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      onClick={() => {
+                                        setApprovalTransferRef('');
+                                        setApprovalReceiptImage('');
+                                        setSelectedReqForApproval(req);
+                                      }}
+                                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs transition-all cursor-pointer shadow-xs flex items-center gap-1"
+                                    >
+                                      <Check size={14} />
+                                      <span>اعتماد وتخصيم ✅</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleRejectMerchantRequest(req)}
+                                      className="px-3.5 py-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 font-bold text-xs transition-all cursor-pointer border border-rose-200 dark:border-rose-800 flex items-center gap-1"
+                                    >
+                                      <X size={14} />
+                                      <span>رفض ❌</span>
+                                    </button>
+                                  </div>
+                                )
                               ) : (
                                 <span className="text-[11px] text-slate-400 font-bold">تم اتخاذ إجراء</span>
                               )}
@@ -4439,27 +5156,73 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                       <th className="p-3 text-center">الإعلانات والعمولة</th>
                       <th className="p-3 text-center">خسارة المرتجع</th>
                       <th className="p-3 text-center">صافي الموكل</th>
+                      <th className="p-3 text-center">حالة التعليق والتحويل</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-bold">
-                    {(viewingSettlement.orderSnapshots || []).map(snapshot => (
-                      <tr key={snapshot.orderId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="p-3 font-mono font-black text-indigo-600 dark:text-indigo-400">
-                          #{snapshot.orderNumber || snapshot.orderId.slice(0, 8)}
-                        </td>
-                        <td className="p-3">{snapshot.customerName || '-'}</td>
-                        <td className="p-3">{snapshot.status}</td>
-                        <td className="p-3 text-center font-mono">{snapshot.collectedAmount.toLocaleString()}</td>
-                        <td className="p-3 text-center font-mono text-emerald-600 dark:text-emerald-400">{snapshot.merchantGoodsCost.toLocaleString()}</td>
-                        <td className="p-3 text-center font-mono text-amber-600">-{snapshot.shippingDiscountDifference.toLocaleString()}</td>
-                        <td className="p-3 text-center font-mono text-amber-600">-{(snapshot.carrierAdditionalFees + snapshot.collectionFee).toLocaleString()}</td>
-                        <td className="p-3 text-center font-mono text-indigo-600">-{(snapshot.marketingCost + snapshot.serviceFee).toLocaleString()}</td>
-                        <td className="p-3 text-center font-mono text-rose-600">-{snapshot.returnLoss.toLocaleString()}</td>
-                        <td className="p-3 text-center font-mono font-black text-emerald-700 dark:text-emerald-400">
-                          {snapshot.netMerchantAmount.toLocaleString()} ج.م
-                        </td>
-                      </tr>
-                    ))}
+                    {(viewingSettlement.orderSnapshots || []).map(snapshot => {
+                      const liveOrder = orders.find(o => o.id === snapshot.orderId);
+                      const matchedSupplier = (settings.suppliers || []).find(
+                        s => s.id === viewingSettlement.merchantId || s.name === viewingSettlement.merchantName
+                      );
+                      const defaultHoldDays = typeof matchedSupplier?.holdingDaysAfterSettlement === 'number'
+                        ? matchedSupplier.holdingDaysAfterSettlement
+                        : 7;
+                      const orderHoldDays = typeof liveOrder?.customHoldingDays === 'number'
+                        ? liveOrder.customHoldingDays
+                        : defaultHoldDays;
+                      const settledTime = liveOrder?.settledAt
+                        ? new Date(liveOrder.settledAt).getTime()
+                        : new Date(viewingSettlement.date).getTime();
+                      const elapsedDays = Math.max(0, (Date.now() - settledTime) / 86400000);
+                      const remHoldDays = liveOrder?.payoutStatus === 'ready' || liveOrder?.payoutStatus === 'paid'
+                        ? 0
+                        : Math.max(0, Math.ceil(orderHoldDays - elapsedDays));
+                      const isOrderPaid = liveOrder?.payoutStatus === 'paid';
+
+                      return (
+                        <tr key={snapshot.orderId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                          <td className="p-3 font-mono font-black text-indigo-600 dark:text-indigo-400">
+                            #{snapshot.orderNumber || snapshot.orderId.slice(0, 8)}
+                          </td>
+                          <td className="p-3">{snapshot.customerName || '-'}</td>
+                          <td className="p-3">{snapshot.status}</td>
+                          <td className="p-3 text-center font-mono">{snapshot.collectedAmount.toLocaleString()}</td>
+                          <td className="p-3 text-center font-mono text-emerald-600 dark:text-emerald-400">{snapshot.merchantGoodsCost.toLocaleString()}</td>
+                          <td className="p-3 text-center font-mono text-amber-600">-{snapshot.shippingDiscountDifference.toLocaleString()}</td>
+                          <td className="p-3 text-center font-mono text-amber-600">-{(snapshot.carrierAdditionalFees + snapshot.collectionFee).toLocaleString()}</td>
+                          <td className="p-3 text-center font-mono text-indigo-600">-{(snapshot.marketingCost + snapshot.serviceFee).toLocaleString()}</td>
+                          <td className="p-3 text-center font-mono text-rose-600">-{snapshot.returnLoss.toLocaleString()}</td>
+                          <td className="p-3 text-center font-mono font-black text-emerald-700 dark:text-emerald-400">
+                            {snapshot.netMerchantAmount.toLocaleString()} ج.م
+                          </td>
+                          <td className="p-3 text-center">
+                            {isOrderPaid ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-black">
+                                مدفوع ومُحول ✅
+                              </span>
+                            ) : remHoldDays > 0 ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 text-[10px] font-black">
+                                  قيد التعليق (متبقي {remHoldDays} يوم) ⏳
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReleaseOrderHold(snapshot.orderId)}
+                                  className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black cursor-pointer transition-all"
+                                >
+                                  فك التعليق فوراً ⚡
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 text-[10px] font-black">
+                                جاهز للتحويل الأسبوعي 🚀
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
                 {(!viewingSettlement.orderSnapshots || viewingSettlement.orderSnapshots.length === 0) && (
@@ -4468,6 +5231,224 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* WEEKLY PAYOUT POLICY MODAL (تعديل سياسة التحويل الأسبوعي) */}
+      {/* ======================================================== */}
+      {editingPayoutPolicyMerchant && (
+        <div
+          className="fixed inset-0 z-[130] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+          dir="rtl"
+          onClick={() => setEditingPayoutPolicyMerchant(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="font-black text-sm text-slate-900 dark:text-white">
+                  سياسة التحويل الأسبوعي وتعليق الأوردرات ({editingPayoutPolicyMerchant.name})
+                </h3>
+                <p className="text-[11px] font-bold text-slate-400">
+                  تخصيص مدة تعليق الأوردر والحد الأدنى والأقصى للسحبة الأسبوعية
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingPayoutPolicyMerchant(null)}
+                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs font-bold">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    تكرار السحب النقدي:
+                  </label>
+                  <select
+                    value={policyPayoutFrequency}
+                    onChange={e => setPolicyPayoutFrequency(e.target.value as 'weekly' | 'daily')}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-black text-xs"
+                  >
+                    <option value="weekly">سحب أسبوعي</option>
+                    <option value="daily">سحب يومي</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    يوم التحويل الأسبوعي:
+                  </label>
+                  <select
+                    value={policyWeeklyDay}
+                    onChange={e => setPolicyWeeklyDay(Number(e.target.value))}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-black text-xs"
+                  >
+                    <option value={0}>الأحد</option>
+                    <option value={1}>الإثنين</option>
+                    <option value={2}>الثلاثاء</option>
+                    <option value={3}>الأربعاء</option>
+                    <option value={4}>الخميس</option>
+                    <option value={5}>الجمعة</option>
+                    <option value={6}>السبت</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    عمولة السحب الأسبوعي (الإدارة):
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      value={policyWeeklyTransferFee}
+                      onChange={e => setPolicyWeeklyTransferFee(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
+                    />
+                    <select
+                      value={policyWeeklyTransferFeeType}
+                      onChange={e => setPolicyWeeklyTransferFeeType(e.target.value as 'fixed' | 'percentage')}
+                      className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-black text-[10px] shrink-0"
+                    >
+                      <option value="fixed">ج.م</option>
+                      <option value="percentage">%</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    عمولة السحب اليومي (الإدارة):
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.25"
+                      value={policyDailyTransferFee}
+                      onChange={e => setPolicyDailyTransferFee(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
+                    />
+                    <select
+                      value={policyDailyTransferFeeType}
+                      onChange={e => setPolicyDailyTransferFeeType(e.target.value as 'fixed' | 'percentage')}
+                      className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-black text-[10px] shrink-0"
+                    >
+                      <option value="percentage">%</option>
+                      <option value="fixed">ج.م</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                  مدة التعليق بعد التسوية (أيام):
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={60}
+                    value={policyHoldingDays}
+                    onChange={e => setPolicyHoldingDays(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPolicyHoldingDays(0)}
+                    className="px-2 py-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-black shrink-0 cursor-pointer"
+                  >
+                    0 يوم ⚡
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    الحد الأدنى للسحبة (ج.م):
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={policyMinPayout}
+                    onChange={e => setPolicyMinPayout(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    الحد الأقصى للسحبة (ج.م):
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={policyMaxPayout}
+                    onChange={e => setPolicyMaxPayout(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1.5">
+                  طريقة تنفيذ التحويل الأسبوعي:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPolicyPayoutMode('admin_confirm')}
+                    className={`p-2.5 rounded-xl border text-[11px] font-black cursor-pointer transition-all ${
+                      policyPayoutMode === 'admin_confirm'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    تأكيد بضغطة زر من الإدارة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPolicyPayoutMode('auto')}
+                    className={`p-2.5 rounded-xl border text-[11px] font-black cursor-pointer transition-all ${
+                      policyPayoutMode === 'auto'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    تحويل آلي كامل في الموعد
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleSaveMerchantPayoutPolicy}
+                className="flex-1 py-3 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black cursor-pointer shadow-sm"
+              >
+                حفظ سياسة التحويل الأسبوعي ✅
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingPayoutPolicyMerchant(null)}
+                className="px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold cursor-pointer"
+              >
+                إلغاء
+              </button>
             </div>
           </div>
         </div>

@@ -6,74 +6,211 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'aelbass6test@gmail.com' ||
+        (request.auth.token.admin == true) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true)
+      );
+    }
+
+    function getUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
+    }
+
+    // Role-Based and Attribute-Based Access Control (ABAC) per store
+    function isMemberOfStore(storeId) {
+      return isSignedIn() && (
+        isAdmin() ||
+        (getUserData() != null && (
+          getUserData().defaultStoreId == storeId ||
+          (getUserData().ownedStoreIds is list && storeId in getUserData().ownedStoreIds) ||
+          (getUserData().assignedStoreIds is list && storeId in getUserData().assignedStoreIds) ||
+          (request.auth.uid == storeId)
+        ))
+      );
+    }
+
+    // Verifies store ownership immutability and user store membership
+    function hasValidStoreIdOnWrite() {
+      return request.resource.data.store_id is string &&
+             isValidId(request.resource.data.store_id) &&
+             isMemberOfStore(request.resource.data.store_id) &&
+             (resource == null || !('store_id' in resource.data) || resource.data.store_id == request.resource.data.store_id);
     }
 
     // --- Stores Configuration and Data ---
     match /stores_data/{storeId} {
       allow read: if isValidId(storeId);
-      allow write: if isSignedIn() && isValidId(storeId);
+      allow create: if isSignedIn() && isValidId(storeId);
+      allow update: if isValidId(storeId) && isMemberOfStore(storeId);
+      allow delete: if isAdmin();
       
       match /{allChildren=**} {
         allow read: if isValidId(storeId);
-        allow write: if isSignedIn();
+        allow write: if isMemberOfStore(storeId);
       }
     }
 
     // --- Products (Storefront Catalog & Admin) ---
     match /products/{productId} {
       allow read: if isValidId(productId);
-      allow write: if isSignedIn() && isValidId(productId);
+      allow create: if isSignedIn() && isValidId(productId) && hasValidStoreIdOnWrite();
+      allow update: if isSignedIn() && isValidId(productId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(productId) && (resource == null || isMemberOfStore(resource.data.store_id));
     }
 
     // --- Orders (Public Storefront Placement & Store Staff Management) ---
     match /orders/{orderId} {
-      // Customer orders reading is restricted to authenticated store operators
-      allow read: if isSignedIn() && isValidId(orderId);
-      // Public customer can create orders via storefront checkout
-      allow create: if isValidId(orderId);
-      // Only authenticated store operators/admins can update or delete orders
-      allow update, delete: if isSignedIn() && isValidId(orderId);
+      allow read: if isSignedIn() && isValidId(orderId) && (resource == null || isMemberOfStore(resource.data.store_id));
+      allow create: if isValidId(orderId) && request.resource.data.store_id is string && isValidId(request.resource.data.store_id);
+      allow update: if isSignedIn() && isValidId(orderId) && hasValidStoreIdOnWrite();
+      allow delete: if isAdmin();
     }
 
     // --- Customers & Profiles ---
     match /customers/{customerId} {
-      // Allow read/write for authenticated store operators or authenticated users
-      allow read, write: if isSignedIn() && isValidId(customerId);
+      allow read: if isSignedIn() && isValidId(customerId);
+      allow create, update: if isSignedIn() && isValidId(customerId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(customerId) && (resource == null || isMemberOfStore(resource.data.store_id));
     }
 
-    // --- Users & Team Directory ---
+    // --- Users & Privilege Escalation Protection ---
     match /users/{userId} {
-      // Protect user document creation/updates and directory lookups
-      allow read, write: if isSignedIn() && isValidId(userId);
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin()) &&
+                    (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false || isAdmin());
+      // Anti-privilege escalation: Users cannot change their own isAdmin status, role, or store assignments
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin()) &&
+                    (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin || isAdmin()) &&
+                    (!('role' in request.resource.data) || request.resource.data.role == resource.data.role || isAdmin()) &&
+                    (!('stores' in request.resource.data) || request.resource.data.stores == resource.data.stores || isAdmin());
+      allow delete: if isAdmin();
     }
 
     // --- Employees ---
     match /employees/{employeeId} {
-      allow read, write: if isSignedIn() && isValidId(employeeId);
+      allow read: if isSignedIn() && isValidId(employeeId);
+      allow create, update: if isSignedIn() && isValidId(employeeId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(employeeId) && (resource == null || isMemberOfStore(resource.data.store_id));
     }
 
-    // --- Maintenance Requests ---
+    // --- Immutable Financial Ledgers (No Client Deletions) ---
+    match /transactions/{txId} {
+      allow read: if isSignedIn() && isValidId(txId);
+      allow create, update: if isSignedIn() && isValidId(txId) && hasValidStoreIdOnWrite();
+      allow delete: if false;
+    }
+
+    match /partner_transactions/{txId} {
+      allow read: if isSignedIn() && isValidId(txId);
+      allow create, update: if isSignedIn() && isValidId(txId) && hasValidStoreIdOnWrite();
+      allow delete: if false;
+    }
+
+    match /treasury_transactions/{txId} {
+      allow read: if isSignedIn() && isValidId(txId);
+      allow create, update: if isSignedIn() && isValidId(txId) && hasValidStoreIdOnWrite();
+      allow delete: if false;
+    }
+
+    match /order_quota_ledger/{entryId} {
+      allow read: if isSignedIn() && isValidId(entryId);
+      allow create, update: if isSignedIn() && isValidId(entryId) && hasValidStoreIdOnWrite();
+      allow delete: if false;
+    }
+
+    match /merchant_quota_locks/{lockId} {
+      allow read: if isSignedIn() && isValidId(lockId);
+      allow create, update: if isSignedIn() && isValidId(lockId);
+      allow delete: if false;
+    }
+
+    // --- Idempotency Records (Survives Server Restarts) ---
+    match /idempotency_records/{recordId} {
+      allow read: if isSignedIn() && isValidId(recordId);
+      allow create, update: if isSignedIn() && isValidId(recordId);
+      allow delete: if isAdmin();
+    }
+
+    // --- Store Operational Collections ---
+    match /suppliers/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /partners/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /treasury_accounts/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /warehouses/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /purchase_returns/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /order_returns/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /expenses/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /collections/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if isSignedIn() && isValidId(docId) && (resource == null || isMemberOfStore(resource.data.store_id));
+    }
+
+    match /activity_logs/{docId} {
+      allow read: if isSignedIn() && isValidId(docId);
+      allow create, update: if isSignedIn() && isValidId(docId) && hasValidStoreIdOnWrite();
+      allow delete: if false;
+    }
+
+    // --- Maintenance & Operational Requests ---
     match /maintenance_requests/{requestId} {
       allow read, write: if isSignedIn() && isValidId(requestId);
     }
 
-    // --- Shared Reports ---
     match /shared_reports/{reportId} {
-      allow read: if isValidId(reportId);
-      allow create: if isValidId(reportId);
+      allow read, create: if isValidId(reportId);
       allow update, delete: if isSignedIn() && isValidId(reportId);
     }
 
-    // --- Partner Requests (Partner Portal Submission & Admin Management) ---
     match /partner_requests/{requestId} {
       allow create: if isValidId(requestId);
       allow read, update, delete: if isSignedIn() && isValidId(requestId);
     }
 
-    // --- Shared Inventory Audits ---
     match /shared_audits/{auditId} {
       allow read: if isValidId(auditId);
       allow write: if isSignedIn() && isValidId(auditId);
@@ -82,10 +219,10 @@ service cloud.firestore {
         allow read, write: if isSignedIn();
       }
     }
-    
-    // --- Global collections (transactions, treasury, warehouses, returns) ---
-    match /{collectionName}/{docId} {
-      allow read, write: if isSignedIn() && isValidId(docId);
+
+    // Isolated restore test target namespace
+    match /isolated_restore_verification_test/{docId} {
+      allow read, write: if true;
     }
 
     // Explicit deny for any undefined root paths

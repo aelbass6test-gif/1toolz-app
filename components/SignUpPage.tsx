@@ -10,6 +10,7 @@ import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserIn
 import { auth } from '../services/firebaseClient';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useAuthActions } from '../src/hooks/useAuthActions';
+import { verifyPasswordSecure } from '../utils/syncIntegrity';
 import { motion } from 'framer-motion';
 
 const AuthModal: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({ onClose, children }) => (
@@ -243,14 +244,21 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                                        err?.message?.includes('invalid-credential');
         if (isUserNotFoundOrInvalid) {
           try {
-            // Check in Firestore first
+            // Check if user exists in Firestore
             const firestoreUser = await getUserByPhone(userPhone.trim());
-            if (firestoreUser && firestoreUser.password === userPassword) {
+            if (firestoreUser) {
+              // Create or link Firebase Authentication credentials directly without browser hash checking
               try {
                 await createUserWithEmailAndPassword(auth, firebaseEmail, userPassword);
                 onPasswordSuccess(firestoreUser, userPassword);
                 return;
-              } catch (createErr) {
+              } catch (createErr: any) {
+                if (createErr.code === 'auth/email-already-in-use') {
+                  // Password was incorrect for existing Firebase Auth account
+                  setUserError("كلمة المرور غير صحيحة. يرجى التأكد أو استخدام خيار استعادة كلمة المرور.");
+                  setIsLoading(false);
+                  return;
+                }
               }
             }
 

@@ -15,6 +15,15 @@ import { doc, getDoc, setDoc, getDocs, collection, query, where, limit } from "f
 
 import { trimTrailingSlash } from "hono/trailing-slash";
 import { appendShippingTimeline, buildEventKey, getEventAt, mapBostaStatus, mapTurboStatus, shouldApplyShippingUpdate } from './utils/shippingStatus';
+import {
+  confirmOrderWithQuotaAndFee,
+  activateMerchantManagerPlan,
+  reconcileMerchantLedger,
+  createOrderAtomic,
+  processMerchantWithdrawalAtomic,
+  processCarrierEventOrSettlementAtomic
+} from "./services/orderQuotaLedgerService";
+import { hashPasswordSecure } from "./utils/syncIntegrity";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "AIzaSy_placeholder_key_for_dev_mode",
@@ -1314,17 +1323,45 @@ async function startServer() {
         }, 400);
       }
 
-      // Password matches! Update in Firestore and Supabase
+      // Update password in Firebase Authentication directly without storing password hashes in Firestore
       const authPhone = record.phone || inputDigits || input;
+      const firebaseEmail = record.email || `${authPhone}@mystore-auth.app`;
+      const firebaseApiKey = "AIzaSyDe0wW1dG5lQph7u2SJoilpIjMRdm80hDo";
+
       try {
+        // Use Firebase Auth Identity Toolkit to update credentials
+        const updateRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${firebaseApiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: firebaseEmail,
+            password: newPassword,
+            returnSecureToken: false
+          })
+        });
+        const updateData = await updateRes.json().catch(() => ({}));
+        if (updateData?.error?.message?.includes("EMAIL_NOT_FOUND")) {
+          // If user account wasn't in Firebase Auth yet, provision in Firebase Auth
+          await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseApiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: firebaseEmail,
+              password: newPassword,
+              returnSecureToken: false
+            })
+          });
+        }
+
+        // Update Firestore user record with metadata only (NO password stored in Firestore)
         const userRef = doc(db, "users", authPhone);
         await setDoc(userRef, {
-          password: newPassword,
-          lastPasswordReset: new Date().toISOString()
+          lastPasswordReset: new Date().toISOString(),
+          authProvider: "firebase"
         }, { merge: true });
-        console.log(`[EMP-RESET] Successfully updated password in Firestore for user ${authPhone}`);
-      } catch (fsErr) {
-        console.warn("[EMP-RESET] Error updating Firestore user password:", fsErr);
+        console.log(`[EMP-RESET] Successfully updated credentials in Firebase Auth for user ${firebaseEmail}`);
+      } catch (authErr) {
+        console.warn("[EMP-RESET] Error updating Firebase Auth credentials:", authErr);
       }
 
       // Clean up reset store
@@ -1723,7 +1760,60 @@ async function startServer() {
     });
   });
 
-  // Endpoint: POST Order (requires 'orders:write')
+  // Helper adapter for atomic server-side StoreData operations against Firestore
+  const createFirestoreStoreDataAdapter = (targetStoreId: string) => ({
+    async getStoreData(sId: string) {
+      const storeSnap = await getDoc(doc(db, "stores_data", sId));
+      if (!storeSnap.exists()) return null;
+      const storeDocData = storeSnap.data() as any;
+      // Reconcile orders from top-level orders collection + stores_data.orders
+      let collectionOrders: any[] = [];
+      try {
+        const ordersSnap = await getDocs(query(collection(db, "orders"), where("store_id", "==", sId)));
+        collectionOrders = ordersSnap.docs.map(d => d.data());
+      } catch (e) {
+        console.warn("[API] Failed to read orders collection during atomic adapter load:", e);
+      }
+      const existingStoreOrders = Array.isArray(storeDocData.orders) ? storeDocData.orders : [];
+      const mergedMap = new Map<string, any>();
+      for (const o of existingStoreOrders) {
+        if (o && o.id) mergedMap.set(String(o.id), o);
+      }
+      for (const o of collectionOrders) {
+        if (!o || !o.id) continue;
+        const prev = mergedMap.get(String(o.id));
+        if (!prev) {
+          mergedMap.set(String(o.id), o);
+        } else {
+          const prevTime = Date.parse(prev.updatedAt || prev.date || "") || 0;
+          const nextTime = Date.parse(o.updatedAt || o.date || "") || 0;
+          if (nextTime >= prevTime) mergedMap.set(String(o.id), { ...prev, ...o });
+        }
+      }
+      return {
+        ...storeDocData,
+        orders: Array.from(mergedMap.values()),
+      };
+    },
+    async saveStoreData(sId: string, updatedData: any) {
+      const storeRef = doc(db, "stores_data", sId);
+      await setDoc(storeRef, cleanUndefined(updatedData), { merge: true });
+      // Also persist the newly created/updated orders in the top-level orders collection
+      if (Array.isArray(updatedData.orders) && updatedData.orders.length > 0) {
+        const newestOrder = updatedData.orders[0];
+        if (newestOrder && newestOrder.id) {
+          await setDoc(
+            doc(db, "orders", String(newestOrder.id)),
+            cleanUndefined({ ...newestOrder, store_id: sId, updatedAt: new Date().toISOString() }),
+            { merge: true }
+          );
+        }
+      }
+      return true;
+    },
+  });
+
+  // Endpoint: POST Order (requires 'orders:write') - Atomic, Idempotent, Stock-Safe
   app.post("/api/v1/orders", async (c) => {
     const auth = await authenticateStoreApiKey(c, "orders:write");
     if (!auth.ok) {
@@ -1736,43 +1826,73 @@ async function startServer() {
         return c.json({ error: "حقول اسم العميل ورقم الهاتف مطلوبة لإنشاء الطلب" }, 400);
       }
 
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      const currentOrders = auth.storeData?.orders || [];
+      const idempotencyKey =
+        c.req.header("Idempotency-Key") ||
+        c.req.header("X-Idempotency-Key") ||
+        body.idempotencyKey ||
+        body.id ||
+        `api_order_${auth.storeId}_${body.customerPhone}_${body.totalPrice || body.total || 0}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-      const newOrderNumber = body.orderNumber || `ORD-${Date.now().toString().slice(-6)}`;
-      const newOrder = {
-        id: body.id || `api_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        orderNumber: newOrderNumber,
-        customerName: body.customerName,
-        customerPhone: body.customerPhone,
-        customerAddress: body.customerAddress || body.address || "",
-        governorate: body.governorate || body.city || "",
-        city: body.city || "",
-        status: body.status || "جاري_المراجعة",
-        totalPrice: Number(body.totalPrice || body.total || 0),
-        shippingFee: Number(body.shippingFee || 0),
-        date: body.date || new Date().toISOString(),
-        items: body.items || [],
-        notes: body.notes || `أنشئ بواسطة API (${auth.keyObj.name})`,
-        channel: "api",
-        createdViaApiKey: auth.keyObj.name
-      };
+      const adapter = createFirestoreStoreDataAdapter(auth.storeId!);
+      const atomicRes = await createOrderAtomic(adapter, {
+        storeId: auth.storeId!,
+        actorId: `api_key:${auth.keyObj.id || auth.keyObj.name || "default"}`,
+        actorRole: body.actorRole || "api_client",
+        authorizedStoreIds: [auth.storeId!],
+        idempotencyKey: String(idempotencyKey),
+        enforceStockAvailability: body.enforceStockAvailability !== false,
+        orderPayload: {
+          id: body.id,
+          orderNumber: body.orderNumber,
+          customerName: body.customerName,
+          customerPhone: body.customerPhone,
+          customerAddress: body.customerAddress || body.address || "",
+          governorate: body.governorate || body.city || "",
+          city: body.city || "",
+          status: body.status || "جاري_المراجعة",
+          totalPrice: Number(body.totalPrice || body.total || 0),
+          shippingFee: Number(body.shippingFee || 0),
+          date: body.date || new Date().toISOString(),
+          items: Array.isArray(body.items) ? body.items : [],
+          notes: body.notes || `أنشئ بواسطة API (${auth.keyObj.name})`,
+          merchantId: body.merchantId,
+          merchantName: body.merchantName,
+          channel: "api",
+          createdViaApiKey: auth.keyObj.name
+        } as any
+      });
 
-      const updatedOrders = [newOrder, ...currentOrders];
-      await setDoc(storeRef, { orders: cleanUndefined(updatedOrders) }, { merge: true });
+      if (!atomicRes.success || !atomicRes.order) {
+        const statusCode =
+          atomicRes.code === "DedicatedManagerOrderCreationForbidden" || atomicRes.code === "CrossStoreAccessDenied"
+            ? 403
+            : atomicRes.code === "InsufficientStock"
+            ? 409
+            : 400;
+        return c.json({
+          success: false,
+          code: atomicRes.code,
+          error: atomicRes.message
+        }, statusCode as any);
+      }
 
-      // Trigger Admin Alert for new order
-      sendAdminAlert(
-        auth.storeId!, 
-        "newOrder", 
-        `🛒 *طلب جديد عبر الـ API*\nالعميل: ${newOrder.customerName}\nالهاتف: ${newOrder.customerPhone}\nرقم الطلب: ${newOrder.orderNumber}\nالمبلغ: ${newOrder.totalPrice} ج.م`
-      ).catch(e => console.error("Admin Alert Error:", e));
+      const newOrder = atomicRes.order;
+
+      if (!atomicRes.alreadyExisted) {
+        // Trigger Admin Alert for new order
+        sendAdminAlert(
+          auth.storeId!, 
+          "newOrder", 
+          `🛒 *طلب جديد عبر الـ API*\nالعميل: ${newOrder.customerName}\nالهاتف: ${newOrder.customerPhone}\nرقم الطلب: ${newOrder.orderNumber}\nالمبلغ: ${newOrder.totalPrice} ج.م`
+        ).catch(e => console.error("Admin Alert Error:", e));
+      }
 
       return c.json({
         success: true,
-        message: "تم إنشاء الطلب بنجاح عبر API",
+        alreadyExisted: atomicRes.alreadyExisted,
+        message: atomicRes.alreadyExisted ? "الطلب مسجل مسبقاً بنفس مفتاح عدم التكرار" : "تم إنشاء الطلب بنجاح عبر API",
         order: newOrder
-      }, 201);
+      }, atomicRes.alreadyExisted ? 200 : 201);
     } catch (err: any) {
       console.error("[API] Error creating order:", err);
       return c.json({ error: err.message || "حدث خطأ أثناء حفظ الطلب" }, 500);
@@ -1960,37 +2080,195 @@ async function startServer() {
 
     try {
       const id = c.req.param("id");
-      const currentOrders = auth.storeData?.orders || [];
-      const orderIndex = currentOrders.findIndex((o: any) => o.id === id || String(o.orderNumber) === id);
+      const idempotencyKey = c.req.header("x-idempotency-key") || `confirm_${auth.storeId}_${id}`;
 
-      if (orderIndex === -1) {
-        return c.json({ error: `الطلب غير موجود: [${id}]` }, 404);
-      }
-
-      const updatedOrder = {
-        ...currentOrders[orderIndex],
-        status: "مؤكد",
-        confirmedAt: new Date().toISOString(),
-        confirmedViaApiKey: auth.keyObj.name,
-        notes: `${currentOrders[orderIndex].notes || ""} (تم التأكيد عبر API: ${auth.keyObj.name})`.trim()
-      };
-
-      currentOrders[orderIndex] = updatedOrder;
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+      const result = await confirmOrderWithQuotaAndFee({
+        storeId: auth.storeId!,
+        orderId: id,
+        confirmedBy: auth.keyObj?.name || "API",
+        idempotencyKey
+      });
 
       return c.json({
         success: true,
-        message: "تم تأكيد الطلب بنجاح وتحديث حالته إلى 'مؤكد'",
-        order: updatedOrder
+        message: result.message,
+        order: result.order,
+        feeDeducted: result.feeDeducted,
+        quotaConsumed: result.quotaConsumed,
+        cycleOrderNumber: result.cycleOrderNumber,
+        newBalance: result.newBalance,
+        idempotentReplay: result.idempotentReplay
       });
     } catch (err: any) {
+      console.error("[CONFIRM-ORDER-ERROR]", err);
       return c.json({ error: err.message || "فشل تأكيد الطلب" }, 500);
     }
   };
 
   app.post("/api/v1/orders/:id/confirm", handleConfirmOrder);
   app.post("/api/orders/:id/confirm", handleConfirmOrder);
+
+  // Endpoint: Activate Merchant Manager Plan (Atomic, Idempotent, Server-Authoritative)
+  app.post("/api/v1/merchant/plan/activate", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "orders:write");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const body = await c.req.json();
+      const { merchantId, planId, billingCycle } = body;
+      if (!merchantId || !planId) {
+        return c.json({ error: "merchantId and planId are required" }, 400);
+      }
+
+      const idempotencyKey = c.req.header("x-idempotency-key") || body.idempotencyKey;
+      const result = await activateMerchantManagerPlan({
+        storeId: auth.storeId!,
+        merchantId,
+        planId,
+        billingCycle: billingCycle || 'monthly',
+        idempotencyKey
+      });
+
+      return c.json(result);
+    } catch (err: any) {
+      console.error("[ACTIVATE-PLAN-ERROR]", err);
+      return c.json({ error: err.message || "فشل تفعيل باقة المدير" }, 400);
+    }
+  });
+
+  // Endpoint: Reconcile Merchant Wallet & Ledger Audit
+  app.get("/api/v1/merchant/:id/ledger-reconcile", async (c) => {
+    const auth = await authenticateStoreApiKey(c, "orders:read");
+    if (!auth.ok) {
+      return c.json({ error: auth.error }, auth.status as any);
+    }
+
+    try {
+      const merchantId = c.req.param("id");
+      const suppliers = auth.storeData?.settings?.suppliers || [];
+      const partners = auth.storeData?.settings?.partners || [];
+      const merchant = suppliers.find((s: any) => s.id === merchantId) || partners.find((p: any) => p.id === merchantId);
+
+      if (!merchant) {
+        return c.json({ error: "الموكل غير موجود" }, 404);
+      }
+
+      const audit = reconcileMerchantLedger(merchant);
+      return c.json({
+        success: true,
+        merchantId,
+        merchantName: merchant.name,
+        audit
+      });
+    } catch (err: any) {
+      return c.json({ error: err.message || "فشل مطابقة الحسابات" }, 500);
+    }
+  });
+
+  // Endpoint: Atomic Order Creation (Guarantees ACID transactions, Quota, Stock, and Idempotency)
+  app.post("/api/orders/atomic-create", async (c) => {
+    try {
+      const body = await c.req.json();
+      const storeId = body.storeId || c.req.header("x-store-id");
+      if (!storeId) {
+        return c.json({ success: false, error: "storeId is required" }, 400);
+      }
+      const idempotencyKey = c.req.header("x-idempotency-key") || body.idempotencyKey;
+      const res = await createOrderAtomic(null, {
+        storeId,
+        actorRole: body.actorRole || "user",
+        orderInput: body.order || body,
+        idempotencyKey,
+        enforceStockAvailability: body.enforceStockAvailability !== false
+      });
+      return c.json(res, res.success ? 200 : 400);
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Endpoint: Atomic Order Confirmation & Quota Deduction
+  app.post("/api/orders/atomic-confirm", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { storeId, orderId, confirmedBy } = body;
+      if (!storeId || !orderId) {
+        return c.json({ success: false, error: "storeId and orderId are required" }, 400);
+      }
+      const idempotencyKey = c.req.header("x-idempotency-key") || body.idempotencyKey;
+      const res = await confirmOrderWithQuotaAndFee({
+        storeId,
+        orderId,
+        confirmedBy: confirmedBy || "System",
+        idempotencyKey
+      });
+      return c.json(res);
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Endpoint: Atomic Merchant Withdrawal
+  app.post("/api/merchant/atomic-withdraw", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { storeId, merchantId, amount } = body;
+      if (!storeId || !merchantId || !amount) {
+        return c.json({ success: false, error: "storeId, merchantId, and amount are required" }, 400);
+      }
+      const idempotencyKey = c.req.header("x-idempotency-key") || body.idempotencyKey;
+      const res = await processMerchantWithdrawalAtomic(null, {
+        storeId,
+        merchantId,
+        amount: Number(amount),
+        idempotencyKey
+      });
+      return c.json(res, res.success ? 200 : 400);
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
+
+  // Endpoint: Atomic Bulk Order Import
+  app.post("/api/orders/atomic-import", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { storeId, orders } = body;
+      if (!storeId || !Array.isArray(orders)) {
+        return c.json({ success: false, error: "storeId and orders array are required" }, 400);
+      }
+
+      const results = [];
+      let successCount = 0;
+      let failureCount = 0;
+
+      for (const orderData of orders) {
+        const idempKey = orderData.idempotencyKey || `import_${storeId}_${orderData.id || orderData.orderNumber || Date.now()}`;
+        const itemRes = await createOrderAtomic(null, {
+          storeId,
+          actorRole: "import_manager",
+          orderInput: orderData,
+          idempotencyKey: idempKey,
+          enforceStockAvailability: false
+        });
+        if (itemRes.success) successCount++;
+        else failureCount++;
+        results.push(itemRes);
+      }
+
+      return c.json({
+        success: failureCount === 0,
+        total: orders.length,
+        successCount,
+        failureCount,
+        results
+      });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message }, 500);
+    }
+  });
 
   // Endpoint: Cancel Order (requires 'orders:confirm' or 'orders:write' or 'orders:status')
   const handleCancelOrder = async (c: any) => {
@@ -11004,6 +11282,26 @@ async function startServer() {
           await setDoc(doc(db, "orders", orderDoc.id), updatePayload, { merge: true });
           console.log(`[BOSTA-WEBHOOK] Successfully updated order #${currentData.orderNumber || orderDoc.id} to ${mappedStatus || currentData.status}`);
           updatedOrderCount++;
+
+          // Invoke Atomic Carrier Event & Settlement Service for Merchant Orders
+          if (currentData.merchantId) {
+            try {
+              const storeId = currentData.storeId || currentData.store_id || "main_store";
+              const isDelivered = newStatus === "تم_توصيلها" || stateCode === 45;
+              const isReturned = newStatus === "مرتجع" || stateCode === 46;
+              if (isDelivered || isReturned) {
+                await processCarrierEventOrSettlementAtomic(null, {
+                  storeId,
+                  orderId: orderDoc.id,
+                  eventType: isReturned ? 'return' : 'delivered',
+                  netAmount: Number(currentData.totalPrice || currentData.productPrice || 0),
+                  idempotencyKey: `carrier_event_${orderDoc.id}_${stateCode || newStatus}`
+                });
+              }
+            } catch (carrierErr: any) {
+              console.warn("[BOSTA-WEBHOOK-CARRIER-ERR]", carrierErr.message);
+            }
+          }
 
           // Trigger Admin Alerts for Deliveries and Returns
           if (newStatus !== oldStatus) {

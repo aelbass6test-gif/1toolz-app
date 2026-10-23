@@ -2845,6 +2845,11 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         )}
       </AnimatePresence>
 
+      {/* Footer */}
+      <footer className="pt-8 pb-4 text-center text-xs text-slate-400 font-bold border-t border-slate-200/50 dark:border-slate-800/50 mt-8">
+        © 2026 صنع بواسطة عبده ميديا
+      </footer>
+
     </div>
   );
 }

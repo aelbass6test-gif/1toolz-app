@@ -72,6 +72,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
   const [approvalTransferRef, setApprovalTransferRef] = useState('');
   const [approvalReceiptImage, setApprovalReceiptImage] = useState('');
   const [previewReceiptImage, setPreviewReceiptImage] = useState<string | null>(null);
+  const [customQuoteFeeMap, setCustomQuoteFeeMap] = useState<Record<string, number>>({});
 
   const handleReceiptFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -208,21 +209,186 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
     );
   }
 
+  const handleCustomQuoteAction = async (
+    req: db.PartnerPortalRequest,
+    mode: 'send_quote' | 'activate_now',
+    customFeeInput?: number
+  ) => {
+    try {
+      if (!storeId) return;
+      const quotedFee = Math.max(1, Number(customFeeInput ?? customQuoteFeeMap[req.id] ?? 20));
+      const baseReqMeta = req.planRequestMeta || merchant.pendingPlanRequest || {};
+      const targetOrders = Number(
+        baseReqMeta.requestedCustomQuota ||
+          baseReqMeta.requestedOrdersTarget ||
+          baseReqMeta.ordersLimit ||
+          500
+      );
+      const isPrepaid = Boolean(
+        baseReqMeta.requestedPrepaidQuota ??
+          (baseReqMeta.requestedCustomBillingPreference === 'prepaid_quota')
+      );
+      const upfrontCharge = isPrepaid ? Number((quotedFee * targetOrders).toFixed(2)) : 0;
+      const currentBal = Number(merchant.balance || 0);
+
+      if (mode === 'activate_now' && isPrepaid && upfrontCharge > currentBal) {
+        inAppToast(
+          `رصيد محفظة الموكل (${currentBal.toLocaleString()} ج.م) أقل من قيمة الدفع المقدم (${upfrontCharge.toLocaleString()} ج.م). يمكنك إرسال عرض السعر للموكل أولاً.`,
+          'error'
+        );
+        return;
+      }
+
+      await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+      setCloudRequests(prev => prev.map(r => (r.id === req.id ? { ...r, status: 'approved' } : r)));
+
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
+      const newCycleId = `CYC-MGR-CUSTOM-${Date.now()}`;
+
+      updateSettings(currentSettings => {
+        const updateItem = (s: any) => {
+          if (s.id !== merchant.id && normalizeName(s.name || '') !== normalizeName(merchant.name || '')) return s;
+          if (mode === 'send_quote') {
+            return {
+              ...s,
+              pendingPlanRequest: {
+                ...baseReqMeta,
+                id: baseReqMeta.id || req.id || `PLAN-REQ-${Date.now()}`,
+                requestedAt: baseReqMeta.requestedAt || req.createdAt || nowIso,
+                targetMode: 'manager',
+                targetPlanId: 'custom_manager',
+                targetManagerPlanId: 'custom_manager',
+                targetPlanNameAr: 'باقة المدير المخصصة',
+                planNameAr: 'باقة المدير المخصصة',
+                status: 'quoted_waiting_merchant',
+                quotedOrderFee: quotedFee,
+                quotedOrdersTarget: targetOrders,
+                requestedCustomQuota: targetOrders,
+                requestedOrdersTarget: targetOrders,
+                requestedPrepaidQuota: isPrepaid,
+                requestedCustomBillingPreference: isPrepaid ? 'prepaid_quota' : 'per_order',
+                quotedTotalUpfront: upfrontCharge,
+                quotedAt: nowIso,
+                adminNotes: `تم تحديد سعر الأوردر المخصص بـ ${quotedFee} ج.م من الإدارة (${isPrepaid ? 'دفع مسبق' : 'خصم مع كل أوردر بدون رصيد مقدم'})`
+              }
+            };
+          }
+
+          const nextBal = Number((Number(s.balance || 0) - upfrontCharge).toFixed(2));
+          const newTx: MerchantTransaction | undefined =
+            upfrontCharge > 0
+              ? {
+                  id: `mtx-custom-${Date.now()}`,
+                  merchantId: s.id,
+                  merchantName: s.name,
+                  date: nowIso,
+                  type: 'subscription_charge',
+                  amount: -upfrontCharge,
+                  balanceAfter: nextBal,
+                  notes: `تفعيل باقة المدير المخصصة (${quotedFee} ج.م/أوردر - ${targetOrders} أوردر)`
+                }
+              : undefined;
+
+          return {
+            ...s,
+            subscriptionPlan: {
+              ...(s.subscriptionPlan || {}),
+              planId: 'free',
+              planName: 'None',
+              planNameAr: 'موقوفة (يعمل بنظام المدير المخصص)',
+              cycleId: newCycleId,
+              billingCycle: 'monthly',
+              monthlyPrice: 0,
+              totalPaidAmount: 0,
+              pricePerMonth: 0,
+              paidAmount: 0,
+              ordersLimit: 0,
+              monthlyOrderLimit: 0,
+              unlimitedOrders: false,
+              startDate: nowIso,
+              endDate: expIso,
+              activatedAt: nowIso,
+              expiresAt: expIso,
+              status: 'cancelled'
+            },
+            managerPlan: {
+              enabled: true,
+              planId: 'custom_manager',
+              planName: `باقة المدير المخصصة (${quotedFee} ج.م / أوردر)`,
+              planNameAr: `باقة المدير المخصصة (${quotedFee} ج.م / أوردر)`,
+              cycleId: newCycleId,
+              billingCycle: 'monthly',
+              orderFee: quotedFee,
+              customOrderFee: quotedFee,
+              customOrdersTarget: targetOrders,
+              customOrderQuota: targetOrders,
+              customPrepaidQuota: isPrepaid,
+              monthlyFee: upfrontCharge,
+              totalPaidAmount: upfrontCharge,
+              totalPrepaidAmount: upfrontCharge,
+              usedOrdersInCycle: 0,
+              startDate: nowIso,
+              endDate: expIso,
+              activatedAt: nowIso,
+              expiresAt: expIso,
+              status: 'active',
+              notes: `تم تفعيل التسعير المخصص (${quotedFee} ج.م لكل أوردر — ${isPrepaid ? 'دفع مسبق' : 'خصم تلقائي مع كل أوردر'})`
+            },
+            pendingPlanRequest: null,
+            ...(upfrontCharge > 0 ? { balance: nextBal } : {}),
+            ...(newTx ? { transactions: [newTx, ...(s.transactions || [])] } : {})
+          };
+        };
+
+        const updatedSuppliers = (currentSettings.suppliers || []).map(updateItem);
+        const updatedPartners = (currentSettings.partners || []).map(updateItem);
+        if (storeId) {
+          db.updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
+        }
+        return {
+          ...currentSettings,
+          suppliers: updatedSuppliers,
+          partners: updatedPartners
+        };
+      });
+
+      setSelectedReqForApproval(null);
+      inAppToast(
+        mode === 'send_quote'
+          ? `تم إرسال عرض السعر (${quotedFee} ج.م / أوردر) لبوابة الموكل ${merchant.name} بنجاح 📤`
+          : `تم تفعيل الباقة المخصصة للموكل ${merchant.name} بسعر (${quotedFee} ج.م / أوردر) فوراً بدون اشتراط رصيد مقدم ⚡`,
+        'success'
+      );
+    } catch (err: any) {
+      inAppToast('حدث خطأ أثناء معالجة طلب التسعير: ' + (err.message || ''), 'error');
+    }
+  };
+
   // 1. Approve Request with optional central Treasury Deduction
   const handleApproveRequest = async (req: db.PartnerPortalRequest, treasuryAccountId?: string) => {
     try {
+      if (req.type === 'custom_plan_quote') {
+        await handleCustomQuoteAction(req, 'activate_now');
+        return;
+      }
       const amount = Number(req.amount);
-      if (!storeId || req.status !== 'pending' || !Number.isFinite(amount) || amount <= 0) {
+      if (!storeId || req.status !== 'pending' || !Number.isFinite(amount) || (req.type !== 'plan_change_request' && amount <= 0)) {
         inAppToast('تعذر اعتماد الطلب: المبلغ غير صالح.', 'error');
         return;
       }
-      if (amount > (merchant.balance || 0)) {
+
+      const isRefundRequest = req.type === 'subscription_refund';
+      const isTopUpRequest = req.type === 'wallet_topup';
+      const isCreditToWallet = isRefundRequest || isTopUpRequest;
+
+      if (!isCreditToWallet && amount > (merchant.balance || 0)) {
         inAppToast(`مبلغ السحب (${amount.toLocaleString()} ج.م) يتجاوز رصيد محفظة الموكل (${(merchant.balance || 0).toLocaleString()} ج.م)`, 'error');
         return;
       }
 
       const selectedAcc = (treasury?.accounts || []).find(a => a.id === treasuryAccountId);
-      if (selectedAcc && selectedAcc.balance < amount) {
+      if (!isCreditToWallet && selectedAcc && selectedAcc.balance < amount) {
         inAppToast(`رصيد حساب الخزينة (${selectedAcc.name}) غير كافٍ لصرف هذا الطلب (${selectedAcc.balance.toLocaleString()} ج.م)`, 'error');
         return;
       }
@@ -245,8 +411,8 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         ...(cleanRef ? { transferReference: cleanRef } : {})
       } : r));
 
-      // Deduct from central Treasury if selected
-      if (selectedAcc && setTreasury && treasury) {
+      // Deduct from central Treasury if selected (only for withdrawals)
+      if (!isCreditToWallet && selectedAcc && setTreasury && treasury) {
         const treasuryTx = {
           id: `tx-${Date.now()}`,
           date: new Date().toISOString(),
@@ -267,30 +433,48 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         }) : current);
       }
 
-      // Update Merchant Balance and record Withdrawal Transaction
+      // Update Merchant Balance and record Transaction
       updateSettings(currentSettings => {
         const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
           if (s.id === merchant.id) {
-            const currentBalance = s.balance || 0;
+            const currentBalance = Number(s.balance || 0);
+            const nextBal = isCreditToWallet
+              ? Number((currentBalance + amount).toFixed(2))
+              : Number((currentBalance - amount).toFixed(2));
             const newTx: MerchantTransaction = {
               id: `mtx-w-${Date.now()}`,
               merchantId: s.id,
               merchantName: s.name,
               date: new Date().toISOString(),
-              type: 'withdrawal',
-              amount: -amount,
-              balanceAfter: currentBalance - amount,
-              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
+              type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
+              amount: isCreditToWallet ? amount : -amount,
+              balanceAfter: nextBal,
+              notes: isRefundRequest
+                ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة - ${req.notes || ''}`
+                : isTopUpRequest
+                ? `شحن محفظة التاجر بعد اعتماد الإدارة - ${req.notes || ''}`
+                : `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
               referenceId: req.id,
               receiptImage: cleanImg,
               transferReference: cleanRef,
               performedBy: currentUser?.fullName || 'الإدارة'
             };
-            return {
+
+            const nextSupplier: any = {
               ...s,
-              balance: currentBalance - amount,
+              balance: nextBal,
               transactions: [newTx, ...(s.transactions || [])]
             };
+
+            if (isRefundRequest) {
+              const targetType = req.refundMeta?.targetType;
+              if (targetType === 'manager' && s.managerPlan) {
+                nextSupplier.managerPlan = { ...s.managerPlan, planId: 'none', status: 'refunded', refundedAmount: amount };
+              } else if (s.subscriptionPlan) {
+                nextSupplier.subscriptionPlan = { ...s.subscriptionPlan, planId: 'free', ordersLimit: 30, status: 'refunded', refundedAmount: amount };
+              }
+            }
+            return nextSupplier;
           }
           return s;
         });
@@ -306,7 +490,14 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
       setApprovalTreasuryAccountId('');
       setApprovalTransferRef('');
       setApprovalReceiptImage('');
-      inAppToast(`تم اعتماد وصرف طلب السحب للموكل ${merchant.name} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+      inAppToast(
+        isRefundRequest
+          ? `تم اعتماد استرداد الباقة وإيداع ${amount.toLocaleString()} ج.م في محفظة ${merchant.name} بنجاح ✅`
+          : isTopUpRequest
+          ? `تم شحن محفظة ${merchant.name} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`
+          : `تم اعتماد وصرف طلب السحب للموكل ${merchant.name} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`,
+        'success'
+      );
     } catch (err: any) {
       inAppToast('حدث خطأ أثناء اعتماد الطلب: ' + (err.message || ''), 'error');
     }
@@ -574,36 +765,95 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
           </div>
 
           <div className="space-y-3">
-            {pendingRequests.map(req => (
-              <div key={req.id} className="bg-white p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-xs">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-3">
-                    <span className="font-black text-sm text-slate-900">{req.typeArabic || 'طلب سحب مستحقات'}</span>
-                    <span className="text-base font-black text-indigo-600 font-mono">{req.amount.toLocaleString()} ج.م</span>
-                    <span className="text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">{new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')}</span>
+            {pendingRequests.map(req => {
+              const isCustomQuote = req.type === 'custom_plan_quote';
+              const quoteFeeVal = customQuoteFeeMap[req.id] ?? 20;
+              const targetOrders = Number(
+                req.planRequestMeta?.requestedCustomQuota ||
+                  req.planRequestMeta?.requestedOrdersTarget ||
+                  req.planRequestMeta?.ordersLimit ||
+                  500
+              );
+              const isPrepaidQuote = Boolean(
+                req.planRequestMeta?.requestedPrepaidQuota ??
+                  (req.planRequestMeta?.requestedCustomBillingPreference === 'prepaid_quota')
+              );
+              return (
+                <div key={req.id} className="bg-white p-4 rounded-2xl border border-amber-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 shadow-xs">
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="font-black text-sm text-slate-900">
+                        {isCustomQuote
+                          ? 'طلب تسعير باقة مدير مخصصة (تسعير خاص لكل أوردر)'
+                          : req.typeArabic || 'طلب سحب مستحقات'}
+                      </span>
+                      <span className="text-base font-black text-indigo-600 font-mono">
+                        {isCustomQuote
+                          ? `${targetOrders} أوردر (${isPrepaidQuote ? 'دفع مسبق' : 'خصم مع كل أوردر — ٠ ج.م مقدم'})`
+                          : `${req.amount.toLocaleString()} ج.م`}
+                      </span>
+                      <span className="text-[10px] text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                        {new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')}
+                      </span>
+                    </div>
+                    {req.notes && <p className="text-xs text-slate-500 font-medium">📝 {req.notes}</p>}
+                    {isCustomQuote && (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <span className="text-xs font-black text-amber-800">حدد سعر الأوردر (ج.م):</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={quoteFeeVal}
+                          onChange={e =>
+                            setCustomQuoteFeeMap(prev => ({
+                              ...prev,
+                              [req.id]: Math.max(1, Number(e.target.value) || 0)
+                            }))
+                          }
+                          className="w-24 px-2.5 py-1 rounded-lg border border-amber-300 bg-amber-50/50 text-xs font-black font-mono"
+                        />
+                        <span className="text-[11px] font-bold text-slate-500">ج.م / أوردر</span>
+                      </div>
+                    )}
                   </div>
-                  {req.notes && <p className="text-xs text-slate-500 font-medium">📝 {req.notes}</p>}
+                  <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                    {isCustomQuote ? (
+                      <>
+                        <button
+                          onClick={() => handleCustomQuoteAction(req, 'send_quote', quoteFeeVal)}
+                          className="flex-1 sm:flex-none px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-sm transition-all cursor-pointer"
+                        >
+                          إرسال عرض السعر ({quoteFeeVal} ج/أوردر) 📤
+                        </button>
+                        <button
+                          onClick={() => handleCustomQuoteAction(req, 'activate_now', quoteFeeVal)}
+                          className="flex-1 sm:flex-none px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-black text-xs shadow-sm transition-all cursor-pointer"
+                        >
+                          تفعيل فوري ({quoteFeeVal} ج/أوردر) ⚡
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setApprovalTransferRef('');
+                          setApprovalReceiptImage('');
+                          setSelectedReqForApproval(req);
+                        }}
+                        className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-sm transition-all cursor-pointer"
+                      >
+                        اعتماد وصرف ✅
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRejectRequest(req)}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black text-xs transition-all cursor-pointer"
+                    >
+                      رفض ❌
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button 
-                    onClick={() => {
-                      setApprovalTransferRef('');
-                      setApprovalReceiptImage('');
-                      setSelectedReqForApproval(req);
-                    }}
-                    className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-sm transition-all cursor-pointer"
-                  >
-                    اعتماد وصرف ✅
-                  </button>
-                  <button 
-                    onClick={() => handleRejectRequest(req)}
-                    className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-black text-xs transition-all cursor-pointer"
-                  >
-                    رفض ❌
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -981,6 +1231,18 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                    const isPending = req.status === 'pending';
                    const isApproved = req.status === 'approved';
                    const isRejected = req.status === 'rejected';
+                   const isCustomQuote = req.type === 'custom_plan_quote';
+                   const quoteFeeVal = customQuoteFeeMap[req.id] ?? 20;
+                   const targetOrders = Number(
+                     req.planRequestMeta?.requestedCustomQuota ||
+                       req.planRequestMeta?.requestedOrdersTarget ||
+                       req.planRequestMeta?.ordersLimit ||
+                       500
+                   );
+                   const isPrepaidQuote = Boolean(
+                     req.planRequestMeta?.requestedPrepaidQuota ??
+                       (req.planRequestMeta?.requestedCustomBillingPreference === 'prepaid_quota')
+                   );
 
                    return (
                      <div key={req.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -992,12 +1254,34 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                            }`}>
                              <Coins size={20} />
                            </div>
-                           <div>
+                           <div className="space-y-1">
                               <div className="flex items-center gap-2">
-                                <span className="font-black text-sm text-slate-900">{req.typeArabic || 'طلب سحب مستحقات'}</span>
+                                <span className="font-black text-sm text-slate-900">
+                                  {isCustomQuote
+                                    ? 'طلب تسعير باقة مدير مخصصة (تسعير خاص لكل أوردر)'
+                                    : req.typeArabic || 'طلب سحب مستحقات'}
+                                </span>
                                 <span className="text-[10px] font-bold text-slate-400">({new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')})</span>
                               </div>
                               <p className="text-[11px] text-slate-500 max-w-md">{req.notes || 'لا يوجد ملاحظات إضافية'}</p>
+                              {isCustomQuote && isPending && (
+                                <div className="flex flex-wrap items-center gap-2 pt-1">
+                                  <span className="text-[11px] font-black text-amber-800">حدد سعر الأوردر (ج.م):</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={quoteFeeVal}
+                                    onChange={e =>
+                                      setCustomQuoteFeeMap(prev => ({
+                                        ...prev,
+                                        [req.id]: Math.max(1, Number(e.target.value) || 0)
+                                      }))
+                                    }
+                                    className="w-24 px-2 py-1 rounded-lg border border-amber-300 bg-white text-xs font-black font-mono"
+                                  />
+                                  <span className="text-[10px] font-bold text-slate-500">ج.م / أوردر</span>
+                                </div>
+                              )}
                               {(req.transferReference || req.receiptImage) && (
                                 <div className="flex flex-wrap items-center gap-2 mt-1">
                                   {req.transferReference && (
@@ -1021,7 +1305,11 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                         
                         <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
                            <div className="text-left space-y-0.5">
-                              <p className="text-sm font-black text-slate-900 font-mono">{req.amount.toLocaleString()} ج.م</p>
+                              <p className="text-sm font-black text-slate-900 font-mono">
+                                {isCustomQuote
+                                  ? `${targetOrders} أوردر (${isPrepaidQuote ? 'دفع مسبق' : 'خصم لكل أوردر'})`
+                                  : `${req.amount.toLocaleString()} ج.م`}
+                              </p>
                               <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
                                 isPending ? 'bg-amber-100 text-amber-700 border-amber-200' :
                                 isApproved ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
@@ -1032,17 +1320,34 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                            </div>
                            
                            {isPending && (
-                             <div className="flex items-center gap-2">
-                               <button 
-                                  onClick={() => {
-                                    setApprovalTransferRef('');
-                                    setApprovalReceiptImage('');
-                                    setSelectedReqForApproval(req);
-                                  }}
-                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm"
-                               >
-                                 اعتماد وصرف ✅
-                               </button>
+                             <div className="flex items-center gap-2 flex-wrap">
+                               {isCustomQuote ? (
+                                 <>
+                                   <button
+                                     onClick={() => handleCustomQuoteAction(req, 'send_quote', quoteFeeVal)}
+                                     className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm"
+                                   >
+                                     إرسال عرض السعر ({quoteFeeVal} ج/أوردر) 📤
+                                   </button>
+                                   <button
+                                     onClick={() => handleCustomQuoteAction(req, 'activate_now', quoteFeeVal)}
+                                     className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm"
+                                   >
+                                     تفعيل فوري ({quoteFeeVal} ج/أوردر) ⚡
+                                   </button>
+                                 </>
+                               ) : (
+                                 <button 
+                                    onClick={() => {
+                                      setApprovalTransferRef('');
+                                      setApprovalReceiptImage('');
+                                      setSelectedReqForApproval(req);
+                                    }}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-black transition-all cursor-pointer shadow-sm"
+                                 >
+                                   اعتماد وصرف ✅
+                                 </button>
+                               )}
                                <button 
                                   onClick={() => handleRejectRequest(req)}
                                   className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[10px] font-black transition-all cursor-pointer"

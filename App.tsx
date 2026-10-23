@@ -12,6 +12,7 @@ import { getApps, initializeApp } from 'firebase/app';
 import firebaseConfig from './firebase-applet-config.json';
 import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
+import { verifyPasswordSecure } from './utils/syncIntegrity';
 import { oneToolzProducts } from './data/one-toolz-products';
 
 import { triggerWebhooks } from './utils/webhook';
@@ -2412,7 +2413,7 @@ export const AppComponent = () => {
                   } else {
                       console.log('[MIGRATION] Legacy user not found in Supabase for employee:', authPhone);
                       const fsUser = await db.getUserByPhone(authPhone);
-                      if (fsUser && fsUser.password && fsUser.password === password) {
+                      if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
                           console.log('[AUTH] Employee password verified from Firestore record:', authPhone);
                       } else {
                           throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
@@ -2424,7 +2425,7 @@ export const AppComponent = () => {
                   }
                   console.error('[AUTH] Employee login Firebase Auth failure:', err);
                   const fsUser = await db.getUserByPhone(authPhone);
-                  if (fsUser && fsUser.password && fsUser.password === password) {
+                  if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
                       console.log('[AUTH] Employee password verified from Firestore record (post-reset):', authPhone);
                   } else {
                       throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
@@ -3555,16 +3556,152 @@ export const AppComponent = () => {
         setOrders: (updater: any) => {
             if(activeStoreId) {
                 setAllStoresData(p => {
-                    const currentOrders = p[activeStoreId]?.orders || [];
-                    const newOrders = typeof updater === 'function' ? updater(currentOrders) : updater;
+                    const currentStore = p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] };
+                    const currentOrders = currentStore.orders || [];
+                    const rawNewOrders = typeof updater === 'function' ? updater(currentOrders) : updater;
                     
-                    if (currentOrders === newOrders) return p;
+                    if (currentOrders === rawNewOrders || !Array.isArray(rawNewOrders)) return p;
+
+                    let currentSettings = currentStore.settings || INITIAL_SETTINGS;
+                    let settingsChanged = false;
+                    let nextSuppliers: any[] = Array.isArray(currentSettings.suppliers) ? [...currentSettings.suppliers] : [];
+                    let nextPartners: any[] = Array.isArray(currentSettings.partners) ? [...currentSettings.partners] : [];
+                    let nextMerchantTxs: any[] = Array.isArray(currentSettings.merchantTransactions) ? [...currentSettings.merchantTransactions] : [];
+
+                    const deductionTriggerStatuses = ['قيد_التنفيذ', 'تم_الارسال', 'قيد_الشحن'];
+
+                    const processedOrders = rawNewOrders.map((order: any) => {
+                        if (!order || order.managerFeeDeducted || order.quotaConsumedAt) return order;
+                        if (!deductionTriggerStatuses.includes(order.status)) return order;
+
+                        // Audit Fix #7: Respect the plan mode stamped at creation; never re-price historical self-service orders
+                        if (order.planModeAtCreation === 'self_service') {
+                            return {
+                                ...order,
+                                quotaConsumedAt: new Date().toISOString(),
+                                managerFeeDeducted: true,
+                                managerFeeAmount: 0
+                            };
+                        }
+
+                        const mId = String(order.merchantId || '').trim();
+                        const mName = String(order.merchantName || '').trim().toLowerCase();
+                        if (!mId && !mName) return order;
+
+                        const matchedSupIdx = nextSuppliers.findIndex(s =>
+                            (mId && String(s?.id || '').trim() === mId) ||
+                            (mName && String(s?.name || '').trim().toLowerCase() === mName)
+                        );
+                        const matchedSup = matchedSupIdx >= 0 ? nextSuppliers[matchedSupIdx] : null;
+                        const mgrPlan = matchedSup?.managerPlan;
+
+                        if (!mgrPlan || mgrPlan.status !== 'active') return order;
+                        if (mgrPlan.endDate && new Date(mgrPlan.endDate).getTime() <= Date.now()) return order;
+
+                        const effectivePlanId = order.planIdAtCreation || mgrPlan.planId;
+                        const effectiveCycleId = order.planCycleId || mgrPlan.cycleId || `MGR-${effectivePlanId}`;
+                        const nowIso = new Date().toISOString();
+
+                        // Count already-consumed orders in this cycle
+                        const consumedInCycle = rawNewOrders.filter((o: any) => {
+                            if (!o || o.id === order.id || o.status === 'ملغي') return false;
+                            const sameMerchant =
+                                (mId && String(o.merchantId || '').trim() === mId) ||
+                                (mName && String(o.merchantName || '').trim().toLowerCase() === mName);
+                            if (!sameMerchant) return false;
+                            const sameCycle = (o.planCycleId || mgrPlan.cycleId || `MGR-${effectivePlanId}`) === effectiveCycleId;
+                            return sameCycle && Boolean(o.quotaConsumedAt || o.managerFeeDeducted);
+                        }).length;
+
+                        const cycleOrderNumber = consumedInCycle + 1;
+                        let feeToDeduct = 0;
+                        let quotaIncludedOrder = false;
+
+                        if (effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700') {
+                            const includedQuota = Number(mgrPlan.includedOrdersQuota ?? 50);
+                            if (consumedInCycle < includedQuota) {
+                                feeToDeduct = 0;
+                                quotaIncludedOrder = true;
+                            } else {
+                                feeToDeduct = Number(mgrPlan.extraOrderFee ?? 20);
+                                quotaIncludedOrder = false;
+                            }
+                        } else if (effectivePlanId === 'per_order_20') {
+                            feeToDeduct = Number(order.lockedManagerFee ?? mgrPlan.orderFee ?? 20);
+                        } else if (effectivePlanId === 'custom_manager' && !mgrPlan.customPrepaidQuota) {
+                            feeToDeduct = Number(order.lockedManagerFee ?? mgrPlan.customOrderFee ?? mgrPlan.orderFee ?? 20);
+                        }
+
+                        // Deterministic financial key: merchantId + orderId + feeType
+                        const deterministicTxId = `MGR-FEE-${matchedSup.id}-${order.id}`;
+                        const existingTxs = Array.isArray(matchedSup.transactions) ? matchedSup.transactions : [];
+                        const alreadyChargedInLedger = existingTxs.some(
+                            (tx: any) => tx.id === deterministicTxId || (tx.type === 'manager_order_fee' && tx.referenceId === String(order.id))
+                        );
+
+                        if (feeToDeduct > 0 && !alreadyChargedInLedger) {
+                            settingsChanged = true;
+                            const prevBalPiasters = Math.round(Number(matchedSup.balance || 0) * 100);
+                            const feePiasters = Math.round(feeToDeduct * 100);
+                            const newBal = Number(((prevBalPiasters - feePiasters) / 100).toFixed(2));
+                            const orderRef = order.orderNumber || order.id;
+                            const feeTx = {
+                                id: deterministicTxId,
+                                merchantId: matchedSup.id,
+                                merchantName: matchedSup.name,
+                                date: nowIso,
+                                type: 'manager_order_fee',
+                                amount: -feeToDeduct,
+                                balanceAfter: newBal,
+                                referenceId: String(order.id || ''),
+                                notes:
+                                    effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700'
+                                        ? `رسوم أوردر إضافي بعد كوتة الـ 50 المجانية (${feeToDeduct} ج.م) للأوردر #${orderRef} (ترتيب #${cycleOrderNumber})`
+                                        : `خصم رسوم المدير المخصص (${feeToDeduct} ج.م) للأوردر #${orderRef}`
+                            };
+
+                            nextSuppliers[matchedSupIdx] = {
+                                ...matchedSup,
+                                balance: newBal,
+                                transactions: [feeTx, ...existingTxs]
+                            };
+
+                            nextPartners = nextPartners.map(pt =>
+                                (mId && String(pt?.id || '').trim() === mId) ||
+                                (mName && String(pt?.name || '').trim().toLowerCase() === mName)
+                                    ? { ...pt, balance: newBal, transactions: [feeTx, ...(pt.transactions || [])] }
+                                    : pt
+                            );
+
+                            nextMerchantTxs = [feeTx, ...nextMerchantTxs.filter((tx: any) => tx.id !== deterministicTxId)];
+                        }
+
+                        return {
+                            ...order,
+                            quotaConsumedAt: nowIso,
+                            quotaIncludedOrder,
+                            cycleOrderNumber,
+                            managerFeeDeducted: true,
+                            managerFeeAmount: feeToDeduct,
+                            lockedManagerFee: feeToDeduct
+                        };
+                    });
+
+                    if (settingsChanged) {
+                        currentSettings = {
+                            ...currentSettings,
+                            suppliers: nextSuppliers,
+                            partners: nextPartners,
+                            merchantTransactions: nextMerchantTxs
+                        };
+                    }
 
                     return {
                         ...p, 
                         [activeStoreId]: {
-                            ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
-                            orders: newOrders
+                            ...currentStore,
+                            orders: processedOrders,
+                            settings: currentSettings
                         }
                     };
                 });

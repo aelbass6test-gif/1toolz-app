@@ -50,6 +50,13 @@ import {
     CallScript
 } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
+import {
+    shouldDeleteCloudRecord,
+    evaluateRecordUpsert,
+    reconcileDualOrderSources,
+    SaveStoreDataResult,
+    generateUniqueOrderId
+} from '../utils/syncIntegrity';
 
 const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 
@@ -74,13 +81,17 @@ const defaultMissingColumns = [
     'partners:permissions',
     'partners:portalPermissions',
     'partners:payoutAccounts',
+    'partners:subscriptionPlan',
+    'partners:managerPlan',
     'suppliers:email',
     'suppliers:passcode',
     'suppliers:transactions',
     'suppliers:profitRatio',
     'suppliers:profit_ratio',
     'suppliers:role',
-    'suppliers:payoutAccounts'
+    'suppliers:payoutAccounts',
+    'suppliers:subscriptionPlan',
+    'suppliers:managerPlan'
 ];
 let storedMissingCols: string[] = [];
 try {
@@ -193,7 +204,24 @@ export enum OperationType {
 }
 
 export const handleFirestoreError = (err: any, operation: OperationType, path: string) => {
-    console.error(`[FIRESTORE-ERROR] ${operation} failed at ${path}:`, err);
+    const errInfo = {
+        error: err instanceof Error ? err.message : String(err),
+        operationType: operation,
+        path,
+        authInfo: {
+            userId: auth?.currentUser?.uid || null,
+            email: auth?.currentUser?.email || null,
+            emailVerified: auth?.currentUser?.emailVerified ?? null,
+            isAnonymous: auth?.currentUser?.isAnonymous ?? null,
+            tenantId: auth?.currentUser?.tenantId || null,
+            providerInfo: auth?.currentUser?.providerData?.map(provider => ({
+                providerId: provider.providerId,
+                email: provider.email
+            })) || []
+        }
+    };
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+    throw new Error(JSON.stringify(errInfo));
 };
 
 export interface DatabaseErrorInfo {
@@ -984,7 +1012,20 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         cashHandovers: storeSettings.cashHandovers || local?.settings?.cashHandovers || [],
                         whatsappTemplates: storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || []
                     },
-                    orders: cloudData?.orders || local?.orders || [],
+                    orders: await (async () => {
+                        const embeddedOrders = cloudData?.orders || local?.orders || [];
+                        try {
+                            let ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('storeId', '==', storeId)));
+                            if (ordersSnap.empty) {
+                                ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId)));
+                            }
+                            const colOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders);
+                            return reconciled.mergedOrders;
+                        } catch {
+                            return embeddedOrders;
+                        }
+                    })(),
                     wallet: cloudData?.wallet || local?.wallet || {
                         balance: storeSettings.wallet_balance || 0,
                         transactions: storeSettings.wallet_transactions || []
@@ -1141,7 +1182,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const fingerprintKey = `${store.id}:${table}`;
                 const fingerprint = JSON.stringify(items);
                 if (syncFingerprints.get(fingerprintKey) === fingerprint) return;
-                // 1. Handle Deletions (Relational Sync)
+                // 1. Handle Deletions (Explicit Authorized Deletion Only - Inferred Deletion Disabled)
                 try {
                     const idField = table === 'employees' ? 'phone' : (table === 'cash_holders' ? 'user_id' : 'id');
                     const { data: cloudItems, error: fetchError } = await supabase
@@ -1150,18 +1191,21 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         .eq('store_id', store.id);
 
                     if (!fetchError && cloudItems) {
-                        const localIds = new Set(items.map(item => String(item.phone || item.userId || item.user_id || item.id || '')));
                         const idsToDelete = cloudItems
                             .map((ci: any) => String(ci[idField]))
-                            .filter(id => id && !localIds.has(id));
+                            .filter(id => {
+                                if (!id) return false;
+                                const isExplicitlyDeleted =
+                                    EXPLICIT_DELETED_IDS.has(`${store.id}_${table}_${id}`) ||
+                                    EXPLICIT_DELETED_IDS.has(`${store.id}_${table}_${store.id}_${id}`);
+                                return shouldDeleteCloudRecord({
+                                    collectionName: table,
+                                    isExplicitlyDeleted
+                                }).allowDelete;
+                            });
 
                         if (idsToDelete.length > 0) {
-                            const isTotalWipeOfLargeCollection = items.length === 0 && idsToDelete.length > 50;
-                            if (!isTotalWipeOfLargeCollection) {
-                                await supabase.from(table).delete().eq('store_id', store.id).in(idField, idsToDelete);
-                            } else {
-                                console.warn(`[SYNC] Safeguard triggered: Blocked total wipe of ${idsToDelete.length} items from ${table}`);
-                            }
+                            await supabase.from(table).delete().eq('store_id', store.id).in(idField, idsToDelete);
                         }
                     }
                 } catch (deletionErr: any) {
@@ -1873,6 +1917,17 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         }
     }
 
+    const operationId = generateUniqueOrderId('sync');
+    const failedCollections: string[] = [];
+    const conflicts: Array<{
+        collection: string;
+        docId: string;
+        reason: string;
+        cloudUpdatedAt?: string;
+        localUpdatedAt?: string;
+    }> = [];
+    let reconciledCloudOrders: any[] = data.orders || [];
+
     try {
         await ensureStoreRecordExists(store.id, store.name);
 
@@ -1893,13 +1948,14 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const existingDbDocs = snap.docs.map(doc => ({ _ref: doc.ref, id: doc.id, ...doc.data() }) as any);
                 const existingDocsMap = new Map<string, any>(existingDbDocs.map(doc => [doc.id as string, doc]));
 
-                const activeIds = new Set(stateItems.map(item => {
-                    const baseId = String(item[idField] || item.phone || item.id);
-                    // Ensure doc ID includes store.id to prevent cross-store overwriting
-                    return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
-                }));
+                if (collectionName === 'orders') {
+                    const rec = reconcileDualOrderSources(store.id, stateItems, existingDbDocs);
+                    reconciledCloudOrders = rec.mergedOrders;
+                }
 
-                const conflictStrategy = (typeof window !== 'undefined' ? localStorage.getItem('syncConflictStrategy') : 'last_write_wins') || 'last_write_wins';
+                const conflictStrategy = ((typeof window !== 'undefined' ? localStorage.getItem('syncConflictStrategy') : 'last_write_wins') || 'last_write_wins') as 'last_write_wins' | 'cloud_wins' | 'local_wins';
+
+                let collectionHadWriteError = false;
 
                 const upsertPromises = stateItems.map(async (item) => {
                     const baseId = String(item[idField] || item.phone || item.id);
@@ -1907,54 +1963,29 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     const docRef = doc(firebaseDb, collectionName, docId);
                     
                     const existingDoc = existingDocsMap.get(docId);
-                    
-                    let shouldUpdateCloud = true;
                     const nowISO = new Date().toISOString();
-                    const itemWithTimestamp = { ...item };
 
-                    if (existingDoc) {
-                        // Check if fields other than ID and metadata have actually changed
-                        const fieldsChanged = Object.keys(item).some(k => {
-                            if (['id', 'storeId', 'store_id', 'updatedAt', 'updated_at', '_ref'].includes(k)) return false;
-                            
-                            const val1 = item[k];
-                            const val2 = existingDoc[k];
-                            if (typeof val1 === 'object' && val1 !== null && typeof val2 === 'object' && val2 !== null) {
-                                return JSON.stringify(val1) !== JSON.stringify(val2);
-                            }
-                            return val1 !== val2;
+                    const decision = evaluateRecordUpsert({
+                        localItem: item,
+                        existingCloudDoc: existingDoc,
+                        conflictStrategy,
+                        nowISO
+                    });
+
+                    if (decision.isConflict) {
+                        conflicts.push({
+                            collection: collectionName,
+                            docId,
+                            reason: decision.conflictReason || 'CONFLICT',
+                            cloudUpdatedAt: existingDoc?.updatedAt,
+                            localUpdatedAt: item?.updatedAt
                         });
-
-                        if (!fieldsChanged) {
-                            shouldUpdateCloud = false;
-                        } else {
-                            itemWithTimestamp.updatedAt = nowISO;
-                        }
-
-                        // Apply conflict resolution strategies
-                        if (conflictStrategy === 'last_write_wins') {
-                            if (existingDoc.updatedAt && itemWithTimestamp.updatedAt) {
-                                const cloudTime = new Date(existingDoc.updatedAt).getTime();
-                                const localTime = new Date(itemWithTimestamp.updatedAt).getTime();
-                                if (cloudTime > localTime) {
-                                    shouldUpdateCloud = false; 
-                                }
-                            }
-                        } else if (conflictStrategy === 'cloud_wins') {
-                            shouldUpdateCloud = false; // Never overwrite cloud with older/newer local if item exists
-                        } else if (conflictStrategy === 'local_wins') {
-                            shouldUpdateCloud = true; // Always overwrite cloud with local state
-                        }
-                    } else {
-                        // Brand new record
-                        if (!itemWithTimestamp.updatedAt) {
-                            itemWithTimestamp.updatedAt = nowISO;
-                        }
                     }
 
-                    if (shouldUpdateCloud) {
-                        const payload = cleanUndefined({ ...itemWithTimestamp, storeId: store.id, store_id: store.id });
+                    if (decision.shouldUpdateCloud) {
+                        const payload = cleanUndefined({ ...decision.itemToWrite, storeId: store.id, store_id: store.id });
                         await setDoc(docRef, payload, { merge: true }).catch(err => {
+                            collectionHadWriteError = true;
                             if (err?.code === 'resource-exhausted') {
                                 throw new Error('QUOTA_EXCEEDED');
                             }
@@ -1963,31 +1994,31 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     }
                 });
 
-                const knownIds = LAST_KNOWN_DOC_IDS[hashKey] || new Set<string>();
-
-                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1 && ['products', 'orders', 'customers', 'users', 'transactions', 'suppliers', 'purchase_returns', 'order_returns', 'stock_transfers', 'inventory_audits', 'pos_sales', 'employees', 'cash_holders', 'cash_handovers', 'partners', 'partner_transactions', 'warehouses', 'treasury_accounts', 'treasury_transactions', 'whatsapp_templates', 'call_scripts'].includes(collectionName));
+                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1);
                 if (isMassDeletionRisk) {
-                    console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records. This prevents accidental database wipes during initialization.`);
+                    console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records.`);
                 }
 
-                // CRITICAL ANTI-DATA-LOSS SAFEGUARD:
-                // Only delete docs that:
-                // 1) Were explicitly deleted via deleteStoreItem / EXPLICIT_DELETED_IDS
-                // 2) OR were previously loaded in THIS client session (knownIds) and are now omitted from stateItems.
-                // Documents created by other users or background tasks that this client never loaded will NEVER be deleted!
+                // STRICT ANTI-DATA-LOSS SAFEGUARD (Audit Fix #2):
+                // Inferred deletion from missing local array items (`wasKnownLocally && isMissingLocally`) is completely disabled.
+                // Deletion is ONLY permitted when explicitly authorized in EXPLICIT_DELETED_IDS and allowed by shouldDeleteCloudRecord.
                 const deletePromises = isMassDeletionRisk
                     ? []
                     : existingDbDocs
                         .filter(doc => {
                             const rawId = doc.id.startsWith(store.id + '_') ? doc.id.substring(store.id.length + 1) : doc.id;
-                            const isExplicitlyDeleted = EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${doc.id}`) || EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${rawId}`);
-                            const wasKnownLocally = knownIds.has(doc.id) || knownIds.has(rawId);
-                            const isMissingLocally = !activeIds.has(doc.id) && !activeIds.has(rawId);
+                            const isExplicitlyDeleted =
+                                EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${doc.id}`) ||
+                                EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${rawId}`);
 
-                            return isExplicitlyDeleted || (wasKnownLocally && isMissingLocally);
+                            return shouldDeleteCloudRecord({
+                                collectionName,
+                                isExplicitlyDeleted
+                            }).allowDelete;
                         })
                         .map(async (doc) => {
                             await deleteDoc(doc._ref).catch(err => {
+                                collectionHadWriteError = true;
                                 if (err?.code === 'resource-exhausted') {
                                     throw new Error('QUOTA_EXCEEDED');
                                 }
@@ -1996,14 +2027,19 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         });
 
                 await Promise.all([...upsertPromises, ...deletePromises]);
-                LAST_SYNCED_HASHES[hashKey] = currentHash;
-                // Update known IDs for this client session
-                LAST_KNOWN_DOC_IDS[hashKey] = new Set(stateItems.map(item => {
-                    const baseId = String(item[idField] || item.phone || item.id);
-                    return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
-                }));
+
+                if (!collectionHadWriteError) {
+                    LAST_SYNCED_HASHES[hashKey] = currentHash;
+                    LAST_KNOWN_DOC_IDS[hashKey] = new Set(stateItems.map(item => {
+                        const baseId = String(item[idField] || item.phone || item.id);
+                        return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
+                    }));
+                } else {
+                    failedCollections.push(collectionName);
+                }
             } catch (err: any) {
-                if (err.message === 'QUOTA_EXCEEDED') throw err;
+                failedCollections.push(collectionName);
+                if (err.message === 'QUOTA_EXCEEDED' || err?.code === 'resource-exhausted') throw new Error('QUOTA_EXCEEDED');
                 console.error(`Error syncing collection ${collectionName}:`, err);
             }
         };
@@ -2045,7 +2081,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         const storePayload = cleanUndefined({ 
             settings: cleanSettingsFinal, 
             name: store.name,
-            orders: data.orders || [],
+            orders: reconciledCloudOrders,
             treasury: data.treasury || { accounts: [], transactions: [] },
             wallet: data.wallet || { balance: 0, transactions: [] },
             quotations: data.quotations || []
@@ -2058,16 +2094,51 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             throw err;
         });
 
-        return { success: true };
+        if (failedCollections.length > 0) {
+            return {
+                success: false,
+                status: 'failed',
+                operationId,
+                failedCollections,
+                conflicts,
+                error: `فشل مزامنة بعض المجموعات السحابية: ${failedCollections.join(', ')}`
+            } as SaveStoreDataResult;
+        }
+
+        if (conflicts.length > 0) {
+            return {
+                success: true,
+                status: 'conflict',
+                operationId,
+                conflicts
+            } as SaveStoreDataResult;
+        }
+
+        return {
+            success: true,
+            status: 'committed',
+            operationId
+        } as SaveStoreDataResult;
     } catch (err: any) {
         if (err.message === 'QUOTA_EXCEEDED' || err.message?.includes('resource-exhausted') || err.message?.includes('quota')) {
             if (typeof window !== 'undefined') {
                 localStorage.setItem('firestore_quota_exceeded', 'true');
             }
-            console.warn('[OFFLINE MODE] Firestore quota exceeded. Data saved locally to IndexedDB successfully.');
-            return { success: true };
+            console.warn('[PENDING_SYNC] Firestore quota exceeded. Data saved locally to IndexedDB only (pending cloud sync).');
+            return {
+                success: false,
+                status: 'pending_sync',
+                operationId,
+                error: 'QUOTA_EXCEEDED: تم الحفظ محلياً في طابور المزامنة بسبب تجاوز حصة السحابة المؤقتة، ولم يتم التأكيد على الخادم بعد.'
+            } as SaveStoreDataResult;
         }
-        return { success: false, error: err.message };
+        return {
+            success: false,
+            status: 'failed',
+            operationId,
+            failedCollections,
+            error: err.message
+        } as SaveStoreDataResult;
     }
 };
 
@@ -2543,41 +2614,85 @@ export interface PartnerPortalRequest {
     storeId: string;
     partnerId: string;
     partnerName: string;
-    type: 'withdrawal' | 'expense' | 'inquiry';
-    typeArabic: string;
+    type: 'withdrawal' | 'expense' | 'inquiry' | 'subscription_refund' | 'wallet_topup' | 'plan_change_request' | 'custom_plan_quote';
+    typeArabic?: string;
     amount: number;
     notes: string;
-    date: string;
-    status: 'pending' | 'approved' | 'rejected';
+    date?: string;
+    status: 'pending' | 'approved' | 'rejected' | 'quoted';
     createdAt: string;
     isMerchantRequest?: boolean;
+    payoutMethod?: string;
+    payoutAccount?: string;
     receiptImage?: string;
     transferReference?: string;
     approvedBy?: string;
     approvedAt?: string;
+    refundMeta?: {
+        targetType?: 'self_service' | 'manager';
+        planType?: 'self_service' | 'manager';
+        planId?: string;
+        planName?: string;
+        planNameAr?: string;
+        billingCycle?: string;
+        paidAmount?: number;
+        chargeFor14Days?: number;
+        charged14DaysAmount?: number;
+        chargeForActualDays?: number;
+        refundableAmount?: number;
+        refundAmount?: number;
+        daysElapsed?: number;
+        elapsedDays?: number;
+        totalCycleDays?: number;
+        totalDays?: number;
+    };
+    planRequestMeta?: any;
 }
 
-export const submitPartnerRequest = async (storeId: string, req: Omit<PartnerPortalRequest, 'storeId' | 'createdAt'>): Promise<{ success: boolean; error?: string }> => {
+export const submitPartnerRequest = async (
+    storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
+    maybeReq?: Partial<PartnerPortalRequest>
+): Promise<{ success: boolean; error?: string }> => {
     try {
+        const isObjFirst = typeof storeIdOrObj === 'object' && storeIdOrObj !== null;
+        const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
+        const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
+        const nowIso = new Date().toISOString();
+        const reqId = rawReq.id || `REQ-M-${Date.now()}`;
+
         const fullRequest: PartnerPortalRequest = {
-            ...req,
+            id: reqId,
             storeId,
-            createdAt: new Date().toISOString()
+            partnerId: rawReq.partnerId || '',
+            partnerName: rawReq.partnerName || '',
+            type: (rawReq.type as any) || 'withdrawal',
+            typeArabic: rawReq.typeArabic || 'طلب موكل',
+            amount: Number(rawReq.amount || 0),
+            notes: rawReq.notes || '',
+            date: rawReq.date || nowIso,
+            status: rawReq.status || 'pending',
+            createdAt: rawReq.createdAt || nowIso,
+            isMerchantRequest: rawReq.isMerchantRequest ?? true,
+            ...(rawReq.payoutMethod ? { payoutMethod: rawReq.payoutMethod } : {}),
+            ...(rawReq.payoutAccount ? { payoutAccount: rawReq.payoutAccount } : {}),
+            ...(rawReq.transferReference ? { transferReference: rawReq.transferReference } : {}),
+            ...(rawReq.refundMeta ? { refundMeta: rawReq.refundMeta } : {}),
+            ...(rawReq.planRequestMeta ? { planRequestMeta: rawReq.planRequestMeta } : {})
         };
 
         // 1. Save to local storage for instant offline resilience
         try {
             const localKey = `partner_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-            const filtered = existing.filter((r: any) => r.id !== req.id);
+            const filtered = existing.filter((r: any) => r.id !== reqId);
             localStorage.setItem(localKey, JSON.stringify([fullRequest, ...filtered]));
         } catch (_) {}
 
         // 2. Save directly to Firestore collection 'partner_requests'
         if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', req.id);
+            const reqRef = doc(firebaseDb, 'partner_requests', reqId);
             await setDoc(reqRef, cleanUndefined(fullRequest));
-            console.log('[PARTNER-REQUEST] Successfully saved partner request to Firestore:', req.id);
+            console.log('[PARTNER-REQUEST] Successfully saved partner request to Firestore:', reqId);
         }
 
         return { success: true };

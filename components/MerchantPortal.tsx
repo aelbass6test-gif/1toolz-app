@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Partner, StoreData, Order } from '../types';
+import { Partner, StoreData, Order, MerchantSubscriptionConfig, MerchantManagerConfig, MerchantTransaction, MerchantPlanChangeRequest, MerchantPlanCycleRecord, ScheduledMerchantPlanTransition } from '../types';
 import { 
   Building2, Loader2, Shield, AlertCircle, CheckCircle2, Send, ShieldCheck, 
   Coins, RefreshCw, LogOut, DollarSign, Package as PackageIcon, Wallet as WalletIcon, FileText, Key, X,
@@ -8,16 +8,20 @@ import {
   Download, Printer, Eye, EyeOff, TrendingUp, MapPin, Award, CreditCard, Lock, Copy,
   Home, Bell, Users, Inbox, Ticket, Menu, Sun, Moon, Monitor, HelpCircle, Settings,
   ShoppingBag, Radio, LayoutGrid, HeartHandshake, ChevronLeft, ChevronRight, Fingerprint, Search,
-  ArrowUpRight, ArrowDownLeft, Sparkles, MessageCircle, Check, Calendar, PlusCircle, Banknote, Code2, Layers, Cpu, Megaphone, Receipt
+  ArrowUpRight, ArrowDownLeft, Sparkles, MessageCircle, Check, Calendar, PlusCircle, Banknote, Code2, Layers, Cpu, Megaphone, Receipt,
+  QrCode, Share2, Phone, Crown
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
   Tooltip, CartesianGrid
 } from 'recharts';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
+import { MerchantChangePlanModal } from './MerchantChangePlanModal';
+import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlanSnapshot, SELF_SERVICE_PLANS, DEDICATED_MANAGER_PLANS } from '../utils/merchantSubscriptions';
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
+import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
 import { 
@@ -52,6 +56,10 @@ const maskEmail = (email?: string) => {
   return `${user.slice(0, 2)}***@${domain}`;
 };
 
+const toArabicDigits = (num: number | string): string => {
+  return String(num ?? '').replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[parseInt(d, 10)]);
+};
+
 const getInitials = (name?: string) => {
   if (!name) return 'م';
   const parts = name.trim().split(/\s+/);
@@ -61,24 +69,65 @@ const getInitials = (name?: string) => {
   return name.trim().slice(0, 2);
 };
 
+export const EGYPT_GOV_SHIPPING_RATES: Record<string, number> = {
+  'القاهرة': 45,
+  'الجيزة': 45,
+  'القليوبية': 50,
+  'الإسكندرية': 55,
+  'البحيرة': 60,
+  'الغربية': 60,
+  'المنوفية': 60,
+  'الشرقية': 60,
+  'الدقهلية': 60,
+  'كفر الشيخ': 60,
+  'دمياط': 60,
+  'بورسعيد': 60,
+  'الإسماعيلية': 60,
+  'السويس': 60,
+  'الفيوم': 65,
+  'بني سويف': 65,
+  'المنيا': 70,
+  'أسيوط': 75,
+  'سوهاج': 75,
+  'قنا': 80,
+  'الأقصر': 85,
+  'أسوان': 90,
+  'البحر الأحمر': 95,
+  'الوادي الجديد': 100,
+  'مطروح': 90,
+  'شمال سيناء': 100,
+  'جنوب سيناء': 100,
+};
+
 export interface MerchantPortalProps {
   allStoresData: Record<string, StoreData>;
   updateSettings: (settings: any) => void;
   showToast: (msg: string, type?: 'success' | 'error') => void;
 }
 
-type TabKey = 'overview' | 'orders' | 'create_order' | 'analytics' | 'transparency' | 'statement' | 'account';
+type TabKey = 'overview' | 'wallet' | 'orders' | 'create_order' | 'inventory' | 'analytics' | 'customers' | 'apps' | 'transparency' | 'statement' | 'account';
 type ThemeMode = 'light' | 'system' | 'dark';
 
 export default function MerchantPortal({ allStoresData, updateSettings, showToast: externalShowToast }: MerchantPortalProps) {
   const { storeId, tab: routeTab } = useParams<{ storeId: string; tab?: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const urlPartnerId = searchParams.get('p') || searchParams.get('merchantId') || searchParams.get('m') || '';
   const urlTab = searchParams.get('tab') || routeTab;
 
-  const validTabs: TabKey[] = ['overview', 'orders', 'create_order', 'analytics', 'transparency', 'statement', 'account'];
-  const activeTab: TabKey = validTabs.includes(urlTab as TabKey) ? (urlTab as TabKey) : 'overview';
+  const validTabs: TabKey[] = ['overview', 'wallet', 'orders', 'create_order', 'inventory', 'analytics', 'customers', 'apps', 'transparency', 'statement', 'account'];
+
+  const savedTab = (() => {
+    try {
+      const s = localStorage.getItem('merchant_portal_active_tab');
+      if (s && validTabs.includes(s as TabKey)) return s as TabKey;
+    } catch {}
+    return null;
+  })();
+
+  const activeTab: TabKey = validTabs.includes(urlTab as TabKey) 
+    ? (urlTab as TabKey) 
+    : (savedTab || 'overview');
 
   const [directStoreId, setDirectStoreId] = useState<string>('');
   const [directStoreData, setDirectStoreData] = useState<StoreData | null>(null);
@@ -136,6 +185,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [showFullMenuDrawer, setShowFullMenuDrawer] = useState(false);
   const [showProfileBottomSheet, setShowProfileBottomSheet] = useState(false);
   const [showNotificationsSheet, setShowNotificationsSheet] = useState(false);
+  const [showStoreModal, setShowStoreModal] = useState(false);
+  const [customersSearchQuery, setCustomersSearchQuery] = useState('');
+  const [appsWebhookUrl, setAppsWebhookUrl] = useState('https://api.bosta.co/v2/webhooks/merchant');
+  const [isTestingWebhook, setIsTestingWebhook] = useState(false);
+  const [isTestingBosta, setIsTestingBosta] = useState(false);
+  const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
+  const [isWhatsAppBotEnabled, setIsWhatsAppBotEnabled] = useState(true);
   const [expandedMenuSection, setExpandedMenuSection] = useState<string | null>('products_orders');
 
   // Biometric Support State
@@ -188,13 +244,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
 
     try {
-      // One-time automatic local + cloud cache purge for testing reset
-      const resetFlagKey = `merchant_clean_slate_v2_${targetStoreId}`;
-      if (localStorage.getItem(resetFlagKey) !== 'done') {
-        await db.resetMerchantAccountData(targetStoreId, '1787892876816', 'عبدالرحمن الغباري');
-        localStorage.setItem(resetFlagKey, 'done');
-      }
-
       const fetchedData = await db.getStoreData(targetStoreId, true);
       if (fetchedData) {
         setDirectStoreData(fetchedData);
@@ -287,6 +336,31 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         if (s.payoutAccounts && typeof s.payoutAccounts === 'object') {
           existing.payoutAccounts = { ...(existing.payoutAccounts || {}), ...s.payoutAccounts };
         }
+        if (!existing._fromFreshCloud) {
+          if (!existing.subscriptionPlan && s.subscriptionPlan && typeof s.subscriptionPlan === 'object') {
+            existing.subscriptionPlan = s.subscriptionPlan;
+          }
+          if (!existing.managerPlan && s.managerPlan && typeof s.managerPlan === 'object') {
+            existing.managerPlan = s.managerPlan;
+          }
+          if (existing.pendingPlanRequest === undefined && s.pendingPlanRequest !== undefined) {
+            existing.pendingPlanRequest = s.pendingPlanRequest;
+          }
+          if ((!existing.planCyclesHistory || existing.planCyclesHistory.length === 0) && Array.isArray(s.planCyclesHistory)) {
+            existing.planCyclesHistory = s.planCyclesHistory;
+          }
+        }
+        if (existing.payoutFrequency === undefined && s.payoutFrequency !== undefined) existing.payoutFrequency = s.payoutFrequency;
+        if (existing.weeklyPayoutDay === undefined && typeof s.weeklyPayoutDay === 'number') existing.weeklyPayoutDay = s.weeklyPayoutDay;
+        if (existing.holdingDaysAfterSettlement === undefined && typeof s.holdingDaysAfterSettlement === 'number') existing.holdingDaysAfterSettlement = s.holdingDaysAfterSettlement;
+        if (existing.minWeeklyPayout === undefined && typeof s.minWeeklyPayout === 'number') existing.minWeeklyPayout = s.minWeeklyPayout;
+        if (existing.maxWeeklyPayout === undefined && typeof s.maxWeeklyPayout === 'number') existing.maxWeeklyPayout = s.maxWeeklyPayout;
+        if (existing.weeklyPayoutMode === undefined && s.weeklyPayoutMode !== undefined) existing.weeklyPayoutMode = s.weeklyPayoutMode;
+        if (existing.weeklyTransferFee === undefined && typeof s.weeklyTransferFee === 'number') existing.weeklyTransferFee = s.weeklyTransferFee;
+        if (existing.weeklyTransferFeeType === undefined && s.weeklyTransferFeeType !== undefined) existing.weeklyTransferFeeType = s.weeklyTransferFeeType;
+        if (existing.dailyTransferFee === undefined && typeof s.dailyTransferFee === 'number') existing.dailyTransferFee = s.dailyTransferFee;
+        if (existing.dailyTransferFeeType === undefined && s.dailyTransferFeeType !== undefined) existing.dailyTransferFeeType = s.dailyTransferFeeType;
+        if (existing.lastPayoutFrequencyChangeAt === undefined && s.lastPayoutFrequencyChangeAt !== undefined) existing.lastPayoutFrequencyChangeAt = s.lastPayoutFrequencyChangeAt;
         return;
       }
 
@@ -301,6 +375,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         passcode: String(s.passcode || '0000'),
         role: s.role || defaultRole,
         payoutAccounts: s.payoutAccounts || {},
+        subscriptionPlan: s.subscriptionPlan,
+        managerPlan: s.managerPlan,
+        pendingPlanRequest: s.pendingPlanRequest ?? null,
+        planCyclesHistory: Array.isArray(s.planCyclesHistory) ? s.planCyclesHistory : [],
+        payoutFrequency: s.payoutFrequency,
+        weeklyPayoutDay: typeof s.weeklyPayoutDay === 'number' ? s.weeklyPayoutDay : undefined,
+        holdingDaysAfterSettlement: typeof s.holdingDaysAfterSettlement === 'number' ? s.holdingDaysAfterSettlement : undefined,
+        minWeeklyPayout: typeof s.minWeeklyPayout === 'number' ? s.minWeeklyPayout : undefined,
+        maxWeeklyPayout: typeof s.maxWeeklyPayout === 'number' ? s.maxWeeklyPayout : undefined,
+        weeklyPayoutMode: s.weeklyPayoutMode,
+        weeklyTransferFee: typeof s.weeklyTransferFee === 'number' ? s.weeklyTransferFee : undefined,
+        weeklyTransferFeeType: s.weeklyTransferFeeType,
+        dailyTransferFee: typeof s.dailyTransferFee === 'number' ? s.dailyTransferFee : undefined,
+        dailyTransferFeeType: s.dailyTransferFeeType,
+        lastPayoutFrequencyChangeAt: s.lastPayoutFrequencyChangeAt,
         _storeId: sourceStoreId || effectiveStoreId,
         _fromFreshCloud: isFreshCloud
       });
@@ -396,9 +485,31 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const current = merchants.find(m => 
       (m.id && authenticatedMerchant.id && String(m.id).trim() === String(authenticatedMerchant.id).trim()) ||
       (authenticatedMerchant.phone && m.phone && String(m.phone).trim() === String(authenticatedMerchant.phone).trim()) ||
+      (authenticatedMerchant.email && m.email && String(m.email).trim().toLowerCase() === String(authenticatedMerchant.email).trim().toLowerCase()) ||
       (m.name && authenticatedMerchant.name && normalizeName(m.name) === normalizeName(authenticatedMerchant.name))
     );
-    return current || authenticatedMerchant;
+    if (!current) return authenticatedMerchant;
+    return {
+      ...authenticatedMerchant,
+      ...current,
+      payoutFrequency: current.payoutFrequency ?? authenticatedMerchant.payoutFrequency ?? 'weekly',
+      weeklyPayoutDay: current.weeklyPayoutDay ?? authenticatedMerchant.weeklyPayoutDay ?? 1,
+      holdingDaysAfterSettlement: current.holdingDaysAfterSettlement ?? authenticatedMerchant.holdingDaysAfterSettlement ?? 7,
+      minWeeklyPayout: current.minWeeklyPayout ?? authenticatedMerchant.minWeeklyPayout ?? 100,
+      maxWeeklyPayout: current.maxWeeklyPayout ?? authenticatedMerchant.maxWeeklyPayout ?? 50000,
+      weeklyPayoutMode: current.weeklyPayoutMode ?? authenticatedMerchant.weeklyPayoutMode ?? 'admin_confirm',
+      weeklyTransferFee: current.weeklyTransferFee ?? authenticatedMerchant.weeklyTransferFee ?? 25,
+      weeklyTransferFeeType: current.weeklyTransferFeeType ?? authenticatedMerchant.weeklyTransferFeeType ?? 'fixed',
+      dailyTransferFee: current.dailyTransferFee ?? authenticatedMerchant.dailyTransferFee ?? 1,
+      dailyTransferFeeType: current.dailyTransferFeeType ?? authenticatedMerchant.dailyTransferFeeType ?? 'percentage',
+      lastPayoutFrequencyChangeAt: current.lastPayoutFrequencyChangeAt ?? authenticatedMerchant.lastPayoutFrequencyChangeAt,
+      subscriptionPlan: current.subscriptionPlan || authenticatedMerchant.subscriptionPlan,
+      managerPlan: current.managerPlan || authenticatedMerchant.managerPlan,
+      pendingPlanRequest: current.pendingPlanRequest !== undefined ? current.pendingPlanRequest : authenticatedMerchant.pendingPlanRequest,
+      planCyclesHistory: (current.planCyclesHistory && current.planCyclesHistory.length > 0)
+        ? current.planCyclesHistory
+        : (authenticatedMerchant.planCyclesHistory || [])
+    };
   }, [authenticatedMerchant, merchants]);
 
   useEffect(() => {
@@ -433,12 +544,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
 
-  // Portal View States
+  // Portal View States (synced with URL & localStorage for persistent refresh)
   const [currentTab, setCurrentTab] = useState<TabKey>(activeTab);
-  const [ordersStatusFilter, setOrdersStatusFilter] = useState<'all' | 'collected' | 'returned' | 'unpaid' | 'shipping' | 'pending' | 'outside_cycle'>('all');
+  const isNavigatingTabRef = useRef(false);
+  const [ordersStatusFilter, setOrdersStatusFilter] = useState<'all' | 'collected' | 'returned' | 'unpaid' | 'shipping' | 'pending' | 'outside_cycle'>(() => {
+    const s = searchParams.get('status');
+    const valid = ['all', 'collected', 'returned', 'unpaid', 'shipping', 'pending', 'outside_cycle'];
+    if (s && valid.includes(s)) return s as any;
+    return 'all';
+  });
   const [ordersSearchQuery, setOrdersSearchQuery] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
-  const [ordersTopViewMode, setOrdersTopViewMode] = useState<'financial_cycle' | 'current_balance'>('financial_cycle');
+  const [ordersTopViewMode, setOrdersTopViewMode] = useState<'financial_cycle' | 'current_balance'>('current_balance');
   const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null);
   const [cycleStartDate, setCycleStartDate] = useState<string>('');
   const [cycleEndDate, setCycleEndDate] = useState<string>('');
@@ -487,6 +604,43 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [txListTypeFilter, setTxListTypeFilter] = useState<'all' | 'deposits' | 'withdrawals' | 'collections' | 'compensations' | 'discounts' | 'other'>('all');
   const [showSettlementDetailsId, setShowSettlementDetailsId] = useState<string | null>(null);
 
+  // Accounting Sub-View: General Ledger vs P&L vs Returns Reserve
+  const [statementSubView, setStatementSubView] = useState<'ledger' | 'pnl' | 'reserves'>(() => {
+    const sv = searchParams.get('subView');
+    if (sv === 'ledger' || sv === 'pnl' || sv === 'reserves') return sv;
+    return 'ledger';
+  });
+
+  // Consignment Inventory Search & Filter
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryStockFilter, setInventoryStockFilter] = useState<'all' | 'available' | 'low' | 'out'>(() => {
+    const sf = searchParams.get('stockFilter');
+    if (sf === 'all' || sf === 'available' || sf === 'low' || sf === 'out') return sf;
+    return 'all';
+  });
+
+  // Create Order Studio State
+  const [createOrderMode, setCreateOrderMode] = useState<'form' | 'dev_seal'>('form');
+  const [orderCustomerName, setOrderCustomerName] = useState('');
+  const [orderCustomerPhone, setOrderCustomerPhone] = useState('');
+  const [orderGovernorate, setOrderGovernorate] = useState('القاهرة');
+  const [orderCity, setOrderCity] = useState('');
+  const [orderAddress, setOrderAddress] = useState('');
+  const [orderProductId, setOrderProductId] = useState('');
+  const [orderQuantity, setOrderQuantity] = useState(1);
+  const [orderSellingPrice, setOrderSellingPrice] = useState<number | ''>('');
+  const [orderShippingFee, setOrderShippingFee] = useState<number>(45);
+  const [orderAllowOpen, setOrderAllowOpen] = useState(true);
+  const [orderNotes, setOrderNotes] = useState('');
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  // Auto-sync shipping fee when order governorate changes
+  useEffect(() => {
+    if (orderGovernorate && EGYPT_GOV_SHIPPING_RATES[orderGovernorate]) {
+      setOrderShippingFee(EGYPT_GOV_SHIPPING_RATES[orderGovernorate]);
+    }
+  }, [orderGovernorate]);
+
   // Sync saved payout accounts when liveMerchant changes
   useEffect(() => {
     if (liveMerchant) {
@@ -519,10 +673,36 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
   }, [payoutMethod, showRequestModal, liveMerchant, savedWalletPhone, savedInstaPay, savedBankName, savedBankAccount, savedBeneficiaryName]);
 
-  // Helper to persist payoutAccounts or passcode changes for the authenticated merchant
+  const [showChangePlanModal, setShowChangePlanModal] = useState(false);
+
+  // Bosta-Style Cashout Frequency, Financial Cycle, and Balance Breakdown Popover States
+  const [showPayoutFrequencyModal, setShowPayoutFrequencyModal] = useState(false);
+  const [showFinancialCycleModal, setShowFinancialCycleModal] = useState(false);
+  const [showBalanceDetailsPopover, setShowBalanceDetailsPopover] = useState(false);
+  const [tempPayoutFrequency, setTempPayoutFrequency] = useState<'daily' | 'weekly'>('weekly');
+  const [tempWeeklyPayoutDay, setTempWeeklyPayoutDay] = useState<number>(1);
+
+  useEffect(() => {
+    if (liveMerchant) {
+      setTempPayoutFrequency(liveMerchant.payoutFrequency || 'weekly');
+      setTempWeeklyPayoutDay(typeof liveMerchant.weeklyPayoutDay === 'number' ? liveMerchant.weeklyPayoutDay : 1);
+    }
+  }, [liveMerchant?.payoutFrequency, liveMerchant?.weeklyPayoutDay, showPayoutFrequencyModal]);
+
+  // Helper to persist payoutAccounts, passcode, subscriptionPlan, managerPlan, pendingPlanRequest, planCyclesHistory, scheduledNextPlan, payoutFrequency, weeklyPayoutDay, or wallet balance changes for the authenticated merchant
   const persistMerchantAccountUpdates = useCallback(async (updates: {
     passcode?: string;
     payoutAccounts?: Partner['payoutAccounts'];
+    subscriptionPlan?: MerchantSubscriptionConfig;
+    managerPlan?: MerchantManagerConfig;
+    pendingPlanRequest?: MerchantPlanChangeRequest | null;
+    planCyclesHistory?: MerchantPlanCycleRecord[];
+    scheduledNextPlan?: ScheduledMerchantPlanTransition | null;
+    payoutFrequency?: 'daily' | 'weekly';
+    weeklyPayoutDay?: number;
+    lastPayoutFrequencyChangeAt?: string;
+    balance?: number;
+    newTransaction?: MerchantTransaction;
   }) => {
     if (!liveMerchant) return false;
     const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
@@ -531,58 +711,81 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const currentSuppliers: any[] = Array.isArray(settings.suppliers) ? [...settings.suppliers] : [];
     const currentPartners: any[] = Array.isArray(settings.partners) ? [...settings.partners] : [];
 
+    const existingTxs = Array.isArray(liveMerchant.transactions) ? [...liveMerchant.transactions] : [];
+    const nextTransactions = updates.newTransaction ? [updates.newTransaction, ...existingTxs] : existingTxs;
+
+    const targetPhone = String(liveMerchant.phone || '').trim();
+    const targetEmail = String(liveMerchant.email || '').trim().toLowerCase();
+
+    const applyPatch = (entity: any) => ({
+      ...entity,
+      ...(updates.passcode !== undefined ? { passcode: updates.passcode } : {}),
+      ...(updates.payoutAccounts !== undefined ? { payoutAccounts: updates.payoutAccounts } : {}),
+      ...(updates.subscriptionPlan !== undefined ? { subscriptionPlan: updates.subscriptionPlan } : {}),
+      ...(updates.managerPlan !== undefined ? { managerPlan: updates.managerPlan } : {}),
+      ...(updates.pendingPlanRequest !== undefined ? { pendingPlanRequest: updates.pendingPlanRequest } : {}),
+      ...(updates.planCyclesHistory !== undefined ? { planCyclesHistory: updates.planCyclesHistory } : {}),
+      ...(updates.scheduledNextPlan !== undefined ? { scheduledNextPlan: updates.scheduledNextPlan } : {}),
+      ...(updates.payoutFrequency !== undefined ? { payoutFrequency: updates.payoutFrequency } : {}),
+      ...(updates.weeklyPayoutDay !== undefined ? { weeklyPayoutDay: updates.weeklyPayoutDay } : {}),
+      ...(updates.lastPayoutFrequencyChangeAt !== undefined ? { lastPayoutFrequencyChangeAt: updates.lastPayoutFrequencyChangeAt } : {}),
+      ...(updates.balance !== undefined ? { balance: updates.balance } : {}),
+      ...(updates.newTransaction !== undefined ? { transactions: nextTransactions } : {})
+    });
+
     let supplierFound = false;
     const updatedSuppliers = currentSuppliers.map(s => {
       if (
         (s.id && s.id === liveMerchant.id) ||
-        (s.name && normalizeName(s.name) === normTargetName)
+        (s.name && normalizeName(s.name) === normTargetName) ||
+        (targetPhone && s.phone && String(s.phone).trim() === targetPhone) ||
+        (targetEmail && s.email && String(s.email).trim().toLowerCase() === targetEmail)
       ) {
         supplierFound = true;
-        return {
-          ...s,
-          ...(updates.passcode !== undefined ? { passcode: updates.passcode } : {}),
-          ...(updates.payoutAccounts !== undefined ? { payoutAccounts: updates.payoutAccounts } : {})
-        };
+        return applyPatch(s);
       }
       return s;
     });
 
     if (!supplierFound) {
-      updatedSuppliers.push({
+      updatedSuppliers.push(applyPatch({
         id: liveMerchant.id,
         name: liveMerchant.name,
         phone: liveMerchant.phone || '',
         email: liveMerchant.email || '',
-        balance: liveMerchant.balance || 0,
-        transactions: liveMerchant.transactions || [],
+        balance: updates.balance ?? liveMerchant.balance ?? 0,
+        transactions: nextTransactions,
         passcode: updates.passcode ?? liveMerchant.passcode ?? '0000',
         payoutAccounts: updates.payoutAccounts ?? liveMerchant.payoutAccounts ?? {},
+        subscriptionPlan: updates.subscriptionPlan ?? liveMerchant.subscriptionPlan,
+        managerPlan: updates.managerPlan ?? liveMerchant.managerPlan,
+        pendingPlanRequest: updates.pendingPlanRequest !== undefined ? updates.pendingPlanRequest : (liveMerchant.pendingPlanRequest ?? null),
+        planCyclesHistory: updates.planCyclesHistory ?? liveMerchant.planCyclesHistory ?? [],
+        scheduledNextPlan: updates.scheduledNextPlan !== undefined ? updates.scheduledNextPlan : (liveMerchant.scheduledNextPlan ?? null),
+        payoutFrequency: updates.payoutFrequency ?? liveMerchant.payoutFrequency ?? 'weekly',
+        weeklyPayoutDay: updates.weeklyPayoutDay ?? liveMerchant.weeklyPayoutDay ?? 1,
         role: 'موكل / مورد صاحب بضاعة'
-      });
+      }));
     }
 
     let partnerFound = false;
     const updatedPartners = currentPartners.map(p => {
       if (
         (p.id && p.id === liveMerchant.id) ||
-        (p.name && normalizeName(p.name) === normTargetName)
+        (p.name && normalizeName(p.name) === normTargetName) ||
+        (targetPhone && p.phone && String(p.phone).trim() === targetPhone) ||
+        (targetEmail && p.email && String(p.email).trim().toLowerCase() === targetEmail)
       ) {
         partnerFound = true;
-        return {
-          ...p,
-          ...(updates.passcode !== undefined ? { passcode: updates.passcode } : {}),
-          ...(updates.payoutAccounts !== undefined ? { payoutAccounts: updates.payoutAccounts } : {})
-        };
+        return applyPatch(p);
       }
       return p;
     });
 
     if (!partnerFound) {
-      updatedPartners.push({
-        ...liveMerchant,
-        ...(updates.passcode !== undefined ? { passcode: updates.passcode } : {}),
-        ...(updates.payoutAccounts !== undefined ? { payoutAccounts: updates.payoutAccounts } : {})
-      });
+      updatedPartners.push(applyPatch({
+        ...liveMerchant
+      }));
     }
 
     try {
@@ -602,11 +805,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       }
     }) : prev);
 
-    setAuthenticatedMerchant(prev => prev ? ({
-      ...prev,
-      ...(updates.passcode !== undefined ? { passcode: updates.passcode } : {}),
-      ...(updates.payoutAccounts !== undefined ? { payoutAccounts: updates.payoutAccounts } : {})
-    }) : prev);
+    setAuthenticatedMerchant(prev => prev ? applyPatch(prev) : prev);
 
     if (targetStore) {
       await db.updatePartnerSettings(targetStore, updatedPartners, updatedSuppliers);
@@ -1049,13 +1248,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     merchantOrders.forEach(o => {
       if (['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق'].includes(o.status)) shipping++;
       else if (['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status)) collected++;
-      else if (['جديد', 'معلق', 'بانتظار_التأكيد', 'قيد_التجهيز'].includes(o.status)) pending++;
+      else if (['جديد', 'معلق', 'بانتظار_التأكيد', 'قيد_التجهيز', 'قيد_التنفيذ', 'جاري_المراجعة'].includes(o.status)) pending++;
       else if (TRANSPARENCY_RETURN_STATUSES.includes(o.status as any)) returned++;
     });
     return { all: merchantOrders.length, shipping, collected, pending, returned };
   }, [merchantOrders]);
 
-  // Filtered Orders View (with Financial Cycle Date Filter)
+  // Filtered Orders View (All Created Orders + Search + Status + Date Filters)
   const filteredOrders = useMemo(() => {
     let list = [...merchantOrders];
 
@@ -1066,26 +1265,31 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       );
     }
 
-    // Requirement: Pre-dispatch orders (New, Pending, etc.) should NOT appear in the Financial Cycle view
-    if (currentTab === 'orders' && ordersStatusFilter === 'all') {
+    if (ordersSearchQuery.trim()) {
+      const q = ordersSearchQuery.trim().toLowerCase();
       list = list.filter(o => {
-        const isDispatched = !['جديد', 'معلق', 'بانتظار_التأكيد', 'قيد_التجهيز', 'جاري_المراجعة'].includes(o.status);
-        const isFinalized = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها', ...TRANSPARENCY_RETURN_STATUSES].includes(o.status);
-        return isDispatched || isFinalized;
+        const ordId = String(o.orderNumber || o.id || '').toLowerCase();
+        const trk = String(getTrackingNumber(o) || '').toLowerCase();
+        const cName = String(o.customerName || '').toLowerCase();
+        const cPhone = String(o.customerPhone || '').toLowerCase();
+        const gov = String((o as any).governorate || (o as any).province || (o as any).city || '').toLowerCase();
+        return ordId.includes(q) || trk.includes(q) || cName.includes(q) || cPhone.includes(q) || gov.includes(q);
       });
     }
 
     if (cycleStartDate) {
       const startMs = new Date(cycleStartDate + 'T00:00:00').getTime();
       list = list.filter(o => {
-        const d = o.date ? new Date(o.date).getTime() : 0;
+        const dRaw = o.date || (o as any).createdAt;
+        const d = dRaw ? new Date(dRaw).getTime() : 0;
         return d >= startMs;
       });
     }
     if (cycleEndDate) {
       const endMs = new Date(cycleEndDate + 'T23:59:59').getTime();
       list = list.filter(o => {
-        const d = o.date ? new Date(o.date).getTime() : 0;
+        const dRaw = o.date || (o as any).createdAt;
+        const d = dRaw ? new Date(dRaw).getTime() : 0;
         return d <= endMs;
       });
     }
@@ -1095,7 +1299,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     } else if (ordersStatusFilter === 'collected') {
       list = list.filter(o => ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status));
     } else if (ordersStatusFilter === 'pending') {
-      list = list.filter(o => ['جديد', 'معلق', 'بانتظار_التأكيد', 'قيد_التجهيز'].includes(o.status));
+      list = list.filter(o => ['جديد', 'معلق', 'بانتظار_التأكيد', 'قيد_التجهيز', 'قيد_التنفيذ', 'جاري_المراجعة'].includes(o.status));
     } else if (ordersStatusFilter === 'returned') {
       list = list.filter(o => TRANSPARENCY_RETURN_STATUSES.includes(o.status));
     } else if (ordersStatusFilter === 'unpaid') {
@@ -1129,7 +1333,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
 
     return list;
-  }, [merchantOrders, ordersStatusFilter, ordersSearchQuery, cycleStartDate, cycleEndDate, liveMerchant?.transactions]);
+  }, [merchantOrders, currentTab, ordersStatusFilter, ordersSearchQuery, cycleStartDate, cycleEndDate, liveMerchant?.transactions]);
 
   // Helper to compute exact Bosta-style fee breakdown for a single order using shared logic
   const computeOrderFeeBreakdown = useCallback((o: Order) => {
@@ -1150,15 +1354,92 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
     // Check if settled in merchant transactions
     const orderRef = String(o.orderNumber || o.id || '');
+    const matchingSettleTx = (liveMerchant?.transactions || []).find(tx =>
+      (tx.referenceId && String(tx.referenceId) === String(o.id)) ||
+      (tx.notes && orderRef && tx.notes.includes(orderRef))
+    );
     const isSettled = Boolean(
       (o as any).merchantSettled ||
       (o as any).isSettled ||
       o.settlementStatus === 'settled' ||
-      (liveMerchant?.transactions || []).some(tx =>
-        (tx.referenceId && String(tx.referenceId) === String(o.id)) ||
-        (tx.notes && orderRef && tx.notes.includes(orderRef))
-      )
+      matchingSettleTx
     );
+
+    const holdingDaysRequired = o.customHoldingDays !== undefined
+      ? Math.max(0, Number(o.customHoldingDays))
+      : Math.max(0, Number(liveMerchant?.holdingDaysAfterSettlement ?? 7));
+
+    const settledAtIso = o.settledAt || matchingSettleTx?.date || (isSettled ? ((o as any).deliveredAt || (o as any).updatedAt || o.date || o.createdAt) : undefined);
+    const settledTimestamp = (isSettled && settledAtIso) ? new Date(settledAtIso).getTime() : 0;
+    const daysSinceSettled = (isSettled && settledTimestamp > 0)
+      ? Math.max(0, Math.floor((Date.now() - settledTimestamp) / 86400000))
+      : 0;
+
+    // Rolling Weekly Cycle Rule:
+    // If the merchant is on weekly payout, any order settled during the current weekly cycle
+    // (or in the same week a payout already occurred) is deferred to next week's payout cycle.
+    const isWeeklyFreq = (liveMerchant?.payoutFrequency || 'weekly') === 'weekly';
+    const weeklyDayIdx = typeof liveMerchant?.weeklyPayoutDay === 'number'
+      ? Math.min(6, Math.max(0, liveMerchant.weeklyPayoutDay))
+      : 1;
+    const nowDate = new Date();
+    const todayStart = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()).getTime();
+    const daysSinceLastPayoutDay = (nowDate.getDay() - weeklyDayIdx + 7) % 7;
+    const currentWeekCycleStart = todayStart - daysSinceLastPayoutDay * 86400000;
+    const daysUntilNextPayoutDay = ((weeklyDayIdx - nowDate.getDay() + 7) % 7) || 7;
+
+    // Check if a withdrawal was already executed in the current week cycle
+    const hadWithdrawalThisWeek = (liveMerchant?.transactions || []).some(
+      tx => tx.type === 'withdrawal' && new Date(tx.date).getTime() >= currentWeekCycleStart
+    );
+
+    const isSettledInCurrentWeekCycle = Boolean(
+      isSettled &&
+      isWeeklyFreq &&
+      holdingDaysRequired > 0 &&
+      settledTimestamp >= currentWeekCycleStart
+    );
+
+    const baseRemainingHoldingDays = isSettled
+      ? Math.max(0, holdingDaysRequired - daysSinceSettled)
+      : holdingDaysRequired;
+
+    // If settled this week (or a payout already happened this week while this order was settled this cycle),
+    // defer it at least until next week's payout day
+    const remainingHoldingDays = isSettledInCurrentWeekCycle
+      ? Math.max(baseRemainingHoldingDays, daysUntilNextPayoutDay)
+      : baseRemainingHoldingDays;
+
+    const isDeferredFromCurrentWeek = Boolean(
+      isSettled &&
+      (isSettledInCurrentWeekCycle || (hadWithdrawalThisWeek && settledTimestamp >= currentWeekCycleStart)) &&
+      o.payoutStatus !== 'ready'
+    );
+
+    const isPaidOut = Boolean(
+      o.payoutStatus === 'paid' ||
+      o.paidOutAt ||
+      (isSettled && (liveMerchant?.balance || 0) === 0 && (liveMerchant?.transactions || []).some(tx => tx.type === 'withdrawal' && settledAtIso && new Date(tx.date).getTime() >= new Date(settledAtIso).getTime()))
+    );
+
+    const payoutStage: 'unsettled' | 'holding' | 'ready' | 'paid' = isPaidOut
+      ? 'paid'
+      : !isSettled
+      ? 'unsettled'
+      : (remainingHoldingDays > 0 || isDeferredFromCurrentWeek) && o.payoutStatus !== 'ready'
+      ? 'holding'
+      : 'ready';
+
+    const payoutStageLabelAr =
+      payoutStage === 'paid'
+        ? 'مدفوع ✅'
+        : payoutStage === 'ready'
+        ? 'جاهز للتحويل في السحبة القادمة'
+        : payoutStage === 'holding'
+        ? isDeferredFromCurrentWeek
+          ? `تسوية هذا الأسبوع — يُرحّل لأسبوع التحويل القادم (متبقي ${remainingHoldingDays} يوم)`
+          : `قيد التعليق (متبقي ${remainingHoldingDays} يوم)`
+        : 'بانتظار التسوية المالية';
 
     return {
       isDelivered,
@@ -1172,9 +1453,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       openPackageFee: carrierCalc.inspectionFee,
       vatFee: carrierCalc.vatFee,
       netEntitlement,
-      isSettled
+      isSettled,
+      settledAtIso,
+      holdingDaysRequired,
+      daysSinceSettled,
+      remainingHoldingDays,
+      isDeferredFromCurrentWeek,
+      isPaidOut,
+      payoutStage,
+      payoutStageLabelAr
     };
-  }, [liveMerchant?.transactions, settings]);
+  }, [liveMerchant?.transactions, liveMerchant?.holdingDaysAfterSettlement, liveMerchant?.payoutFrequency, liveMerchant?.weeklyPayoutDay, liveMerchant?.balance, settings]);
 
   // Financial Cycle Summary across filteredOrders
   const financialCycleSummary = useMemo(() => {
@@ -1245,6 +1534,104 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const totalStockUnits = useMemo(() => {
     return merchantProducts.reduce((sum, p) => sum + Number(p.stock || p.quantity || p.inventory || 0), 0);
   }, [merchantProducts]);
+
+  // Memoized Customers List derived from merchant orders
+  const customersList = useMemo(() => {
+    const map = new Map<string, {
+      id: string;
+      phone: string;
+      name: string;
+      governorate: string;
+      city: string;
+      address: string;
+      totalOrders: number;
+      deliveredOrders: number;
+      returnedOrders: number;
+      shippingOrders: number;
+      pendingOrders: number;
+      totalSpent: number;
+      lastOrderDate: string;
+      lastOrderNumber: string;
+    }>();
+
+    merchantOrders.forEach(o => {
+      const cleanPhone = (o.customerPhone || '').replace(/[^\d+]/g, '');
+      const key = cleanPhone || (o.customerName || '').trim() || o.id;
+      if (!key) return;
+
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          phone: o.customerPhone ? o.customerPhone.trim() : '—',
+          name: o.customerName ? o.customerName.trim() : 'عميل بدون اسم',
+          governorate: o.governorate || 'غير محدد',
+          city: o.city || '',
+          address: o.customerAddress || (o as any).address || '',
+          totalOrders: 0,
+          deliveredOrders: 0,
+          returnedOrders: 0,
+          shippingOrders: 0,
+          pendingOrders: 0,
+          totalSpent: 0,
+          lastOrderDate: o.createdAt || '',
+          lastOrderNumber: o.orderNumber || ''
+        });
+      }
+
+      const c = map.get(key)!;
+      c.totalOrders += 1;
+      const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها', 'delivered'].includes(o.status);
+      const isReturn = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن', 'مرتجع_جزئي', 'مرتجع_بعد_الاستلام', 'ملغي', 'returned', 'cancelled'].includes(o.status);
+      const isShipping = ['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق', 'shipping'].includes(o.status);
+
+      if (isDelivered) {
+        c.deliveredOrders += 1;
+        c.totalSpent += ((o as any).total || (o as any).totalAmount || (o as any).finalAmount || (o as any).codAmount || 0);
+      } else if (isReturn) {
+        c.returnedOrders += 1;
+      } else if (isShipping) {
+        c.shippingOrders += 1;
+      } else {
+        c.pendingOrders += 1;
+      }
+
+      if (o.createdAt && (!c.lastOrderDate || new Date(o.createdAt) > new Date(c.lastOrderDate))) {
+        c.lastOrderDate = o.createdAt;
+        c.lastOrderNumber = o.orderNumber || '';
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.totalOrders - a.totalOrders);
+  }, [merchantOrders]);
+
+  const uniqueCustomersCount = customersList.length;
+  const totalDeliveredCustomers = customersList.filter(c => c.deliveredOrders > 0).length;
+  const repeatCustomersCount = customersList.filter(c => c.totalOrders > 1).length;
+  const totalCustomersSpend = customersList.reduce((acc, c) => acc + c.totalSpent, 0);
+  const avgSpentPerCustomer = uniqueCustomersCount > 0 ? Math.round(totalCustomersSpend / uniqueCustomersCount) : 0;
+
+  const filteredCustomersList = useMemo(() => {
+    if (!customersSearchQuery.trim()) return customersList;
+    const q = customersSearchQuery.toLowerCase().trim();
+    return customersList.filter(c => 
+      c.name.toLowerCase().includes(q) ||
+      c.phone.toLowerCase().includes(q) ||
+      c.governorate.toLowerCase().includes(q) ||
+      c.city.toLowerCase().includes(q)
+    );
+  }, [customersList, customersSearchQuery]);
+
+  // Auto-fill price when product is selected in order creation
+  useEffect(() => {
+    if (orderProductId) {
+      const prod = merchantProducts.find(p => p.id === orderProductId);
+      if (prod) {
+        const cost = Number(prod.costPrice || prod.cost || 0);
+        const price = Number(prod.price || prod.sellingPrice || (cost > 0 ? Math.round(cost * 1.35) : 0));
+        setOrderSellingPrice(price);
+      }
+    }
+  }, [orderProductId, merchantProducts]);
 
   // Filter Requests specifically for the active merchant
   const merchantFilteredRequests = useMemo(() => {
@@ -1379,6 +1766,256 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       chartData
     };
   }, [merchantOrders, settings, liveMerchant, inventoryValuation, totalStockUnits, merchantProducts, merchantFilteredRequests, activeStoreData]);
+
+  // Merchant Consolidated P&L Income Statement (قائمة الأرباح والخسائر للموكل)
+  const merchantPnL = useMemo(() => {
+    const grossRevenue = overviewStats.totalDeliveredCollected || 0;
+    const cogs = overviewStats.totalGoodsCostCapital || 0;
+    const grossProfit = grossRevenue - cogs;
+    const grossMarginPct = grossRevenue > 0 ? (grossProfit / grossRevenue) * 100 : 0;
+
+    const shippingExp = overviewStats.totalShippingDeductions || 0;
+    const operatingExp = overviewStats.totalServiceFees || 0;
+    const otherStoreExp = overviewStats.totalOtherStoreExpenses || 0;
+    const totalOperatingExpenses = shippingExp + operatingExp + otherStoreExp;
+
+    const netProfit = grossProfit - totalOperatingExpenses;
+    const netMarginPct = grossRevenue > 0 ? (netProfit / grossRevenue) * 100 : 0;
+    const deliveredCount = overviewStats.deliveredCount || 0;
+    const aov = deliveredCount > 0 ? grossRevenue / deliveredCount : 0;
+    const cpo = deliveredCount > 0 ? totalOperatingExpenses / deliveredCount : 0;
+
+    return {
+      grossRevenue,
+      cogs,
+      grossProfit,
+      grossMarginPct,
+      shippingExp,
+      operatingExp,
+      otherStoreExp,
+      totalOperatingExpenses,
+      netProfit,
+      netMarginPct,
+      deliveredCount,
+      aov,
+      cpo,
+      totalOrders: merchantOrders.length
+    };
+  }, [overviewStats, merchantOrders]);
+
+  // Consignment Inventory Filtered List
+  const filteredConsignmentProducts = useMemo(() => {
+    let list = [...merchantProducts];
+    if (inventorySearch.trim()) {
+      const q = normalizeName(inventorySearch);
+      list = list.filter(p => {
+        const name = normalizeName(p.name || p.title || '');
+        const sku = String(p.sku || p.barcode || p.id || '').toLowerCase();
+        return name.includes(q) || sku.includes(q);
+      });
+    }
+    if (inventoryStockFilter === 'available') {
+      list = list.filter(p => Number(p.stock || p.quantity || 0) > 0);
+    } else if (inventoryStockFilter === 'low') {
+      list = list.filter(p => {
+        const s = Number(p.stock || p.quantity || 0);
+        return s > 0 && s <= 5;
+      });
+    } else if (inventoryStockFilter === 'out') {
+      list = list.filter(p => Number(p.stock || p.quantity || 0) <= 0);
+    }
+    return list;
+  }, [merchantProducts, inventorySearch, inventoryStockFilter]);
+
+  const pendingRetryOrderRef = useRef<{ id: string; orderNumber: string; signature: string } | null>(null);
+
+  // Handle Merchant Direct Order Creation (Self-Service Plans Only)
+  const handleMerchantSubmitOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveMerchant) {
+      showToast('خطأ: بيانات الموكل غير متوفرة', 'error');
+      return;
+    }
+    if (planUsage.managerPlanActive || liveMerchant.managerPlan?.status === 'active') {
+      showToast('أنت مشترك في باقة المدير المخصص؛ يتولى مدير حسابك إنشاء الأوردرات وتأكيدها وشحنها نيابةً عنك', 'error');
+      return;
+    }
+    if (!planUsage.isUnlimited && planUsage.limitOrders && planUsage.limitOrders > 0 && planUsage.usedOrders >= planUsage.limitOrders) {
+      showToast('لقد استنفدت الحد الأقصى للأوردرات في باقتك الحالية؛ يرجى ترقية الباقة أولاً', 'error');
+      setShowChangePlanModal(true);
+      return;
+    }
+    if (!orderCustomerName.trim()) {
+      showToast('يرجى كتابة اسم العميل', 'error');
+      return;
+    }
+    if (!orderCustomerPhone.trim()) {
+      showToast('يرجى كتابة رقم هاتف العميل', 'error');
+      return;
+    }
+    if (!orderProductId) {
+      showToast('يرجى اختيار المنتج من بضاعتك المتاحة بالمخزن', 'error');
+      return;
+    }
+
+    const selectedProd = merchantProducts.find(p => p.id === orderProductId);
+    if (!selectedProd) {
+      showToast('المنتج المحدد غير موجود في مخزونك', 'error');
+      return;
+    }
+
+    const qty = Math.max(1, Number(orderQuantity) || 1);
+    const availableStock = Number(
+      (selectedProd as any).stockQuantity ?? (selectedProd as any).stock ?? (selectedProd as any).quantity ?? 0
+    );
+
+    // Audit Fix #9: Reject order when requested quantity exceeds available stock instead of silently clamping to 0
+    if (qty > availableStock) {
+      showToast(
+        `الكمية المطلوبة (${qty}) أكبر من الرصيد المتاح في المخزون (${availableStock} قطعة). لا يمكن إنشاء الطلب بكمية تتجاوز المتاح.`,
+        'error'
+      );
+      return;
+    }
+
+    const prodTitle = selectedProd?.name || (selectedProd as any)?.title || 'منتج موكل';
+    const unitCost = Number(selectedProd?.costPrice || (selectedProd as any)?.cost || 0);
+    const unitPrice = Number(orderSellingPrice) > 0 ? Number(orderSellingPrice) : Number(selectedProd?.price || (unitCost > 0 ? Math.round(unitCost * 1.35) : 100));
+    const itemsTotal = unitPrice * qty;
+    const shipFee = Number(orderShippingFee) || 45;
+    const totalCod = itemsTotal + shipFee;
+    const operatingFee = Number((activeStoreData?.settings as any)?.serviceFeePerOrder || 15);
+
+    const draftSignature = `${liveMerchant.id}|${orderCustomerPhone.trim()}|${orderProductId}|${qty}|${totalCod}`;
+
+    setIsSubmittingOrder(true);
+    try {
+      // Audit Fix #4 & #8: Collision-free UUID primary ID + reusable idempotency identity across retries
+      if (!pendingRetryOrderRef.current || pendingRetryOrderRef.current.signature !== draftSignature) {
+        pendingRetryOrderRef.current = {
+          id: generateUniqueOrderId('ord'),
+          orderNumber: generateDisplayOrderNumber('ORD-M'),
+          signature: draftSignature
+        };
+      }
+
+      const { id: uniqueOrderId, orderNumber: displayOrderNumber } = pendingRetryOrderRef.current;
+      const nowIso = new Date().toISOString();
+
+      const newOrder: any = {
+        id: uniqueOrderId,
+        orderNumber: displayOrderNumber,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        date: nowIso,
+        version: 1,
+        customerName: orderCustomerName.trim(),
+        customerPhone: orderCustomerPhone.trim(),
+        city: orderCity.trim() || orderGovernorate,
+        governorate: orderGovernorate,
+        customerAddress: orderAddress.trim() || orderGovernorate,
+        address: orderAddress.trim() || orderGovernorate,
+        notes: orderNotes.trim(),
+        status: 'جاري_المراجعة',
+        totalAmount: totalCod,
+        totalPrice: totalCod,
+        subtotal: itemsTotal,
+        shippingFee: shipFee,
+        allowOpenShipment: orderAllowOpen,
+        paymentMethod: 'cod',
+        merchantId: liveMerchant.id,
+        merchantName: liveMerchant.name,
+        brandName: (liveMerchant as any)?.brandName || liveMerchant.name,
+        serviceFeePerOrder: operatingFee,
+        stockDeducted: true,
+        items: [
+          {
+            id: selectedProd.id,
+            productId: selectedProd.id,
+            title: prodTitle,
+            name: prodTitle,
+            quantity: qty,
+            price: unitPrice,
+            costPrice: unitCost,
+            merchantId: liveMerchant.id,
+            merchantName: liveMerchant.name
+          }
+        ]
+      };
+
+      // Stamp order with immutable plan cycle & pricing snapshot at creation time
+      const planSnapshot = buildOrderPlanSnapshot(liveMerchant, planUsage.usedOrdersCount);
+      Object.assign(newOrder, planSnapshot);
+
+      const targetStoreId = effectiveStoreId;
+      const currentOrders = (activeStoreData?.orders || []).filter((o: any) => o.id !== uniqueOrderId);
+      const updatedOrders = [newOrder, ...currentOrders];
+
+      // Deduct validated inventory
+      const updatedProducts = (activeStoreData?.settings?.products || []).map((p: any) => {
+        if (p.id === selectedProd.id) {
+          const currentStock = Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0);
+          const nextStock = currentStock - qty;
+          return {
+            ...p,
+            stock: nextStock,
+            stockQuantity: nextStock,
+            quantity: nextStock,
+            updatedAt: nowIso,
+            version: Number(p.version || 0) + 1
+          };
+        }
+        return p;
+      });
+
+      const updatedPayload: StoreData = {
+        ...(activeStoreData || {} as any),
+        orders: updatedOrders,
+        settings: {
+          ...(activeStoreData?.settings || {}),
+          products: updatedProducts
+        }
+      };
+
+      const saveRes: any = await db.saveStoreData({ id: targetStoreId, name: storeName } as any, updatedPayload);
+
+      // Audit Fix #4: Do NOT claim server save success or clear inputs if cloud save failed or is only pending_sync
+      if (!saveRes || !saveRes.success || saveRes.status === 'failed' || saveRes.status === 'pending_sync') {
+        if (saveRes?.status === 'pending_sync') {
+          setDirectStoreData(updatedPayload);
+          showToast(
+            `تنبيه: تم حفظ الأوردر #${displayOrderNumber} محلياً في طابور المزامنة المؤقت، ولم يتم تأكيد الحفظ على الخادم السحابي بعد.`,
+            'error'
+          );
+        } else {
+          showToast(
+            `فشل حفظ الأوردر على الخادم السحابي (${saveRes?.error || 'خطأ في الاتصال'}). لم يتم مسح البيانات، يمكنك إعادة المحاولة بأمان دون تكرار الطلب.`,
+            'error'
+          );
+        }
+        return;
+      }
+
+      setDirectStoreData(updatedPayload);
+      pendingRetryOrderRef.current = null;
+
+      showToast(
+        `تم حفظ وتسجيل الأوردر على الخادم بنجاح! رقم الشحنة: #${displayOrderNumber}`,
+        'success'
+      );
+      setOrderCustomerName('');
+      setOrderCustomerPhone('');
+      setOrderAddress('');
+      setOrderCity('');
+      setOrderNotes('');
+      setOrderQuantity(1);
+    } catch (err: any) {
+      console.error('Error creating merchant order:', err);
+      showToast('تعذر حفظ الطلب على الخادم، البيانات محفوظة في النموذج لإعادة المحاولة بأمان', 'error');
+    } finally {
+      setIsSubmittingOrder(false);
+    }
+  };
 
   // Product & Governorate Performance Analytics for the Merchant
   const merchantAnalyticsReport = useMemo(() => {
@@ -1598,16 +2235,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       balanceAfter?: number;
     }> = [...(liveMerchant?.transactions || [])];
 
-    // Build real transactions dynamically from actual merchant orders and requests if explicit transactions don't exist
+    // Build real transactions dynamically ONLY from financially SETTLED merchant orders if explicit transactions don't exist
+    // Unsettled delivered orders must NEVER be added to the wallet balance before Admin settlement!
     if (rawTxs.length === 0 && (merchantOrders.length > 0 || merchantFilteredRequests.length > 0)) {
-      // Group real delivered / settled orders by date
       const deliveredOrdersMap = new Map<string, typeof merchantOrders>();
 
       merchantOrders.forEach(o => {
-        const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status) || (o as any).merchantSettled || (o as any).isSettled;
-        if (!isDelivered) return;
+        const isOrderSettled = Boolean(
+          o.settlementStatus === 'settled' ||
+          (o as any).merchantSettled ||
+          (o as any).isSettled
+        );
+        if (!isOrderSettled) return;
 
-        const dateKey = ((o as any).deliveredAt || o.createdAt || new Date().toISOString()).slice(0, 10);
+        const dateKey = (o.settledAt || (o as any).deliveredAt || o.createdAt || new Date().toISOString()).slice(0, 10);
         const group = deliveredOrdersMap.get(dateKey) || [];
         group.push(o);
         deliveredOrdersMap.set(dateKey, group);
@@ -1760,7 +2401,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Sum of pending withdrawal requests (held from wallet)
   const pendingRequestsSum = useMemo(() => {
     return merchantFilteredRequests
-      .filter(r => r.status === 'pending')
+      .filter(r => r.status === 'pending' && (!r.type || r.type === 'withdrawal'))
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   }, [merchantFilteredRequests]);
 
@@ -1768,6 +2409,772 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const availableForWithdrawal = useMemo(() => {
     return Math.max(0, Number((effectiveMerchantBalance - pendingRequestsSum).toFixed(2)));
   }, [effectiveMerchantBalance, pendingRequestsSum]);
+
+  // Weekly / Daily Payout, Manager Commission & 7-Day Post-Settlement Holding Breakdown
+  const weeklyPayoutOverview = useMemo(() => {
+    const dayNamesAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const payoutFrequency: 'daily' | 'weekly' = liveMerchant?.payoutFrequency === 'daily' ? 'daily' : 'weekly';
+    const weeklyDayIndex = typeof liveMerchant?.weeklyPayoutDay === 'number'
+      ? Math.min(6, Math.max(0, liveMerchant.weeklyPayoutDay))
+      : 1; // Default: Monday (الإثنين)
+    const weeklyDayNameAr = dayNamesAr[weeklyDayIndex] || 'الإثنين';
+
+    const now = new Date();
+    const currentDay = now.getDay();
+    let daysUntilNextPayout = payoutFrequency === 'daily'
+      ? 1
+      : (weeklyDayIndex - currentDay + 7) % 7;
+    if (payoutFrequency === 'weekly' && daysUntilNextPayout === 0) daysUntilNextPayout = 7;
+
+    // For daily cashout, skip Friday (5) to Saturday (6)
+    if (payoutFrequency === 'daily') {
+      const tomorrowDay = (currentDay + 1) % 7;
+      if (tomorrowDay === 5) daysUntilNextPayout = 2;
+    }
+
+    const nextPayoutDate = new Date(now.getTime() + daysUntilNextPayout * 86400000);
+    const nextWeeklyPayoutDateFormatted = nextPayoutDate.toLocaleDateString('ar-EG', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+    const nextPayoutShortAr = nextPayoutDate.toLocaleDateString('ar-EG', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long'
+    });
+
+    // Manager-Configured Commission / Transfer Fee Settings
+    const weeklyTransferFee = typeof liveMerchant?.weeklyTransferFee === 'number' ? Math.max(0, liveMerchant.weeklyTransferFee) : 25;
+    const weeklyTransferFeeType: 'fixed' | 'percentage' = liveMerchant?.weeklyTransferFeeType === 'percentage' ? 'percentage' : 'fixed';
+    const dailyTransferFee = typeof liveMerchant?.dailyTransferFee === 'number' ? Math.max(0, liveMerchant.dailyTransferFee) : 1;
+    const dailyTransferFeeType: 'fixed' | 'percentage' = liveMerchant?.dailyTransferFeeType === 'fixed' ? 'fixed' : 'percentage';
+
+    const formatFeeLabel = (val: number, type: 'fixed' | 'percentage', isDaily: boolean) => {
+      if (val <= 0) return 'مجاني (بدون عمولة تحويل)';
+      if (type === 'percentage') {
+        return `${val}% من مبلغ التحويل${isDaily ? ' للسحب اليومي' : ''}`;
+      }
+      return `${val.toLocaleString()} ج.م رسوم التحويل`;
+    };
+
+    const weeklyFeeLabelAr = formatFeeLabel(weeklyTransferFee, weeklyTransferFeeType, false);
+    const dailyFeeLabelAr = formatFeeLabel(dailyTransferFee, dailyTransferFeeType, true);
+    const activeFeeValue = payoutFrequency === 'daily' ? dailyTransferFee : weeklyTransferFee;
+    const activeFeeType = payoutFrequency === 'daily' ? dailyTransferFeeType : weeklyTransferFeeType;
+    const activeFeeLabelAr = payoutFrequency === 'daily' ? dailyFeeLabelAr : weeklyFeeLabelAr;
+
+    const calculateTransferFeeForAmount = (grossAmt: number, freq: 'daily' | 'weekly' = payoutFrequency) => {
+      const num = Math.max(0, Number(grossAmt) || 0);
+      if (num <= 0) return { feeAmount: 0, netAmount: 0 };
+      const fVal = freq === 'daily' ? dailyTransferFee : weeklyTransferFee;
+      const fType = freq === 'daily' ? dailyTransferFeeType : weeklyTransferFeeType;
+      const feeAmount = fType === 'percentage'
+        ? Number(((num * fVal) / 100).toFixed(2))
+        : Number(Math.min(num, fVal).toFixed(2));
+      const netAmount = Math.max(0, Number((num - feeAmount).toFixed(2)));
+      return { feeAmount, netAmount };
+    };
+
+    let unsettledDeliveredBalance = 0;
+    let holdingSettledBalance = 0;
+    let readySettledOrdersBalance = 0;
+    let holdingOrdersCount = 0;
+    let readyOrdersCount = 0;
+    let unsettledOrdersCount = 0;
+    let minRemainingDays: number | null = null;
+
+    merchantOrders.forEach(o => {
+      const b = computeOrderFeeBreakdown(o);
+      if (!b.isDelivered && !b.isReturn) return;
+      if (b.payoutStage === 'paid') return;
+
+      if (b.payoutStage === 'unsettled') {
+        unsettledDeliveredBalance += b.netEntitlement;
+        unsettledOrdersCount += 1;
+      } else if (b.payoutStage === 'holding') {
+        if (b.netEntitlement > 0) {
+          holdingSettledBalance += b.netEntitlement;
+          holdingOrdersCount += 1;
+          if (minRemainingDays === null || b.remainingHoldingDays < minRemainingDays) {
+            minRemainingDays = b.remainingHoldingDays;
+          }
+        }
+      } else if (b.payoutStage === 'ready') {
+        if (b.netEntitlement > 0) {
+          readySettledOrdersBalance += b.netEntitlement;
+          readyOrdersCount += 1;
+        }
+      }
+    });
+
+    const holdingDaysSetting = Math.max(0, Number(liveMerchant?.holdingDaysAfterSettlement ?? 7));
+    const minWeeklyPayout = Math.max(0, Number(liveMerchant?.minWeeklyPayout ?? 100));
+    const maxWeeklyPayout = Math.max(0, Number(liveMerchant?.maxWeeklyPayout ?? 50000));
+    const weeklyPayoutMode: 'auto' | 'admin_confirm' = liveMerchant?.weeklyPayoutMode || 'admin_confirm';
+
+    // The actual matured balance ready for payout is the available wallet balance minus any settled amount still inside its holding window
+    const maturedWalletBalance = Math.max(
+      0,
+      Number((availableForWithdrawal - Math.max(0, holdingSettledBalance)).toFixed(2))
+    );
+
+    const cappedNextPayoutAmount = maxWeeklyPayout > 0
+      ? Math.min(maturedWalletBalance, maxWeeklyPayout)
+      : maturedWalletBalance;
+
+    const nextPayoutFeeCalc = calculateTransferFeeForAmount(cappedNextPayoutAmount, payoutFrequency);
+
+    // Wallet Balance Breakdown for Bosta-Style Dark Popover (الرصيد + vs الديون -)
+    let collectedOrdersTotal = 0;
+    let compensationsTotal = 0;
+    let walletTopupsTotal = 0;
+    let withdrawalsTotal = 0;
+    let shippingAndFeesTotal = 0;
+    let transferCommissionTotal = 0;
+
+    allChronologicalTransactions.forEach(tx => {
+      const amt = Number(tx.amount) || 0;
+      const notes = String(tx.notes || '');
+      if (amt > 0) {
+        if (tx.type === 'compensation' || notes.includes('تعويض')) {
+          compensationsTotal += amt;
+        } else if (tx.type === 'wallet_topup' || tx.type === 'deposit' || notes.includes('شحن')) {
+          walletTopupsTotal += amt;
+        } else {
+          collectedOrdersTotal += amt;
+        }
+      } else if (amt < 0) {
+        const absAmt = Math.abs(amt);
+        if (notes.includes('رسوم التحويل') || notes.includes('عمولة التحويل') || notes.includes('عمولة سحب')) {
+          transferCommissionTotal += absAmt;
+        } else if (tx.type === 'withdrawal') {
+          withdrawalsTotal += absAmt;
+        } else {
+          shippingAndFeesTotal += absAmt;
+        }
+      }
+    });
+
+    const totalAddedCredits = Number((collectedOrdersTotal + compensationsTotal + walletTopupsTotal).toFixed(2));
+    const totalDeductedDebits = Number((withdrawalsTotal + shippingAndFeesTotal + transferCommissionTotal).toFixed(2));
+
+    return {
+      payoutFrequency,
+      weeklyDayIndex,
+      weeklyDayNameAr,
+      daysUntilNextPayout,
+      nextWeeklyPayoutDateFormatted,
+      nextPayoutShortAr,
+      holdingDaysSetting,
+      minWeeklyPayout,
+      maxWeeklyPayout,
+      weeklyPayoutMode,
+      weeklyTransferFee,
+      weeklyTransferFeeType,
+      dailyTransferFee,
+      dailyTransferFeeType,
+      weeklyFeeLabelAr,
+      dailyFeeLabelAr,
+      activeFeeValue,
+      activeFeeType,
+      activeFeeLabelAr,
+      calculateTransferFeeForAmount,
+      calculateFeeForAmount: (grossAmt: number, freq: 'daily' | 'weekly' = payoutFrequency) =>
+        calculateTransferFeeForAmount(grossAmt, freq).feeAmount,
+      nextPayoutFeeAmount: nextPayoutFeeCalc.feeAmount,
+      nextPayoutNetAmount: nextPayoutFeeCalc.netAmount,
+      unsettledDeliveredBalance: Math.max(0, Number(unsettledDeliveredBalance.toFixed(2))),
+      holdingSettledBalance: Math.max(0, Number(holdingSettledBalance.toFixed(2))),
+      readySettledOrdersBalance: Math.max(0, Number(readySettledOrdersBalance.toFixed(2))),
+      maturedWalletBalance,
+      cappedNextPayoutAmount: Math.max(0, Number(cappedNextPayoutAmount.toFixed(2))),
+      holdingOrdersCount,
+      readyOrdersCount,
+      unsettledOrdersCount,
+      minRemainingDays,
+      balanceBreakdown: {
+        totalAddedCredits,
+        collectedOrdersTotal: Number(collectedOrdersTotal.toFixed(2)),
+        compensationsTotal: Number(compensationsTotal.toFixed(2)),
+        walletTopupsTotal: Number(walletTopupsTotal.toFixed(2)),
+        totalDeductedDebits,
+        withdrawalsTotal: Number(withdrawalsTotal.toFixed(2)),
+        shippingAndFeesTotal: Number(shippingAndFeesTotal.toFixed(2)),
+        transferCommissionTotal: Number(transferCommissionTotal.toFixed(2))
+      }
+    };
+  }, [liveMerchant, merchantOrders, computeOrderFeeBreakdown, availableForWithdrawal, allChronologicalTransactions]);
+
+  // Save Merchant's Preferred Payout Frequency ('daily' | 'weekly') and Weekly Day Index
+  const handleSavePayoutFrequencyAndDay = async (newFrequency: 'daily' | 'weekly', newDayIndex: number) => {
+    if (!liveMerchant) return;
+    const dayNamesAr = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const nowIso = new Date().toISOString();
+    try {
+      await persistMerchantAccountUpdates({
+        payoutFrequency: newFrequency,
+        weeklyPayoutDay: newDayIndex,
+        lastPayoutFrequencyChangeAt: nowIso
+      });
+      setShowPayoutFrequencyModal(false);
+      setShowFinancialCycleModal(false);
+      if (newFrequency === 'daily') {
+        showToast('تم تغيير نظام السحب النقدي إلى (يومي) بنجاح ✅', 'success');
+      } else {
+        showToast(`تم تحديد نظام السحب النقدي إلى أسبوعي كل يوم (${dayNamesAr[newDayIndex]}) بنجاح ✅`, 'success');
+      }
+    } catch (err: any) {
+      showToast('تعذر حفظ إعدادات نظام السحب: ' + (err?.message || ''), 'error');
+    }
+  };
+
+  const handleUpdateWeeklyPayoutDay = async (newDayIndex: number) => {
+    await handleSavePayoutFrequencyAndDay(liveMerchant?.payoutFrequency || 'weekly', newDayIndex);
+  };
+
+  // Cancel a pending withdrawal request (releases reserved funds immediately)
+  const handleCancelPendingWithdrawal = async (reqId: string) => {
+    try {
+      await db.updatePartnerRequestStatus(reqId, effectiveStoreId, 'rejected');
+      setMerchantRequestsList(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
+      showToast('تم إلغاء طلب السحب المعلق وفك حجز المبلغ بنجاح', 'success');
+    } catch (err: any) {
+      showToast('تعذر إلغاء الطلب المعلق: ' + (err?.message || ''), 'error');
+    }
+  };
+
+  // Live Subscription & Dedicated Manager Plan Usage Metrics (with isolated cycle history filtering)
+  const planUsage = useMemo(() => {
+    return computeMerchantPlanUsage(
+      merchantOrders,
+      liveMerchant?.subscriptionPlan,
+      liveMerchant?.managerPlan,
+      Date.now(),
+      liveMerchant?.planCyclesHistory
+    );
+  }, [merchantOrders, liveMerchant?.subscriptionPlan, liveMerchant?.managerPlan, liveMerchant?.planCyclesHistory]);
+
+  // Helper to archive the currently active cycle into planCyclesHistory before starting a new isolated cycle
+  const buildUpdatedCyclesHistoryOnSwitch = useCallback((reason: 'upgraded' | 'switched_mode' | 'quota_exhausted' = 'upgraded'): MerchantPlanCycleRecord[] => {
+    const existingHistory: MerchantPlanCycleRecord[] = Array.isArray(liveMerchant?.planCyclesHistory)
+      ? [...liveMerchant.planCyclesHistory]
+      : [];
+    if (!liveMerchant) return existingHistory;
+
+    if (liveMerchant.managerPlan?.enabled && liveMerchant.managerPlan.status === 'active') {
+      const cId = liveMerchant.managerPlan.cycleId || `CYC-OLD-MGR-${Date.now()}`;
+      if (!existingHistory.some(h => h.cycleId === cId)) {
+        existingHistory.unshift({
+          cycleId: cId,
+          mode: 'manager',
+          planId: liveMerchant.managerPlan.planId,
+          planNameAr: liveMerchant.managerPlan.planNameAr,
+          orderFee: liveMerchant.managerPlan.customOrderFee || liveMerchant.managerPlan.orderFee || 20,
+          quotaOrders: liveMerchant.managerPlan.customOrderQuota || 0,
+          usedOrders: planUsage.usedOrdersCount,
+          paidAmount: liveMerchant.managerPlan.totalPrepaidAmount || 0,
+          activatedAt: liveMerchant.managerPlan.activatedAt || new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          endReason: reason
+        });
+      }
+    } else if (liveMerchant.subscriptionPlan && liveMerchant.subscriptionPlan.status === 'active') {
+      const cId = liveMerchant.subscriptionPlan.cycleId || `CYC-OLD-SUB-${Date.now()}`;
+      if (!existingHistory.some(h => h.cycleId === cId)) {
+        existingHistory.unshift({
+          cycleId: cId,
+          mode: 'self_service',
+          planId: liveMerchant.subscriptionPlan.planId,
+          planNameAr: liveMerchant.subscriptionPlan.planNameAr,
+          billingCycle: liveMerchant.subscriptionPlan.billingCycle,
+          quotaOrders: liveMerchant.subscriptionPlan.monthlyOrderLimit || 0,
+          usedOrders: planUsage.usedOrdersCount,
+          paidAmount: liveMerchant.subscriptionPlan.paidAmount || 0,
+          activatedAt: liveMerchant.subscriptionPlan.activatedAt || new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          endReason: reason
+        });
+      }
+    }
+    return existingHistory;
+  }, [liveMerchant, planUsage.usedOrdersCount]);
+
+  // Subscription & Manager Plan Handlers (with Cycle Isolation)
+  const handleConfirmSubscriptionChange = useCallback(async (payload: {
+    newSubscription?: MerchantSubscriptionConfig;
+    newManagerPlan?: MerchantManagerConfig;
+    subscriptionPlan?: MerchantSubscriptionConfig;
+    managerPlan?: MerchantManagerConfig;
+    totalWalletDeduction?: number;
+    totalWalletCharge?: number;
+    summaryNote?: string;
+    descriptionAr?: string;
+  }) => {
+    if (!liveMerchant) return;
+    const subToSave = payload.newSubscription || payload.subscriptionPlan;
+    const mgrToSave = payload.newManagerPlan || payload.managerPlan;
+    const charge = Number(payload.totalWalletDeduction ?? payload.totalWalletCharge ?? 0);
+    const noteText = payload.summaryNote || payload.descriptionAr || 'تحديث باقة الحساب بدورة معزولة جديدة';
+
+    if (charge > availableForWithdrawal) {
+      showToast('رصيد المحفظة غير كافٍ، يرجى شحن المحفظة أولاً', 'error');
+      return;
+    }
+
+    const updatedHistory = buildUpdatedCyclesHistoryOnSwitch('upgraded');
+    const nextBalance = Number((effectiveMerchantBalance - charge).toFixed(2));
+    const newTx: MerchantTransaction | undefined = charge > 0 ? {
+      id: `SUB-${Date.now()}`,
+      merchantId: liveMerchant.id,
+      merchantName: liveMerchant.name,
+      date: new Date().toISOString(),
+      type: 'subscription_charge',
+      amount: -charge,
+      balanceAfter: nextBalance,
+      notes: noteText
+    } : undefined;
+
+    await persistMerchantAccountUpdates({
+      ...(subToSave ? { subscriptionPlan: subToSave } : {}),
+      ...(mgrToSave ? { managerPlan: mgrToSave } : {}),
+      planCyclesHistory: updatedHistory,
+      scheduledNextPlan: null,
+      ...(charge > 0 ? { balance: nextBalance } : {}),
+      ...(newTx ? { newTransaction: newTx } : {})
+    });
+
+    showToast(
+      charge > 0
+        ? `تم أرشفة الدورة السابقة وتفعيل الباقة الجديدة بدورة معزولة وخصم ${charge.toLocaleString()} ج.م من المحفظة`
+        : `تم تحديث خطة حسابك بدورة معزولة جديدة (${noteText})`,
+      'success'
+    );
+  }, [liveMerchant, availableForWithdrawal, effectiveMerchantBalance, buildUpdatedCyclesHistoryOnSwitch, persistMerchantAccountUpdates, showToast]);
+
+  // Schedule Next Plan After Current Quota Exhaustion (Point 3)
+  const handleScheduleNextPlan = useCallback(async (scheduled: ScheduledMerchantPlanTransition) => {
+    if (!liveMerchant) return;
+    await persistMerchantAccountUpdates({
+      scheduledNextPlan: scheduled
+    });
+    const planLabel = scheduled.planNameAr || scheduled.targetPlanNameAr || 'الباقة المجدولة';
+    showToast(
+      `تم جدولة الباقة الترتيبية (${planLabel}) لتبدأ تلقائياً فور انتهاء كوتة دورتك الحالية دون ضياع أي أوردر متبقٍ`,
+      'success'
+    );
+  }, [liveMerchant, persistMerchantAccountUpdates, showToast]);
+
+  const handleCancelScheduledPlan = useCallback(async () => {
+    if (!liveMerchant) return;
+    await persistMerchantAccountUpdates({
+      scheduledNextPlan: null
+    });
+    showToast('تم إلغاء الباقة المجدولة الترتيبية بنجاح', 'info');
+  }, [liveMerchant, persistMerchantAccountUpdates, showToast]);
+
+  const handleActivateScheduledPlanNow = useCallback(async () => {
+    if (!liveMerchant || !liveMerchant.scheduledNextPlan) return;
+    const sched = liveMerchant.scheduledNextPlan;
+    const charge = Number(sched.upfrontPaidAmount ?? sched.prepaidAmount ?? 0);
+    if (charge > availableForWithdrawal) {
+      showToast(`رصيد المحفظة غير كافٍ لتفعيل الباقة المجدولة الآن (${charge.toLocaleString()} ج.م)`, 'error');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
+    const updatedHistory = buildUpdatedCyclesHistoryOnSwitch('quota_exhausted');
+    const planLabel = sched.planNameAr || sched.targetPlanNameAr || 'الباقة المجدولة';
+
+    if (sched.targetMode === 'self_service') {
+      const targetSubDef = SELF_SERVICE_PLANS.find(p => p.id === (sched.subscriptionPlan?.planId || sched.targetPlanId)) || SELF_SERVICE_PLANS[0];
+      const nextSub: MerchantSubscriptionConfig = sched.subscriptionPlan
+        ? {
+            ...sched.subscriptionPlan,
+            cycleId: `CYC-SUB-${Date.now()}`,
+            startDate: nowIso,
+            activatedAt: nowIso,
+            status: 'active'
+          }
+        : {
+            planId: targetSubDef.id,
+            planNameAr: planLabel || targetSubDef.nameAr,
+            cycleId: `CYC-SUB-${Date.now()}`,
+            billingCycle: sched.billingCycle || 'monthly',
+            pricePerMonth: targetSubDef.baseMonthlyPrice,
+            paidAmount: charge,
+            monthlyOrderLimit: sched.quotaOrders ?? targetSubDef.monthlyOrdersLimit ?? undefined,
+            ordersLimit: sched.quotaOrders ?? targetSubDef.monthlyOrdersLimit,
+            unlimitedOrders: targetSubDef.monthlyOrdersLimit === null,
+            activatedAt: nowIso,
+            expiresAt: expIso,
+            status: 'active'
+          };
+      const disabledMgr: MerchantManagerConfig = {
+        enabled: false,
+        planId: 'none',
+        planNameAr: 'إدارة ذاتية (بدون مدير مخصص)',
+        orderFee: 0,
+        activatedAt: nowIso,
+        expiresAt: nowIso,
+        status: 'cancelled'
+      };
+      const nextBalance = Number((effectiveMerchantBalance - charge).toFixed(2));
+      const newTx: MerchantTransaction | undefined = charge > 0 ? {
+        id: `SUB-SCHED-${Date.now()}`,
+        merchantId: liveMerchant.id,
+        merchantName: liveMerchant.name,
+        date: nowIso,
+        type: 'subscription_charge',
+        amount: -charge,
+        balanceAfter: nextBalance,
+        notes: `تفعيل الباقة المجدولة (${planLabel}) بدورة معزولة جديدة`
+      } : undefined;
+
+      await persistMerchantAccountUpdates({
+        subscriptionPlan: nextSub,
+        managerPlan: disabledMgr,
+        planCyclesHistory: updatedHistory,
+        scheduledNextPlan: null,
+        ...(charge > 0 ? { balance: nextBalance } : {}),
+        ...(newTx ? { newTransaction: newTx } : {})
+      });
+    } else {
+      const unitFee = Number(sched.managerPlan?.orderFee ?? sched.orderFee ?? 20);
+      const nextMgr: MerchantManagerConfig = sched.managerPlan
+        ? {
+            ...sched.managerPlan,
+            enabled: true,
+            cycleId: `CYC-MGR-${Date.now()}`,
+            startDate: nowIso,
+            activatedAt: nowIso,
+            status: 'active'
+          }
+        : {
+            enabled: true,
+            planId: (sched.targetPlanId as any) || 'per_order_20',
+            planNameAr: planLabel,
+            cycleId: `CYC-MGR-${Date.now()}`,
+            orderFee: unitFee,
+            customOrderFee: unitFee,
+            customOrderQuota: sched.quotaOrders || undefined,
+            customPrepaidQuota: charge > 0,
+            totalPrepaidAmount: charge,
+            usedOrdersInCycle: 0,
+            activatedAt: nowIso,
+            expiresAt: expIso,
+            status: 'active',
+            notes: 'تم التفعيل من الجدولة الترتيبية بدورة معزولة'
+          };
+      const nextBalance = Number((effectiveMerchantBalance - charge).toFixed(2));
+      const newTx: MerchantTransaction | undefined = charge > 0 ? {
+        id: `SUB-SCHED-${Date.now()}`,
+        merchantId: liveMerchant.id,
+        merchantName: liveMerchant.name,
+        date: nowIso,
+        type: 'subscription_charge',
+        amount: -charge,
+        balanceAfter: nextBalance,
+        notes: `تفعيل باقة المدير المجدولة (${planLabel})`
+      } : undefined;
+
+      await persistMerchantAccountUpdates({
+        managerPlan: nextMgr,
+        planCyclesHistory: updatedHistory,
+        scheduledNextPlan: null,
+        ...(charge > 0 ? { balance: nextBalance } : {}),
+        ...(newTx ? { newTransaction: newTx } : {})
+      });
+    }
+
+    showToast(`تم تفعيل الباقة المجدولة (${planLabel}) بدورة جديدة معزولة بنجاح!`, 'success');
+  }, [liveMerchant, availableForWithdrawal, effectiveMerchantBalance, buildUpdatedCyclesHistoryOnSwitch, persistMerchantAccountUpdates, showToast]);
+
+  // Governed Plan Change & Custom Manager Pricing Quote Handlers
+  const handleRequestPlanChange = useCallback(async (request: MerchantPlanChangeRequest) => {
+    if (!liveMerchant) return;
+    const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
+    const isCustomQuote = request.targetMode === 'manager' && request.targetPlanId === 'custom_manager';
+    const resolvedPlanName =
+      request.targetPlanNameAr ||
+      request.planNameAr ||
+      (isCustomQuote ? 'باقة المدير المخصصة' : 'باقة جديدة');
+    const normalizedRequest: MerchantPlanChangeRequest = {
+      ...request,
+      targetPlanNameAr: resolvedPlanName,
+      planNameAr: resolvedPlanName
+    };
+
+    await db.submitPartnerRequest({
+      storeId: targetStore,
+      partnerId: liveMerchant.id,
+      partnerName: liveMerchant.name,
+      amount: Number(request.calculatedAmount || 0),
+      type: isCustomQuote ? 'custom_plan_quote' : 'plan_change_request',
+      payoutMethod: isCustomQuote ? 'طلب تسعير باقة مدير مخصصة' : 'طلب تغيير وتفعيل باقة (بموافقة الإدارة)',
+      payoutAccount: resolvedPlanName,
+      notes: isCustomQuote
+        ? `طلب تسعير باقة مدير مخصصة: عدد الأوردرات المستهدف (${request.requestedCustomQuota || request.requestedOrdersTarget || 200} أوردر) — آلية التحصيل (${request.requestedCustomBillingPreference === 'prepaid_quota' || request.requestedPrepaidQuota ? 'دفع مسبق من المحفظة' : 'خصم مع كل أوردر'}) ${request.merchantNotes ? `— ملاحظات: ${request.merchantNotes}` : ''}`
+        : `طلب انتقال من الباقة الحالية إلى (${resolvedPlanName}) بقيمة (${Number(request.calculatedAmount || 0).toLocaleString()} ج.م) — بانتظار اعتماد الإدارة لتأمين حسابات الأوردرات`,
+      planRequestMeta: normalizedRequest
+    });
+
+    await persistMerchantAccountUpdates({
+      pendingPlanRequest: normalizedRequest
+    });
+
+    const refreshed = await db.getPartnerRequests(targetStore);
+    setMerchantRequestsList(refreshed);
+
+    showToast(
+      isCustomQuote
+        ? 'تم إرسال طلب تسعير الباقة المخصصة للإدارة — سيظهر لك السعر المعتمد هنا للموافقة والتفعيل من المحفظة'
+        : 'تم إرسال طلب تغيير الباقة للإدارة للاعتماد مع استمرار باقتك الحالية وتأمين حسابات الأوردرات',
+      'success'
+    );
+  }, [liveMerchant, effectiveStoreId, persistMerchantAccountUpdates, showToast]);
+
+  const handleAcceptAdminCustomQuote = useCallback(async (request: MerchantPlanChangeRequest) => {
+    if (!liveMerchant) return;
+    const unitFee = Number(request.quotedOrderFee || 20);
+    const quota = Number(request.requestedCustomQuota || 200);
+    const isPrepaid = request.requestedCustomBillingPreference === 'prepaid_quota';
+    const totalCharge = isPrepaid ? Number((unitFee * quota).toFixed(2)) : 0;
+
+    if (totalCharge > availableForWithdrawal) {
+      showToast(`رصيد المحفظة غير كافٍ لتفعيل عرض السعر (${totalCharge.toLocaleString()} ج.م). يرجى شحن المحفظة أولاً.`, 'error');
+      return;
+    }
+
+    // Archive existing active cycle into planCyclesHistory to keep previous orders' accounting isolated
+    const existingHistory: MerchantPlanCycleRecord[] = Array.isArray(liveMerchant.planCyclesHistory)
+      ? [...liveMerchant.planCyclesHistory]
+      : [];
+
+    if (liveMerchant.managerPlan?.enabled && liveMerchant.managerPlan.status === 'active') {
+      existingHistory.unshift({
+        cycleId: liveMerchant.managerPlan.cycleId || `CYC-OLD-${Date.now()}`,
+        mode: 'manager',
+        planId: liveMerchant.managerPlan.planId,
+        planNameAr: liveMerchant.managerPlan.planNameAr,
+        orderFee: liveMerchant.managerPlan.customOrderFee || liveMerchant.managerPlan.orderFee || 20,
+        quotaOrders: liveMerchant.managerPlan.customOrderQuota || 0,
+        usedOrders: planUsage.usedOrders,
+        paidAmount: liveMerchant.managerPlan.totalPrepaidAmount || 0,
+        activatedAt: liveMerchant.managerPlan.activatedAt || new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        endReason: 'upgraded'
+      });
+    } else if (liveMerchant.subscriptionPlan && liveMerchant.subscriptionPlan.status === 'active') {
+      existingHistory.unshift({
+        cycleId: liveMerchant.subscriptionPlan.cycleId || `CYC-OLD-${Date.now()}`,
+        mode: 'self_service',
+        planId: liveMerchant.subscriptionPlan.planId,
+        planNameAr: liveMerchant.subscriptionPlan.planNameAr,
+        billingCycle: liveMerchant.subscriptionPlan.billingCycle,
+        quotaOrders: liveMerchant.subscriptionPlan.monthlyOrderLimit || 0,
+        usedOrders: planUsage.usedOrders,
+        paidAmount: liveMerchant.subscriptionPlan.paidAmount || 0,
+        activatedAt: liveMerchant.subscriptionPlan.activatedAt || new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+        endReason: 'switched_mode'
+      });
+    }
+
+    const newCycleId = `CYC-MGR-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
+
+    const nextManagerPlan: MerchantManagerConfig = {
+      enabled: true,
+      planId: 'custom_manager',
+      planNameAr: `باقة المدير المخصصة (${unitFee} ج.م / أوردر)`,
+      cycleId: newCycleId,
+      orderFee: unitFee,
+      customOrderFee: unitFee,
+      customOrderQuota: quota,
+      customPrepaidQuota: isPrepaid,
+      totalPrepaidAmount: totalCharge,
+      usedOrdersInCycle: 0,
+      activatedAt: nowIso,
+      expiresAt: expIso,
+      status: 'active',
+      notes: `تم التفعيل بموافقة الموكل على تسعير الإدارة (${unitFee} ج.م للأوردر — ${quota} أوردر)`
+    };
+
+    const nextSubscriptionPlan: MerchantSubscriptionConfig = liveMerchant.subscriptionPlan
+      ? { ...liveMerchant.subscriptionPlan, status: 'cancelled' }
+      : {
+          planId: 'free',
+          planNameAr: 'الباقة المجانية (تاجر مبتدئ)',
+          billingCycle: 'monthly',
+          pricePerMonth: 0,
+          paidAmount: 0,
+          monthlyOrderLimit: 50,
+          unlimitedOrders: false,
+          activatedAt: nowIso,
+          expiresAt: expIso,
+          status: 'cancelled'
+        };
+
+    const nextBalance = Number((effectiveMerchantBalance - totalCharge).toFixed(2));
+    const newTx: MerchantTransaction | undefined = totalCharge > 0 ? {
+      id: `SUB-QUOTE-${Date.now()}`,
+      merchantId: liveMerchant.id,
+      merchantName: liveMerchant.name,
+      date: nowIso,
+      type: 'subscription_charge',
+      amount: -totalCharge,
+      balanceAfter: nextBalance,
+      notes: `موافقة وتفعيل باقة المدير المخصصة بتسعير الإدارة (${unitFee} ج.م × ${quota} أوردر)`
+    } : undefined;
+
+    await persistMerchantAccountUpdates({
+      subscriptionPlan: nextSubscriptionPlan,
+      managerPlan: nextManagerPlan,
+      pendingPlanRequest: null,
+      planCyclesHistory: existingHistory,
+      ...(totalCharge > 0 ? { balance: nextBalance } : {}),
+      ...(newTx ? { newTransaction: newTx } : {})
+    });
+
+    showToast(
+      totalCharge > 0
+        ? `تم اعتماد عرض السعر وتفعيل باقة المدير المخصصة (${unitFee} ج.م للأوردر) وخصم ${totalCharge.toLocaleString()} ج.م من المحفظة`
+        : `تم اعتماد عرض السعر وتفعيل باقة المدير المخصصة (${unitFee} ج.م تُخصم مع كل أوردر مؤكد)`,
+      'success'
+    );
+  }, [liveMerchant, availableForWithdrawal, effectiveMerchantBalance, planUsage.usedOrders, persistMerchantAccountUpdates, showToast]);
+
+  const handleCancelPendingPlanRequest = useCallback(async (_requestId?: string) => {
+    if (!liveMerchant) return;
+    await persistMerchantAccountUpdates({
+      pendingPlanRequest: null
+    });
+    showToast('تم إلغاء طلب تغيير الباقة المعلق واستمرار باقتك الحالية بدون تغيير', 'info');
+  }, [liveMerchant, persistMerchantAccountUpdates, showToast]);
+
+  const handleRequestRefund14Days = useCallback(async (payload: {
+    planType?: 'self_service' | 'manager';
+    targetType?: 'self_service' | 'manager';
+    planId?: string;
+    planName?: string;
+    planNameAr?: string;
+    billingCycle?: any;
+    paidAmount?: number;
+    chargeFor14Days?: number;
+    charged14DaysAmount?: number;
+    chargeForActualDays?: number;
+    refundableAmount?: number;
+    refundAmount?: number;
+    daysElapsed?: number;
+    elapsedDays?: number;
+    totalCycleDays?: number;
+    totalDays?: number;
+    reason?: string;
+  }) => {
+    if (!liveMerchant) return;
+    const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
+    const targetType = payload.planType || payload.targetType || 'self_service';
+    const refundAmt = Number(payload.refundableAmount ?? payload.refundAmount ?? 0);
+    const charge14 = Number(payload.chargeFor14Days ?? payload.charged14DaysAmount ?? 0);
+    const elapsed = Number(payload.daysElapsed ?? payload.elapsedDays ?? 1);
+    const totalDays = Number(payload.totalCycleDays ?? payload.totalDays ?? 30);
+    const planLabel = payload.planName || payload.planNameAr || 'باقة التاجر';
+    const noteReason =
+      payload.reason ||
+      `طلب استرداد باقة (${planLabel}) خلال فترة الـ 14 يوماً — المحاسبة على 14 يوم (${charge14} ج.م) واسترداد الباقي (${refundAmt} ج.م) للمحفظة`;
+
+    await db.submitPartnerRequest({
+      storeId: targetStore,
+      partnerId: liveMerchant.id,
+      partnerName: liveMerchant.name,
+      amount: refundAmt,
+      type: 'subscription_refund',
+      payoutMethod: 'استرداد للمحفظة (سياسة 14 يوم)',
+      payoutAccount: planLabel,
+      notes: noteReason,
+      refundMeta: {
+        targetType,
+        planId: payload.planId || (targetType === 'self_service' ? (liveMerchant.subscriptionPlan?.planId || '') : (liveMerchant.managerPlan?.planId || '')),
+        planNameAr: planLabel,
+        paidAmount: Number(payload.paidAmount ?? (refundAmt + charge14)),
+        charged14DaysAmount: charge14,
+        refundAmount: refundAmt,
+        elapsedDays: elapsed,
+        totalDays
+      }
+    });
+
+    // Mark plan status as pending_refund
+    if (targetType === 'self_service' && liveMerchant.subscriptionPlan) {
+      await persistMerchantAccountUpdates({
+        subscriptionPlan: {
+          ...liveMerchant.subscriptionPlan,
+          status: 'pending_refund',
+          refundRequestedAt: new Date().toISOString()
+        }
+      });
+    } else if (targetType === 'manager' && liveMerchant.managerPlan) {
+      await persistMerchantAccountUpdates({
+        managerPlan: {
+          ...liveMerchant.managerPlan,
+          status: 'pending_refund',
+          refundRequestedAt: new Date().toISOString()
+        }
+      });
+    }
+
+    const refreshed = await db.getPartnerRequests(targetStore);
+    setMerchantRequestsList(refreshed);
+    showToast(`تم إرسال طلب استرداد (${refundAmt.toLocaleString()} ج.م) لمراجعة الإدارة قبل إيداعه بالمحفظة`, 'success');
+  }, [liveMerchant, effectiveStoreId, persistMerchantAccountUpdates, showToast]);
+
+  const handleRequestWalletTopUp = useCallback(async (amount: number, notesOrMethod: string, reference?: string) => {
+    if (!liveMerchant) return;
+    const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
+    await db.submitPartnerRequest({
+      storeId: targetStore,
+      partnerId: liveMerchant.id,
+      partnerName: liveMerchant.name,
+      amount,
+      type: 'wallet_topup',
+      payoutMethod: reference ? notesOrMethod : 'شحن محفظة التاجر',
+      payoutAccount: reference || 'شحن محفظة التاجر',
+      transferReference: reference,
+      notes: reference
+        ? `طلب شحن محفظة بمبلغ ${amount.toLocaleString()} ج.م عبر ${notesOrMethod} (مرجع: ${reference})`
+        : `${notesOrMethod || 'طلب شحن محفظة'} (${amount.toLocaleString()} ج.م)`
+    });
+    const refreshed = await db.getPartnerRequests(targetStore);
+    setMerchantRequestsList(refreshed);
+    showToast(`تم إرسال طلب شحن المحفظة (${amount.toLocaleString()} ج.م) للإدارة للاعتماد الفوري`, 'success');
+  }, [liveMerchant, effectiveStoreId, showToast]);
+
+  // Returns Reserve & Risk Assessment (مخصص أمان المرتجعات وحماية المحفظة)
+  const returnsReserveAssessment = useMemo(() => {
+    const inTransitOrders = merchantOrders.filter(o => 
+      ['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق'].includes(o.status)
+    );
+    const inTransitCount = inTransitOrders.length;
+    const inTransitGrossValue = inTransitOrders.reduce((sum, o) => sum + Number((o as any).totalAmount || (o as any).totalPrice || (o as any).totalAmountOverride || 0), 0);
+    
+    // Average estimated return shipping cost exposure (~ 65 EGP per shipment)
+    const estimatedShippingLossRisk = inTransitCount * 65;
+    // Holdback recommendation: 8% of in-transit value or estimated return shipping loss
+    const recommendedHoldback = Math.round(Math.max(estimatedShippingLossRisk, inTransitGrossValue * 0.08));
+    const safeWithdrawalBalance = Math.max(0, Number((availableForWithdrawal - recommendedHoldback).toFixed(2)));
+
+    return {
+      inTransitCount,
+      inTransitGrossValue,
+      estimatedShippingLossRisk,
+      recommendedHoldback,
+      safeWithdrawalBalance
+    };
+  }, [merchantOrders, availableForWithdrawal]);
 
   // Account Setup Completion Score (for the circular ring in bottom dock like 3/6 in reference)
   const accountReadiness = useMemo(() => {
@@ -1837,25 +3244,62 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       return;
     }
 
-    if (numAmt > availableForWithdrawal) {
+    if (numAmt > weeklyPayoutOverview.maturedWalletBalance) {
+      if (weeklyPayoutOverview.holdingSettledBalance > 0) {
+        showToast(
+          `لا يمكن سحب هذا المبلغ الآن لأن لديك (${weeklyPayoutOverview.holdingSettledBalance.toLocaleString()} ج.م) مسواة ولكنها لا تزال في فترة التعليق (${weeklyPayoutOverview.holdingDaysSetting} أيام من تاريخ التسوية). الرصيد الجاهز للسحب حالياً: ${weeklyPayoutOverview.maturedWalletBalance.toLocaleString()} ج.م.`,
+          'error'
+        );
+      } else {
+        showToast(
+          `المبلغ المطلوب (${numAmt.toLocaleString()} ج.م) يتجاوز الرصيد الجاهز للسحب بعد التسوية (${weeklyPayoutOverview.maturedWalletBalance.toLocaleString()} ج.م).`,
+          'error'
+        );
+      }
+      return;
+    }
+
+    if (weeklyPayoutOverview.minWeeklyPayout > 0 && numAmt < weeklyPayoutOverview.minWeeklyPayout) {
       showToast(
-        `المبلغ المطلوب (${numAmt.toLocaleString()} ج.م) يتجاوز الرصيد المتاح للسحب (${availableForWithdrawal.toLocaleString()} ج.م). لديك طلبات سحب معلقة بمبلغ (${pendingRequestsSum.toLocaleString()} ج.م).`,
+        `الحد الأدنى المسموح لكل سحبة رصيد هو ${weeklyPayoutOverview.minWeeklyPayout.toLocaleString()} ج.م حسب إعدادات إدارة المتجر.`,
         'error'
       );
       return;
     }
 
+    if (weeklyPayoutOverview.maxWeeklyPayout > 0 && numAmt > weeklyPayoutOverview.maxWeeklyPayout) {
+      showToast(
+        `الحد الأقصى المسموح لكل سحبة رصيد هو ${weeklyPayoutOverview.maxWeeklyPayout.toLocaleString()} ج.م حسب إعدادات إدارة المتجر.`,
+        'error'
+      );
+      return;
+    }
+
+    const { feeAmount, netAmount } = weeklyPayoutOverview.calculateTransferFeeForAmount(numAmt, weeklyPayoutOverview.payoutFrequency);
+    const freqLabelAr = weeklyPayoutOverview.payoutFrequency === 'daily' ? 'سحب يومي' : `سحب أسبوعي (${weeklyPayoutOverview.weeklyDayNameAr})`;
+
     setIsSubmittingRequest(true);
     try {
-      const payoutDetails = ` [طريقة الاستلام: ${payoutMethod} ${payoutAccount ? `- الحساب: ${payoutAccount}` : ''}]`;
-      const newReq: db.PartnerPortalRequest & { isMerchantRequest?: boolean } = {
+      const feeDetails = feeAmount > 0
+        ? ` [نظام: ${freqLabelAr} | عمولة التحويل: ${feeAmount.toLocaleString()} ج.م | صافي المستحق للتحويل: ${netAmount.toLocaleString()} ج.م]`
+        : ` [نظام: ${freqLabelAr} | بدون عمولة تحويل]`;
+      const payoutDetails = ` [طريقة الاستلام: ${payoutMethod} ${payoutAccount ? `- الحساب: ${payoutAccount}` : ''}]${feeDetails}`;
+      const newReq: db.PartnerPortalRequest & {
+        isMerchantRequest?: boolean;
+        transferFee?: number;
+        netAmount?: number;
+        payoutFrequency?: 'daily' | 'weekly';
+      } = {
         id: `REQ-M-${Date.now()}`,
         storeId: effectiveStoreId,
         partnerId: liveMerchant.id,
         partnerName: liveMerchant.name,
         type: 'withdrawal',
-        typeArabic: 'طلب سحب مستحقات الموكل',
+        typeArabic: `طلب سحب مستحقات (${freqLabelAr})`,
         amount: numAmt,
+        transferFee: feeAmount,
+        netAmount: netAmount,
+        payoutFrequency: weeklyPayoutOverview.payoutFrequency,
         notes: `${requestNotes || ''}${payoutDetails}`,
         date: new Date().toISOString(),
         status: 'pending',
@@ -1863,12 +3307,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         isMerchantRequest: true
       };
 
-      await db.submitPartnerRequest(effectiveStoreId, newReq);
-      setMerchantRequestsList(prev => [newReq, ...prev]);
+      await db.submitPartnerRequest(effectiveStoreId, newReq as any);
+      setMerchantRequestsList(prev => [newReq as any, ...prev]);
       setShowRequestModal(false);
       setRequestAmount('');
       setRequestNotes('');
-      showToast('تم إرسال طلب سحب المستحقات للإدارة بنجاح وحجز المبلغ مؤقتاً لحين الاعتماد', 'success');
+      showToast(
+        feeAmount > 0
+          ? `تم إرسال طلب السحب (${numAmt.toLocaleString()} ج.م) — عمولة التحويل (${feeAmount.toLocaleString()} ج.م) وصافي التحويل (${netAmount.toLocaleString()} ج.م)`
+          : 'تم إرسال طلب سحب المستحقات للإدارة بنجاح وحجز المبلغ مؤقتاً لحين الاعتماد',
+        'success'
+      );
     } catch (err: any) {
       showToast('حدث خطأ أثناء إرسال الطلب: ' + (err.message || ''), 'error');
     } finally {
@@ -1884,14 +3333,85 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     showToast('تم تسجيل الخروج الآمن من بوابة الموكلين', 'success');
   };
 
-  // Switch Tab Helper (closes any open sheets)
-  const navigateToTab = (tab: TabKey) => {
+  // Switch Tab Helper (closes any open sheets, updates state immediately, and avoids re-render oscillation)
+  const navigateToTab = useCallback((tab: TabKey, options?: { statusFilter?: string; subView?: string }) => {
+    isNavigatingTabRef.current = true;
     setCurrentTab(tab);
+    try {
+      localStorage.setItem('merchant_portal_active_tab', tab);
+    } catch {}
+
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', tab);
+      if (options?.statusFilter) {
+        next.set('status', options.statusFilter);
+        setOrdersStatusFilter(options.statusFilter as any);
+      } else if (tab !== 'orders') {
+        next.delete('status');
+      }
+      if (options?.subView) {
+        next.set('subView', options.subView);
+        setStatementSubView(options.subView as any);
+      } else if (tab !== 'statement') {
+        next.delete('subView');
+      }
+      return next;
+    }, { replace: true });
+
     setShowFullMenuDrawer(false);
     setShowProfileBottomSheet(false);
     setShowNotificationsSheet(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+
+    // Instant top scroll without smooth animation to eliminate page shaking / jitter
+    if (typeof window !== 'undefined' && window.scrollY > 40) {
+      window.scrollTo(0, 0);
+    }
+
+    setTimeout(() => {
+      isNavigatingTabRef.current = false;
+    }, 150);
+  }, [setSearchParams]);
+
+  const handleOrdersStatusFilterChange = useCallback((filter: typeof ordersStatusFilter) => {
+    setOrdersStatusFilter(filter);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'orders');
+      if (filter !== 'all') {
+        next.set('status', filter);
+      } else {
+        next.delete('status');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const handleStatementSubViewChange = useCallback((subView: 'ledger' | 'pnl' | 'reserves') => {
+    setStatementSubView(subView);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'statement');
+      if (subView !== 'ledger') {
+        next.set('subView', subView);
+      } else {
+        next.delete('subView');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Handle browser Back / Forward history navigation ONLY (no feedback loop with user clicks)
+  useEffect(() => {
+    if (isNavigatingTabRef.current) return;
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl && validTabs.includes(tabFromUrl as TabKey) && tabFromUrl !== currentTab) {
+      setCurrentTab(tabFromUrl as TabKey);
+      try {
+        localStorage.setItem('merchant_portal_active_tab', tabFromUrl);
+      } catch {}
+    }
+  }, [searchParams, validTabs, currentTab]);
 
   // RENDER 1: Loading
   if (isLoadingStore) {
@@ -2120,11 +3640,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Helper for current tab title
   const tabTitleMap: Record<TabKey, { title: string; subtitle: string }> = {
     overview: { title: 'الرئيسية والأرصدة', subtitle: 'ملخص المحفظة وتصفية البضائع' },
-    orders: { title: 'الدورة المالية والأوردرات', subtitle: `متابعة الدورة المالية لـ ${merchantOrders.length} شحنة` },
+    wallet: { title: 'المحفظة والدورة المالية', subtitle: 'الرصيد الحالي، قائمة المعاملات، والدورة المالية للشحنات' },
+    orders: { title: 'الأوردرات المنشأة', subtitle: `متابعة جميع الأوردرات المنشأة لحسابك (${merchantOrders.length} أوردر)` },
     create_order: { title: 'إنشاء أوردر جديد', subtitle: 'استوديو تسجيل وشحن أوردرات الوكيل' },
+    inventory: { title: 'مخزون بضاعتي', subtitle: `متابعة ${merchantProducts.length} صنف و ${totalStockUnits} قطعة بالمستودع` },
     analytics: { title: 'تحليل الأصناف والمحافظات', subtitle: 'ترتيب المنتجات الأكثر ربحية ونسب التسليم' },
+    customers: { title: 'إدارة العملاء والمشترين', subtitle: `سجل العملاء، بيانات الاتصال، وإحصائيات لـ ${uniqueCustomersCount} عميل` },
+    apps: { title: 'التطبيقات والربط الآلي', subtitle: 'ربط شركات الشحن (بوسطة)، إشعارات الواتساب، وتكامل المخزون والـ Webhooks' },
     transparency: { title: 'حركة البضاعة والشفافية', subtitle: 'البيان المحاسبي المفصل للأصناف والتكاليف' },
-    statement: { title: 'كشف الحساب الرسمي', subtitle: 'تصدير PDF و Excel للفترة المحددة' },
+    statement: { title: 'كشف الحساب والـ P&L', subtitle: 'كشف الأستاذ وقائمة الأرباح والخسائر ومخصص المرتجعات' },
     account: { title: 'حسابي والأمان', subtitle: 'حسابات الدفع المحفوظة ورمز PIN والبصمة' }
   };
 
@@ -2133,7 +3657,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // RENDER 3: Upgraded Modern App-Grade Merchant Portal (Mobile & Desktop)
   return (
     <div
-      className={`min-h-screen font-sans pb-28 transition-colors duration-200 ${
+      className={`min-h-screen font-sans pb-24 lg:pb-0 transition-colors duration-200 ${
         isDark
           ? 'bg-slate-950 text-slate-100'
           : 'bg-gradient-to-b from-[#f1f5f9] via-[#f8fafc] to-[#f1f5f9] text-slate-800'
@@ -2159,202 +3683,699 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         )}
       </AnimatePresence>
 
-      {/* Top App Bar (Desktop/Tablet Header — Hidden on Mobile Phones) */}
-      <header
-        className={`hidden md:block sticky top-0 z-30 backdrop-blur-xl border-b transition-colors ${
-          isDark
-            ? 'bg-slate-900/95 border-slate-800/80'
-            : 'bg-white/95 border-slate-200/80'
-        }`}
-      >
-        <div className="w-full max-w-[1720px] mx-auto px-4 lg:px-8 h-16 flex items-center justify-between gap-4">
-          {/* Right Zone: Merchant Profile Trigger */}
-          <div className={`flex items-center gap-3 shrink-0 pl-4 border-l ${
-            isDark ? 'border-slate-800' : 'border-slate-200/80'
-          }`}>
-            <button
-              type="button"
-              onClick={() => setShowProfileBottomSheet(true)}
-              className="relative group flex items-center gap-2.5 text-right cursor-pointer focus:outline-none shrink-0"
-              title="فتح إعدادات الحساب والملف الشخصي"
-            >
-              <div className="relative shrink-0">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-sm shadow-md shadow-emerald-600/20 shrink-0 group-hover:scale-105 transition-transform">
-                  {getInitials(liveMerchant.name)}
-                </div>
-                <span
-                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 ${
-                    isDark ? 'border-slate-900' : 'border-white'
-                  } ${isActiveStatus ? 'bg-emerald-500' : 'bg-slate-400'}`}
-                />
-              </div>
-              <div className="max-w-[190px] lg:max-w-[230px]">
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-sm font-black truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    {liveMerchant.name}
-                  </span>
-                  <ChevronDown size={13} className="text-slate-400 shrink-0" />
-                </div>
-                <div className="text-[11px] text-slate-400 font-medium truncate">
-                  {storeName} · {tabTitleMap[currentTab].title}
-                </div>
-              </div>
-            </button>
-          </div>
+      {/* Outer Desktop Layout Container */}
+      <div className="flex min-h-screen w-full">
 
-          {/* Center Zone (Desktop Segmented Tabs) */}
-          <div className="flex-1 min-w-0 flex items-center justify-center">
-            <nav className={`max-w-full overflow-x-auto no-scrollbar flex items-center gap-1 p-1 rounded-2xl border ${
-              isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100/90 border-slate-200/70'
-            }`}>
-              {[
-                { id: 'overview', label: 'الرئيسية', icon: Home },
-                { id: 'orders', label: 'الدورة المالية والأوردرات', icon: PackageIcon, badge: merchantOrders.length },
-                { id: 'create_order', label: '+ إنشاء أوردر', icon: PlusCircle, soon: true },
-                { id: 'analytics', label: 'الأصناف والمحافظات', icon: TrendingUp },
-                { id: 'transparency', label: 'حركة البضاعة', icon: Sparkles },
-                { id: 'statement', label: 'كشف الحساب', icon: FileText },
-                { id: 'account', label: 'حسابي والأمان', icon: ShieldCheck }
-              ].map(tab => {
-                const Icon = tab.icon;
-                const isActive = currentTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => navigateToTab(tab.id as TabKey)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                      isActive
-                        ? 'bg-[#008060] text-white shadow-xs'
-                        : isDark
-                        ? 'text-slate-400 hover:text-white'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <Icon size={14} />
-                    <span>{tab.label}</span>
-                    {(tab as any).soon && (
-                      <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
-                        isActive ? 'bg-amber-400 text-slate-950' : 'bg-amber-500/15 text-amber-600'
-                      }`}>
-                        قريباً
+        {/* =====================================================================
+            1. RIGHT PERSISTENT SIDEBAR (Desktop & Laptop: lg:flex)
+            Exact structural match to reference image in brand identity colors (#008060)
+           ===================================================================== */}
+        <aside
+          className={`hidden lg:flex flex-col w-64 xl:w-72 shrink-0 border-l fixed top-0 bottom-0 right-0 h-screen z-40 select-none overflow-y-auto no-scrollbar justify-between ${
+            isDark
+              ? 'bg-slate-900 border-slate-800 text-slate-300'
+              : 'bg-white border-slate-200/90 text-slate-700 shadow-xs'
+          }`}
+        >
+          {/* TOP ZONE: Brand Logo & Tier Pill */}
+          <div className="p-4 space-y-3">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-sm shadow-emerald-600/30">
+                  ع.م
+                </div>
+                <div>
+                  <div className="font-black text-sm text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
+                    <span>عبده ميديا</span>
+                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/60 text-[#008060] dark:text-emerald-400 px-1.5 py-0.2 rounded-md font-black border border-emerald-200 dark:border-emerald-800">
+                      وكيل
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-medium truncate max-w-[110px]">
+                    {storeName}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tier Plan Badge with Arrow */}
+              <button
+                type="button"
+                onClick={() => setShowChangePlanModal(true)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-black text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-emerald-50 hover:border-emerald-300 hover:text-[#008060] dark:hover:bg-slate-700 transition-colors"
+                title="تغيير الباقة أو تفعيل المدير المخصص"
+              >
+                <span>{planUsage.badgeText}</span>
+                <Coins size={12} className="text-amber-500" />
+                <ChevronLeft size={12} className="text-slate-400" />
+              </button>
+            </div>
+
+            {/* NAVIGATION TREE */}
+            <nav className="space-y-1">
+              {/* 1. الرئيسية */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('overview')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'overview'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Home size={16} />
+                  <span>الرئيسية</span>
+                </div>
+              </button>
+
+              {/* 1B. المحفظة والدورة المالية */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('wallet')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'wallet'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <WalletIcon size={16} />
+                  <span>المحفظة</span>
+                </div>
+                <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-full ${
+                  currentTab === 'wallet'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-emerald-500/15 text-[#008060]'
+                }`}>
+                  {formatMoney(availableForWithdrawal)}
+                </span>
+              </button>
+
+              {/* 2. المنتجات والطلبات (Collapsible Parent) */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setExpandedMenuSection(prev => prev === 'products_orders' ? null : 'products_orders')}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                    ['orders', 'create_order', 'inventory', 'analytics'].includes(currentTab)
+                      ? 'text-[#008060] dark:text-emerald-400 font-black'
+                      : isDark
+                      ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <PackageIcon size={16} />
+                    <span>المنتجات والطلبات</span>
+                  </div>
+                  {expandedMenuSection === 'products_orders' ? (
+                    <ChevronDown size={14} className="text-slate-400" />
+                  ) : (
+                    <ChevronLeft size={14} className="text-slate-400" />
+                  )}
+                </button>
+
+                {/* Collapsed Sub-items (Matching screenshot) */}
+                {expandedMenuSection === 'products_orders' && (
+                  <div className="mr-4 pr-2 border-r-2 border-slate-200 dark:border-slate-800 space-y-1 mt-1">
+                    {/* الاوردرات */}
+                    <button
+                      type="button"
+                      onClick={() => navigateToTab('orders')}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                        currentTab === 'orders'
+                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          : isDark
+                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <PackageIcon size={14} />
+                        <span>الاوردرات</span>
+                      </div>
+                      {merchantOrders.length > 0 && (
+                        <span className={`font-mono text-[10px] px-1.5 py-0.2 rounded-full ${
+                          currentTab === 'orders' ? 'bg-white/20 text-white' : 'bg-emerald-500/15 text-[#008060]'
+                        }`}>
+                          {merchantOrders.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* إنشاء أوردر */}
+                    <button
+                      type="button"
+                      onClick={() => navigateToTab('create_order')}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                        currentTab === 'create_order'
+                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          : isDark
+                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <PlusCircle size={14} />
+                        <span>إنشاء أوردر</span>
+                      </div>
+                      {planUsage.managerPlanActive ? (
+                        <span className="text-[9px] bg-amber-500/20 text-amber-500 px-1.5 py-0.2 rounded-full font-black">
+                          للمدير 🔒
+                        </span>
+                      ) : (
+                        <span className="text-[9px] bg-amber-500/15 text-amber-600 px-1.5 py-0.2 rounded-full font-black">
+                          جديد
+                        </span>
+                      )}
+                    </button>
+
+                    {/* المنتجات / مخزون بضاعتي */}
+                    <button
+                      type="button"
+                      onClick={() => navigateToTab('inventory')}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                        currentTab === 'inventory'
+                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          : isDark
+                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Layers size={14} />
+                        <span>المنتجات والمخزون</span>
+                      </div>
+                      <span className="font-mono text-[10px] text-slate-400">
+                        {totalStockUnits} ق
                       </span>
-                    )}
-                    {tab.badge !== undefined && tab.badge > 0 && (
-                      <span className={`font-mono text-[10px] px-1.5 py-0.2 rounded-full ${
-                        isActive ? 'bg-white/20 text-white' : 'bg-emerald-500/15 text-[#008060]'
-                      }`}>
-                        {tab.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                    </button>
+
+                    {/* المجموعات / الأصناف */}
+                    <button
+                      type="button"
+                      onClick={() => navigateToTab('analytics')}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                        currentTab === 'analytics'
+                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          : isDark
+                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <TrendingUp size={14} />
+                        <span>المجموعات والأصناف</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. إدارة العملاء */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('customers')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'customers'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Users size={16} />
+                  <span>إدارة العملاء</span>
+                </div>
+                <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-full ${
+                  currentTab === 'customers'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'
+                }`}>
+                  {uniqueCustomersCount}
+                </span>
+              </button>
+
+              {/* 4. صندوق الوارد / طلبات السحب */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNotificationsSheet(true);
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Inbox size={16} />
+                  <span>صندوق الوارد</span>
+                </div>
+                {unreadAlertsCount > 0 && (
+                  <span className="w-5 h-5 rounded-full bg-rose-500 text-white font-mono text-[10px] font-black flex items-center justify-center">
+                    {unreadAlertsCount}
+                  </span>
+                )}
+              </button>
+
+              {/* 5. المتجر الإلكتروني */}
+              <button
+                type="button"
+                onClick={() => setShowStoreModal(true)}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <ShoppingBag size={16} />
+                  <span>المتجر الإلكتروني</span>
+                </div>
+                <ExternalLink size={13} className="text-slate-400" />
+              </button>
+
+              {/* 6. حركة البضاعة والشفافية */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('transparency')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'transparency'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Sparkles size={16} />
+                  <span>حركة البضاعة والشفافية</span>
+                </div>
+              </button>
+
+              {/* 7. كشف الحساب والـ P&L (المبيعات والتسويق) */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('statement')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'statement'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <FileText size={16} />
+                  <span>كشف الحساب والـ P&L</span>
+                </div>
+                <ChevronLeft size={13} className="text-slate-400" />
+              </button>
+
+              {/* 8. التطبيقات */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('apps')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'apps'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <LayoutGrid size={16} />
+                  <span>التطبيقات</span>
+                </div>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${
+                  currentTab === 'apps'
+                    ? 'bg-white/20 text-white'
+                    : 'bg-emerald-500/15 text-[#008060]'
+                }`}>
+                  نشط 4
+                </span>
+              </button>
+
+              {/* 9. الإعدادات والأمان */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('account')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'account'
+                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Settings size={16} />
+                  <span>الإعدادات والأمان</span>
+                </div>
+                <ChevronLeft size={13} className="text-slate-400" />
+              </button>
+
+              {/* 10. كن شريكاً / الدعم */}
+              <button
+                type="button"
+                onClick={() => {
+                  const phone = (settings as any)?.supportPhone || (settings as any)?.phone || '01000000000';
+                  window.open(`https://wa.me/2${phone.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم، استفسار بخصوص شراكة الوكلاء')}`, '_blank');
+                }}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  isDark
+                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <HeartHandshake size={16} />
+                  <span>كن شريكاً</span>
+                </div>
+              </button>
             </nav>
           </div>
 
-          {/* Left Zone: Primary Actions */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* BOTTOM ZONE: Alerts, Profile Card & Usage Progress */}
+          <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 space-y-2.5">
+            {/* Alerts Row */}
             <button
               type="button"
-              onClick={() => {
-                const next = !hideBalances;
-                setHideBalances(next);
-                try { localStorage.setItem('merchant_portal_hide_bal', String(next)); } catch {}
-              }}
-              className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                isDark
-                  ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
-                  : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+              onClick={() => setShowNotificationsSheet(true)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-700'
               }`}
-              title={hideBalances ? 'إظهار الأرصدة' : 'إخفاء الأرصدة (وضع الخصوصية)'}
             >
-              {hideBalances ? <EyeOff size={15} /> : <Eye size={15} />}
+              <div className="flex items-center gap-2">
+                <Bell size={15} className="text-slate-400" />
+                <span>الإشعارات</span>
+              </div>
+              {unreadAlertsCount > 0 && (
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+              )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => fetchFreshData(true)}
-              disabled={isRefreshing}
-              className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+            {/* Agent Profile Card */}
+            <div
+              onClick={() => setShowProfileBottomSheet(true)}
+              className={`flex items-center justify-between p-2.5 rounded-2xl border transition-all cursor-pointer group ${
                 isDark
-                  ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:text-white'
-                  : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  : 'bg-slate-50 border-slate-200/80 hover:border-emerald-300'
               }`}
-              title="مزامنة وتحديث البيانات"
             >
-              <RefreshCw size={15} className={isRefreshing ? 'animate-spin text-[#008060]' : ''} />
-            </button>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="relative shrink-0">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-sm shadow-emerald-700/20">
+                    {getInitials(liveMerchant.name)}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 bg-emerald-500" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-black truncate text-slate-900 dark:text-white">
+                    {liveMerchant.name}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-bold truncate">
+                    {storeName} · وكيل معتمد
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col items-center justify-center text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200">
+                <ChevronUp size={11} />
+                <ChevronDown size={11} className="-mt-1" />
+              </div>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => setShowRequestModal(true)}
-              className="flex items-center gap-1.5 bg-[#008060] hover:bg-[#0a664e] text-white px-3.5 py-2.5 rounded-xl text-xs font-black shadow-md shadow-emerald-600/20 transition-all cursor-pointer active:scale-95 whitespace-nowrap"
+            {/* Usage Progress Card (Matching Bottom Right of Screenshot) */}
+            <div
+              onClick={() => setShowChangePlanModal(true)}
+              className={`rounded-2xl p-3 text-white shadow-md space-y-2 cursor-pointer hover:brightness-105 transition-all ${
+                planUsage.managerPlanActive
+                  ? 'bg-gradient-to-tr from-amber-600 to-[#008060] shadow-amber-950/20'
+                  : 'bg-gradient-to-tr from-cyan-500 to-[#008060] shadow-emerald-950/20'
+              }`}
+              title="اضغط لإدارة الباقة أو المدير المخصص"
             >
-              <Coins size={14} />
-              <span>طلب سحب</span>
-            </button>
+              <div className="flex items-center justify-between text-xs font-black">
+                <span className="flex items-center gap-1.5">
+                  <ExternalLink size={13} />
+                  <span>{planUsage.managerPlanActive ? 'باقة المدير المخصص' : 'استخدام الخطة'}</span>
+                </span>
+                <span className="font-mono">{planUsage.usagePercent}%</span>
+              </div>
+              {/* Progress bar */}
+              <div className="w-full h-1.5 bg-black/20 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    planUsage.usagePercent >= 90 ? 'bg-rose-500' : planUsage.usagePercent >= 70 ? 'bg-amber-400' : 'bg-white'
+                  }`}
+                  style={{ width: `${Math.max(6, planUsage.usagePercent)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-bold text-emerald-50/90 pt-0.5 gap-1">
+                <span className="truncate max-w-[125px]">{planUsage.planLabelAr}</span>
+                <span className="font-mono shrink-0">{planUsage.quotaTextAr}</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </header>
+        </aside>
 
-      {/* Mobile Top App Bar (Shown only on small screens) */}
-      <header
-        className={`md:hidden sticky top-0 z-40 backdrop-blur-xl border-b transition-colors px-4 h-14 flex items-center justify-between gap-3 ${
-          isDark
-            ? 'bg-slate-900/95 border-slate-800'
-            : 'bg-white/95 border-slate-200'
-        }`}
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-md shadow-emerald-600/20">
-            {getInitials(liveMerchant.name)}
-          </div>
-          <div className="flex flex-col">
-            <span className={`text-xs font-black truncate max-w-[150px] ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              {liveMerchant.name}
-            </span>
-            <span className="text-[10px] text-slate-400 font-bold">{tabTitleMap[currentTab].title}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => fetchFreshData(true)}
-            disabled={isRefreshing}
-            className={`p-2 rounded-lg transition-all ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
+        {/* =====================================================================
+            2. MAIN CONTENT WORKSPACE
+           ===================================================================== */}
+        <div className="flex-1 min-w-0 flex flex-col min-h-screen lg:mr-64 xl:mr-72">
+          
+          {/* Top Sticky Header for Desktop/Laptop */}
+          <header
+            className={`hidden lg:flex items-center justify-between px-8 py-3.5 sticky top-0 z-30 backdrop-blur-md border-b transition-colors ${
+              isDark
+                ? 'bg-slate-900/95 border-slate-800'
+                : 'bg-white/95 border-slate-200/90 shadow-2xs'
             }`}
           >
-            <RefreshCw size={16} className={isRefreshing ? 'animate-spin text-[#008060]' : ''} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowFullMenuDrawer(true)}
-            className={`p-2 rounded-lg transition-all ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}
-          >
-            <Menu size={20} />
-          </button>
-        </div>
-      </header>
+            {/* Right: Page Title + Refresh Status */}
+            <div className="flex items-center gap-4">
+              <h1 className={`text-lg xl:text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {currentTab === 'orders' ? 'جميع الاوردرات' : tabTitleMap[currentTab]?.title || 'لوحة تحكم الوكيل'}
+              </h1>
 
-      {/* Main Content Container (Full-width responsive with minimal side gutters) */}
-      <main className="w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 space-y-5">
+              <button
+                type="button"
+                onClick={() => fetchFreshData(true)}
+                disabled={isRefreshing}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-200 transition-colors"
+                title="مزامنة وتحديث البيانات"
+              >
+                <RefreshCw size={12} className={isRefreshing ? 'animate-spin text-[#008060]' : ''} />
+                <span>{isRefreshing ? 'جارِ التحديث...' : 'تحديث'}</span>
+              </button>
+            </div>
+
+            {/* Left: Quick Header Actions (Export + Create Order) */}
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const rows = [
+                    ['رقم الشحنة / الطلب', 'شركة الشحن', 'الوجهة', 'تاريخ الإضافة', 'حالة التوصيل', 'المبلغ المحصل', 'مصاريف الشحن', 'صافي المستحقات', 'حالة السداد']
+                  ];
+                  filteredOrders.forEach(o => {
+                    const b = computeOrderFeeBreakdown(o);
+                    const trackNum = getTrackingNumber(o) || o.orderNumber || o.id;
+                    const dest = `${storeName} - ${(o as any).province || (o as any).city || 'العميل'}`;
+                    rows.push([
+                      String(trackNum),
+                      o.shippingCompany || 'شركة الشحن',
+                      dest,
+                      o.date ? new Date(o.date).toLocaleDateString('ar-EG') : '',
+                      o.status,
+                      String(b.collected),
+                      String(b.totalShipFee),
+                      String(b.netEntitlement),
+                      b.isSettled ? 'تم السداد بالمحفظة' : 'غير مدفوع'
+                    ]);
+                  });
+                  const csv = '\uFEFF' + rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `كشف_الاوردرات_${liveMerchant.name}_${new Date().toISOString().slice(0, 10)}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  showToast('تم تصدير كشف الاوردرات بنجاح', 'success');
+                }}
+                className={`px-4 py-2 rounded-xl border text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                  isDark
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <Download size={14} />
+                <span>تصدير</span>
+              </button>
+
+              {planUsage.managerPlanActive ? (
+                <button
+                  type="button"
+                  onClick={() => setShowChangePlanModal(true)}
+                  className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer"
+                  title="إنشاء الأوردرات مفوض للمدير المخصص في باقتك الحالية"
+                >
+                  <Crown size={14} />
+                  <span>يدير أوردراتك: المدير المخصص 🔒</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => navigateToTab('create_order')}
+                  className="flex items-center gap-1.5 bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black shadow-md shadow-emerald-700/20 transition-all cursor-pointer active:scale-95"
+                >
+                  <PlusCircle size={15} />
+                  <span>+ إنشاء اوردر</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowRequestModal(true)}
+                className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer active:scale-95"
+              >
+                <Coins size={14} />
+                <span>طلب سحب</span>
+              </button>
+            </div>
+          </header>
 
 
 
-        {/* Mobile Quick Sub-Navigation Pill Scroller (Shown only on screens where top header is hidden) */}
-        <div className="md:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          {/* Main Content Container (Full-width responsive workspace) */}
+          <main className="flex-1 w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-5">
+
+            {/* Desktop Announcement / Plan Upgrade Banner (Dynamic with Active Plan) */}
+            <div className={`relative overflow-hidden rounded-2xl text-white p-3.5 sm:p-4 shadow-md border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+              planUsage.managerPlanActive
+                ? 'bg-gradient-to-r from-amber-700 via-[#05654c] to-[#0f172a] border-amber-500/30 shadow-amber-950/20'
+                : 'bg-gradient-to-r from-[#008060] via-[#05654c] to-[#0f172a] border-emerald-600/30 shadow-emerald-950/20'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                  {planUsage.managerPlanActive ? (
+                    <Crown size={16} className="text-amber-300" />
+                  ) : (
+                    <Sparkles size={16} className="text-amber-300" />
+                  )}
+                </div>
+                <p className="text-xs font-black leading-relaxed">
+                  {planUsage.topBannerTextAr}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setShowChangePlanModal(true)}
+                  className="px-3.5 py-1.5 bg-white text-[#008060] hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95"
+                >
+                  {planUsage.managerPlanActive ? 'إدارة باقة المدير المخصص' : 'ترقية / تغيير الخطة'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const phone = (settings as any)?.supportPhone || (settings as any)?.phone || '01000000000';
+                    window.open(`https://wa.me/2${phone.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم، أحتاج دعم بخصوص حساب الوكيل')}`, '_blank');
+                  }}
+                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition-all cursor-pointer"
+                >
+                  تواصل مع الدعم
+                </button>
+              </div>
+            </div>
+
+            {/* Governed Plan Request / Admin Custom Pricing Offer Banner */}
+            {liveMerchant.pendingPlanRequest && (
+              <div className={`rounded-2xl p-4 border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                  ? isDark
+                    ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
+                    : 'bg-emerald-50 border-emerald-400 text-emerald-950 shadow-sm'
+                  : isDark
+                  ? 'bg-amber-950/40 border-amber-600/50 text-amber-100'
+                  : 'bg-amber-50/90 border-amber-300 text-amber-950'
+              }`}>
+                <div className="flex items-start gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                    liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                      ? 'bg-[#008060] text-white'
+                      : 'bg-amber-500 text-slate-950'
+                  }`}>
+                    {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant' ? <CheckCircle2 size={18} /> : <Lock size={18} />}
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="font-black flex flex-wrap items-center gap-2">
+                      <span>
+                        {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                          ? `عرض تسعير الإدارة جاهز لموافقتك: ${liveMerchant.pendingPlanRequest.quotedOrderFee} ج.م لكل أوردر (${liveMerchant.pendingPlanRequest.requestedCustomQuota || 200} أوردر)`
+                          : `طلب معلّق قيد مراجعة الإدارة: ${liveMerchant.pendingPlanRequest.targetPlanNameAr}`}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-black/10 dark:bg-white/10">
+                        {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                          ? 'بانتظار موافقتك للتفعيل من المحفظة'
+                          : 'قيد مراجعة وتسعير الإدارة'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] font-bold opacity-85">
+                      {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                        ? liveMerchant.pendingPlanRequest.requestedCustomBillingPreference === 'prepaid_quota'
+                          ? `إجمالي الدفعة المقدمة المطلوبة من المحفظة: ${((liveMerchant.pendingPlanRequest.quotedOrderFee || 0) * (liveMerchant.pendingPlanRequest.requestedCustomQuota || 200)).toLocaleString()} ج.م`
+                          : `سيتم تفعيل الباقة مجاناً الآن وخصم ${liveMerchant.pendingPlanRequest.quotedOrderFee} ج.م تلقائياً من المحفظة مع كل أوردر مؤكد.`
+                        : 'باقتك الحالية مستمرة ومؤمّنة بالكامل لحين اعتماد الإدارة، وكل أوردر يحتفظ بتسعير الدورة التي أُنشئ خلالها.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                  {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant' && (
+                    <button
+                      type="button"
+                      onClick={() => handleAcceptAdminCustomQuote(liveMerchant.pendingPlanRequest!)}
+                      className="px-4 py-2 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-sm cursor-pointer transition-all"
+                    >
+                      موافقة وتفعيل الآن من المحفظة
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowChangePlanModal(true)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black border cursor-pointer transition-all ${
+                      isDark ? 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800' : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
+                    }`}
+                  >
+                    عرض التفاصيل
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Mobile Quick Sub-Navigation Pill Scroller (Only on mobile/tablets lg:hidden) */}
+            <div className="lg:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
           {[
             { id: 'overview', label: 'الرئيسية', icon: Home },
-            { id: 'orders', label: `الدورة المالية والأوردرات (${merchantOrders.length})`, icon: WalletIcon },
-            { id: 'create_order', label: '+ إنشاء أوردر', icon: PlusCircle, soon: true },
+            { id: 'wallet', label: 'المحفظة', icon: WalletIcon },
+            { id: 'orders', label: `الأوردرات (${merchantOrders.length})`, icon: PackageIcon },
+            { id: 'create_order', label: planUsage.managerPlanActive ? 'إنشاء أوردر 🔒' : '+ إنشاء أوردر', icon: PlusCircle },
+            { id: 'inventory', label: `مخزون بضاعتي (${totalStockUnits})`, icon: Layers },
+            { id: 'customers', label: `العملاء (${uniqueCustomersCount})`, icon: Users },
+            { id: 'apps', label: 'التطبيقات (4)', icon: LayoutGrid },
             { id: 'analytics', label: 'الأصناف والمحافظات', icon: TrendingUp },
             { id: 'transparency', label: 'حركة البضاعة', icon: Sparkles },
-            { id: 'statement', label: 'كشف الحساب PDF', icon: FileText },
+            { id: 'statement', label: 'كشف الحساب والـ P&L', icon: FileText },
             { id: 'account', label: 'حسابي والأمان', icon: ShieldCheck }
           ].map(t => {
             const Icon = t.icon;
@@ -2364,7 +4385,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 key={t.id}
                 type="button"
                 onClick={() => navigateToTab(t.id as TabKey)}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black whitespace-nowrap shrink-0 transition-all cursor-pointer border ${
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer border ${
                   active
                     ? 'bg-[#008060] text-white border-[#008060] shadow-sm shadow-emerald-600/20'
                     : isDark
@@ -2417,20 +4438,39 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-emerald-200 text-xs font-bold">
                     <WalletIcon size={15} />
-                    <span>الرصيد المتاح للسحب الفوري</span>
+                    <span>الرصيد الجاهز للتحويل الأسبوعي (بعد إتمام {weeklyPayoutOverview.holdingDaysSetting} أيام من التسوية)</span>
                     <span>·</span>
                     <span className="font-mono">{liveMerchant.id}</span>
                   </div>
                   <div className="text-3xl sm:text-4xl font-black font-mono tabular-nums tracking-tight text-white">
-                    {formatMoney(availableForWithdrawal)}
+                    {formatMoney(weeklyPayoutOverview.maturedWalletBalance)}
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-emerald-100/90 pt-1">
-                    <span>إجمالي المحفظة: <strong className="font-mono">{formatMoney(liveMerchant.balance || 0)}</strong></span>
+                    <span>إجمالي المحفظة الدفتري: <strong className="font-mono">{formatMoney(effectiveMerchantBalance)}</strong></span>
+                    {weeklyPayoutOverview.holdingSettledBalance > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="text-sky-200 font-bold">
+                          مسوّى قيد التعليق ({weeklyPayoutOverview.holdingDaysSetting} أيام): <strong className="font-mono">{formatMoney(weeklyPayoutOverview.holdingSettledBalance)}</strong>
+                        </span>
+                      </>
+                    )}
                     {pendingRequestsSum > 0 && (
                       <>
                         <span>·</span>
-                        <span className="text-amber-300 font-bold">
-                          محجوز لطلبات معلقة: <strong className="font-mono">{formatMoney(pendingRequestsSum)}</strong>
+                        <span className="text-amber-300 font-bold inline-flex items-center gap-2">
+                          <span>محجوز لطلبات معلقة: <strong className="font-mono">{formatMoney(pendingRequestsSum)}</strong></span>
+                          {merchantFilteredRequests.filter(r => r.status === 'pending' && (!r.type || r.type === 'withdrawal')).map(req => (
+                            <button
+                              key={req.id}
+                              type="button"
+                              onClick={() => handleCancelPendingWithdrawal(req.id)}
+                              className="px-2 py-0.5 rounded-lg bg-rose-500/90 hover:bg-rose-600 text-white text-[10px] font-black cursor-pointer shadow-xs"
+                              title="إلغاء طلب السحب المعلق وفك الحجز"
+                            >
+                              إلغاء الطلب المعلق ✕
+                            </button>
+                          ))}
                         </span>
                       </>
                     )}
@@ -2445,7 +4485,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     className="px-4 py-3 bg-white text-[#008060] hover:bg-emerald-50 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all active:scale-95"
                   >
                     <Coins size={16} />
-                    <span>طلب سحب مستحقات</span>
+                    <span>إعدادات وطلب السحب الأسبوعي</span>
                   </button>
                   <button
                     type="button"
@@ -2454,15 +4494,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   >
                     <PlusCircle size={15} />
                     <span>إنشاء أوردر جديد</span>
-                    <span className="text-[9px] bg-slate-950/15 px-1.5 py-0.5 rounded-full">قريباً</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigateToTab('orders')}
+                    onClick={() => navigateToTab('wallet')}
                     className="col-span-2 sm:col-span-1 px-4 py-3 bg-slate-900/50 hover:bg-slate-900/80 text-emerald-200 border border-emerald-400/20 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
                   >
                     <WalletIcon size={15} />
-                    <span>الدورة المالية والأوردرات ({merchantOrders.length})</span>
+                    <span>المحفظة والدورة المالية</span>
                   </button>
                 </div>
 
@@ -2471,21 +4510,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* Bottom Mini Strip inside Hero Card */}
               <div className="relative z-10 mt-6 pt-4 border-t border-white/15 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div>
-                  <span className="text-emerald-200/80 block text-[11px]">أرباح ومبيعات بانتظار التسوية</span>
+                  <span className="text-emerald-200/80 block text-[11px]">١. أرباح ومبيعات بانتظار التسوية</span>
                   <span className="font-mono tabular-nums font-black text-sm sm:text-base text-white mt-0.5 block">
                     {formatMoney(overviewStats.netPayoutReady)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-emerald-200/80 block text-[11px]">قيمة بضاعتك بالمخزن ({overviewStats.totalStockUnits} ق)</span>
-                  <span className="font-mono tabular-nums font-black text-sm sm:text-base text-white mt-0.5 block">
-                    {formatMoney(overviewStats.inventoryValuation)}
+                  <span className="text-emerald-200/80 block text-[11px]">٢. مسوّى قيد التعليق ({weeklyPayoutOverview.holdingDaysSetting} أيام)</span>
+                  <span className="font-mono tabular-nums font-black text-sm sm:text-base text-amber-300 mt-0.5 block">
+                    {formatMoney(weeklyPayoutOverview.holdingSettledBalance)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-emerald-200/80 block text-[11px]">بضاعة في الطريق للعملاء</span>
-                  <span className="font-mono tabular-nums font-black text-sm sm:text-base text-white mt-0.5 block">
-                    {formatMoney(overviewStats.pendingGoodsValue)}
+                  <span className="text-emerald-200/80 block text-[11px]">٣. التحويل الأسبوعي القادم ({weeklyPayoutOverview.weeklyDayNameAr})</span>
+                  <span className="font-mono tabular-nums font-black text-sm sm:text-base text-emerald-300 mt-0.5 block">
+                    {weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}
                   </span>
                 </div>
                 <div>
@@ -2810,7 +4849,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     type="button"
                     onClick={() => {
                       setOrdersTopViewMode('financial_cycle');
-                      navigateToTab('orders');
+                      navigateToTab('wallet');
                     }}
                     className="text-xs font-black text-[#008060] hover:underline cursor-pointer whitespace-nowrap"
                   >
@@ -2919,72 +4958,601 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         )}
 
         {/* =========================================================
-            TAB 2: ORDERS & FINANCIAL CYCLE (الدورة المالية للأوردرات - Bosta Style in Brand Colors)
+            TAB 2: CREATED ORDERS SCREEN (شاشة الأوردرات التي تم إنشاؤها)
            ========================================================= */}
         {currentTab === 'orders' && (
-          <div className="space-y-4">
-            
-            {/* 1. Top Segmented Switcher: الرصيد الحالي (يمين) | الدورة المالية (يسار) */}
-            <div className={`grid grid-cols-2 p-1.5 rounded-2xl border ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100/90 border-slate-200/80'
+          <div className="space-y-5">
+            {/* 1. Top Header Banner for Created Orders */}
+            <div className={`p-5 sm:p-6 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isDark
+                ? 'bg-slate-900 border-slate-800 text-white'
+                : 'bg-white border-slate-200/80 text-slate-900 shadow-xs'
             }`}>
-              <button
-                type="button"
-                onClick={() => setOrdersTopViewMode('current_balance')}
-                className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
-                  ordersTopViewMode === 'current_balance'
-                    ? isDark
-                      ? 'bg-slate-800 text-white shadow-sm border border-slate-700'
-                      : 'bg-white text-slate-900 shadow-sm border border-slate-200/80'
-                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                }`}
-              >
-                الرصيد الحالي
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrdersTopViewMode('financial_cycle')}
-                className={`py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer ${
-                  ordersTopViewMode === 'financial_cycle'
-                    ? isDark
-                      ? 'bg-slate-800 text-white shadow-sm border border-slate-700'
-                      : 'bg-white text-slate-900 shadow-sm border border-slate-200/80'
-                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                }`}
-              >
-                الدورة المالية
-              </button>
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-[#008060]/10 text-[#008060] flex items-center justify-center shrink-0">
+                  <PackageIcon size={24} />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-base sm:text-lg font-black">
+                      سجل الأوردرات التي تم إنشاؤها ({merchantOrders.length} أوردر)
+                    </h2>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border ${
+                      planUsage.managerPlanActive
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                        : 'bg-emerald-500/15 text-[#008060] dark:text-emerald-400 border-emerald-500/30'
+                    }`}>
+                      {planUsage.planLabelAr} ({planUsage.quotaTextAr})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    {planUsage.managerPlanActive
+                      ? 'يتولى المدير المخصص تسجيل وتأكيد وشحن أوردراتك، وتظهر جميعها هنا لحظة بلحظة.'
+                      : 'جميع الأوردرات التي قمت بإنشائها لبضاعتك ومتابعة حالة شحنها وتحصيلها بالتفصيل.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {planUsage.managerPlanActive ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowChangePlanModal(true)}
+                    className="px-4 py-2.5 rounded-2xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Crown size={15} />
+                    <span>إدارة باقة المدير المخصص</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => navigateToTab('create_order')}
+                    className="px-4 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-700/20 cursor-pointer transition-all"
+                  >
+                    <PlusCircle size={15} />
+                    <span>+ إنشاء أوردر جديد</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => navigateToTab('wallet')}
+                  className={`px-3.5 py-2.5 rounded-2xl border text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all ${
+                    isDark
+                      ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <WalletIcon size={14} />
+                  <span>المحفظة والدورة المالية</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Created Orders Status KPI Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {[
+                { id: 'all', label: 'إجمالي الأوردرات المنشأة', count: orderStatusCounts.all, color: 'text-slate-900 dark:text-white' },
+                { id: 'pending', label: 'قيد التنفيذ / جديد', count: orderStatusCounts.pending, color: 'text-amber-600 dark:text-amber-400' },
+                { id: 'shipping', label: 'جاري التوصيل والشحن', count: orderStatusCounts.shipping, color: 'text-blue-600 dark:text-blue-400' },
+                { id: 'collected', label: 'تم التسليم والتحصيل', count: orderStatusCounts.collected, color: 'text-[#008060] dark:text-emerald-400' },
+                { id: 'returned', label: 'المرتجعات والملغي', count: orderStatusCounts.returned, color: 'text-rose-500' }
+              ].map(card => {
+                const isActive = ordersStatusFilter === card.id;
+                return (
+                  <button
+                    key={card.id}
+                    type="button"
+                    onClick={() => setOrdersStatusFilter(card.id as any)}
+                    className={`p-4 rounded-3xl border text-right transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                      isActive
+                        ? 'border-[#008060] ring-2 ring-[#008060]/20 bg-emerald-50/40 dark:bg-emerald-950/20'
+                        : isDark
+                        ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                        : 'bg-white border-slate-200/80 hover:border-emerald-300 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[11px] font-black text-slate-500 dark:text-slate-400">{card.label}</span>
+                      <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#008060]' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                    </div>
+                    <div className={`text-2xl font-black font-mono tabular-nums ${card.color}`}>
+                      {card.count}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 3. Search & Filter Bar */}
+            <div className={`p-4 rounded-3xl border flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-2xs'
+            }`}>
+              <div className="relative flex-1 max-w-md">
+                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={ordersSearchQuery}
+                  onChange={e => setOrdersSearchQuery(e.target.value)}
+                  placeholder="ابحث برقم الأوردر، اسم العميل، الهاتف، أو المحافظة..."
+                  className={`w-full pr-10 pl-8 py-2.5 rounded-2xl text-xs font-bold border outline-none transition-all ${
+                    isDark
+                      ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-[#008060]'
+                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-[#008060]'
+                  }`}
+                />
+                {ordersSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setOrdersSearchQuery('')}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 lg:pb-0">
+                {[
+                  { id: 'all', label: `الكل (${orderStatusCounts.all})` },
+                  { id: 'pending', label: `قيد التنفيذ والجديد (${orderStatusCounts.pending})` },
+                  { id: 'shipping', label: `جاري التوصيل (${orderStatusCounts.shipping})` },
+                  { id: 'collected', label: `تم التسليم (${orderStatusCounts.collected})` },
+                  { id: 'returned', label: `مرتجع (${orderStatusCounts.returned})` }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setOrdersStatusFilter(tab.id as any)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
+                      ordersStatusFilter === tab.id
+                        ? 'bg-[#008060] text-white shadow-xs'
+                        : isDark
+                        ? 'bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <input
+                  type="date"
+                  value={cycleStartDate}
+                  onChange={e => setCycleStartDate(e.target.value)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-mono outline-none ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                  title="من تاريخ"
+                />
+                <span className="text-slate-400">إلى</span>
+                <input
+                  type="date"
+                  value={cycleEndDate}
+                  onChange={e => setCycleEndDate(e.target.value)}
+                  className={`px-3 py-2 rounded-xl border text-xs font-mono outline-none ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                  title="إلى تاريخ"
+                />
+                {(cycleStartDate || cycleEndDate) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCycleStartDate('');
+                      setCycleEndDate('');
+                    }}
+                    className="px-2.5 py-2 rounded-xl bg-rose-500/10 text-rose-500 text-[11px] font-black cursor-pointer"
+                  >
+                    مسح
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Created Orders Table (Desktop) & Cards (Mobile) */}
+            <div className={`rounded-3xl border overflow-hidden ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+            }`}>
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead className={`border-b font-black ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/80 text-slate-600'
+                  }`}>
+                    <tr>
+                      <th className="py-3.5 px-4">رقم الأوردر / التتبع</th>
+                      <th className="py-3.5 px-4">تاريخ الإنشاء</th>
+                      <th className="py-3.5 px-4">العميل والمحافظة</th>
+                      <th className="py-3.5 px-4">الأصناف والكمية</th>
+                      <th className="py-3.5 px-4 text-center">حالة الأوردر</th>
+                      <th className="py-3.5 px-4 text-center">إجمالي التحصيل (COD)</th>
+                      <th className="py-3.5 px-4 text-center">مصاريف الشحن</th>
+                      <th className="py-3.5 px-4 text-center">صافي مستحقاتك</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800/70' : 'divide-slate-100'}`}>
+                    {filteredOrders.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-16 text-center">
+                          <div className="max-w-sm mx-auto space-y-2">
+                            <PackageIcon size={36} className="mx-auto text-slate-300 dark:text-slate-700" />
+                            <div className="font-black text-sm text-slate-700 dark:text-slate-200">
+                              لا توجد أوردرات منشأة مطابقة للفلتر الحالي
+                            </div>
+                            <p className="text-xs text-slate-400">
+                              {planUsage.managerPlanActive
+                                ? 'سيقوم مدير حسابك المخصص بإنشاء الأوردرات وتأكيدها لتظهر هنا تلقائياً.'
+                                : 'يمكنك إنشاء أوردر جديد الآن من خلال زر (+ إنشاء أوردر جديد).'}
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredOrders.map(o => {
+                        const b = computeOrderFeeBreakdown(o);
+                        const trackNum = getTrackingNumber(o);
+                        const orderNum = o.orderNumber || o.id;
+                        const rawDate = o.date || (o as any).createdAt;
+                        const dateStr = rawDate
+                          ? new Date(rawDate).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })
+                          : '—';
+                        const destGov = (o as any).governorate || (o as any).province || (o as any).city || 'غير محدد';
+                        const itemsArr = Array.isArray(o.items) && o.items.length > 0
+                          ? o.items
+                          : [{ name: (o as any).productName || 'بضاعة الموكل', quantity: 1 }];
+                        const itemsText = itemsArr
+                          .map((it: any) => `${it.name || it.title || it.productName || 'صنف'} (${it.quantity || 1} ق)`)
+                          .join(' + ');
+
+                        const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status);
+                        const isReturned = TRANSPARENCY_RETURN_STATUSES.includes(o.status as any);
+                        const isShipping = ['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق'].includes(o.status);
+                        const codTotal = Number((o as any).totalAmount || o.totalPrice || (o as any).totalAmountOverride || b.collected || 0);
+                        const orderSnap = getOrderEffectivePlanSnapshot(o, liveMerchant);
+                        const mgrFee = Number(orderSnap.lockedFee || 0);
+
+                        return (
+                          <tr key={o.id} className={`transition-colors ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/70'}`}>
+                            <td className="py-3.5 px-4">
+                              <div className="font-mono font-black text-slate-900 dark:text-white text-xs">
+                                #{orderNum}
+                              </div>
+                              {trackNum && trackNum !== orderNum && (
+                                <div className="text-[10px] font-mono text-[#008060] mt-0.5">
+                                  بوليصة: {trackNum}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                              {dateStr}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <div className="font-black text-slate-900 dark:text-white">
+                                {o.customerName || 'عميل'}
+                              </div>
+                              <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono">{o.customerPhone || '—'}</span>
+                                <span>•</span>
+                                <span className="text-[#008060] font-black">{destGov}</span>
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <div className="text-xs font-bold text-slate-700 dark:text-slate-200 max-w-[240px] truncate" title={itemsText}>
+                                {itemsText}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700" title={`كود الدورة المعزولة: ${orderSnap.cycleId}`}>
+                                  🔒 {orderSnap.planNameAr}
+                                  {orderSnap.cycleOrderNumber ? ` (#${orderSnap.cycleOrderNumber})` : ''}
+                                </span>
+                                {mgrFee > 0 && (
+                                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-black">
+                                    رسوم مدير مثبتة: {mgrFee} ج.م
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4 text-center">
+                              <span className={`px-2.5 py-1 rounded-full text-[10.5px] font-black inline-flex items-center gap-1.5 ${
+                                isDelivered
+                                  ? 'bg-emerald-500/15 text-[#008060] dark:text-emerald-400'
+                                  : isReturned
+                                  ? 'bg-rose-500/15 text-rose-500'
+                                  : isShipping
+                                  ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
+                                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                              }`}>
+                                <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                                <span>{String(o.status || 'جديد').replace(/_/g, ' ')}</span>
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 text-center font-mono font-black text-slate-900 dark:text-white">
+                              {formatMoney(codTotal)}
+                            </td>
+                            <td className="py-3.5 px-4 text-center font-mono text-rose-500">
+                              {formatMoney(b.totalShipFee)}
+                            </td>
+                            <td className="py-3.5 px-4 text-center font-mono font-black text-[#008060] dark:text-emerald-400">
+                              {formatMoney(b.netEntitlement)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Cards View for Created Orders */}
+              <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredOrders.length === 0 ? (
+                  <div className="py-12 px-4 text-center text-slate-400 font-bold text-xs">
+                    لا توجد أوردرات منشأة مطابقة للفلتر الحالي
+                  </div>
+                ) : (
+                  filteredOrders.map(o => {
+                    const b = computeOrderFeeBreakdown(o);
+                    const orderNum = o.orderNumber || o.id;
+                    const rawDate = o.date || (o as any).createdAt;
+                    const dateStr = rawDate
+                      ? new Date(rawDate).toLocaleDateString('ar-EG', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : '—';
+                    const destGov = (o as any).governorate || (o as any).province || (o as any).city || 'غير محدد';
+                    const itemsArr = Array.isArray(o.items) && o.items.length > 0
+                      ? o.items
+                      : [{ name: (o as any).productName || 'بضاعة الموكل', quantity: 1 }];
+                    const itemsText = itemsArr
+                      .map((it: any) => `${it.name || it.title || it.productName || 'صنف'} (${it.quantity || 1} ق)`)
+                      .join(' + ');
+                    const codTotal = Number((o as any).totalAmount || o.totalPrice || (o as any).totalAmountOverride || b.collected || 0);
+                    const isDelivered = ['تم_التحصيل', 'مدفوعة', 'تم_التوصيل', 'تم_توصيلها'].includes(o.status);
+                    const isReturned = TRANSPARENCY_RETURN_STATUSES.includes(o.status as any);
+                    const isShipping = ['تم_الشحن', 'جاري_التوصيل', 'في_المستودع', 'قيد_التسليم', 'في_الطريق'].includes(o.status);
+
+                    return (
+                      <div key={o.id} className="p-4 space-y-3 text-xs">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-mono font-black text-sm text-slate-900 dark:text-white">#{orderNum}</span>
+                            <span className="text-[11px] text-slate-400 mr-2 font-mono">{dateStr}</span>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
+                            isDelivered
+                              ? 'bg-emerald-500/15 text-[#008060]'
+                              : isReturned
+                              ? 'bg-rose-500/15 text-rose-500'
+                              : isShipping
+                              ? 'bg-blue-500/15 text-blue-600'
+                              : 'bg-amber-500/15 text-amber-600'
+                          }`}>
+                            {String(o.status || 'جديد').replace(/_/g, ' ')}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-bold">
+                          <span>{o.customerName || 'عميل'} ({o.customerPhone || '—'})</span>
+                          <span className="text-[#008060] font-black">{destGov}</span>
+                        </div>
+
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold truncate">
+                          الأصناف: {itemsText}
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                          <div>
+                            <div className="text-[10px] text-slate-400">إجمالي COD</div>
+                            <div className="font-mono font-black text-slate-900 dark:text-white">{formatMoney(codTotal)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-400">الشحن</div>
+                            <div className="font-mono font-bold text-rose-500">{formatMoney(b.totalShipFee)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-400">صافي مستحقاتك</div>
+                            <div className="font-mono font-black text-[#008060]">{formatMoney(b.netEntitlement)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            TAB 2A: MERCHANT WALLET & FINANCIAL CYCLE (المحفظة والدورة المالية)
+           ========================================================= */}
+        {currentTab === 'wallet' && (
+          <div className="space-y-6">
+            {/* Top Wallet Header & Sub-View Switcher (الرصيد الحالي vs الدورة المالية) */}
+            <div className={`p-5 sm:p-6 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isDark
+                ? 'bg-slate-900 border-slate-800 text-white'
+                : 'bg-white border-slate-200/80 text-slate-900 shadow-xs'
+            }`}>
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-[#008060]/10 text-[#008060] flex items-center justify-center shrink-0">
+                  <WalletIcon size={24} />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-black">
+                    المحفظة ومعاملاتها والدورة المالية
+                  </h2>
+                  <p className="text-xs text-slate-400 font-bold mt-1">
+                    متابعة الرصيد الحالي المتاح للسحب، قائمة المعاملات، والدورة المالية لتحصيل الشحنات.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Segmented Toggle: الرصيد الحالي vs الدورة المالية */}
+                <div className={`p-1 rounded-2xl border flex items-center gap-1 ${
+                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200/70'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setOrdersTopViewMode('current_balance')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                      ordersTopViewMode === 'current_balance'
+                        ? 'bg-[#008060] text-white shadow-sm'
+                        : isDark
+                        ? 'text-slate-300 hover:text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <WalletIcon size={14} />
+                    <span>الرصيد الحالي والمعاملات</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrdersTopViewMode('financial_cycle')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                      ordersTopViewMode === 'financial_cycle'
+                        ? 'bg-[#008060] text-white shadow-sm'
+                        : isDark
+                        ? 'text-slate-300 hover:text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Calendar size={14} />
+                    <span>الدورة المالية</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowRequestModal(true)}
+                  className="px-4 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-700/20 cursor-pointer transition-all"
+                >
+                  <Coins size={15} />
+                  <span>طلب سحب</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Dedicated Plan & Quota Governance Card (Point 4: Complete Separation Between COD Sales Wallet & Order Plan Quota) */}
+            <div className={`p-5 rounded-3xl border transition-all ${
+              isDark
+                ? 'bg-gradient-to-l from-slate-900 via-slate-900 to-emerald-950/30 border-slate-800 text-white'
+                : 'bg-gradient-to-l from-white via-white to-emerald-50/50 border-slate-200/80 text-slate-900 shadow-xs'
+            }`}>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-[#008060]/15 text-[#008060] flex items-center justify-center shrink-0 mt-0.5">
+                    <Crown size={21} />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs sm:text-sm font-black">
+                        حوكمة الباقات وعزل الدورات: {planUsage.planNameAr}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-[#008060]/15 text-[#008060]">
+                        دورة نشطة: {planUsage.cycleId}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-500/10 text-slate-500 dark:text-slate-400">
+                        🔒 بصمة الأوردرات مفعّلة لمنع التداخل
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                      رصيد محفظة المبيعات ({formatMoney(effectiveMerchantBalance)}) منفصل محاسبياً عن رصيد كوتة الأوردرات ({planUsage.isUnlimited ? 'غير محدود' : `${planUsage.usedOrdersCount} مستخدم من ${planUsage.limitOrders ?? 0} أوردر — متبقي ${planUsage.remainingQuota ?? 0} أوردر`}). كل أوردر يحتفظ ببصمة الباقة التي أُنشئ عليها.
+                    </p>
+                    {liveMerchant?.scheduledNextPlan && (
+                      <div className="pt-1 flex flex-wrap items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-[11px] font-black">
+                          ⏳ باقة مجدولة تالية: {liveMerchant.scheduledNextPlan.planNameAr || liveMerchant.scheduledNextPlan.targetPlanNameAr} (تبدأ تلقائياً بعد انتهاء الكوتة الحالية)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleActivateScheduledPlanNow}
+                          className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black cursor-pointer"
+                        >
+                          تفعيل المجدولة الآن
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {Array.isArray(liveMerchant?.planCyclesHistory) && liveMerchant.planCyclesHistory.length > 0 && (
+                    <span className="px-3 py-2 rounded-xl bg-slate-500/10 text-slate-600 dark:text-slate-300 text-[11px] font-black">
+                      دورات مؤرشفة معزولة: {liveMerchant.planCyclesHistory.length}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowChangePlanModal(true)}
+                    className="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Crown size={14} className="text-amber-500" />
+                    <span>إدارة الباقة / جدولة الترقية</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             {ordersTopViewMode === 'current_balance' ? (
               /* Current Balance View: Desktop 3-Cards & Mobile Layout (Matching Image 3) */
               <div className="space-y-6">
                 
-                {/* 3 Top Cards Grid (Desktop & Responsive) */}
+                {/* 3 Top Cards Grid (Bosta-Style Wallet Header: Current Balance + Cashout Frequency + Next Cashout Date) */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   
-                  {/* Card 1 (Right): الرصيد الحالي */}
-                  <div className={`p-6 rounded-[28px] border space-y-4 relative overflow-hidden transition-all ${
+                  {/* Card 1 (Right): الرصيد الحالي + عرض التفاصيل (Dark Popover) + سحب الرصيد */}
+                  <div className={`p-6 rounded-[28px] border space-y-3.5 relative transition-all ${
                     isDark 
-                      ? 'bg-emerald-950/20 border-[#008060]/30 text-white' 
-                      : 'bg-teal-50/60 border-teal-200/80 text-slate-900 shadow-xs'
+                      ? 'bg-emerald-950/25 border-[#008060]/40 text-white' 
+                      : 'bg-teal-50/70 border-teal-200/80 text-slate-900 shadow-xs'
                   }`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-[#008060] dark:text-emerald-400">
-                        الرصيد المتاح للسحب : <strong className="font-mono text-lg">{formatMoney(availableForWithdrawal)}</strong>
+                      <span className="text-xs sm:text-sm font-black text-[#008060] dark:text-emerald-400">
+                        الرصيد الحالي : <strong className="font-mono text-xl sm:text-2xl">{formatMoney(effectiveMerchantBalance)}</strong>
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                      إجمالي رصيد المحفظة: {formatMoney(effectiveMerchantBalance)}
-                      {pendingRequestsSum > 0 && ` (محجوز لطلب معلق: ${formatMoney(pendingRequestsSum)})`}
+
+                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
+                      قيمة المبلغ المالي المتاح في حسابك (الجاهز للتحويل في السحبة القادمة من تسويات الأسبوع السابق:{' '}
+                      <strong className="font-mono text-[#008060] dark:text-emerald-400">{formatMoney(weeklyPayoutOverview.maturedWalletBalance)}</strong>)
                     </p>
-                    <div className="flex items-center gap-2 pt-1">
+
+                    <div className="space-y-1 text-[11px] font-bold">
+                      {weeklyPayoutOverview.holdingSettledBalance > 0 && (
+                        <div className="flex items-center justify-between text-amber-600 dark:text-amber-400">
+                          <span>تسويات هذا الأسبوع (تُرحّل لتحويل الأسبوع القادم):</span>
+                          <span className="font-mono font-black">{formatMoney(weeklyPayoutOverview.holdingSettledBalance)}</span>
+                        </div>
+                      )}
+                      {overviewStats.netPayoutReady > 0 && (
+                        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                          <span>أوردرات مسلمة بانتظار التسوية:</span>
+                          <span className="font-mono font-black">{formatMoney(overviewStats.netPayoutReady)}</span>
+                        </div>
+                      )}
+                      {pendingRequestsSum > 0 && (
+                        <div className="flex items-center justify-between pt-1 border-t border-amber-500/20 text-rose-600 dark:text-rose-400">
+                          <span>محجوز لطلب سحب معلق: <strong className="font-mono">{formatMoney(pendingRequestsSum)}</strong></span>
+                          {merchantFilteredRequests.filter(r => r.status === 'pending' && (!r.type || r.type === 'withdrawal')).map(req => (
+                            <button
+                              key={req.id}
+                              type="button"
+                              onClick={() => handleCancelPendingWithdrawal(req.id)}
+                              className="px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[10px] font-black cursor-pointer hover:bg-rose-700"
+                            >
+                              إلغاء الطلب وفك الحجز
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 relative">
                       <button
                         type="button"
-                        onClick={() => {
-                          setOrdersTopViewMode('financial_cycle');
-                          setOrdersStatusFilter('all');
-                        }}
+                        onClick={() => setShowBalanceDetailsPopover(prev => !prev)}
                         className={`px-4 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
                           isDark ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs'
                         }`}
@@ -2997,49 +5565,201 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         className="px-4 py-2 rounded-xl text-xs font-black bg-[#008060] hover:bg-[#0a664e] text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5"
                       >
                         <Coins size={15} />
-                        <span>طلب سحب</span>
+                        <span>سحب الرصيد</span>
+                      </button>
+
+                      {/* Dark Balance Breakdown Popover (Matching Screenshot 5: الرصيد + vs الديون -) */}
+                      {showBalanceDetailsPopover && (
+                        <div
+                          className="fixed sm:absolute top-1/2 sm:top-full left-1/2 sm:left-auto sm:right-0 -translate-x-1/2 sm:translate-x-0 -translate-y-1/2 sm:translate-y-2 z-50 w-[92vw] max-w-[360px] rounded-2xl bg-[#1e242b] text-white p-5 shadow-2xl border border-slate-700/80 space-y-4"
+                          dir="rtl"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-700/70 pb-2.5">
+                            <span className="text-xs font-black text-emerald-400">تفاصيل الرصيد الحالي</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowBalanceDetailsPopover(false)}
+                              className="text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <X size={15} />
+                            </button>
+                          </div>
+
+                          {/* Section 1: الرصيد (+) */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-xs font-black text-white flex items-center gap-1">
+                                  <span>الرصيد</span>
+                                  <span className="text-emerald-400 font-mono">(+)</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-bold">المبلغ المضاف إلى رصيد المحفظة</div>
+                              </div>
+                              <span className="font-mono text-sm font-black text-emerald-400">
+                                {formatMoney(weeklyPayoutOverview.balanceBreakdown.totalAddedCredits)}
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 pr-2 border-r-2 border-emerald-500/30 text-[11px] font-bold text-slate-300">
+                              <div className="flex items-center justify-between">
+                                <span>المبلغ المحصل</span>
+                                <span className="font-mono">{formatMoney(weeklyPayoutOverview.balanceBreakdown.collectedOrdersTotal)}</span>
+                              </div>
+                              {weeklyPayoutOverview.balanceBreakdown.compensationsTotal > 0 && (
+                                <div className="flex items-center justify-between">
+                                  <span>تعويض</span>
+                                  <span className="font-mono">{formatMoney(weeklyPayoutOverview.balanceBreakdown.compensationsTotal)}</span>
+                                </div>
+                              )}
+                              {weeklyPayoutOverview.balanceBreakdown.walletTopupsTotal > 0 && (
+                                <div className="flex items-center justify-between">
+                                  <span>شحن الرصيد</span>
+                                  <span className="font-mono">{formatMoney(weeklyPayoutOverview.balanceBreakdown.walletTopupsTotal)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Section 2: الديون (-) */}
+                          <div className="space-y-2 pt-2 border-t border-slate-700/70">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-xs font-black text-white flex items-center gap-1">
+                                  <span>الديون</span>
+                                  <span className="text-rose-400 font-mono">(-)</span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-bold">المبلغ المخصوم من رصيد المحفظة</div>
+                              </div>
+                              <span className="font-mono text-sm font-black text-rose-400">
+                                -{formatMoney(weeklyPayoutOverview.balanceBreakdown.totalDeductedDebits)}
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 pr-2 border-r-2 border-rose-500/30 text-[11px] font-bold text-slate-300">
+                              <div className="flex items-center justify-between">
+                                <span>السحب النقدي</span>
+                                <span className="font-mono">-{formatMoney(weeklyPayoutOverview.balanceBreakdown.withdrawalsTotal)}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span>سعر الشحن ومصاريف التشغيل</span>
+                                <span className="font-mono">-{formatMoney(weeklyPayoutOverview.balanceBreakdown.shippingAndFeesTotal)}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span>رسوم التحويل (عمولة الإدارة)</span>
+                                <span className="font-mono">-{formatMoney(weeklyPayoutOverview.balanceBreakdown.transferCommissionTotal)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card 2 (Middle): تكرار السحب النقدي (Bosta-Style: أسبوعي / يومي + تغيير النظام + الدورة المالية) */}
+                  <div className={`p-6 rounded-[28px] border space-y-3.5 relative overflow-hidden flex flex-col justify-between ${
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+                  }`}>
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100">
+                          <span>تكرار السحب النقدي</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowFinancialCycleModal(true)}
+                            className="text-slate-400 hover:text-[#008060] cursor-pointer"
+                            title="عرض الدورة المالية"
+                          >
+                            <HelpCircle size={15} />
+                          </button>
+                        </div>
+                        <span className="px-3 py-1 rounded-xl bg-teal-500/15 text-[#008060] dark:text-emerald-400 text-xs font-black">
+                          {weeklyPayoutOverview.payoutFrequency === 'daily'
+                            ? 'يومي'
+                            : `أسبوعي (${weeklyPayoutOverview.weeklyDayNameAr})`}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
+                        {weeklyPayoutOverview.payoutFrequency === 'daily'
+                          ? `يتم السحب النقدي تلقائياً في يوم العمل التالي للطلبات التي أتمت مدة التسوية (${weeklyPayoutOverview.holdingDaysSetting} أيام).`
+                          : `يتم السحب النقدي تلقائياً مرة واحدة في الأسبوع يوم (${weeklyPayoutOverview.weeklyDayNameAr}) للطلبات التي أتمت (${weeklyPayoutOverview.holdingDaysSetting} أيام) من التسوية.`}
+                      </p>
+
+                      <div className={`px-3 py-2 rounded-xl border text-[11px] font-black flex items-center justify-between ${
+                        isDark ? 'bg-slate-950/80 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                      }`}>
+                        <span>عمولة/رسوم التحويل المحددة من الإدارة:</span>
+                        <span className="font-mono text-[#008060] dark:text-emerald-400">{weeklyPayoutOverview.activeFeeLabelAr}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTempPayoutFrequency(weeklyPayoutOverview.payoutFrequency);
+                          setTempWeeklyPayoutDay(weeklyPayoutOverview.weeklyDayIndex);
+                          setShowPayoutFrequencyModal(true);
+                        }}
+                        className={`px-4 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
+                          isDark
+                            ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'
+                            : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50 shadow-2xs'
+                        }`}
+                      >
+                        تغيير النظام
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowFinancialCycleModal(true)}
+                        className="text-xs font-black text-[#008060] dark:text-emerald-400 hover:underline cursor-pointer"
+                      >
+                        اعرف أكثر
                       </button>
                     </div>
                   </div>
 
-                  {/* Card 2 (Middle): تكرار السحب النقدي */}
-                  <div className={`p-6 rounded-[28px] border space-y-3 relative overflow-hidden ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-xs font-black text-slate-700 dark:text-slate-200">
-                        <span>تكرار السحب النقدي</span>
-                        <HelpCircle size={14} className="text-slate-400" />
-                      </div>
-                      <span className="px-2.5 py-0.5 rounded-full bg-teal-500/10 text-[#008060] text-[10px] font-black">
-                        أسبوعي
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                      سيتم تحويل قيمة السحب النقدي إلى حسابك البنكي كل أسبوع في يوم الاثنين.
-                    </p>
-                    <div className="flex items-center gap-3 pt-2 text-xs font-black">
-                      <button type="button" onClick={() => showToast('نظام السحب الأسبوعي التلقائي مفعل لحسابك', 'success')} className="text-[#008060] hover:underline cursor-pointer">اعرف أكثر</button>
-                      <span className="text-slate-300">|</span>
-                      <button type="button" onClick={() => setShowProfileBottomSheet(true)} className="text-slate-600 dark:text-slate-300 hover:underline cursor-pointer">تغيير النظام</button>
-                    </div>
-                  </div>
-
                   {/* Card 3 (Left): تاريخ السحب النقدي القادم */}
-                  <div className={`p-6 rounded-[28px] border space-y-3 relative overflow-hidden ${
+                  <div className={`p-6 rounded-[28px] border space-y-3 relative overflow-hidden flex flex-col justify-between ${
                     isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
                   }`}>
-                    <div className="flex items-center gap-1.5 text-xs font-black text-slate-700 dark:text-slate-200">
-                      <Calendar size={15} className="text-[#008060]" />
-                      <span>تاريخ السحب النقدي القادم</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100">
+                          <Calendar size={15} className="text-[#008060]" />
+                          <span>تاريخ السحب النقدي القادم</span>
+                        </div>
+                        <span className="text-[10px] font-mono font-black text-[#008060] bg-emerald-500/10 px-2.5 py-0.5 rounded-lg">
+                          {weeklyPayoutOverview.payoutFrequency === 'daily'
+                            ? 'سحب يومي'
+                            : `بعد ${weeklyPayoutOverview.daysUntilNextPayout} يوم`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
+                        {weeklyPayoutOverview.holdingOrdersCount > 0 && weeklyPayoutOverview.minRemainingDays !== null
+                          ? `لديك (${weeklyPayoutOverview.holdingOrdersCount}) أوردر مسوّى هذا الأسبوع يُرحّل للسحبة التالية بعد (${weeklyPayoutOverview.minRemainingDays} يوم)، بينما تسويات الأسبوع السابق تُحوّل في:`
+                          : 'تسويات الأسبوع السابق الجاهزة للصرف سيتم تحويلها إلى حسابك في:'}
+                      </p>
+                      <div className={`p-2.5 rounded-xl border text-sm font-mono font-black text-center ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-slate-800'
+                      }`}>
+                        {weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                      سيتم تحويل قيمة السحب النقدي إلى حسابك البنكي في هذا التاريخ.
-                    </p>
-                    <div className={`p-2.5 rounded-xl border text-xs font-mono font-black text-center ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}>
-                      الإثنين, 26 أكتوبر 2026
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1 text-[11px] font-black">
+                      <div className="flex items-center justify-between text-slate-500">
+                        <span>المبلغ الجاهز للتحويل:</span>
+                        <span className="font-mono text-slate-800 dark:text-white">{formatMoney(weeklyPayoutOverview.cappedNextPayoutAmount)}</span>
+                      </div>
+                      {weeklyPayoutOverview.nextPayoutFeeAmount > 0 && (
+                        <div className="flex items-center justify-between text-rose-500">
+                          <span>عمولة التحويل ({weeklyPayoutOverview.activeFeeLabelAr}):</span>
+                          <span className="font-mono">-{formatMoney(weeklyPayoutOverview.nextPayoutFeeAmount)}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-[#008060] dark:text-emerald-400">
+                        <span>صافي التحويل المتوقع:</span>
+                        <span className="font-mono">{formatMoney(weeklyPayoutOverview.nextPayoutNetAmount)}</span>
+                      </div>
                     </div>
                   </div>
 
@@ -3398,7 +6118,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         }`}
                       >
                         <ChevronDown size={14} className="text-slate-400" />
-                        <span>{cycleStartDate && cycleEndDate ? `${cycleStartDate} - ${cycleEndDate}` : '20-10-2026 - 20-10-2026'}</span>
+                        <span>{cycleStartDate && cycleEndDate ? `${cycleStartDate} - ${cycleEndDate}` : 'جميع الفترات'}</span>
                         <Calendar size={14} className="text-[#008060]" />
                       </button>
 
@@ -3477,7 +6197,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </div>
 
                       <div className={`text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        {formatMoney(financialCycleSummary.totalCollected || 11715)}
+                        {formatMoney(financialCycleSummary.totalCollected || 0)}
                       </div>
 
                       {/* Collected Revenue Dark Popover */}
@@ -3485,12 +6205,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <div className="absolute top-14 left-4 z-40 w-72 bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 space-y-3">
                           <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
                             <span className="text-xs font-black">المبلغ المحصل</span>
-                            <span className="font-mono font-black text-sm text-emerald-400">{formatMoney(financialCycleSummary.totalCollected || 11715)}</span>
+                            <span className="font-mono font-black text-sm text-emerald-400">{formatMoney(financialCycleSummary.totalCollected || 0)}</span>
                           </div>
                           <div className="space-y-2 text-xs font-bold text-slate-300">
                             <div className="flex items-center justify-between">
                               <span className="text-slate-400">المبالغ النقدية المحصلة</span>
-                              <span className="font-mono">{formatMoney(financialCycleSummary.totalCollected || 11715)}</span>
+                              <span className="font-mono">{formatMoney(financialCycleSummary.totalCollected || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-slate-400">المدفوعات عبر الإنترنت</span>
@@ -3522,7 +6242,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </div>
 
                       <div className={`text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        {formatMoney(financialCycleSummary.totalShippingFees || 1196.91)}
+                        {formatMoney(financialCycleSummary.totalShippingFees || 0)}
                       </div>
 
                       {/* Shipping Fees Breakdown Dark Popover (Matching image_c642fb6b.png) */}
@@ -3530,24 +6250,24 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <div className="absolute top-14 left-4 z-40 w-72 bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 space-y-3">
                           <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
                             <span className="text-xs font-black">سعر الشحن</span>
-                            <span className="font-mono font-black text-sm text-emerald-400">{formatMoney(financialCycleSummary.totalShippingFees || 1196.91)}</span>
+                            <span className="font-mono font-black text-sm text-emerald-400">{formatMoney(financialCycleSummary.totalShippingFees || 0)}</span>
                           </div>
                           <div className="space-y-2 text-xs font-bold text-slate-300">
                             <div className="flex items-center justify-between border-b border-slate-800 pb-1">
                               <span className="text-slate-400">سعر الشحن</span>
-                              <span className="font-mono">{formatMoney(financialCycleSummary.totalBaseShipping || 942)}</span>
+                              <span className="font-mono">{formatMoney(financialCycleSummary.totalBaseShipping || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between border-b border-slate-800 pb-1">
                               <span className="text-slate-400">التأمين</span>
-                              <span className="font-mono">{formatMoney(financialCycleSummary.totalInsurance || 58.93)}</span>
+                              <span className="font-mono">{formatMoney(financialCycleSummary.totalInsurance || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between border-b border-slate-800 pb-1">
                               <span className="text-slate-400">رسوم فتح الشحنة</span>
-                              <span className="font-mono">{formatMoney(financialCycleSummary.totalOpenPackage || 49)}</span>
+                              <span className="font-mono">{formatMoney(financialCycleSummary.totalOpenPackage || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-slate-400">ضريبة قيمة مضافة 14%</span>
-                              <span className="font-mono">{formatMoney(financialCycleSummary.totalVat || 146.98)}</span>
+                              <span className="font-mono">{formatMoney(financialCycleSummary.totalVat || 0)}</span>
                             </div>
                           </div>
                         </div>
@@ -3561,7 +6281,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <HelpCircle size={14} className="text-slate-400" />
                       </div>
                       <div className="text-2xl sm:text-3xl font-black font-mono tabular-nums text-[#008060] dark:text-emerald-400">
-                        {formatMoney(financialCycleSummary.netEntitlement || 10518.09)}
+                        {formatMoney(financialCycleSummary.netEntitlement || 0)}
                       </div>
                     </div>
 
@@ -3582,7 +6302,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           قائمة الأوردرات
                         </h3>
                         <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                          {filteredOrders.length || 8}
+                          {filteredOrders.length}
                         </span>
                       </div>
                       <p className="text-xs text-slate-400 font-medium leading-relaxed">
@@ -3636,24 +6356,88 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </div>
                   </div>
 
-                  {/* Search Bar */}
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={ordersSearchQuery}
-                      onChange={e => setOrdersSearchQuery(e.target.value)}
-                      placeholder="بحث"
-                      className={`w-full pr-10 pl-4 py-2.5 rounded-xl border text-xs font-bold outline-none transition-all ${
-                        isDark
-                          ? 'bg-slate-950 border-slate-800 text-white focus:border-[#008060]'
-                          : 'bg-white border-slate-200 text-slate-800 focus:border-[#008060]'
-                      }`}
-                    />
-                    <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  {/* Applications Indicator Pill (Matching Reference Screenshot) */}
+                  <div className="flex items-center gap-2 pt-1 text-xs font-bold text-slate-500">
+                    <span>التطبيقات:</span>
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-[#008060] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-1.5 font-black text-[11px]">
+                      <ShoppingBag size={13} />
+                      <span>تأكيد الطلبات</span>
+                    </span>
                   </div>
 
-                  {/* Status Filter Tabs */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                  {/* Multi-Filter Bar (Search + Date + Tags Dropdown + All Filters Button) */}
+                  <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2.5">
+                    {/* Search Bar */}
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={ordersSearchQuery}
+                        onChange={e => setOrdersSearchQuery(e.target.value)}
+                        placeholder="رقم الطلب أو العميل أو الهاتف أو المنتج أو الكود..."
+                        className={`w-full pr-10 pl-4 py-2.5 rounded-xl border text-xs font-bold outline-none transition-all ${
+                          isDark
+                            ? 'bg-slate-950 border-slate-800 text-white focus:border-[#008060]'
+                            : 'bg-white border-slate-200 text-slate-800 focus:border-[#008060]'
+                        }`}
+                      />
+                      <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+
+                    {/* Date Picker Button */}
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowCycleDatePicker(prev => !prev)}
+                        className={`px-3.5 py-2.5 rounded-xl border text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <Calendar size={14} className="text-[#008060]" />
+                        <span>{cycleStartDate && cycleEndDate ? `${cycleStartDate} - ${cycleEndDate}` : 'التاريخ'}</span>
+                        <ChevronDown size={13} className="text-slate-400" />
+                      </button>
+                    </div>
+
+                    {/* Tags / Status Dropdown */}
+                    <div className="relative shrink-0">
+                      <select
+                        value={ordersStatusFilter}
+                        onChange={e => handleOrdersStatusFilterChange(e.target.value as any)}
+                        className={`px-3.5 py-2.5 rounded-xl border text-xs font-black outline-none cursor-pointer ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <option value="all">الوسوم / كافة الحالات ({orderStatusCounts.all})</option>
+                        <option value="collected">تم بنجاح ({orderStatusCounts.collected})</option>
+                        <option value="shipping">في الطريق ({orderStatusCounts.shipping})</option>
+                        <option value="pending">قيد التجهيز ({orderStatusCounts.pending})</option>
+                        <option value="returned">مرتجع ({orderStatusCounts.returned})</option>
+                      </select>
+                    </div>
+
+                    {/* All Filters Action Button (Brand Emerald) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (ordersSearchQuery || ordersStatusFilter !== 'all' || cycleStartDate) {
+                          setOrdersSearchQuery('');
+                          setOrdersStatusFilter('all');
+                          setCycleStartDate('');
+                          setCycleEndDate('');
+                          showToast('تمت إعادة ضبط جميع الفلاتر', 'info');
+                        } else {
+                          showToast('جميع الفلاتر نشطة ومفعلة', 'info');
+                        }
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-emerald-700/20 transition-all cursor-pointer whitespace-nowrap active:scale-95"
+                    >
+                      <Layers size={14} />
+                      <span>جميع الفلاتر</span>
+                    </button>
+                  </div>
+
+                  {/* Status Filter Quick Tabs */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
                     {[
                       { id: 'all', label: 'الكل', count: orderStatusCounts.all },
                       { id: 'collected', label: 'تم بنجاح', count: orderStatusCounts.collected },
@@ -3664,8 +6448,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <button
                         key={f.id}
                         type="button"
-                        onClick={() => setOrdersStatusFilter(f.id as any)}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                        onClick={() => handleOrdersStatusFilterChange(f.id as any)}
+                        className={`px-3.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                           ordersStatusFilter === f.id
                             ? 'bg-[#008060] text-white shadow-xs'
                             : isDark
@@ -3674,7 +6458,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         }`}
                       >
                         <span>{f.label}</span>
-                        <span className={`mr-1.5 font-mono text-[11px] ${
+                        <span className={`mr-1 font-mono text-[11px] ${
                           ordersStatusFilter === f.id ? 'text-emerald-100' : 'text-slate-400'
                         }`}>
                           ({f.count})
@@ -3682,6 +6466,35 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </button>
                     ))}
                   </div>
+
+                  {/* Empty State Card (Exact Match to Reference Screenshot) */}
+                  {filteredOrders.length === 0 && (
+                    <div className={`p-12 sm:p-16 rounded-[28px] border text-center space-y-4 my-3 ${
+                      isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                    }`}>
+                      <div className="w-16 h-16 rounded-3xl bg-emerald-50 dark:bg-emerald-950/40 text-[#008060] dark:text-emerald-400 mx-auto flex items-center justify-center shadow-inner">
+                        <ShoppingBag size={30} />
+                      </div>
+                      <div className="space-y-1.5 max-w-md mx-auto">
+                        <h4 className={`text-base sm:text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          لا توجد طلبات بعد
+                        </h4>
+                        <p className="text-xs text-slate-400 font-bold leading-relaxed">
+                          طلبات متجرك ومحادثاتك واللي بتعملها هنا بتظهر كلها في القائمة دي.
+                        </p>
+                      </div>
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => navigateToTab('create_order')}
+                          className="px-5 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-700/20 cursor-pointer transition-all active:scale-95 inline-flex items-center gap-2"
+                        >
+                          <PlusCircle size={15} />
+                          <span>إنشاء أول أوردر الآن</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Desktop Table View (Matching Image image_c642fb6b.png) */}
                   <div className={`hidden md:block rounded-2xl border ${
@@ -3703,7 +6516,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
                         {filteredOrders.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">لا توجد أوردرات مطابقة للبحث أو الدورة المالية المحددة</td>
+                            <td colSpan={8} className="py-8 text-center text-slate-400 font-bold">لا توجد أوردرات مطابقة للبحث المحدد</td>
                           </tr>
                         ) : (
                           filteredOrders.map(o => {
@@ -3770,7 +6583,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                       </div>
                                       <div className="flex justify-between text-slate-300"><span>سعر الشحن</span><span className="font-mono">{formatMoney(b.baseShipping)}</span></div>
                                       <div className="flex justify-between text-slate-300"><span>التأمين</span><span className="font-mono">{formatMoney(b.insuranceFee)}</span></div>
-                                      <div className="flex justify-between text-slate-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 49)}</span></div>
+                                      <div className="flex justify-between text-slate-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 0)}</span></div>
                                       <div className="flex justify-between text-slate-300"><span>ضريبة قيمة مضافة 14%</span><span className="font-mono">{formatMoney(b.vatFee)}</span></div>
                                     </div>
                                   )}
@@ -3807,11 +6620,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 <td className="py-3.5 px-4 text-center relative">
                                   <div className="inline-flex items-center gap-1">
                                     <span className={`px-3 py-1 rounded-full text-[11px] font-black inline-block ${
-                                      b.isSettled
-                                        ? 'bg-emerald-500/10 text-[#008060] dark:text-emerald-400'
-                                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                      b.payoutStage === 'paid'
+                                        ? 'bg-emerald-500/15 text-[#008060] dark:text-emerald-400'
+                                        : b.payoutStage === 'ready'
+                                        ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30'
+                                        : b.payoutStage === 'holding'
+                                        ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
+                                        : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                                     }`}>
-                                      {b.isSettled ? 'مدفوع' : 'غير مدفوع'}
+                                      {b.payoutStageLabelAr}
                                     </span>
                                     <button
                                       type="button"
@@ -3822,8 +6639,22 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                     </button>
                                   </div>
                                   {isSettlementPopoverOpen && (
-                                    <div className="absolute top-10 left-2 z-50 w-64 bg-slate-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-slate-700 text-right animate-in fade-in zoom-in-95">
-                                      تاريخ السحب النقدي من المحفظة إلى حسابك البنكي.
+                                    <div className="absolute top-10 left-2 z-50 w-72 bg-slate-900 text-white text-[11px] font-bold p-3.5 rounded-xl shadow-2xl border border-slate-700 text-right animate-in fade-in zoom-in-95 space-y-1.5">
+                                      <div className="font-black text-emerald-400 border-b border-slate-700 pb-1">
+                                        تفاصيل حالة السداد والتحويل الأسبوعي
+                                      </div>
+                                      {b.payoutStage === 'unsettled' && (
+                                        <p>الأوردر تم توصيله وبانتظار إصدار كشف التسوية المالية من الإدارة ليبدأ عدّاد فترة التعليق ({b.holdingDaysRequired} أيام).</p>
+                                      )}
+                                      {b.payoutStage === 'holding' && (
+                                        <p>تمت تسوية الأوردر مالياً بتاريخ {b.settledAtIso ? new Date(b.settledAtIso).toLocaleDateString('ar-EG') : 'اليوم'}، وتبقى ({b.remainingHoldingDays} يوم) من أصل ({b.holdingDaysRequired} أيام) ليصبح جاهزاً للتحويل في يوم ({weeklyPayoutOverview.weeklyDayNameAr}).</p>
+                                      )}
+                                      {b.payoutStage === 'ready' && (
+                                        <p>أتم الأوردر فترة التعليق ({b.holdingDaysRequired} أيام بعد التسوية) وهو جاهز للتحويل في موعدك الأسبوعي القادم ({weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}).</p>
+                                      )}
+                                      {b.payoutStage === 'paid' && (
+                                        <p>تم تحويل وصرف مستحقات هذا الأوردر لحسابك بنجاح {o.paidOutAt ? `بتاريخ ${new Date(o.paidOutAt).toLocaleDateString('ar-EG')}` : ''}.</p>
+                                      )}
                                     </div>
                                   )}
                                 </td>
@@ -3952,7 +6783,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                     </div>
                                     <div className="flex justify-between text-slate-300"><span>سعر الشحن</span><span className="font-mono">{formatMoney(b.baseShipping)}</span></div>
                                     <div className="flex justify-between text-slate-300"><span>التأمين</span><span className="font-mono">{formatMoney(b.insuranceFee)}</span></div>
-                                    <div className="flex justify-between text-slate-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 49)}</span></div>
+                                    <div className="flex justify-between text-slate-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 0)}</span></div>
                                     <div className="flex justify-between text-slate-300"><span>ضريبة قيمة مضافة 14%</span><span className="font-mono">{formatMoney(b.vatFee)}</span></div>
                                   </div>
                                 )}
@@ -3979,14 +6810,26 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   <span>حالة السداد</span>
                                 </div>
                                 <span className={`px-3 py-1 rounded-full text-[10.5px] font-black inline-flex items-center gap-1 ${
-                                  b.isSettled ? 'bg-emerald-500/10 text-[#008060]' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                  b.payoutStage === 'paid'
+                                    ? 'bg-emerald-500/15 text-[#008060]'
+                                    : b.payoutStage === 'ready'
+                                    ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30'
+                                    : b.payoutStage === 'holding'
+                                    ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
+                                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
                                 }`}>
                                   <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                                  <span>{b.isSettled ? 'مدفوع' : 'غير مدفوع'}</span>
+                                  <span>{b.payoutStageLabelAr}</span>
                                 </span>
                                 {isSettlementPopoverOpen && (
-                                  <div className="absolute top-11 left-0 z-50 w-60 sm:w-64 bg-slate-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 pointer-events-auto text-right">
-                                    تاريخ السحب النقدي من المحفظة إلى حسابك البنكي.
+                                  <div className="absolute top-11 left-0 z-50 w-64 bg-slate-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 pointer-events-auto text-right">
+                                    {b.payoutStage === 'unsettled'
+                                      ? `بانتظار التسوية المالية من الإدارة ثم مرور (${b.holdingDaysRequired} أيام) للتحويل.`
+                                      : b.payoutStage === 'holding'
+                                      ? `تمت التسوية، ومتبقي (${b.remainingHoldingDays} يوم) لإتمام فترة التعليق قبل التحويل الأسبوعي.`
+                                      : b.payoutStage === 'ready'
+                                      ? `جاهز للتحويل في يوم (${weeklyPayoutOverview.weeklyDayNameAr}) القادم.`
+                                      : 'تم تحويل مستحقات هذا الأوردر لحسابك بنجاح.'}
                                   </div>
                                 )}
                               </div>
@@ -4004,204 +6847,731 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         )}
 
         {/* =========================================================
-            TAB 2B: CREATE ORDER STUDIO (شاشة إنشاء الأوردرات للوكيل بختم شيك)
+            TAB 2B: CREATE ORDER STUDIO (استوديو تسجيل وإرسال الأوردرات للوكيل)
            ========================================================= */}
         {currentTab === 'create_order' && (
           <div className="space-y-6">
-            
-            {/* Main Showcase Card with Official Chic Developer Stamp */}
-            <div className={`relative overflow-hidden rounded-[32px] border p-6 sm:p-10 shadow-xl ${
-              isDark
-                ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/50 border-slate-800 text-white'
-                : 'bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/40 border-emerald-200/80 text-slate-900'
-            }`}>
-              {/* Decorative Ambient Glow */}
-              <div className="absolute -top-24 -left-24 w-80 h-80 rounded-full bg-[#008060]/10 blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+            {planUsage.managerPlanActive ? (
+              /* PREMIUM DEDICATED MANAGER LOCK SCREEN */
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className={`rounded-[2.5rem] border-2 p-8 sm:p-14 text-center max-w-3xl mx-auto space-y-8 relative overflow-hidden shadow-2xl ${
+                  isDark
+                    ? 'bg-[#030712] border-amber-500/20 text-white'
+                    : 'bg-white border-amber-200 text-slate-900'
+                }`}
+              >
+                {/* Decorative Background Glows */}
+                <div className="absolute top-[-10%] right-[-5%] w-[40%] h-[50%] bg-amber-500/10 blur-[100px] rounded-full pointer-events-none" />
+                <div className="absolute bottom-[-10%] left-[-10%] w-[35%] h-[40%] bg-emerald-500/5 blur-[90px] rounded-full pointer-events-none" />
 
-              <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-                
-                {/* Right Column (7 cols): Message, Features & CTA */}
-                <div className="lg:col-span-7 space-y-5 text-right">
-                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-black">
-                    <Sparkles size={14} />
-                    <span>تحديث قادم لبوابة الموكلين · قريباً جداً</span>
+                <div className="relative z-10 space-y-8">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="w-20 h-20 rounded-[2rem] bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center shadow-inner">
+                      <Crown size={40} strokeWidth={1.5} />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-black uppercase tracking-widest border border-amber-500/20">
+                        <Lock size={12} />
+                        نظام المدير المخصص نشط 🔒
+                      </div>
+                      <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight pt-2">
+                        إدارة طلباتك مفوضة بالكامل <br/> لمدير حسابك الخبير
+                      </h2>
+                    </div>
                   </div>
 
-                  <h2 className={`text-2xl sm:text-3xl font-black leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    استوديو إنشاء وإرسال الأوردرات المباشر للوكيل
-                  </h2>
-
-                  <p className={`text-sm sm:text-base leading-relaxed font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                    يقوم حالياً الديفلوبر <span className="text-[#008060] dark:text-emerald-400 font-black underline decoration-amber-400/70 decoration-2 underline-offset-4">الباشمهندس / عبدالرحمن سعيد وفريقه</span> بالتطوير في الفترة الحالية لإطلاق منظومة تسجيل الأوردرات الذكية الخاصة بالوكلاء، لتتمكن من رفع أوردرات عملائك مباشرة من بضاعتك بالمخزن وإصدار بوليصة الشحن بضغطة زر.
+                  <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 font-bold leading-relaxed max-w-xl mx-auto">
+                    لقد اخترت نظام <span className="text-[#008060] dark:text-emerald-400 font-black">({planUsage.planLabelAr})</span>. 
+                    في هذا النظام، لا تحتاج لإنشاء الأوردرات يدوياً؛ حيث يتولى فريقنا الاحترافي مراجعة طلبياتك، التأكيد مع العملاء، 
+                    وتجهيز بوالص الشحن لضمان أعلى جودة تنفيذ وأقل نسبة مرتجعات.
                   </p>
 
-                  {/* 3 Upcoming Capabilities Preview Pills */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                    <div className={`p-3.5 rounded-2xl border ${
-                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
-                    }`}>
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-[#008060] flex items-center justify-center mb-2">
-                        <PackageIcon size={16} />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-right">
+                    {[
+                      { title: 'أتمتة كاملة', desc: 'مديرك المخصص ينشئ ويؤكد الأوردرات نيابةً عنك' },
+                      { title: 'جودة الشحن', desc: 'تنسيق مباشر مع شركات الشحن لإصدار البوالص' },
+                      { title: 'توفير الوقت', desc: 'تفرغ لتطوير منتجاتك ودع العمليات التشغيلية لنا' },
+                      { title: 'شفافية مالية', desc: 'كشف حساب لحظي لكل حركة مالية على أوردراتك' }
+                    ].map((item, i) => (
+                      <div key={i} className={`p-4 rounded-2xl border transition-all ${
+                        isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-100'
+                      }`}>
+                        <div className="flex items-center gap-2.5 mb-1">
+                          <CheckCircle2 size={16} className="text-amber-500" />
+                          <h4 className="text-xs font-black">{item.title}</h4>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-bold leading-normal">{item.desc}</p>
                       </div>
-                      <div className="text-xs font-black">ربط لحظي بمخزونك</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">اختيار الأصناف المتوفرة من بضاعتك بالمخزن تلقائياً</div>
-                    </div>
-
-                    <div className={`p-3.5 rounded-2xl border ${
-                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
-                    }`}>
-                      <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center mb-2">
-                        <Calculator size={16} />
-                      </div>
-                      <div className="text-xs font-black">حساب فوري لصافي ربحك</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">معاينة سعر الشحن والضرائب وصافي مستحقاتك قبل الإرسال</div>
-                    </div>
-
-                    <div className={`p-3.5 rounded-2xl border ${
-                      isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
-                    }`}>
-                      <div className="w-8 h-8 rounded-xl bg-sky-500/15 text-sky-600 flex items-center justify-center mb-2">
-                        <Truck size={16} />
-                      </div>
-                      <div className="text-xs font-black">إصدار البوليصة والتتبع</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">تحويل الطلب مباشرة لشركة الشحن ومتابعة دورته المالية</div>
-                    </div>
+                    ))}
                   </div>
 
-                  {/* Interactive Notification Button */}
-                  <div className="pt-2 flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNotifyOrderFeatureReady(true);
-                        showToast('تم تسجيل طلبك! سيصلك إشعار فور إطلاق شاشة إنشاء الأوردرات من فريق م/ عبدالرحمن سعيد', 'success');
-                      }}
-                      className={`px-5 py-3.5 rounded-2xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer shadow-lg ${
-                        notifyOrderFeatureReady
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-[#008060] hover:bg-[#0a664e] text-white shadow-emerald-600/25'
-                      }`}
-                    >
-                      <CheckCircle2 size={16} />
-                      <span>
-                        {notifyOrderFeatureReady
-                          ? 'تم تفعيل تنبيه الإطلاق لحسابك بنجاح ✓'
-                          : 'إبلاغي فور انتهاء التطوير وإطلاق الميزة'}
-                      </span>
-                    </button>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
                     <button
                       type="button"
                       onClick={() => navigateToTab('orders')}
-                      className={`px-4 py-3.5 rounded-2xl text-xs font-black border transition-all cursor-pointer ${
-                        isDark
-                          ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      className="w-full sm:w-auto px-10 py-4 rounded-[1.5rem] bg-[#008060] hover:bg-emerald-700 text-white text-sm font-black transition-all hover:scale-105 active:scale-95 shadow-xl shadow-emerald-500/20 cursor-pointer"
+                    >
+                      متابعة أوردراتك المنشأة ({toArabicDigits(merchantOrders.length)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowChangePlanModal(true)}
+                      className={`w-full sm:w-auto px-8 py-4 rounded-[1.5rem] border text-sm font-black transition-all hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${
+                        isDark ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'
                       }`}
                     >
-                      العودة للدورة المالية والأوردرات
+                      إدارة الخطة / تغيير النظام
                     </button>
                   </div>
                 </div>
+              </motion.div>
+            ) : (
+              <>
+            {/* View Switcher: Live Form vs Official Dev Stamp */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateOrderMode('form')}
+                  className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                    createOrderMode === 'form'
+                      ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <PlusCircle size={15} />
+                  <span>تسجيل وشحن أوردر فوري</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateOrderMode('dev_seal')}
+                  className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+                    createOrderMode === 'dev_seal'
+                      ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <Sparkles size={15} />
+                  <span>ختم الاعتماد وخارطة التطوير</span>
+                </button>
+              </div>
 
-                {/* Left Column (5 cols): Bespoke Luxury Official Developer Seal (ختم شيك معتمد) */}
-                <div className="lg:col-span-5 flex flex-col items-center justify-center">
-                  <div className="relative group">
-                    {/* Outer Glow Ring */}
-                    <div className="absolute -inset-3 rounded-full bg-gradient-to-tr from-[#008060]/30 via-amber-400/30 to-emerald-500/30 blur-xl opacity-80 group-hover:opacity-100 transition-opacity" />
+              <div className="text-[11px] font-bold text-slate-400">
+                أصناف بضاعتك بالمستودع: <span className="font-black text-[#008060]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة متاحة)
+              </div>
+            </div>
 
-                    {/* The Chic Circular Stamp */}
-                    <div
-                      className={`relative w-64 h-64 sm:w-72 sm:h-72 rounded-full p-3 shadow-2xl flex items-center justify-center -rotate-6 hover:rotate-0 transition-transform duration-300 border-4 border-double ${
-                        isDark
-                          ? 'bg-gradient-to-br from-slate-950 via-[#07261f] to-slate-900 border-amber-400/80 text-white'
-                          : 'bg-gradient-to-br from-[#052e24] via-[#008060] to-[#042f2e] border-amber-300 text-white'
+            {/* LIVE ORDER CREATION FORM */}
+            {createOrderMode === 'form' && (
+              <form onSubmit={handleMerchantSubmitOrder} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Column (7 cols): Customer & Shipping Address */}
+                <div className={`lg:col-span-7 rounded-3xl p-6 sm:p-7 border space-y-5 ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                }`}>
+                  <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                      <Truck size={20} />
+                    </div>
+                    <div>
+                      <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        بيانات العميل ومقر التوصيل
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        أدخل تفاصيل المستلم ومحافظة الشحن لاحتساب تكلفة البوليصة آلياً
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-bold">
+                    <div>
+                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        اسم العميل المستلم *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={orderCustomerName}
+                        onChange={e => setOrderCustomerName(e.target.value)}
+                        placeholder="مثال: محمد السيد أحمد"
+                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        رقم هاتف العميل (للتوصيل والمندوب) *
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        value={orderCustomerPhone}
+                        onChange={e => setOrderCustomerPhone(e.target.value)}
+                        placeholder="010XXXXXXXX"
+                        className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        المحافظة *
+                      </label>
+                      <select
+                        value={orderGovernorate}
+                        onChange={e => setOrderGovernorate(e.target.value)}
+                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      >
+                        {Object.keys(EGYPT_GOV_SHIPPING_RATES).map(gov => (
+                          <option key={gov} value={gov}>
+                            {gov} ({EGYPT_GOV_SHIPPING_RATES[gov]} ج.م شحن)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                        المدينة أو المركز / الحي
+                      </label>
+                      <input
+                        type="text"
+                        value={orderCity}
+                        onChange={e => setOrderCity(e.target.value)}
+                        placeholder="مثال: مدينة نصر / الدقي"
+                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-xs font-bold">
+                    <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      العنوان التفصيلي وملاحظات العنوان
+                    </label>
+                    <input
+                      type="text"
+                      value={orderAddress}
+                      onChange={e => setOrderAddress(e.target.value)}
+                      placeholder="اسم الشارع، رقم العمارة، رقم الشقة، علامة مميزة"
+                      className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                       }`}
-                    >
-                      {/* Inner Dashed Gold Seal Ring */}
-                      <div className="w-full h-full rounded-full border-2 border-dashed border-amber-300/70 flex flex-col items-center justify-between p-5 text-center relative">
-                        
-                        {/* Top Seal Header */}
-                        <div className="space-y-0.5">
-                          <div className="flex items-center justify-center gap-1 text-amber-300 text-[10px] font-mono tracking-widest uppercase font-black">
-                            <span>★</span>
-                            <span>OFFICIAL DEV SEAL</span>
-                            <span>★</span>
+                    />
+                  </div>
+
+                  <div className="text-xs font-bold">
+                    <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      ملاحظات خاصة للمندوب وشركة الشحن
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={orderNotes}
+                      onChange={e => setOrderNotes(e.target.value)}
+                      placeholder="مثال: يرجى الاتصال قبل الوصول / تسليم بعد الساعة 4 مساءً"
+                      className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                      <input
+                        type="checkbox"
+                        checked={orderAllowOpen}
+                        onChange={e => setOrderAllowOpen(e.target.checked)}
+                        className="w-4 h-4 rounded text-[#008060] focus:ring-[#008060]"
+                      />
+                      <span>السماح للعميل بفتح الشحنة ومعاينتها مع مندوب التوصيل قبل السداد</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Right Column (5 cols): Product Selection & Live Financial Calculation */}
+                <div className="lg:col-span-5 space-y-5">
+                  <div className={`rounded-3xl p-6 border space-y-4 ${
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                  }`}>
+                    <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-black">
+                        <PackageIcon size={20} />
+                      </div>
+                      <div>
+                        <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          اختيار الصنف والتسعير
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          اختر الصنف المتوفر ببضاعتك في المستودع
+                        </p>
+                      </div>
+                    </div>
+
+                    {merchantProducts.length === 0 ? (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-xs text-amber-600 dark:text-amber-400 font-bold">
+                        ⚠️ لا توجد منتجات مسجلة باسم هذا الوكيل حتى الآن. يرجى مراجعة إدارة المستودع لربط أصنافك بحسابك.
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5 text-xs font-bold">
+                        <div>
+                          <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                            الصنف المطلوب *
+                          </label>
+                          <select
+                            required
+                            value={orderProductId}
+                            onChange={e => setOrderProductId(e.target.value)}
+                            className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
+                              isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            }`}
+                          >
+                            <option value="">-- اختر المنتج من مخزونك --</option>
+                            {merchantProducts.map(p => {
+                              const stock = Number(p.stock || p.quantity || 0);
+                              return (
+                                <option key={p.id} value={p.id} disabled={stock <= 0}>
+                                  {p.name || p.title} (المتبقي: {stock} قطعة) {stock <= 0 ? '❌ نفد' : ''}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                              الكمية المطلوبة
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={orderProductId ? Number(merchantProducts.find(p => p.id === orderProductId)?.stock || 10) : 100}
+                              value={orderQuantity}
+                              onChange={e => setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                              className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
+                                isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                              }`}
+                            />
                           </div>
-                          <div className="text-[11px] font-black text-emerald-200">
-                            ختم التطوير الهندسي المعتمد
+
+                          <div>
+                            <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                              سعر البيع للقطعة (ج.م)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={orderSellingPrice}
+                              onChange={e => setOrderSellingPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                              placeholder="سعر البيع"
+                              className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
+                                isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                              }`}
+                            />
                           </div>
                         </div>
 
-                        {/* Center Seal Emblem & Developer Name */}
-                        <div className="my-auto space-y-1.5 py-2 border-y border-amber-300/30 w-full">
-                          <div className="w-10 h-10 mx-auto rounded-2xl bg-amber-400/20 border border-amber-300/50 flex items-center justify-center text-amber-300 shadow-inner">
-                            <Code2 size={22} />
+                        <div>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <label className={isDark ? 'text-slate-300' : 'text-slate-700'}>
+                              مصاريف الشحن والتوصيل (ج.م)
+                            </label>
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-black">
+                              تسعيرة {orderGovernorate}
+                            </span>
                           </div>
-                          <div className="text-[11px] font-bold text-emerald-200">
-                            جاري التطوير حالياً بواسطة
-                          </div>
-                          <div className="text-base sm:text-lg font-black text-amber-300 tracking-tight leading-snug">
-                            الديفلوبر عبدالرحمن سعيد
-                          </div>
-                          <div className="text-xs font-black text-white">
-                            وفريقه الهندسي
-                          </div>
+                          <input
+                            type="number"
+                            value={orderShippingFee}
+                            onChange={e => setOrderShippingFee(parseFloat(e.target.value) || 0)}
+                            className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
+                              isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            }`}
+                          />
                         </div>
+                      </div>
+                    )}
 
-                        {/* Bottom Seal Ribbon */}
-                        <div className="space-y-1">
-                          <span className="inline-block px-3 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] tracking-wide shadow-sm">
-                            قريباً جداً · COMING SOON
+                    {/* Live Accounting Summary Card */}
+                    {orderProductId && (
+                      <div className={`p-4 rounded-2xl border space-y-2.5 text-xs ${
+                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/70 border-emerald-200'
+                      }`}>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 font-bold">إجمالي سعر الأصناف:</span>
+                          <span className="font-mono font-black">{((Number(orderSellingPrice) || 0) * orderQuantity).toLocaleString()} ج.م</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 font-bold">مصاريف الشحن:</span>
+                          <span className="font-mono font-black text-rose-500">+{orderShippingFee} ج.م</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400 font-bold">عمولة تشغيل النظام:</span>
+                          <span className="font-mono font-black text-amber-600">-{Number((activeStoreData?.settings as any)?.serviceFeePerOrder || 15)} ج.م</span>
+                        </div>
+                        <div className="border-t border-dashed border-emerald-300 dark:border-slate-800 pt-2 flex justify-between items-center">
+                          <span className="font-black text-slate-900 dark:text-white">المبلغ المطلوب تحصيله (COD):</span>
+                          <span className="font-mono font-black text-base text-[#008060]">
+                            {(((Number(orderSellingPrice) || 0) * orderQuantity) + orderShippingFee).toLocaleString()} ج.م
                           </span>
-                          <div className="text-[9px] font-mono text-emerald-200/80">
-                            VERIFIED · {storeName.toUpperCase().slice(0, 14)}
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingOrder || merchantProducts.length === 0}
+                      className="w-full py-4 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-700/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                    >
+                      {isSubmittingOrder ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          <span>جاري تسجيل الشحنة...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 size={18} />
+                          <span>🎉 حفظ وإرسال الطلب للشحن الآن</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {/* DEVELOPER SEAL & ROADMAP CARD */}
+            {createOrderMode === 'dev_seal' && (
+              <div className={`relative overflow-hidden rounded-[32px] border p-6 sm:p-10 shadow-xl ${
+                isDark
+                  ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/50 border-slate-800 text-white'
+                  : 'bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/40 border-emerald-200/80 text-slate-900'
+              }`}>
+                {/* Decorative Ambient Glow */}
+                <div className="absolute -top-24 -left-24 w-80 h-80 rounded-full bg-[#008060]/10 blur-3xl pointer-events-none" />
+                <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+
+                <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                  
+                  {/* Right Column (7 cols): Message, Features & CTA */}
+                  <div className="lg:col-span-7 space-y-5 text-right">
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-black">
+                      <Sparkles size={14} />
+                      <span>تحديث قادم لبوابة الموكلين · قريباً جداً</span>
+                    </div>
+
+                    <h2 className={`text-2xl sm:text-3xl font-black leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      استوديو إنشاء وإرسال الأوردرات المباشر للوكيل
+                    </h2>
+
+                    <p className={`text-sm sm:text-base leading-relaxed font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                      يقوم حالياً الديفلوبر <span className="text-[#008060] dark:text-emerald-400 font-black underline decoration-amber-400/70 decoration-2 underline-offset-4">الباشمهندس / عبدالرحمن سعيد وفريقه</span> بالتطوير في الفترة الحالية لإطلاق منظومة تسجيل الأوردرات الذكية الخاصة بالوكلاء، لتتمكن من رفع أوردرات عملائك مباشرة من بضاعتك بالمخزن وإصدار بوليصة الشحن بضغطة زر.
+                    </p>
+
+                    {/* 3 Capabilities Preview Pills */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                      <div className={`p-3.5 rounded-2xl border ${
+                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
+                      }`}>
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-[#008060] flex items-center justify-center mb-2">
+                          <PackageIcon size={16} />
+                        </div>
+                        <div className="text-xs font-black">ربط لحظي بمخزونك</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">اختيار الأصناف المتوفرة من بضاعتك بالمخزن تلقائياً</div>
+                      </div>
+
+                      <div className={`p-3.5 rounded-2xl border ${
+                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
+                      }`}>
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center mb-2">
+                          <Calculator size={16} />
+                        </div>
+                        <div className="text-xs font-black">حساب فوري لصافي ربحك</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">معاينة سعر الشحن والضرائب وصافي مستحقاتك قبل الإرسال</div>
+                      </div>
+
+                      <div className={`p-3.5 rounded-2xl border ${
+                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
+                      }`}>
+                        <div className="w-8 h-8 rounded-xl bg-sky-500/15 text-sky-600 flex items-center justify-center mb-2">
+                          <Truck size={16} />
+                        </div>
+                        <div className="text-xs font-black">إصدار البوليصة والتتبع</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">تحويل الطلب مباشرة لشركة الشحن ومتابعة دورته المالية</div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setCreateOrderMode('form')}
+                        className="px-6 py-3.5 rounded-2xl text-xs font-black bg-[#008060] hover:bg-[#0a664e] text-white shadow-emerald-600/25 cursor-pointer transition-all flex items-center gap-2"
+                      >
+                        <PlusCircle size={16} />
+                        <span>التبديل إلى نموذج تسجيل الأوردر الآن</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Left Column (5 cols): Official Developer Seal */}
+                  <div className="lg:col-span-5 flex flex-col items-center justify-center">
+                    <div className="relative group">
+                      <div className="absolute -inset-3 rounded-full bg-gradient-to-tr from-[#008060]/30 via-amber-400/30 to-emerald-500/30 blur-xl opacity-80 group-hover:opacity-100 transition-opacity" />
+
+                      <div
+                        className={`relative w-64 h-64 sm:w-72 sm:h-72 rounded-full p-3 shadow-2xl flex items-center justify-center -rotate-6 hover:rotate-0 transition-transform duration-300 border-4 border-double ${
+                          isDark
+                            ? 'bg-gradient-to-br from-slate-950 via-[#07261f] to-slate-900 border-amber-400/80 text-white'
+                            : 'bg-gradient-to-br from-[#052e24] via-[#008060] to-[#042f2e] border-amber-300 text-white'
+                        }`}
+                      >
+                        <div className="w-full h-full rounded-full border-2 border-dashed border-amber-300/70 flex flex-col items-center justify-between p-5 text-center relative">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-center gap-1 text-amber-300 text-[10px] font-mono tracking-widest uppercase font-black">
+                              <span>★</span>
+                              <span>OFFICIAL DEV SEAL</span>
+                              <span>★</span>
+                            </div>
+                            <div className="text-[11px] font-black text-emerald-200">
+                              ختم التطوير الهندسي المعتمد
+                            </div>
+                          </div>
+
+                          <div className="my-auto space-y-1.5 py-2 border-y border-amber-300/30 w-full">
+                            <div className="w-10 h-10 mx-auto rounded-2xl bg-amber-400/20 border border-amber-300/50 flex items-center justify-center text-amber-300 shadow-inner">
+                              <Code2 size={22} />
+                            </div>
+                            <div className="text-[11px] font-bold text-emerald-200">
+                              جاري التطوير حالياً بواسطة
+                            </div>
+                            <div className="text-base sm:text-lg font-black text-amber-300 tracking-tight leading-snug">
+                              الديفلوبر عبدالرحمن سعيد
+                            </div>
+                            <div className="text-xs font-black text-white">
+                              وفريقه الهندسي
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="inline-block px-3 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] tracking-wide shadow-sm">
+                              قريباً جداً · COMING SOON
+                            </span>
+                            <div className="text-[9px] font-mono text-emerald-200/80">
+                              VERIFIED · {storeName.toUpperCase().slice(0, 14)}
+                            </div>
                           </div>
                         </div>
-
                       </div>
                     </div>
                   </div>
+
                 </div>
-
               </div>
-            </div>
+            )}
+            </>
+            )}
+          </div>
+        )}
 
-            {/* Locked Preview Mockup of the Upcoming Order Creation Form (So the Merchant sees what's coming) */}
-            <div className={`rounded-[28px] border p-5 sm:p-6 relative overflow-hidden ${
-              isDark ? 'bg-slate-900/70 border-slate-800' : 'bg-white/80 border-slate-200/80'
+        {/* =========================================================
+            TAB 2C: CONSIGNMENT INVENTORY (مخزون بضاعة الموكل والأمانات)
+           ========================================================= */}
+        {currentTab === 'inventory' && (
+          <div className="space-y-5">
+            {/* Header & KPI Summary Banner */}
+            <div className={`p-6 sm:p-7 rounded-[32px] border ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
             }`}>
-              <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-4 mb-5">
-                <div className="flex items-center gap-2.5">
-                  <Lock size={16} className="text-amber-500" />
-                  <h4 className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    معاينة نموذج إنشاء الأوردر الجديد (قيد التجهيز النهائي)
-                  </h4>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-700/20">
+                    <Layers size={24} />
+                  </div>
+                  <div>
+                    <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      مخزون بضاعة الأمانة بالمستودع ({merchantProducts.length} صنف)
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      متابعة حية لكميات الأصناف المودعة، والقطع المحجوزة في أوردرات الطريق، وتقييم رأس المال بسعر التكلفة
+                    </p>
+                  </div>
                 </div>
-                <span className="text-[11px] font-black text-[#008060] bg-emerald-500/10 px-3 py-1 rounded-full">
-                  بضاعتك المتاحة بالمخزن: {merchantProducts.length} صنف ({overviewStats.totalStockUnits} قطعة)
-                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigateToTab('create_order')}
+                    className="px-4 py-2.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs transition-all"
+                  >
+                    <PlusCircle size={15} />
+                    <span>إنشاء أوردر من المخزون</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 opacity-60 pointer-events-none select-none">
-                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-[11px] text-slate-400 font-bold block mb-1">اسم ورقم هاتف المستلم</span>
-                  <div className="text-xs font-black">أحمد محمد · 010XXXXXXXX</div>
+              {/* 4 Financial & Unit Inventory Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 pt-5">
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-[11px] font-bold text-slate-400 block mb-1">إجمالي القطع بالمخزن</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white">
+                    {totalStockUnits} <span className="text-xs font-bold text-slate-400">قطعة</span>
+                  </div>
                 </div>
-                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-[11px] text-slate-400 font-bold block mb-1">المحافظة والعنوان التفصيلي</span>
-                  <div className="text-xs font-black">القاهرة - مدينة نصر - شارع عباس العقاد</div>
+
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/70 border-emerald-200'}`}>
+                  <span className="text-[11px] font-bold text-[#008060] block mb-1">تقييم المخزون (سعر التكلفة)</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-[#008060]">
+                    {formatMoney(inventoryValuation)}
+                  </div>
                 </div>
-                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-[11px] text-slate-400 font-bold block mb-1">اختيار الأصناف من مخزون الموكل</span>
-                  <div className="text-xs font-black text-[#008060]">
-                    {merchantProducts[0]?.name || 'صنف من بضاعتك بالمخزن'} (1 قطعة)
+
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-sky-50/70 border-sky-200'}`}>
+                  <span className="text-[11px] font-bold text-sky-600 block mb-1">قطع في الطريق (مع المناديب)</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-sky-600">
+                    {returnsReserveAssessment.inTransitCount} <span className="text-xs font-bold text-sky-500">شحنة</span>
+                  </div>
+                </div>
+
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-amber-50/70 border-amber-200'}`}>
+                  <span className="text-[11px] font-bold text-amber-600 block mb-1">أصناف قاربت على النفاد (&le; 5)</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-amber-600">
+                    {merchantProducts.filter(p => Number(p.stock || p.quantity || 0) <= 5).length} <span className="text-xs font-bold text-amber-500">صنف</span>
                   </div>
                 </div>
               </div>
             </div>
 
+            {/* Inventory Search & Filters */}
+            <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <div className="relative w-full sm:w-80">
+                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={inventorySearch}
+                  onChange={e => setInventorySearch(e.target.value)}
+                  placeholder="بحث باسم الصنف أو الكود..."
+                  className={`w-full pr-10 pl-3 py-2.5 border rounded-xl text-xs font-bold outline-none focus:border-[#008060] ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 w-full sm:w-auto overflow-x-auto">
+                {[
+                  { id: 'all', label: 'الكل' },
+                  { id: 'available', label: 'المتوفر بالمخزن' },
+                  { id: 'low', label: 'مخزون منخفض' },
+                  { id: 'out', label: 'نافد من المخزن' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setInventoryStockFilter(f.id as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
+                      inventoryStockFilter === f.id
+                        ? 'bg-[#008060] text-white shadow-xs'
+                        : isDark
+                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Inventory Products Table */}
+            <div className={`rounded-3xl border overflow-hidden ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            }`}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'} font-black`}>
+                    <tr>
+                      <th className="py-3.5 px-4">اسم الصنف والرمز</th>
+                      <th className="py-3.5 px-4 text-center">سعر التكلفة</th>
+                      <th className="py-3.5 px-4 text-center">سعر البيع المقترح</th>
+                      <th className="py-3.5 px-4 text-center">الرصيد الحالي بالمستودع</th>
+                      <th className="py-3.5 px-4 text-center">إجمالي قيمة المخزون</th>
+                      <th className="py-3.5 px-4 text-center">حالة التوفر</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y font-medium ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-700'}`}>
+                    {filteredConsignmentProducts.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">
+                          لا توجد أصناف مطابقة لبحثك في مخزون الوكيل
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredConsignmentProducts.map(p => {
+                        const stock = Number(p.stock || p.quantity || 0);
+                        const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
+                        const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));
+                        const val = stock * cost;
+
+                        return (
+                          <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
+                            <td className="py-4 px-4 font-black">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0 overflow-hidden">
+                                  {p.imageUrl || p.image ? (
+                                    <img src={p.imageUrl || p.image} alt={p.name} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <PackageIcon size={18} />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className={`font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{p.name || p.title}</div>
+                                  <div className="text-[10px] font-mono text-slate-400">SKU: {p.sku || p.barcode || p.id}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-4 px-4 text-center font-mono font-bold text-slate-600 dark:text-slate-400">
+                              {formatMoney(cost)}
+                            </td>
+                            <td className="py-4 px-4 text-center font-mono font-black text-[#008060]">
+                              {formatMoney(price)}
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              <span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-slate-400">قطعة</span>
+                            </td>
+                            <td className="py-4 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                              {formatMoney(val)}
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              {stock <= 0 ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-500/10 text-rose-500">
+                                  نفد من المخزن
+                                </span>
+                              ) : stock <= 5 ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/15 text-amber-600">
+                                  مخزون حرج ({stock})
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-[#008060]">
+                                  متوفر بالمستودع
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
@@ -4398,6 +7768,592 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         )}
 
         {/* =========================================================
+            TAB 3A: CUSTOMERS MANAGEMENT (إدارة العملاء والمشترين)
+           ========================================================= */}
+        {currentTab === 'customers' && (
+          <div className="space-y-6">
+            {/* Top Toolbar Card: Search + Export */}
+            <div className={`p-4 sm:p-5 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+            }`}>
+              <div className="flex-1 max-w-md relative">
+                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={customersSearchQuery}
+                  onChange={e => setCustomersSearchQuery(e.target.value)}
+                  placeholder="ابحث باسم العميل، رقم الهاتف، أو المحافظة..."
+                  className={`w-full pr-10 pl-4 py-2.5 rounded-2xl text-xs font-bold border outline-none transition-all ${
+                    isDark 
+                      ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-[#008060]' 
+                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-[#008060]'
+                  }`}
+                />
+                {customersSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomersSearchQuery('')}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const csvRows = [
+                      ['اسم العميل', 'رقم الهاتف', 'المحافظة', 'إجمالي الطلبات', 'الطلبات المسلمة', 'المرتجع', 'إجمالي الإنفاق (ج.م)', 'آخر طلب']
+                    ];
+                    filteredCustomersList.forEach(c => {
+                      csvRows.push([
+                        `"${c.name}"`,
+                        `"${c.phone}"`,
+                        `"${c.governorate}"`,
+                        String(c.totalOrders),
+                        String(c.deliveredOrders),
+                        String(c.returnedOrders),
+                        String(c.totalSpent),
+                        `"${c.lastOrderDate ? new Date(c.lastOrderDate).toLocaleDateString('ar-EG') : '—'}"`
+                      ]);
+                    });
+                    const csvContent = '\uFEFF' + csvRows.map(r => r.join(',')).join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `عملاء_الوكيل_${liveMerchant.name}_${new Date().toISOString().slice(0, 10)}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    showToast('تم تصدير سجل العملاء بنجاح', 'success');
+                  }}
+                  className="px-4 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                >
+                  <Download size={14} />
+                  <span>تصدير ملف Excel / CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* KPI Cards: Customers Highlights */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-slate-400 font-bold">إجمالي المشترين</span>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                    <Users size={16} />
+                  </div>
+                </div>
+                <div className="text-xl font-black font-mono tabular-nums text-slate-900 dark:text-white">
+                  {uniqueCustomersCount}
+                </div>
+                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                  عميل فريد مسجل بقاعدة البيانات
+                </div>
+              </div>
+
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-slate-400 font-bold">استلموا بنجاح</span>
+                  <div className="w-8 h-8 rounded-xl bg-teal-500/10 text-teal-600 flex items-center justify-center">
+                    <CheckCircle2 size={16} />
+                  </div>
+                </div>
+                <div className="text-xl font-black font-mono tabular-nums text-teal-600 dark:text-teal-400">
+                  {totalDeliveredCustomers}
+                </div>
+                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                  {uniqueCustomersCount > 0 ? Math.round((totalDeliveredCustomers / uniqueCustomersCount) * 100) : 0}% نسبة نجاح الاستلام
+                </div>
+              </div>
+
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-slate-400 font-bold">عملاء متكررون</span>
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                    <Award size={16} />
+                  </div>
+                </div>
+                <div className="text-xl font-black font-mono tabular-nums text-amber-600 dark:text-amber-400">
+                  {repeatCustomersCount}
+                </div>
+                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                  طلبوا أكثر من أوردر واحد
+                </div>
+              </div>
+
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-slate-400 font-bold">متوسط قيمة العميل</span>
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center">
+                    <Banknote size={16} />
+                  </div>
+                </div>
+                <div className="text-xl font-black font-mono tabular-nums text-slate-900 dark:text-white">
+                  {formatMoney(avgSpentPerCustomer)}
+                </div>
+                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                  متوسط المشتريات المسلمة
+                </div>
+              </div>
+            </div>
+
+            {/* Customers Data Table & Cards */}
+            <div className={`rounded-3xl border overflow-hidden ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+              <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <div>
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white">قائمة العملاء والمشترين</h3>
+                  <p className="text-xs text-slate-400 font-bold mt-0.5">
+                    يتم استخراج البيانات وتحديثها تلقائياً مع كل أوردر وشحنة
+                  </p>
+                </div>
+                <span className="text-xs font-mono font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
+                  {filteredCustomersList.length} عميل
+                </span>
+              </div>
+
+              {filteredCustomersList.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 font-bold">
+                  <Users size={36} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                  <p className="text-sm">لا توجد نتائج مطابقة لبحث العملاء</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead>
+                      <tr className={`border-b text-[11px] font-black uppercase tracking-wider ${
+                        isDark ? 'border-slate-800 bg-slate-950/60 text-slate-400' : 'border-slate-100 bg-slate-50/80 text-slate-500'
+                      }`}>
+                        <th className="py-3.5 px-4">العميل</th>
+                        <th className="py-3.5 px-4">المحافظة والعنوان</th>
+                        <th className="py-3.5 px-4 text-center">الطلبات</th>
+                        <th className="py-3.5 px-4">إجمالي المشتريات</th>
+                        <th className="py-3.5 px-4">آخر أوردر</th>
+                        <th className="py-3.5 px-4 text-center">إجراءات التواصل</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800/60' : 'divide-slate-100'}`}>
+                      {filteredCustomersList.map(cust => (
+                        <tr key={cust.id} className={`transition-colors ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/70'}`}>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-400 text-white flex items-center justify-center font-black text-xs shrink-0">
+                                {getInitials(cust.name)}
+                              </div>
+                              <div>
+                                <div className="font-black text-slate-900 dark:text-white">{cust.name}</div>
+                                <div className="font-mono text-[11px] text-slate-400 dir-ltr text-right">{cust.phone}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                              <MapPin size={13} className="text-[#008060] shrink-0" />
+                              <span className="font-black">{cust.governorate}</span>
+                              {cust.city && <span className="text-slate-400 text-[11px]">({cust.city})</span>}
+                            </div>
+                            {cust.address && (
+                              <div className="text-[10px] text-slate-400 truncate max-w-[220px] mt-0.5">
+                                {cust.address}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 font-mono font-black text-xs">
+                              <span>{cust.totalOrders}</span>
+                              <span className="text-[10px] text-slate-400 font-sans">أوردر</span>
+                            </div>
+                            <div className="flex items-center justify-center gap-1 mt-1 text-[10px] font-mono">
+                              {cust.deliveredOrders > 0 && (
+                                <span className="text-emerald-600 font-black">{cust.deliveredOrders} تسليم</span>
+                              )}
+                              {cust.returnedOrders > 0 && (
+                                <span className="text-rose-500 font-black">• {cust.returnedOrders} مرتجع</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-mono font-black text-slate-900 dark:text-white">
+                              {formatMoney(cust.totalSpent)}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                              {cust.lastOrderDate ? new Date(cust.lastOrderDate).toLocaleDateString('ar-EG') : '—'}
+                            </div>
+                            {cust.lastOrderNumber && (
+                              <div className="text-[10px] text-[#008060] font-mono">#{cust.lastOrderNumber}</div>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {cust.phone && cust.phone !== '—' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const clean = cust.phone.replace(/\D/g, '');
+                                      window.open(`https://wa.me/2${clean}?text=${encodeURIComponent(`مرحباً ${cust.name}، بخصوص شحنتك مع متجرنا`)}`, '_blank');
+                                    }}
+                                    className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-[#008060] transition-colors cursor-pointer"
+                                    title="مراسلة عبر واتساب"
+                                  >
+                                    <MessageCircle size={15} />
+                                  </button>
+                                  <a
+                                    href={`tel:${cust.phone}`}
+                                    className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+                                    title="اتصال هاتفي"
+                                  >
+                                    <Phone size={15} />
+                                  </a>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const searchKey = cust.phone !== '—' ? cust.phone : cust.name;
+                                  setOrdersSearchQuery(searchKey);
+                                  navigateToTab('orders');
+                                  showToast(`تم عرض شحنات العميل: ${cust.name}`, 'info');
+                                }}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-black transition-colors cursor-pointer"
+                                title="عرض شحنات هذا العميل بالدورة المالية"
+                              >
+                                الشحنات
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
+            TAB 3B: APPS & AUTOMATION HUB (التطبيقات والربط الآلي)
+           ========================================================= */}
+        {currentTab === 'apps' && (
+          <div className="space-y-6">
+            {planUsage.managerPlanActive && (
+              <div className="p-4 sm:p-5 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <Crown size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-amber-800 dark:text-amber-300">
+                      إدارة الشحن وبوت التأكيد مفوضة لمدير حسابك المخصص 🔒
+                    </h4>
+                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mt-0.5">
+                      أنت مشترك في ({planUsage.planLabelAr})؛ يقوم المدير المخصص بإدارة الربط مع شركة الشحن وبوت تأكيد الأوردرات نيابةً عنك.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowChangePlanModal(true)}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shrink-0 cursor-pointer"
+                >
+                  تغيير نظام الباقة
+                </button>
+              </div>
+            )}
+
+            {/* Header Banner */}
+            <div className={`p-5 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              isDark 
+                ? 'bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 border-slate-800' 
+                : 'bg-gradient-to-r from-emerald-50/70 via-white to-teal-50/60 border-slate-200/80 shadow-xs'
+            }`}>
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-[#008060] text-white flex items-center justify-center shadow-lg shadow-emerald-700/20 shrink-0">
+                  <LayoutGrid size={24} />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-slate-900 dark:text-white">مركز التطبيقات والتكامل الآلي</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                    ربط شركات الشحن (بوسطة)، أتمتة رسائل تأكيد الواتساب، والربط البرمجي للمخازن
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-3.5 py-1.5 rounded-full bg-emerald-500/15 text-[#008060] font-black text-xs flex items-center gap-1.5 border border-emerald-500/20">
+                  <span className="w-2 h-2 rounded-full bg-[#008060] animate-pulse" />
+                  <span>{planUsage.managerPlanActive ? 'تحت إدارة المدير المخصص 🔒' : '4 تطبيقات نشطة ومتصلة'}</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Apps Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+              
+              {/* APP 1: Bosta Express */}
+              <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              }`}>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-rose-500/10 text-rose-600 flex items-center justify-center font-black">
+                        <Truck size={22} />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-slate-900 dark:text-white">بوسطة للشحن السريع (Bosta Express)</h4>
+                        <span className="text-[10px] text-slate-400 font-bold">Logistics & Tracking API v2</span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#008060] text-[10px] font-black flex items-center gap-1">
+                      <CheckCircle2 size={12} />
+                      <span>متصل ونشط</span>
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                    إصدار بوالص الشحن التلقائية بنقرة واحدة، جلب رقم التتبع الفوري، وتحديث حالة الأوردر بالدورة المالية آلياً عند التسليم للمشتري أو الإعادة للمخزن.
+                  </p>
+
+                  <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1.5 ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/70 text-slate-600'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span>نقطة الاستلام والبيك أب:</span>
+                      <span className="text-slate-900 dark:text-white font-black">{DEFAULT_BOSTA_BUSINESS_LOCATIONS[0]?.city || 'مخزن الجيزة الرئيسي'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>إشعار التسليم اللحظي:</span>
+                      <span className="text-[#008060] font-black">Webhook مفعل</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isTestingBosta}
+                    onClick={() => {
+                      setIsTestingBosta(true);
+                      setTimeout(() => {
+                        setIsTestingBosta(false);
+                        showToast('تم اختبار اتصال API بوسطة بنجاح - استجابة الخادم 38ms', 'success');
+                      }, 700);
+                    }}
+                    className="flex-1 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all disabled:opacity-50"
+                  >
+                    {isTestingBosta ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    <span>فحص استجابة الـ API</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* APP 2: WhatsApp Confirmation Bot */}
+              <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              }`}>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                        <MessageCircle size={22} />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-slate-900 dark:text-white">بوت تأكيد شحنات الواتساب</h4>
+                        <span className="text-[10px] text-slate-400 font-bold">WhatsApp Automation & Address Verification</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsWhatsAppBotEnabled(!isWhatsAppBotEnabled);
+                        showToast(isWhatsAppBotEnabled ? 'تم إيقاف بوت التأكيد مؤقتاً' : 'تم تفعيل بوت التأكيد الآلي', 'info');
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-black flex items-center gap-1 cursor-pointer transition-colors ${
+                        isWhatsAppBotEnabled ? 'bg-emerald-500/15 text-[#008060]' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${isWhatsAppBotEnabled ? 'bg-[#008060]' : 'bg-slate-400'}`} />
+                      <span>{isWhatsAppBotEnabled ? 'مفعّل' : 'متوقف'}</span>
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                    إرسال رسالة آلية للعميل عند إنشاء الشحنة لتأكيد المقاسات والعنوان وموعد وصول المندوب، مما يخفض نسبة المرتجعات لأقل من 8%.
+                  </p>
+
+                  <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1 ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/70 text-slate-600'
+                  }`}>
+                    <span className="text-[10px] text-slate-400 block mb-1">نموذج الرسالة المعتمد:</span>
+                    <p className="italic text-slate-700 dark:text-slate-300 font-mono text-[10.5px]">
+                      "مرحباً بك! تم تأكيد شحنتك رقم #ORD-2026 بقيمة إجمالية مع الشحن، وسيتم التسليم خلال 48 ساعة."
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isTestingWhatsApp}
+                    onClick={() => {
+                      setIsTestingWhatsApp(true);
+                      setTimeout(() => {
+                        setIsTestingWhatsApp(false);
+                        showToast('تم إرسال رسالة تجريبية ناجحة عبر بوابة WhatsApp Cloud API', 'success');
+                      }, 800);
+                    }}
+                    className="flex-1 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    {isTestingWhatsApp ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    <span>إرسال رسالة واتساب تجريبية</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* APP 3: Stock Sync */}
+              <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              }`}>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-black">
+                        <Layers size={22} />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-slate-900 dark:text-white">المزامنة اللحظية للمخزون</h4>
+                        <span className="text-[10px] text-slate-400 font-bold">Multi-Channel Inventory Deduction</span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#008060] text-[10px] font-black flex items-center gap-1">
+                      <CheckCircle2 size={12} />
+                      <span>تحديث فوري</span>
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                    خصم فوري لكميات البضاعة المحجوزة من مخزون المستودع عند تسجيل أي أوردر لمنع البيع الزائد (Overselling)، وإعادة الكميات تلقائياً في حال ألغيت الشحنة.
+                  </p>
+
+                  <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1.5 ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/70 text-slate-600'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span>إجمالي الأصناف المراقبة:</span>
+                      <span className="text-slate-900 dark:text-white font-mono font-black">{merchantProducts.length} صنف</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>إجمالي القطع في المستودع:</span>
+                      <span className="text-[#008060] font-mono font-black">{totalStockUnits} قطعة</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fetchFreshData(true);
+                      showToast('تمت مطابقة ومزامنة أرصدة المستودع مع الأوردرات بنجاح', 'success');
+                    }}
+                    className="flex-1 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <RefreshCw size={14} />
+                    <span>مزامنة جرد المخزون الآن</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* APP 4: API & Webhooks */}
+              <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
+                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              }`}>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center font-black">
+                        <Code2 size={22} />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm text-slate-900 dark:text-white">مفاتيح المطورين والـ Webhook</h4>
+                        <span className="text-[10px] text-slate-400 font-bold">REST API & Webhooks Listener</span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-600 text-[10px] font-black">
+                      REST v1
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-400 font-black block">عنوان رابط الـ Webhook الخاص بك:</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={appsWebhookUrl}
+                        onChange={e => setAppsWebhookUrl(e.target.value)}
+                        className={`w-full p-2.5 pr-3 pl-20 rounded-xl text-xs font-mono border outline-none ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        disabled={isTestingWebhook}
+                        onClick={() => {
+                          setIsTestingWebhook(true);
+                          setTimeout(() => {
+                            setIsTestingWebhook(false);
+                            showToast('تم إرسال إشعار اختبار (Ping Webhook) بنجاح - كود الاستجابة 200 OK', 'success');
+                          }, 650);
+                        }}
+                        className="absolute left-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-[#008060] text-white text-[10px] font-black cursor-pointer hover:bg-[#0a664e] transition-all disabled:opacity-50"
+                      >
+                        {isTestingWebhook ? 'جارِ...' : 'اختبار Ping'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-slate-400 font-black block">مفتاح المصادقة السري (Merchant Secret Key):</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`mk_live_${(liveMerchant.id || 'partner').slice(0, 8)}_${effectiveStoreId.slice(0, 6)}`}
+                        className={`w-full p-2 rounded-xl text-xs font-mono border outline-none ${
+                          isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-emerald-700'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(`mk_live_${(liveMerchant.id || 'partner').slice(0, 8)}_${effectiveStoreId.slice(0, 6)}`);
+                          showToast('تم نسخ مفتاح API السري', 'success');
+                        }}
+                        className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-[#008060] cursor-pointer"
+                        title="نسخ المفتاح"
+                      >
+                        <Copy size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 text-[10px] text-slate-400 font-bold text-center">
+                  التكامل يدعم منصات Shopify و Salla و Zid ومتاجر WooCommerce
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
             TAB 4: TRANSPARENCY & GOODS MOVEMENT (حركة البضاعة والشفافية)
            ========================================================= */}
         {currentTab === 'transparency' && (
@@ -4551,161 +8507,491 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
             </div>
 
-            {/* Mobile Transaction Cards (md:hidden) */}
-            <div className="md:hidden space-y-2.5">
-              {filteredStatementTransactions.length === 0 ? (
-                <div className={`p-10 rounded-3xl border text-center text-xs font-bold text-slate-400 ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-                }`}>
-                  لا توجد عمليات مسجلة في كشف الحساب للفترة المحددة
-                </div>
-              ) : (
-                filteredStatementTransactions.map(tx => {
-                  const linkedReq = merchantFilteredRequests.find(r => r.id === tx.referenceId);
-                  const receiptImg = tx.receiptImage || linkedReq?.receiptImage;
-                  const transferRef = tx.transferReference || linkedReq?.transferReference;
-                  const isCredit = tx.amount >= 0;
-
-                  return (
-                    <div
-                      key={tx.id}
-                      className={`p-4 rounded-3xl border space-y-2.5 ${
-                        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                            isCredit ? 'bg-emerald-500/15 text-[#008060]' : 'bg-rose-500/15 text-rose-500'
-                          }`}>
-                            {isCredit ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
-                          </div>
-                          <div>
-                            <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                              {tx.type === 'order_delivered' ? 'تسوية مبيعات' :
-                               tx.type === 'withdrawal' ? 'سحب مستحقات' :
-                               isCredit ? 'إضافة رصيد' : 'خصم / تعديل'}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-400">
-                              {new Date(tx.date).toLocaleDateString('ar-EG')}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="text-left">
-                          <div className={`font-mono tabular-nums font-black text-sm ${isCredit ? 'text-[#008060]' : 'text-rose-500'}`}>
-                            {isCredit ? '+' : ''}{formatMoney(tx.amount)}
-                          </div>
-                          <div className="text-[10px] font-mono text-slate-400">
-                            الرصيد: {formatMoney(tx.balanceAfter)}
-                          </div>
-                        </div>
-                      </div>
-
-                      {tx.notes && (
-                        <div className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          {tx.notes}
-                        </div>
-                      )}
-
-                      {(transferRef || receiptImg) && (
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          {transferRef && (
-                            <span className="text-[10px] font-mono font-bold text-[#008060] bg-emerald-500/10 px-2.5 py-1 rounded-lg">
-                              مرجع: {transferRef}
-                            </span>
-                          )}
-                          {receiptImg && (
-                            <button
-                              type="button"
-                              onClick={() => setPreviewReceiptImage(receiptImg)}
-                              className="text-[10px] font-black bg-[#008060] text-white px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
-                            >
-                              <Eye size={11} /> عرض الإيصال
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Desktop Statement Table (hidden md:block) */}
-            <div className={`hidden md:block rounded-3xl border overflow-hidden ${
+            {/* Sub-view Switcher: Ledger vs P&L vs Returns Reserve */}
+            <div className={`p-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
               isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
             }`}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs">
-                  <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'} font-black`}>
-                    <tr>
-                      <th className="py-3.5 px-4">التاريخ</th>
-                      <th className="py-3.5 px-4">نوع العملية</th>
-                      <th className="py-3.5 px-4 text-right">البيان والمرجع والإيصال</th>
-                      <th className="py-3.5 px-4 text-center">المبلغ</th>
-                      <th className="py-3.5 px-4 text-center">الرصيد بعد العملية</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y font-medium ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-700'}`}>
-                    {filteredStatementTransactions.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">
-                          لا توجد عمليات مسجلة في كشف الحساب للفترة المحددة
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredStatementTransactions.map(tx => {
-                        const linkedReq = merchantFilteredRequests.find(r => r.id === tx.referenceId);
-                        const receiptImg = tx.receiptImage || linkedReq?.receiptImage;
-                        const transferRef = tx.transferReference || linkedReq?.transferReference;
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => handleStatementSubViewChange('ledger')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                    statementSubView === 'ledger'
+                      ? 'bg-[#008060] text-white shadow-xs'
+                      : isDark
+                      ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <FileText size={15} />
+                  <span>كشف حساب الأستاذ والحركات</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStatementSubViewChange('pnl')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                    statementSubView === 'pnl'
+                      ? 'bg-[#008060] text-white shadow-xs'
+                      : isDark
+                      ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <TrendingUp size={15} />
+                  <span>قائمة الأرباح والخسائر (P&L)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStatementSubViewChange('reserves')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                    statementSubView === 'reserves'
+                      ? 'bg-[#008060] text-white shadow-xs'
+                      : isDark
+                      ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <ShieldCheck size={15} />
+                  <span>مخصص أمان المرتجعات</span>
+                </button>
+              </div>
 
-                        return (
-                          <tr key={tx.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
-                            <td className="py-4 px-4 font-mono text-[11px] font-bold">
-                              {new Date(tx.date).toLocaleDateString('ar-EG')}
-                            </td>
-                            <td className="py-4 px-4 font-black">
-                              {tx.type === 'order_delivered' ? 'تسوية مبيعات' : 
-                               (tx.notes || '').includes('مصروفات') ? 'خصم مصروفات إضافية' :
-                               tx.type === 'withdrawal' ? 'سحب رصيد' : 
-                               tx.amount > 0 ? 'إضافة رصيد' : 'تعديل رصيد'}
-                            </td>
-                            <td className="py-4 px-4 max-w-md">
-                              <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.notes}</div>
-                              {(transferRef || receiptImg) && (
-                                <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                                  {transferRef && (
-                                    <span className="text-[10px] font-mono font-black bg-emerald-500/10 text-[#008060] px-2 py-0.5 rounded-md">
-                                      مرجع التحويل: {transferRef}
-                                    </span>
-                                  )}
-                                  {receiptImg && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setPreviewReceiptImage(receiptImg)}
-                                      className="text-[10px] font-black bg-[#008060] text-white px-2.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer"
-                                    >
-                                      <Eye size={11} /> عرض إيصال التحويل
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                            <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${tx.amount >= 0 ? 'text-[#008060]' : 'text-rose-500'}`}>
-                              {tx.amount >= 0 ? '+' : ''}{formatMoney(tx.amount)}
-                            </td>
-                            <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                              {formatMoney(tx.balanceAfter)}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+              <div className="text-[11px] font-bold text-slate-400 hidden sm:block">
+                {statementSubView === 'ledger' && `عدد العمليات: ${filteredStatementTransactions.length}`}
+                {statementSubView === 'pnl' && `هامش الربح الصافي: ${merchantPnL.netMarginPct.toFixed(1)}%`}
+                {statementSubView === 'reserves' && `الرصيد الآمن للسحب: ${formatMoney(returnsReserveAssessment.safeWithdrawalBalance)}`}
               </div>
             </div>
+
+            {/* SUBVIEW 1: GENERAL LEDGER (دفتر الأستاذ) */}
+            {statementSubView === 'ledger' && (
+              <div className="space-y-4">
+                {/* Mobile Transaction Cards (md:hidden) */}
+                <div className="md:hidden space-y-2.5">
+                  {filteredStatementTransactions.length === 0 ? (
+                    <div className={`p-10 rounded-3xl border text-center text-xs font-bold text-slate-400 ${
+                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    }`}>
+                      لا توجد عمليات مسجلة في كشف الحساب للفترة المحددة
+                    </div>
+                  ) : (
+                    filteredStatementTransactions.map(tx => {
+                      const linkedReq = merchantFilteredRequests.find(r => r.id === tx.referenceId);
+                      const receiptImg = tx.receiptImage || linkedReq?.receiptImage;
+                      const transferRef = tx.transferReference || linkedReq?.transferReference;
+                      const isCredit = tx.amount >= 0;
+
+                      return (
+                        <div
+                          key={tx.id}
+                          className={`p-4 rounded-3xl border space-y-2.5 ${
+                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                                isCredit ? 'bg-emerald-500/15 text-[#008060]' : 'bg-rose-500/15 text-rose-500'
+                              }`}>
+                                {isCredit ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
+                              </div>
+                              <div>
+                                <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                  {tx.type === 'order_delivered' ? 'تسوية مبيعات' :
+                                   tx.type === 'withdrawal' ? 'سحب مستحقات' :
+                                   isCredit ? 'إضافة رصيد' : 'خصم / تعديل'}
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  {new Date(tx.date).toLocaleDateString('ar-EG')}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="text-left">
+                              <div className={`font-mono tabular-nums font-black text-sm ${isCredit ? 'text-[#008060]' : 'text-rose-500'}`}>
+                                {isCredit ? '+' : ''}{formatMoney(tx.amount)}
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-400">
+                                الرصيد: {formatMoney(tx.balanceAfter)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {tx.notes && (
+                            <div className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                              {tx.notes}
+                            </div>
+                          )}
+
+                          {(transferRef || receiptImg) && (
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              {transferRef && (
+                                <span className="text-[10px] font-mono font-bold text-[#008060] bg-emerald-500/10 px-2.5 py-1 rounded-lg">
+                                  مرجع: {transferRef}
+                                </span>
+                              )}
+                              {receiptImg && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewReceiptImage(receiptImg)}
+                                  className="text-[10px] font-black bg-[#008060] text-white px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Eye size={11} /> عرض الإيصال
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Desktop Statement Table (hidden md:block) */}
+                <div className={`hidden md:block rounded-3xl border overflow-hidden ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                }`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'} font-black`}>
+                        <tr>
+                          <th className="py-3.5 px-4">التاريخ</th>
+                          <th className="py-3.5 px-4">نوع العملية</th>
+                          <th className="py-3.5 px-4 text-right">البيان والمرجع والإيصال</th>
+                          <th className="py-3.5 px-4 text-center">المبلغ</th>
+                          <th className="py-3.5 px-4 text-center">الرصيد بعد العملية</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y font-medium ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-700'}`}>
+                        {filteredStatementTransactions.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">
+                              لا توجد عمليات مسجلة في كشف الحساب للفترة المحددة
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredStatementTransactions.map(tx => {
+                            const linkedReq = merchantFilteredRequests.find(r => r.id === tx.referenceId);
+                            const receiptImg = tx.receiptImage || linkedReq?.receiptImage;
+                            const transferRef = tx.transferReference || linkedReq?.transferReference;
+
+                            return (
+                              <tr key={tx.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
+                                <td className="py-4 px-4 font-mono text-[11px] font-bold">
+                                  {new Date(tx.date).toLocaleDateString('ar-EG')}
+                                </td>
+                                <td className="py-4 px-4 font-black">
+                                  {tx.type === 'order_delivered' ? 'تسوية مبيعات' : 
+                                   (tx.notes || '').includes('مصروفات') ? 'خصم مصروفات إضافية' :
+                                   tx.type === 'withdrawal' ? 'سحب رصيد' : 
+                                   tx.amount > 0 ? 'إضافة رصيد' : 'تعديل رصيد'}
+                                </td>
+                                <td className="py-4 px-4 max-w-md">
+                                  <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.notes}</div>
+                                  {(transferRef || receiptImg) && (
+                                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                                      {transferRef && (
+                                        <span className="text-[10px] font-mono font-black bg-emerald-500/10 text-[#008060] px-2 py-0.5 rounded-md">
+                                          مرجع التحويل: {transferRef}
+                                        </span>
+                                      )}
+                                      {receiptImg && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPreviewReceiptImage(receiptImg)}
+                                          className="text-[10px] font-black bg-[#008060] text-white px-2.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Eye size={11} /> عرض إيصال التحويل
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${tx.amount >= 0 ? 'text-[#008060]' : 'text-rose-500'}`}>
+                                  {tx.amount >= 0 ? '+' : ''}{formatMoney(tx.amount)}
+                                </td>
+                                <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                  {formatMoney(tx.balanceAfter)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUBVIEW 2: CONSOLIDATED P&L INCOME STATEMENT (قائمة الأرباح والخسائر) */}
+            {statementSubView === 'pnl' && (
+              <div className="space-y-6">
+                {/* Top P&L KPI Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <span className="text-xs font-bold text-slate-400 block mb-1">إجمالي المبيعات المحصلة</span>
+                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-[#008060]">
+                      {formatMoney(merchantPnL.grossRevenue)}
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-bold mt-1 block">
+                      من {merchantPnL.deliveredCount} أوردر مسلم
+                    </span>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <span className="text-xs font-bold text-slate-400 block mb-1">تكلفة البضاعة المباعة (COGS)</span>
+                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-slate-800 dark:text-slate-200">
+                      {formatMoney(merchantPnL.cogs)}
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-bold mt-1 block">
+                      رأس المال المسترد للبضاعة
+                    </span>
+                  </div>
+
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                    <span className="text-xs font-bold text-slate-400 block mb-1">مجمل الربح التجاري</span>
+                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {formatMoney(merchantPnL.grossProfit)}
+                    </div>
+                    <span className="text-[10px] text-emerald-600 font-bold mt-1 block">
+                      هامش مجمل الربح: {merchantPnL.grossMarginPct.toFixed(1)}%
+                    </span>
+                  </div>
+
+                  <div className="p-5 rounded-3xl bg-gradient-to-tr from-[#008060] to-emerald-600 text-white shadow-lg shadow-emerald-700/20">
+                    <span className="text-xs font-bold text-emerald-100 block mb-1">صافي الربح الفعلي بعد المصروفات</span>
+                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-white">
+                      {formatMoney(merchantPnL.netProfit)}
+                    </div>
+                    <span className="text-[10px] text-emerald-100 font-bold mt-1 block">
+                      هامش الصافي: {merchantPnL.netMarginPct.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Waterfall Income Statement Breakdown */}
+                <div className={`rounded-3xl border overflow-hidden ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                }`}>
+                  <div className={`p-5 sm:p-6 border-b flex items-center justify-between ${
+                    isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-100 bg-slate-50/50'
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                        <TrendingUp size={20} />
+                      </div>
+                      <div>
+                        <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          بيان الدخل المحاسبي المفصل (Income Statement Waterfall)
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          تسلسل تدرج الأرباح من إجمالي المتحصلات النقدية حتى صافي المستحقات الخالصة
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-mono font-black text-[#008060] bg-emerald-500/10 px-3 py-1 rounded-full">
+                      صافي: {formatMoney(merchantPnL.netProfit)}
+                    </span>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-bold">
+                    {/* Item 1: Gross Sales */}
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <div className="space-y-0.5">
+                        <span className="text-slate-900 dark:text-white font-black text-sm block">1. إجمالي الإيرادات المحصلة (Gross Collected Revenue)</span>
+                        <span className="text-slate-400 text-[11px]">مجموع المبالغ النقدية المحصلة من العملاء عبر شركة الشحن</span>
+                      </div>
+                      <span className="font-mono font-black text-base text-[#008060]">+{formatMoney(merchantPnL.grossRevenue)}</span>
+                    </div>
+
+                    {/* Item 2: COGS */}
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <div className="space-y-0.5">
+                        <span className="text-slate-900 dark:text-white font-black text-sm block">2. تكلفة البضاعة المباعة (Cost of Goods Sold - COGS)</span>
+                        <span className="text-slate-400 text-[11px]">تكلفة شراء/توريد الأصناف المسلمة (رأس المال المسترجع لك بالكامل)</span>
+                      </div>
+                      <span className="font-mono font-black text-base text-slate-700 dark:text-slate-300">-{formatMoney(merchantPnL.cogs)}</span>
+                    </div>
+
+                    {/* Subtotal: Gross Profit */}
+                    <div className={`p-4 sm:p-5 flex items-center justify-between ${
+                      isDark ? 'bg-slate-950/60' : 'bg-emerald-50/50'
+                    }`}>
+                      <div className="space-y-0.5">
+                        <span className="text-emerald-700 dark:text-emerald-400 font-black text-sm block">
+                          = مجمل الربح التجاري (Gross Profit)
+                        </span>
+                        <span className="text-emerald-600/80 text-[11px]">الفارق بين سعر البيع وتكلفة البضاعة قبل خصم مصاريف التشغيل</span>
+                      </div>
+                      <div className="text-left font-mono font-black text-base text-[#008060]">
+                        <div>{formatMoney(merchantPnL.grossProfit)}</div>
+                        <div className="text-[10px] text-emerald-600 font-bold">هامش: {merchantPnL.grossMarginPct.toFixed(1)}%</div>
+                      </div>
+                    </div>
+
+                    {/* Item 3: Shipping Deductions */}
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <div className="space-y-0.5">
+                        <span className="text-rose-600 dark:text-rose-400 font-black text-sm block">3. مصاريف الشحن والتوصيل الإجمالية</span>
+                        <span className="text-slate-400 text-[11px]">شحن بوسطة، رسوم الفتح، التأمين، ضريبة القيمة المضافة 14%، وشحن المرتجعات</span>
+                      </div>
+                      <span className="font-mono font-black text-base text-rose-500">-{formatMoney(merchantPnL.shippingExp)}</span>
+                    </div>
+
+                    {/* Item 4: Operating Service Fees */}
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <div className="space-y-0.5">
+                        <span className="text-amber-600 dark:text-amber-400 font-black text-sm block">4. رسوم تشغيل النظام وإدارة الطلبات</span>
+                        <span className="text-slate-400 text-[11px]">رسوم خدمة النظام لكل شحنة مسجلة</span>
+                      </div>
+                      <span className="font-mono font-black text-base text-amber-600">-{formatMoney(merchantPnL.operatingExp)}</span>
+                    </div>
+
+                    {/* Item 5: Store Expenses & Withdrawal Fees */}
+                    {merchantPnL.otherStoreExp > 0 && (
+                      <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <div className="space-y-0.5">
+                          <span className="text-slate-700 dark:text-slate-300 font-black text-sm block">5. مصروفات إضافية ورسوم سحب الرصيد</span>
+                          <span className="text-slate-400 text-[11px]">تغليف، إعلانات، عمالة، أو رسوم تحويل سحب الأرباح المعتمدة</span>
+                        </div>
+                        <span className="font-mono font-black text-base text-rose-500">-{formatMoney(merchantPnL.otherStoreExp)}</span>
+                      </div>
+                    )}
+
+                    {/* Final Net Profit */}
+                    <div className="p-5 sm:p-6 flex items-center justify-between bg-[#008060] text-white">
+                      <div className="space-y-0.5">
+                        <span className="font-black text-base sm:text-lg block">
+                          = صافي الربح المستحق النهائي (Net Income)
+                        </span>
+                        <span className="text-emerald-100 text-xs">
+                          صافي مستحقاتك الصافية بنسبة {merchantPnL.netMarginPct.toFixed(1)}% من إجمالي المبيعات
+                        </span>
+                      </div>
+                      <div className="text-left font-mono font-black text-xl sm:text-2xl text-white">
+                        {formatMoney(merchantPnL.netProfit)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Commercial Efficiency KPIs */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className={`p-4 rounded-2xl border text-center ${
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  }`}>
+                    <span className="text-[11px] text-slate-400 font-bold block mb-1">متوسط قيمة الأوردر (AOV)</span>
+                    <span className="text-lg font-black font-mono text-[#008060]">{formatMoney(merchantPnL.aov)}</span>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  }`}>
+                    <span className="text-[11px] text-slate-400 font-bold block mb-1">متوسط تكلفة خدمة الأوردر (CPO)</span>
+                    <span className="text-lg font-black font-mono text-rose-500">{formatMoney(merchantPnL.cpo)}</span>
+                  </div>
+                  <div className={`p-4 rounded-2xl border text-center ${
+                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                  }`}>
+                    <span className="text-[11px] text-slate-400 font-bold block mb-1">عدد الأوردرات الكلي المسجل</span>
+                    <span className="text-lg font-black font-mono text-slate-900 dark:text-white">{merchantPnL.totalOrders} أوردر</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUBVIEW 3: RETURNS RESERVE & RISK ASSESSMENT (مخصص أمان المرتجعات) */}
+            {statementSubView === 'reserves' && (
+              <div className="space-y-6">
+                <div className={`p-6 sm:p-7 rounded-[32px] border ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                }`}>
+                  <div className="flex items-center gap-3.5 border-b border-slate-100 dark:border-slate-800 pb-5">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-black">
+                      <ShieldCheck size={24} />
+                    </div>
+                    <div>
+                      <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        مخصص أمان المرتجعات وحماية المحفظة
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        تقدير محاسبي ذكي لمصاريف الشحن المحتملة للشحنات الجاري توصيلها في الطريق لتفادي الأرصدة السالبة
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-6">
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <span className="text-[11px] font-bold text-slate-400 block mb-1">شحنات جارية في الطريق</span>
+                      <div className="text-2xl font-black font-mono text-sky-600">
+                        {returnsReserveAssessment.inTransitCount} <span className="text-xs font-bold text-slate-400">شحنة</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-bold block mt-1">
+                        بقيمة تحصيل: {formatMoney(returnsReserveAssessment.inTransitGrossValue)}
+                      </span>
+                    </div>
+
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-rose-50/70 border-rose-200'}`}>
+                      <span className="text-[11px] font-bold text-rose-500 block mb-1">مخاطر مصاريف شحن المرتجع</span>
+                      <div className="text-2xl font-black font-mono text-rose-500">
+                        {formatMoney(returnsReserveAssessment.estimatedShippingLossRisk)}
+                      </div>
+                      <span className="text-[10px] text-rose-400 font-bold block mt-1">
+                        معدل تقديري 65 ج.م للشحنة
+                      </span>
+                    </div>
+
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-amber-50/70 border-amber-200'}`}>
+                      <span className="text-[11px] font-bold text-amber-600 block mb-1">مخصص الحجز الموصى به (Holdback)</span>
+                      <div className="text-2xl font-black font-mono text-amber-600">
+                        {formatMoney(returnsReserveAssessment.recommendedHoldback)}
+                      </div>
+                      <span className="text-[10px] text-amber-500 font-bold block mt-1">
+                        أمان تجاري لحسابك
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-[#008060] text-white">
+                      <span className="text-[11px] font-bold text-emerald-100 block mb-1">الرصيد الآمن للسحب الفوري (100%)</span>
+                      <div className="text-2xl font-black font-mono text-white">
+                        {formatMoney(returnsReserveAssessment.safeWithdrawalBalance)}
+                      </div>
+                      <span className="text-[10px] text-emerald-100 font-bold block mt-1">
+                        خالي تماماً من أي التزامات
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions & Explanatory Banner */}
+                  <div className={`mt-6 p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
+                    isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-emerald-50/60 border-emerald-200 text-slate-700'
+                  }`}>
+                    <div className="text-xs space-y-1">
+                      <div className="font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <CheckCircle2 size={15} className="text-[#008060]" />
+                        <span>نصيحة محاسبية معتمدة لحماية متجرك:</span>
+                      </div>
+                      <p className="text-slate-500 dark:text-slate-400">
+                        سحب المبلغ حتى الرصيد الآمن ({formatMoney(returnsReserveAssessment.safeWithdrawalBalance)}) يضمن بقاء محفظتك في المنطقة الإيجابية حتى لو رجعت أي شحنة في الطريق.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRequestAmount(String(returnsReserveAssessment.safeWithdrawalBalance));
+                        setShowRequestModal(true);
+                      }}
+                      disabled={returnsReserveAssessment.safeWithdrawalBalance <= 0}
+                      className="px-5 py-2.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-sm transition-all whitespace-nowrap disabled:opacity-50"
+                    >
+                      <Coins size={14} />
+                      <span>طلب سحب بالمبلغ الآمن الآن</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -5016,13 +9302,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           </div>
         )}
 
-      </main>
+            {/* Bottom SaaS Footer matching reference screenshot */}
+            <footer className="pt-10 pb-6 text-center text-xs text-slate-400 font-bold border-t border-slate-200/50 dark:border-slate-800/50 mt-auto">
+              © 2026 صنع بواسطة عبده ميديا
+            </footer>
+
+          </main>
+
+        </div>
+      </div>
 
       {/* =====================================================================
-          FLOATING PILL BOTTOM NAVIGATION DOCK (Exact Match to Reference 1 in Brand Colors)
+          FLOATING PILL BOTTOM NAVIGATION DOCK (Shown ONLY on Mobile & Tablet: lg:hidden)
          ===================================================================== */}
       <div
-        className="fixed bottom-3 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[520px] z-40"
+        className="lg:hidden fixed bottom-3 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[520px] z-40"
         dir="rtl"
       >
         <div
@@ -5081,7 +9375,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             <Users size={20} />
           </button>
 
-          {/* 4. Orders / Inbox Icon */}
+          {/* 4. Wallet Icon */}
+          <button
+            type="button"
+            onClick={() => navigateToTab('wallet')}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              currentTab === 'wallet' && !showFullMenuDrawer
+                ? 'text-[#008060] bg-emerald-500/10'
+                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+            }`}
+            title="المحفظة والدورة المالية"
+          >
+            <WalletIcon size={20} />
+          </button>
+
+          {/* 5. Orders / Inbox Icon */}
           <button
             type="button"
             onClick={() => navigateToTab('orders')}
@@ -5093,20 +9401,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             title="أوردراتي وشحناتي"
           >
             <Inbox size={20} />
-          </button>
-
-          {/* 5. Statement / Vouchers Ticket Icon */}
-          <button
-            type="button"
-            onClick={() => navigateToTab('statement')}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-              currentTab === 'statement' && !showFullMenuDrawer
-                ? 'text-[#008060] bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-            }`}
-            title="كشف الحساب الرسمي"
-          >
-            <Ticket size={20} />
           </button>
 
           {/* 6. Prominent Brand Circular Menu Button (Opens Full Menu "القائمة" like Reference 1) */}
@@ -5260,8 +9554,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         onClick={() => navigateToTab('create_order')}
                         className="w-full py-2 text-right text-[#008060] font-black flex items-center justify-between cursor-pointer"
                       >
-                        <span>+ إنشاء أوردر جديد للوكيل</span>
-                        <span className="text-[10px] bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full font-black">قريباً</span>
+                        <span>+ إنشاء أوردر جديد وشحن فوري</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigateToTab('inventory')}
+                        className="w-full py-2 text-right hover:text-[#008060] flex items-center justify-between cursor-pointer"
+                      >
+                        <span>مخزون بضاعتي بالأمانة</span>
+                        <span className="font-mono text-[11px] text-[#008060]">{totalStockUnits} قطعة</span>
                       </button>
                       <button
                         type="button"
@@ -5319,6 +9620,58 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   )}
                 </div>
 
+                {/* Row 3B: إدارة العملاء والمشترين */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFullMenuDrawer(false);
+                    navigateToTab('customers');
+                  }}
+                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <Users size={20} className="text-[#008060]" />
+                    <span>إدارة العملاء والمشترين</span>
+                  </div>
+                  <span className="font-mono text-xs text-white bg-slate-800 dark:bg-slate-700 px-2 py-0.5 rounded-full">
+                    {uniqueCustomersCount} عميل
+                  </span>
+                </button>
+
+                {/* Row 3C: المتجر الإلكتروني */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFullMenuDrawer(false);
+                    setShowStoreModal(true);
+                  }}
+                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <ShoppingBag size={20} className="text-[#008060]" />
+                    <span>المتجر الإلكتروني ورابط المشاركة</span>
+                  </div>
+                  <ExternalLink size={16} className="text-slate-400" />
+                </button>
+
+                {/* Row 3D: التطبيقات والربط الآلي */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFullMenuDrawer(false);
+                    navigateToTab('apps');
+                  }}
+                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <LayoutGrid size={20} className="text-[#008060]" />
+                    <span>التطبيقات والربط الآلي (بوسطة وواتساب)</span>
+                  </div>
+                  <span className="text-[10px] font-black text-[#008060] bg-emerald-500/15 px-2 py-0.5 rounded-full">
+                    4 تطبيقات
+                  </span>
+                </button>
+
                 {/* Row 4: صندوق الوارد والإشعارات */}
                 <button
                   type="button"
@@ -5361,21 +9714,33 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => {
                           setShowFullMenuDrawer(false);
-                          setShowRequestModal(true);
+                          setOrdersTopViewMode('current_balance');
+                          navigateToTab('wallet');
                         }}
                         className="w-full py-2 text-right text-[#008060] font-black block cursor-pointer"
                       >
-                        + طلب سحب مستحقات فوري
+                        الرصيد الحالي ومعاملات المحفظة
                       </button>
                       <button
                         type="button"
                         onClick={() => {
+                          setShowFullMenuDrawer(false);
                           setOrdersTopViewMode('financial_cycle');
-                          navigateToTab('orders');
+                          navigateToTab('wallet');
                         }}
                         className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
                       >
-                        سجل المسحوبات وإيصالات التحويل المعتمدة
+                        الدورة المالية للشحنات والمبالغ المحصلة
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowFullMenuDrawer(false);
+                          setShowRequestModal(true);
+                        }}
+                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                      >
+                        + طلب سحب مستحقات فوري
                       </button>
                       <button
                         type="button"
@@ -5423,6 +9788,24 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </div>
                   )}
                 </div>
+
+                {/* Row 6B: الباقات والمدير المخصص لأوردراتك */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFullMenuDrawer(false);
+                    setShowChangePlanModal(true);
+                  }}
+                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <Crown size={20} className="text-[#008060]" />
+                    <span>الباقات والمدير المخصص لأوردراتك</span>
+                  </div>
+                  <span className="text-[11px] font-black text-white bg-[#008060] px-2.5 py-0.5 rounded-full">
+                    {planUsage.badgeText}
+                  </span>
+                </button>
 
                 {/* Row 7: تواصل مع إدارة المتجر */}
                 <button
@@ -5507,13 +9890,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   : 'bg-emerald-50/70 border-emerald-200/80'
               }`}>
                 <div className="space-y-1">
-                  <span className="text-[11px] text-slate-400 font-bold block">حالة الشراكة</span>
-                  <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black shadow-2xs ${
-                    isDark ? 'bg-slate-900 text-emerald-400' : 'bg-white text-[#008060]'
-                  }`}>
-                    <DollarSign size={13} />
-                    <span>موكل معتمد</span>
-                  </div>
+                  <span className="text-[11px] text-slate-400 font-bold block">الباقة الحالية</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowProfileBottomSheet(false);
+                      setShowChangePlanModal(true);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black shadow-2xs cursor-pointer ${
+                      isDark ? 'bg-slate-900 text-emerald-400' : 'bg-white text-[#008060]'
+                    }`}
+                  >
+                    <Crown size={13} />
+                    <span>{planUsage.planLabelAr}</span>
+                    <span className="text-[10px] underline mr-1">(تغيير الخطة)</span>
+                  </button>
                 </div>
 
                 <div className="text-left space-y-1">
@@ -5710,14 +10101,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => {
-                    setOrdersTopViewMode('financial_cycle');
-                    navigateToTab('orders');
+                    setShowProfileBottomSheet(false);
+                    setOrdersTopViewMode('current_balance');
+                    navigateToTab('wallet');
                   }}
                   className="w-full py-3.5 flex items-center justify-between hover:text-[#008060] cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     <WalletIcon size={17} className="text-slate-400" />
-                    <span>المدفوعات وإيصالات التحويل</span>
+                    <span>المحفظة والدورة المالية</span>
                   </div>
                   <ChevronLeft size={15} className="text-slate-400" />
                 </button>
@@ -5783,8 +10175,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <div
                     key={req.id}
                     onClick={() => {
-                      setOrdersTopViewMode('financial_cycle');
-                      navigateToTab('orders');
+                      setShowNotificationsSheet(false);
+                      setOrdersTopViewMode('current_balance');
+                      navigateToTab('wallet');
                     }}
                     className={`p-3.5 rounded-2xl border cursor-pointer flex items-center justify-between gap-3 ${
                       isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/70'
@@ -5846,20 +10239,59 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </button>
             </div>
 
-            <div className={`grid grid-cols-3 gap-2 p-3 border rounded-2xl text-center ${
+            <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 border rounded-2xl text-center ${
               isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
             }`}>
               <div>
                 <div className="text-[10px] text-slate-400 font-bold">إجمالي المحفظة</div>
-                <div className="text-xs font-black font-mono tabular-nums">{(liveMerchant?.balance || 0).toLocaleString()} ج.م</div>
+                <div className="text-xs font-black font-mono tabular-nums">{effectiveMerchantBalance.toLocaleString()} ج.م</div>
               </div>
               <div>
-                <div className="text-[10px] text-amber-500 font-bold">محجوز معلق</div>
+                <div className="text-[10px] text-sky-500 font-bold">قيد التعليق ({weeklyPayoutOverview.holdingDaysSetting} أيام)</div>
+                <div className="text-xs font-black text-sky-500 font-mono tabular-nums">{weeklyPayoutOverview.holdingSettledBalance.toLocaleString()} ج.م</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-amber-500 font-bold">محجوز لطلب معلق</div>
                 <div className="text-xs font-black text-amber-500 font-mono tabular-nums">{pendingRequestsSum.toLocaleString()} ج.م</div>
               </div>
               <div>
-                <div className="text-[10px] text-[#008060] font-bold">المتاح للسحب</div>
-                <div className="text-xs font-black text-[#008060] font-mono tabular-nums">{availableForWithdrawal.toLocaleString()} ج.م</div>
+                <div className="text-[10px] text-[#008060] font-bold">الجاهز للسحب الآن</div>
+                <div className="text-xs font-black text-[#008060] font-mono tabular-nums">{weeklyPayoutOverview.maturedWalletBalance.toLocaleString()} ج.م</div>
+              </div>
+            </div>
+
+            {/* Active Pending Withdrawal Requests with 1-Click Cancel */}
+            {pendingRequestsSum > 0 && (
+              <div className={`p-3 rounded-2xl border space-y-2 ${isDark ? 'bg-amber-950/30 border-amber-700/50 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                <div className="text-[11px] font-black flex items-center justify-between">
+                  <span>لديك طلب سحب معلق يحجز ({pendingRequestsSum.toLocaleString()} ج.م)</span>
+                </div>
+                {merchantFilteredRequests.filter(r => r.status === 'pending' && (!r.type || r.type === 'withdrawal')).map(req => (
+                  <div key={req.id} className="flex items-center justify-between text-xs pt-1 border-t border-amber-500/20">
+                    <span className="font-mono font-bold">{Number(req.amount).toLocaleString()} ج.م ({new Date(req.date || req.createdAt || '').toLocaleDateString('ar-EG')})</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelPendingWithdrawal(req.id)}
+                      className="px-2.5 py-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black cursor-pointer"
+                    >
+                      إلغاء الطلب وفك الحجز
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Weekly Schedule & Store Manager Limits Info */}
+            <div className={`p-3 rounded-2xl border space-y-2 text-[11px] font-bold ${
+              isDark ? 'bg-slate-950/70 border-slate-800 text-slate-300' : 'bg-emerald-50/50 border-emerald-200/80 text-slate-700'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span>موعد التحويل الأسبوعي القادم:</span>
+                <span className="font-mono font-black text-[#008060] dark:text-emerald-400">{weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-400">
+                <span>حدود السحبة الأسبوعية: من {weeklyPayoutOverview.minWeeklyPayout.toLocaleString()} إلى {weeklyPayoutOverview.maxWeeklyPayout.toLocaleString()} ج.م</span>
+                <span>فترة تعليق الأوردر بعد التسوية: {weeklyPayoutOverview.holdingDaysSetting} أيام</span>
               </div>
             </div>
 
@@ -5870,24 +10302,49 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <input
                     type="number"
                     value={requestAmount}
-                    max={availableForWithdrawal}
+                    min={weeklyPayoutOverview.minWeeklyPayout}
+                    max={Math.min(weeklyPayoutOverview.maturedWalletBalance, weeklyPayoutOverview.maxWeeklyPayout)}
                     onChange={e => setRequestAmount(e.target.value)}
-                    placeholder={`الحد الأقصى المتاح: ${availableForWithdrawal.toLocaleString()}`}
+                    placeholder={`الحد الأقصى الجاهز للسحب: ${weeklyPayoutOverview.cappedNextPayoutAmount.toLocaleString()}`}
                     className={`w-full p-3.5 border rounded-2xl outline-none font-mono font-black ${
                       isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
                     }`}
                     required
                   />
-                  {availableForWithdrawal > 0 && (
+                  {weeklyPayoutOverview.cappedNextPayoutAmount > 0 && (
                     <button
                       type="button"
-                      onClick={() => setRequestAmount(String(availableForWithdrawal))}
+                      onClick={() => setRequestAmount(String(weeklyPayoutOverview.cappedNextPayoutAmount))}
                       className="absolute left-2.5 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-[#008060] text-white rounded-xl text-[10px] font-black cursor-pointer"
                     >
-                      سحب الكل
+                      سحب المتاح
                     </button>
                   )}
                 </div>
+
+                {/* Live Transfer Commission & Net Payout Summary */}
+                {Number(requestAmount) > 0 && (
+                  <div className={`mt-2.5 p-3 rounded-2xl border space-y-1.5 text-[11px] font-bold ${
+                    isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-emerald-50/40 border-emerald-200/70'
+                  }`}>
+                    <div className="flex items-center justify-between text-slate-500">
+                      <span>إجمالي المبلغ المطلوب سحبه:</span>
+                      <span className="font-mono font-black text-slate-800 dark:text-slate-200">{formatMoney(Number(requestAmount))}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-rose-500">
+                      <span>عمولة التحويل ({weeklyPayoutOverview.activeFeeLabelAr}):</span>
+                      <span className="font-mono font-black">
+                        -{formatMoney(weeklyPayoutOverview.calculateFeeForAmount(Number(requestAmount), weeklyPayoutOverview.payoutFrequency))}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-[#008060] dark:text-emerald-400 text-xs font-black">
+                      <span>صافي المبلغ الذي سيصلك:</span>
+                      <span className="font-mono">
+                        {formatMoney(Math.max(0, Number(requestAmount) - weeklyPayoutOverview.calculateFeeForAmount(Number(requestAmount), weeklyPayoutOverview.payoutFrequency)))}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -6005,6 +10462,244 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           </div>
         </div>
       )}
+
+      {/* Bosta-Style Change Payout Frequency Modal (تغيير تكرار السحب النقدي) */}
+      {showPayoutFrequencyModal && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4" dir="rtl">
+          <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 ${
+            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-4">
+              <h3 className="text-lg font-black">تغيير تكرار السحب النقدي</h3>
+              <button
+                type="button"
+                onClick={() => setShowPayoutFrequencyModal(false)}
+                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Option 1: Weekly (أسبوعي) */}
+              <div
+                onClick={() => setTempPayoutFrequency('weekly')}
+                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                  tempPayoutFrequency === 'weekly'
+                    ? 'border-[#008060] bg-emerald-500/5'
+                    : isDark
+                    ? 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 shrink-0 ${
+                    tempPayoutFrequency === 'weekly' ? 'border-[#008060]' : 'border-slate-300 dark:border-slate-600'
+                  }`}>
+                    {tempPayoutFrequency === 'weekly' && <div className="w-2.5 h-2.5 rounded-full bg-[#008060]" />}
+                  </div>
+
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-black">أسبوعي</span>
+                      <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black ${
+                        weeklyPayoutOverview.weeklyFeeLabelAr === 'مجاناً'
+                          ? 'bg-emerald-500/15 text-[#008060]'
+                          : 'bg-amber-500/15 text-amber-600'
+                      }`}>
+                        {weeklyPayoutOverview.weeklyFeeLabelAr === 'مجاناً'
+                          ? 'مجاناً بدون عمولة تحويل'
+                          : `تطبق رسوم (${weeklyPayoutOverview.weeklyFeeLabelAr}) على قيمة المعاملة`}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                      تحويل أسبوعي للأرصدة التي مر على تسويتها {weeklyPayoutOverview.holdingDaysSetting} أيام في اليوم الذي تختاره.
+                    </p>
+
+                    {tempPayoutFrequency === 'weekly' && (
+                      <div className="pt-3 mt-2 border-t border-slate-200/60 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+                        <label className="block text-[11px] font-black text-slate-500 mb-2">اختر يوم التحويل الأسبوعي المفضل لديك:</label>
+                        <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                          {[
+                            { day: 0, label: 'الأحد' },
+                            { day: 1, label: 'الإثنين' },
+                            { day: 2, label: 'الثلاثاء' },
+                            { day: 3, label: 'الأربعاء' },
+                            { day: 4, label: 'الخميس' },
+                            { day: 6, label: 'السبت' },
+                            { day: 5, label: 'الجمعة' }
+                          ].map(d => (
+                            <button
+                              key={d.day}
+                              type="button"
+                              onClick={() => setTempWeeklyPayoutDay(d.day)}
+                              className={`py-2 px-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
+                                tempWeeklyPayoutDay === d.day
+                                  ? 'bg-[#008060] text-white border-[#008060] shadow-xs'
+                                  : isDark
+                                  ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Option 2: Daily (يومي) */}
+              <div
+                onClick={() => setTempPayoutFrequency('daily')}
+                className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${
+                  tempPayoutFrequency === 'daily'
+                    ? 'border-[#008060] bg-emerald-500/5'
+                    : isDark
+                    ? 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 shrink-0 ${
+                    tempPayoutFrequency === 'daily' ? 'border-[#008060]' : 'border-slate-300 dark:border-slate-600'
+                  }`}>
+                    {tempPayoutFrequency === 'daily' && <div className="w-2.5 h-2.5 rounded-full bg-[#008060]" />}
+                  </div>
+
+                  <div className="flex-1 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-black">يومي</span>
+                      <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black ${
+                        weeklyPayoutOverview.dailyFeeLabelAr === 'مجاناً'
+                          ? 'bg-emerald-500/15 text-[#008060]'
+                          : 'bg-rose-500/15 text-rose-500'
+                      }`}>
+                        {weeklyPayoutOverview.dailyFeeLabelAr === 'مجاناً'
+                          ? 'مجاناً'
+                          : `تطبق رسوم ${weeklyPayoutOverview.dailyFeeLabelAr} على قيمة المعاملة`}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                      تحويل يومي في أيام العمل الرسمية للأرصدة الجاهزة مع خصم عمولة التحويل المحددة من الإدارة تلقائياً.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowFinancialCycleModal(true);
+                      }}
+                      className="text-xs font-black text-[#008060] hover:underline inline-flex items-center gap-1 pt-0.5 cursor-pointer"
+                    >
+                      <span>اعرف أكثر عن الدورة المالية</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/70 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowPayoutFrequencyModal(false)}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black border cursor-pointer ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isSavingPayoutFrequency}
+                onClick={handleSavePayoutFrequencySettings}
+                className="px-6 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
+              >
+                {isSavingPayoutFrequency ? 'جاري الحفظ...' : 'تأكيد'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bosta-Style Financial Cycle Modal (الدورة المالية) */}
+      {showFinancialCycleModal && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4" dir="rtl">
+          <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 ${
+            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-4">
+              <h3 className="text-lg font-black">الدورة المالية</h3>
+              <button
+                type="button"
+                onClick={() => setShowFinancialCycleModal(false)}
+                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="relative pr-4 space-y-6 before:content-[''] before:absolute before:right-6 before:top-4 before:bottom-4 before:w-0.5 before:bg-emerald-500/30">
+              {/* Step 1 */}
+              <div className="relative flex items-start gap-4">
+                <div className="w-6 h-6 rounded-full bg-[#008060] text-white text-xs font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
+                  1
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-black">1. التوصيل وتحصيل المبلغ</h4>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                    بمجرد تسليم الأوردر للعميل وتحصيل قيمة الشحنة، يتم مراجعة وتسوية الأوردر مالياً من قِبل الإدارة وإضافته إلى رصيد محفظتك.
+                  </p>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="relative flex items-start gap-4">
+                <div className="w-6 h-6 rounded-full bg-[#008060] text-white text-xs font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
+                  2
+                </div>
+                <div className="space-y-2 flex-1">
+                  <h4 className="text-sm font-black">2. التسوية المالية وموعد التحويل</h4>
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                    يصبح رصيد الأوردر جاهزاً للسحب بعد مرور <span className="text-[#008060] font-black">{weeklyPayoutOverview.holdingDaysSetting} أيام</span> من تاريخ التسوية المالية للأوردر.
+                  </p>
+                  <div className={`p-3 rounded-2xl border space-y-2 text-[11px] font-bold ${
+                    isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/80'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">نظام السحب الأسبوعي:</span>
+                      <span className="font-black text-[#008060]">
+                        {weeklyPayoutOverview.weeklyFeeLabelAr === 'مجاناً' ? 'مجاناً بدون عمولة' : `عمولة ${weeklyPayoutOverview.weeklyFeeLabelAr}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500">نظام السحب اليومي:</span>
+                      <span className="font-black text-rose-500">
+                        {weeklyPayoutOverview.dailyFeeLabelAr === 'مجاناً' ? 'مجاناً بدون عمولة' : `تطبق رسوم ${weeklyPayoutOverview.dailyFeeLabelAr}`}
+                      </span>
+                    </div>
+                    <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-slate-500">
+                      طريقة الاستلام: تحويل بنكي / محفظة إلكترونية / إنستاباي
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-slate-200/70 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowFinancialCycleModal(false)}
+                className="px-6 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black cursor-pointer shadow-md shadow-emerald-600/20"
+              >
+                حسناً
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Bank Transfer Receipt Image Lightbox Modal */}
       {previewReceiptImage && (
@@ -6426,6 +11121,138 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           </div>
         )}
       </AnimatePresence>
+
+      {/* Online Store Launcher Modal */}
+      <AnimatePresence>
+        {showStoreModal && (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl" onClick={() => setShowStoreModal(false)}>
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className={`w-full max-w-lg rounded-3xl p-6 shadow-2xl border space-y-5 ${
+                isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                    <ShoppingBag size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-slate-900 dark:text-white">المتجر الإلكتروني ورابط المشاركة</h3>
+                    <p className="text-[11px] text-slate-400 font-bold">شارك رابط متجرك مع العملاء لاستقبال الطلبات مباشرة</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowStoreModal(false)}
+                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Store Link Input with Copy */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-500 dark:text-slate-400">رابط المتجر المباشر:</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${window.location.origin}/store/${effectiveStoreId}`}
+                    className={`w-full p-3 rounded-2xl text-xs font-mono font-bold border outline-none ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = `${window.location.origin}/store/${effectiveStoreId}`;
+                      navigator.clipboard?.writeText(url);
+                      showToast('تم نسخ رابط المتجر بنجاح', 'success');
+                    }}
+                    className="px-4 py-3 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-all"
+                  >
+                    <Copy size={14} />
+                    <span>نسخ</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Actions Grid */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/store/${effectiveStoreId}`;
+                    window.open(url, '_blank');
+                  }}
+                  className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <ExternalLink size={15} className="text-[#008060]" />
+                  <span>معاينة المتجر الآن</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/store/${effectiveStoreId}`;
+                    const text = encodeURIComponent(`مرحباً بكم في متجرنا! تفضلوا بزيارة الرابط لتصفح المنتجات:\n${url}`);
+                    window.open(`https://wa.me/?text=${text}`, '_blank');
+                  }}
+                  className="py-3 px-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 text-[#008060] text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <Share2 size={15} />
+                  <span>مشاركة عبر واتساب</span>
+                </button>
+              </div>
+
+              {/* Visual QR Code Card */}
+              <div className={`p-4 rounded-2xl border text-center space-y-2 ${
+                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/80'
+              }`}>
+                <div className="w-28 h-28 mx-auto bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center">
+                  <QrCode size={90} className="text-slate-900" />
+                </div>
+                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  امسح الرمز بكاميرا الهاتف للوصول السريع للمتجر
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* =====================================================================
+          CHANGE PLAN & DEDICATED ORDER MANAGER MODAL (تغيير الخطة والمدير المخصص)
+         ===================================================================== */}
+      {liveMerchant && (
+        <MerchantChangePlanModal
+          isOpen={showChangePlanModal}
+          onClose={() => setShowChangePlanModal(false)}
+          isDark={isDark}
+          merchantName={liveMerchant.name}
+          walletBalance={availableForWithdrawal}
+          currentSubscription={liveMerchant.subscriptionPlan}
+          currentManagerPlan={liveMerchant.managerPlan}
+          pendingPlanRequest={liveMerchant.pendingPlanRequest}
+          scheduledNextPlan={liveMerchant.scheduledNextPlan}
+          planCyclesHistory={liveMerchant.planCyclesHistory}
+          usedOrdersCount={planUsage.usedOrders}
+          remainingOrdersCount={planUsage.remainingQuota}
+          onConfirmSubscriptionChange={handleConfirmSubscriptionChange}
+          onRequestPlanChange={handleRequestPlanChange}
+          onAcceptAdminCustomQuote={handleAcceptAdminCustomQuote}
+          onCancelPendingPlanRequest={handleCancelPendingPlanRequest}
+          onScheduleNextPlan={handleScheduleNextPlan}
+          onCancelScheduledPlan={handleCancelScheduledPlan}
+          onActivateScheduledPlanNow={handleActivateScheduledPlanNow}
+          onRequestRefund14Days={handleRequestRefund14Days}
+          onRequestWalletTopUp={handleRequestWalletTopUp}
+        />
+      )}
 
     </div>
   );

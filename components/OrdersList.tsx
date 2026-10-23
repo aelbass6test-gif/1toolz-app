@@ -9976,6 +9976,7 @@ const KanbanView: React.FC<{
     مؤرشف: "border-slate-500 bg-slate-500/10 text-slate-700 dark:text-slate-300",
     مؤجل: "border-amber-600 bg-amber-600/10 text-amber-700 dark:text-amber-300",
     مجدول: "border-indigo-600 bg-indigo-600/10 text-indigo-700 dark:text-indigo-300",
+    مؤكد: "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   };
 
   return (

@@ -46,6 +46,7 @@ const statusInfo: Record<OrderStatusType, { label: string; color: string; icon: 
   مدفوعة: { label: 'مدفوعة', color: 'emerald', icon: <CheckCircle size={12}/> },
   مؤجل: { label: 'مؤجل', color: 'orange', icon: <Clock size={12}/> },
   مجدول: { label: 'مجدول', color: 'blue', icon: <Clock size={12}/> },
+  مؤكد: { label: 'مؤكد', color: 'emerald', icon: <CheckCircle size={12}/> },
 };
 
 const StatusBadge = ({ status }: { status: OrderStatusType }) => {
