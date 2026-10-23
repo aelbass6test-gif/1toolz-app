@@ -631,17 +631,24 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
     // 1. From Suppliers
     (settings.suppliers || []).forEach(s => {
-      if (!seen.has(s.id)) {
-        seen.add(s.id);
+      const cleanId = String(s.id).trim();
+      const cleanPhone = normalizePhone(s.phone);
+      if (!seen.has(cleanId) && (!cleanPhone || !seen.has(cleanPhone))) {
+        seen.add(cleanId);
+        if (cleanPhone) seen.add(cleanPhone);
         list.push({ id: s.id, name: s.name, phone: s.phone });
       }
     });
 
     // 2. From Customers (if any merchants tagged)
     (customers || []).forEach(c => {
-      if (!seen.has(c.phone) && c.name && (c.customerSegment === 'merchant' || (c.tags || []).includes('موكل'))) {
-        seen.add(c.phone);
-        list.push({ id: c.phone, name: c.name, phone: c.phone });
+      const cleanPhone = normalizePhone(c.phone);
+      if (c.name && (c.customerSegment === 'merchant' || (c.tags || []).includes('موكل'))) {
+        if (!seen.has(c.id) && (!cleanPhone || !seen.has(cleanPhone))) {
+          seen.add(c.id);
+          if (cleanPhone) seen.add(cleanPhone);
+          list.push({ id: c.phone, name: c.name, phone: c.phone });
+        }
       }
     });
 
@@ -2516,12 +2523,34 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   onChange={(e) => {
                     const mId = e.target.value;
                     const merchant = merchantsList.find(m => m.id === mId);
+                    const supplier = settings.suppliers?.find(s => s.id === mId);
+                    
                     handleFieldChange("merchantId", mId);
                     handleFieldChange("merchantName", merchant?.name);
                     
+                    // Auto-fill Brand and Sender names if they are empty
+                    if (merchant?.name) {
+                      handleFieldChange("merchantBrandName", merchant.name);
+                      handleFieldChange("subSenderName", merchant.name);
+                    }
+
+                    // Auto-fill and Lock logic based on Merchant's Manager Plan
+                    const activeMgr = supplier?.managerPlan;
+                    const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none';
+                    
+                    if (hasActivePlan) {
+                      // Lock to fixed fee if on a manager plan (standard for agency fulfillment)
+                      handleFieldChange("merchantSettlementMode", "fixed_fee");
+                      
+                      // Auto-fill manager fee from plan
+                      const planFee = activeMgr.orderFee || activeMgr.customOrderFee || (activeMgr.planId === 'per_order_20' ? 20 : 0);
+                      handleFieldChange("serviceFeePerOrder", planFee);
+                    } else if (orderData.serviceFeePerOrder === 0 || orderData.serviceFeePerOrder === undefined) {
+                      handleFieldChange("serviceFeePerOrder", 10);
+                    }
+
                     // Auto-fill default marketing fee if available
-                    const supplier = settings.suppliers?.find(s => s.id === mId);
-                    if (supplier?.defaultMarketingFeePerOrder) {
+                    if (supplier?.defaultMarketingFeePerOrder !== undefined) {
                       handleFieldChange("marketingFeePerOrder", supplier.defaultMarketingFeePerOrder);
                     }
                   }}
@@ -2534,129 +2563,161 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 </select>
               </div>
 
-              <div className="col-span-full space-y-3 py-2">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">نظام المحاسبة مع الموكل</label>
-                <div className="flex flex-wrap gap-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleFieldChange("merchantSettlementMode", "fixed_fee");
-                      if (orderData.serviceFeePerOrder === 0) {
-                        handleFieldChange("serviceFeePerOrder", 10);
-                      }
-                    }}
-                    className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
-                      (orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee'
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-500/20"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
-                    }`}
-                  >
-                    <CheckCircle size={14} />
-                    <span>عمولة ثابتة (Fixed Fee)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleFieldChange("merchantSettlementMode", "profit_share");
-                      if (!orderData.merchantProfitSharePercent) {
-                        handleFieldChange("merchantProfitSharePercent", 50);
-                      }
-                      handleFieldChange("serviceFeePerOrder", 0);
-                    }}
-                    className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
-                      orderData.merchantSettlementMode === 'profit_share'
-                        ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20"
-                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
-                    }`}
-                  >
-                    <PieChart size={14} />
-                    <span>مشاركة أرباح (Profit Share)</span>
-                  </button>
-                </div>
-              </div>
+              {(() => {
+                const selectedSupplier = settings.suppliers?.find(s => s.id === orderData.merchantId);
+                const activeMgr = selectedSupplier?.managerPlan;
+                const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none';
+                
+                return (
+                  <>
+                    {hasActivePlan && (
+                      <div className="col-span-full animate-in fade-in slide-in-from-right-2 duration-500">
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
+                            <ShieldCheck size={16} />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-400">تسعير الإدارة مفعل (Management Pricing)</p>
+                            <p className="text-[10px] font-bold text-emerald-600/80">يتم تطبيق رسوم وخصومات باقة {activeMgr.planNameAr || activeMgr.planId} المسجلة لهذا الموكل تلقائياً.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
-              {(orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee' ? (
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">عمولة الوكالة (إنشاء بوليصة + تأكيد) ج.م</label>
-                  <div className="relative">
-                    <DollarSign size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500" />
-                    <input
-                      type="number"
-                      value={orderData.serviceFeePerOrder !== undefined ? orderData.serviceFeePerOrder : 10}
-                      onChange={(e) => handleFieldChange("serviceFeePerOrder", parseFloat(e.target.value) || 0)}
-                      className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl text-sm font-black font-mono text-emerald-600 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all text-center"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-700 dark:text-slate-300">نسبة الموكل من صافي الربح (%)</label>
-                  <div className="relative">
-                    <Percent size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
-                    <input
-                      type="number"
-                      value={orderData.merchantProfitSharePercent || 50}
-                      onChange={(e) => handleFieldChange("merchantProfitSharePercent", parseFloat(e.target.value) || 0)}
-                      className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-800 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-bold px-1">سيتم تقسيم الربح (السعر - التكلفة - المصاريف) بالنسبة المحددة.</p>
-                </div>
-              )}
+                    {!hasActivePlan && (
+                      <div className="col-span-full space-y-3 py-2">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">نظام المحاسبة مع الموكل</label>
+                        <div className="flex flex-wrap gap-4 opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleFieldChange("merchantSettlementMode", "fixed_fee");
+                              if (orderData.serviceFeePerOrder === 0) {
+                                handleFieldChange("serviceFeePerOrder", 10);
+                              }
+                            }}
+                            className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
+                              (orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee'
+                                ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-500/20"
+                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
+                            }`}
+                          >
+                            <CheckCircle size={14} />
+                            <span>عمولة ثابتة (Fixed Fee)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleFieldChange("merchantSettlementMode", "profit_share");
+                              if (!orderData.merchantProfitSharePercent) {
+                                handleFieldChange("merchantProfitSharePercent", 50);
+                              }
+                              handleFieldChange("serviceFeePerOrder", 0);
+                            }}
+                            className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
+                              orderData.merchantSettlementMode === 'profit_share'
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20"
+                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
+                            }`}
+                          >
+                            <PieChart size={14} />
+                            <span>مشاركة أرباح (Profit Share)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                  {orderData.merchantSettlementMode === 'profit_share' 
-                    ? "تكلفة البضاعة للموكل (سعر التكلفة) ج.م" 
-                    : "إجمالي مستحقات البضاعة للموكل (ج.م)"}
-                </label>
-                <div className="relative">
-                  <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
-                  <input
-                    type="number"
-                    value={orderData.merchantItemCost || ''}
-                    onChange={(e) => handleFieldChange("merchantItemCost", parseFloat(e.target.value) || 0)}
-                    placeholder={orderData.merchantSettlementMode === 'profit_share' ? "ادخل سعر التكلفة ليتم خصمه من الربح" : "سيتم استخدام تكلفة الأصناف تلقائياً"}
-                    className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900/50 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
-                  />
-                </div>
-                <p className="text-[10px] text-slate-500 font-bold px-1">
-                  {orderData.merchantSettlementMode === 'profit_share' 
-                    ? "في نظام مشاركة الأرباح، يتم وضع 'سعر التكلفة' هنا ليقوم النظام بخصمه من الإيراد قبل تقسيم الربح."
-                    : "هذا هو المبلغ الذي سيستلمه الموكل عن هذا الأوردر. (يتم السحب تلقائياً من تكلفة الأصناف في المخزن إذا تُرِكت فارغة)."}
-                </p>
-              </div>
+                    {(orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee' ? (
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">عمولة الوكالة (إنشاء بوليصة + تأكيد) ج.م</label>
+                        <div className="relative">
+                          {hasActivePlan && <Lock size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" />}
+                          <DollarSign size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500" />
+                          <input
+                            type="number"
+                            disabled={hasActivePlan}
+                            value={orderData.serviceFeePerOrder !== undefined ? orderData.serviceFeePerOrder : 10}
+                            onChange={(e) => handleFieldChange("serviceFeePerOrder", parseFloat(e.target.value) || 0)}
+                            className={`w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl text-sm font-black font-mono text-emerald-600 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all text-center ${
+                              hasActivePlan ? "opacity-60 bg-slate-50 cursor-not-allowed" : ""
+                            }`}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">نسبة الموكل من صافي الربح (%)</label>
+                        <div className="relative">
+                          <Percent size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+                          <input
+                            type="number"
+                            value={orderData.merchantProfitSharePercent || 50}
+                            onChange={(e) => handleFieldChange("merchantProfitSharePercent", parseFloat(e.target.value) || 0)}
+                            className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-800 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
+                          />
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-bold px-1">سيتم تقسيم الربح (السعر - التكلفة - المصاريف) بالنسبة المحددة.</p>
+                      </div>
+                    )}
 
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-700 dark:text-slate-300">مصاريف الإعلانات المخصصة للأوردر (ج.م)</label>
-                <div className="relative">
-                  <Megaphone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-orange-500" />
-                  <input
-                    type="number"
-                    value={orderData.marketingFeePerOrder || ''}
-                    onChange={(e) => handleFieldChange("marketingFeePerOrder", parseFloat(e.target.value) || 0)}
-                    placeholder="مثلاً 30 ج.م"
-                    className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-orange-100 dark:border-orange-900/50 rounded-2xl text-sm font-black font-mono text-orange-600 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-center"
-                  />
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
+                        {orderData.merchantSettlementMode === 'profit_share' 
+                          ? "تكلفة البضاعة للموكل (سعر التكلفة) ج.م" 
+                          : "إجمالي مستحقات البضاعة للموكل (ج.م)"}
+                      </label>
+                      <div className="relative">
+                        <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
+                        <input
+                          type="number"
+                          value={orderData.merchantItemCost || ''}
+                          onChange={(e) => handleFieldChange("merchantItemCost", parseFloat(e.target.value) || 0)}
+                          placeholder={orderData.merchantSettlementMode === 'profit_share' ? "ادخل سعر التكلفة ليتم خصمه من الربح" : "سيتم استخدام تكلفة الأصناف تلقائياً"}
+                          className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900/50 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 font-bold px-1">
+                        {orderData.merchantSettlementMode === 'profit_share' 
+                          ? "في نظام مشاركة الأرباح، يتم وضع 'سعر التكلفة' هنا ليقوم النظام بخصمه من الإيراد قبل تقسيم الربح."
+                          : "هذا هو المبلغ الذي سيستلمه الموكل عن هذا الأوردر. (يتم السحب تلقائياً من تكلفة الأصناف في المخزن إذا تُرِكت فارغة)."}
+                      </p>
+                    </div>
 
-              {orderData.merchantSettlementMode === 'profit_share' && (
-                <div className="col-span-full bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/30">
-                   <div className="flex gap-3">
-                     <ShieldCheck size={18} className="text-indigo-600 shrink-0 mt-0.5" />
-                     <div className="space-y-1">
-                       <p className="text-xs font-black text-indigo-900 dark:text-indigo-100">ملاحظة حول نظام مشاركة الأرباح:</p>
-                       <p className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-bold">
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">مصاريف الإعلانات المخصصة للأوردر (ج.م)</label>
+                      <div className="relative">
+                        {hasActivePlan && <Lock size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" />}
+                        <Megaphone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-orange-500" />
+                        <input
+                          type="number"
+                          disabled={hasActivePlan}
+                          value={orderData.marketingFeePerOrder || ''}
+                          onChange={(e) => handleFieldChange("marketingFeePerOrder", parseFloat(e.target.value) || 0)}
+                          placeholder="مثلاً 30 ج.م"
+                          className={`w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-orange-100 dark:border-orange-900/50 rounded-2xl text-sm font-black font-mono text-orange-600 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-center ${
+                            hasActivePlan ? "opacity-60 bg-slate-50 cursor-not-allowed" : ""
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {orderData.merchantSettlementMode === 'profit_share' && (
+                      <div className="col-span-full bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/30">
+                         <div className="flex gap-3">
+                           <ShieldCheck size={18} className="text-indigo-600 shrink-0 mt-0.5" />
+                           <div className="space-y-1">
+                             <p className="text-xs font-black text-indigo-900 dark:text-indigo-100">ملاحظة حول نظام مشاركة الأرباح:</p>
+                             <p className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-bold">
                          سيتم خصم (مصاريف الشحن، التأمين، الضريبة، المعاينة، الـ COD، والإعلانات) من إجمالي تحصيل الأوردر.
                          الصافي المتبقي بعد خصم "تكلفة البضاعة" سيتم تقسيمه بالنسبة المحددة. في حالة المرتجع، يتم تقاسم الخسارة (المصاريف) بنفس النسبة.
                        </p>
-                     </div>
-                   </div>
-                </div>
-              )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
-          )}",
+          )}
         </div>
 
         {/* Warehouse & Fulfillment Banner */}
