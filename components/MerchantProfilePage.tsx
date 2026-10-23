@@ -129,7 +129,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
     if (!storeId) return;
     setIsLoadingRequests(true);
     try {
-      const reqs = await db.getPartnerRequests(storeId);
+      const reqs = await db.getMerchantRequests(storeId);
       setCloudRequests(reqs);
     } catch (err) {
       console.error('[MerchantProfile] Error loading requests:', err);
@@ -239,7 +239,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         return;
       }
 
-      await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+      await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
       setCloudRequests(prev => prev.map(r => (r.id === req.id ? { ...r, status: 'approved' } : r)));
 
       const nowIso = new Date().toISOString();
@@ -342,14 +342,12 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         };
 
         const updatedSuppliers = (currentSettings.suppliers || []).map(updateItem);
-        const updatedPartners = (currentSettings.partners || []).map(updateItem);
         if (storeId) {
-          db.updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
+          db.updatePartnerSettings(storeId, currentSettings.partners || [], updatedSuppliers).catch(() => {});
         }
         return {
           ...currentSettings,
           suppliers: updatedSuppliers,
-          partners: updatedPartners
         };
       });
 
@@ -396,7 +394,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
       const cleanRef = approvalTransferRef.trim() || undefined;
       const cleanImg = approvalReceiptImage || undefined;
 
-      const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved', {
+      const statusUpdated = await db.updateMerchantRequestStatus(req.id, storeId, 'approved', {
         receiptImage: cleanImg,
         transferReference: cleanRef
       });
@@ -518,7 +516,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
       );
       if (!confirmed) return;
 
-      const updated = await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
+      const updated = await db.updateMerchantRequestStatus(req.id, storeId, 'rejected');
       if (!updated) {
         inAppToast('تعذر تحديث حالة الطلب؛ ربما عولج بالفعل.', 'error');
         return;

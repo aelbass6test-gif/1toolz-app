@@ -7,6 +7,7 @@ import {
     setDoc, 
     getDoc, 
     getDocs, 
+    updateDoc,
     deleteDoc, 
     query, 
     where, 
@@ -731,17 +732,15 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const sNameNorm = String(s.name || '').trim().toLowerCase();
                         const fallbackSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === s.id || (sNameNorm && String(fs.name || '').trim().toLowerCase() === sNameNorm))
                             || (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
-                        const matchingPartner = (storeSettings.partners || []).find((fp: any) => fp.id === s.id || (sNameNorm && String(fp.name || '').trim().toLowerCase() === sNameNorm))
-                            || (local?.settings?.partners || []).find((lp: any) => lp.id === s.id || (sNameNorm && String(lp.name || '').trim().toLowerCase() === sNameNorm));
                         const details = s.details && typeof s.details === 'object' ? s.details : (typeof s.details === 'string' && s.details ? JSON.parse(s.details) : {});
                         return {
                             ...fallbackSupplier,
                             ...s,
-                            email: s.email || details.email || fallbackSupplier?.email || matchingPartner?.email || '',
-                            passcode: s.passcode || details.passcode || fallbackSupplier?.passcode || matchingPartner?.passcode || '0000',
-                            payoutAccounts: s.payoutAccounts || details.payoutAccounts || fallbackSupplier?.payoutAccounts || matchingPartner?.payoutAccounts || {},
-                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? details.profitRatio ?? fallbackSupplier?.profitRatio ?? matchingPartner?.profitRatio ?? 0),
-                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (fallbackSupplier?.transactions || matchingPartner?.transactions || [])
+                            email: s.email || details.email || fallbackSupplier?.email || '',
+                            passcode: s.passcode || details.passcode || fallbackSupplier?.passcode || '0000',
+                            payoutAccounts: s.payoutAccounts || details.payoutAccounts || fallbackSupplier?.payoutAccounts || {},
+                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? details.profitRatio ?? fallbackSupplier?.profitRatio ?? 0),
+                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (fallbackSupplier?.transactions || [])
                         };
                     }),
                     supplyOrders: (supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || [])).map((so: any) => {
@@ -777,14 +776,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const pNameNorm = String(p.name || '').trim().toLowerCase();
                         const fallbackPartner = (storeSettings.partners || []).find((fp: any) => fp.id === p.id || (pNameNorm && String(fp.name || '').trim().toLowerCase() === pNameNorm))
                             || (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
-                        const matchingSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === p.id || (pNameNorm && String(fs.name || '').trim().toLowerCase() === pNameNorm))
-                            || (local?.settings?.suppliers || []).find((ls: any) => ls.id === p.id || (pNameNorm && String(ls.name || '').trim().toLowerCase() === pNameNorm));
                         const details = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
                         return {
                             ...fallbackPartner,
                             ...p,
-                            email: p.email || details.email || fallbackPartner?.email || matchingSupplier?.email || '',
-                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || matchingSupplier?.passcode || '0000',
+                            email: p.email || details.email || fallbackPartner?.email || '',
+                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || '0000',
                             password: p.password || details.password || fallbackPartner?.password || '',
                             requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? details.requireEmailOtp ?? fallbackPartner?.requireEmailOtp ?? true),
                             isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? details.isEmailVerified ?? fallbackPartner?.isEmailVerified ?? false),
@@ -968,15 +965,14 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         suppliers: (storeSettings.suppliers || local?.settings?.suppliers || []).map((s: any) => {
                             const sNameNorm = String(s.name || '').trim().toLowerCase();
                             const localSupplier = (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
-                            const matchingPartner = (storeSettings.partners || local?.settings?.partners || []).find((p: any) => p.id === s.id || (sNameNorm && String(p.name || '').trim().toLowerCase() === sNameNorm));
                             return {
                                 ...(localSupplier || {}),
                                 ...s,
-                                email: s.email || localSupplier?.email || matchingPartner?.email || '',
-                                passcode: s.passcode || localSupplier?.passcode || matchingPartner?.passcode || '0000',
-                                payoutAccounts: s.payoutAccounts || localSupplier?.payoutAccounts || matchingPartner?.payoutAccounts || {},
-                                profitRatio: Number(s.profitRatio ?? localSupplier?.profitRatio ?? matchingPartner?.profitRatio ?? 0),
-                                transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (localSupplier?.transactions || matchingPartner?.transactions || [])
+                                email: s.email || localSupplier?.email || '',
+                                passcode: s.passcode || localSupplier?.passcode || '0000',
+                                payoutAccounts: s.payoutAccounts || localSupplier?.payoutAccounts || {},
+                                profitRatio: Number(s.profitRatio ?? localSupplier?.profitRatio ?? 0),
+                                transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (localSupplier?.transactions || [])
                             };
                         }),
                         supplyOrders: storeSettings.supplyOrders || local?.settings?.supplyOrders || [],
@@ -993,12 +989,11 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         partners: (storeSettings.partners || local?.settings?.partners || []).map((p: any) => {
                             const pNameNorm = String(p.name || '').trim().toLowerCase();
                             const localPartner = (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
-                            const matchingSupplier = (storeSettings.suppliers || local?.settings?.suppliers || []).find((s: any) => s.id === p.id || (pNameNorm && String(s.name || '').trim().toLowerCase() === pNameNorm));
                             return {
                                 ...(localPartner || {}),
                                 ...p,
-                                email: p.email || localPartner?.email || matchingSupplier?.email || '',
-                                passcode: p.passcode || localPartner?.passcode || matchingSupplier?.passcode || '0000'
+                                email: p.email || localPartner?.email || '',
+                                passcode: p.passcode || localPartner?.passcode || '0000'
                             };
                         }),
                         partnerTransactions: storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [],
@@ -1119,11 +1114,12 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
             if (syncFingerprints.get(storesDataFingerprintKey) !== storesDataFingerprint) {
                 try {
-                    await supabase.from('stores_data').upsert({
+                    const { error: storesDataError } = await supabase.from('stores_data').upsert({
                         id: store.id,
                         name: store.name,
                         settings: cleanSettingsSupabase
                     });
+                    if (storesDataError) throw storesDataError;
                     syncFingerprints.set(storesDataFingerprintKey, storesDataFingerprint);
                 } catch (storesDataErr: any) {
                     console.warn('[SUPABASE-SYNC] Error updating stores_data:', storesDataErr?.message || storesDataErr);
@@ -1711,6 +1707,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                         }
                         
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
+                            if (['orders', 'products', 'transactions'].includes(table) && currentItemsToUpsert.length > 0) {
+                                throw error;
+                            }
                             knownMissingTables.add(table);
                             try {
                                 if (typeof window !== 'undefined') {
@@ -1872,11 +1871,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 try {
                     await fn();
                 } catch (e: any) {
-                    const isRls = e?.message?.includes('row-level security') || e?.code === '42501';
+                    const isRls = e?.message?.toLowerCase?.().includes('row-level security') || e?.code === '42501';
                     const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
-                    if (!isRls) {
-                        syncErrors.push(e);
-                    }
+                    syncErrors.push(e);
                     if (!isNet && !isRls) {
                         console.warn(`Table sync warning:`, e?.message || e);
                     }
@@ -2658,7 +2655,7 @@ export const submitPartnerRequest = async (
         const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
         const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
         const nowIso = new Date().toISOString();
-        const reqId = rawReq.id || `REQ-M-${Date.now()}`;
+        const reqId = rawReq.id || `REQ-P-${generateUniqueOrderId('p')}`;
 
         const fullRequest: PartnerPortalRequest = {
             id: reqId,
@@ -2666,13 +2663,13 @@ export const submitPartnerRequest = async (
             partnerId: rawReq.partnerId || '',
             partnerName: rawReq.partnerName || '',
             type: (rawReq.type as any) || 'withdrawal',
-            typeArabic: rawReq.typeArabic || 'طلب موكل',
+            typeArabic: rawReq.typeArabic || 'طلب شريك',
             amount: Number(rawReq.amount || 0),
             notes: rawReq.notes || '',
             date: rawReq.date || nowIso,
             status: rawReq.status || 'pending',
             createdAt: rawReq.createdAt || nowIso,
-            isMerchantRequest: rawReq.isMerchantRequest ?? true,
+            isMerchantRequest: rawReq.isMerchantRequest ?? false,
             ...(rawReq.payoutMethod ? { payoutMethod: rawReq.payoutMethod } : {}),
             ...(rawReq.payoutAccount ? { payoutAccount: rawReq.payoutAccount } : {}),
             ...(rawReq.transferReference ? { transferReference: rawReq.transferReference } : {}),
@@ -2797,6 +2794,196 @@ export const deletePartnerRequestDoc = async (requestId: string, storeId: string
         return true;
     } catch (err) {
         console.error('[PARTNER-REQUEST] Error deleting partner request:', err);
+        return false;
+    }
+};
+
+export interface MerchantPortalRequest extends Omit<PartnerPortalRequest, 'partnerId' | 'partnerName' | 'isMerchantRequest'> {
+    merchantId: string;
+    merchantName: string;
+    legacySource?: 'merchant_requests' | 'partner_requests';
+}
+
+const toMerchantRequestView = (raw: any, legacySource: 'merchant_requests' | 'partner_requests'): PartnerPortalRequest => ({
+    ...raw,
+    partnerId: String(raw.merchantId ?? raw.partnerId ?? ''),
+    partnerName: String(raw.merchantName ?? raw.partnerName ?? ''),
+    isMerchantRequest: true,
+    legacySource
+} as PartnerPortalRequest);
+
+const isLegacyMerchantRequest = (r: any): boolean => Boolean(r && (
+    r.isMerchantRequest === true ||
+    String(r.id || '').startsWith('REQ-M-') ||
+    String(r.typeArabic || '').includes('الموكل') ||
+    String(r.partnerId || '').startsWith('m_') ||
+    String(r.partnerId || '').startsWith('sup_')
+));
+
+export const submitMerchantRequest = async (
+    storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
+    maybeReq?: Partial<PartnerPortalRequest>
+): Promise<{ success: boolean; error?: string }> => {
+    try {
+        const isObjFirst = typeof storeIdOrObj === 'object' && storeIdOrObj !== null;
+        const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
+        const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
+        if (!storeId) return { success: false, error: 'Missing storeId' };
+        const nowIso = new Date().toISOString();
+        const request: MerchantPortalRequest = {
+            id: rawReq.id || `REQ-M-${generateUniqueOrderId('m')}`,
+            storeId,
+            merchantId: rawReq.partnerId || '',
+            merchantName: rawReq.partnerName || '',
+            type: (rawReq.type as any) || 'withdrawal',
+            typeArabic: rawReq.typeArabic || 'طلب موكل',
+            amount: Number(rawReq.amount || 0),
+            notes: rawReq.notes || '',
+            date: rawReq.date || nowIso,
+            status: rawReq.status || 'pending',
+            createdAt: rawReq.createdAt || nowIso,
+            ...(rawReq.payoutMethod ? { payoutMethod: rawReq.payoutMethod } : {}),
+            ...(rawReq.payoutAccount ? { payoutAccount: rawReq.payoutAccount } : {}),
+            ...(rawReq.transferReference ? { transferReference: rawReq.transferReference } : {}),
+            ...(rawReq.refundMeta ? { refundMeta: rawReq.refundMeta } : {}),
+            ...(rawReq.planRequestMeta ? { planRequestMeta: rawReq.planRequestMeta } : {})
+        };
+        try {
+            const key = `merchant_requests_${storeId}`;
+            const existing = JSON.parse(localStorage.getItem(key) || '[]');
+            localStorage.setItem(key, JSON.stringify([request, ...existing.filter((r: any) => r.id !== request.id)]));
+        } catch (_) {}
+        if (firebaseDb) {
+            await setDoc(doc(firebaseDb, 'merchant_requests', request.id), cleanUndefined(request));
+        }
+        return { success: true };
+    } catch (err: any) {
+        console.error('[MERCHANT-REQUEST] Error submitting merchant request:', err);
+        return { success: false, error: err?.message || 'Unable to submit request' };
+    }
+};
+
+export const getMerchantRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
+    const key = `merchant_requests_${storeId}`;
+    let current: any[] = [];
+    try {
+        const cached = JSON.parse(localStorage.getItem(key) || '[]');
+        if (Array.isArray(cached)) current = cached;
+    } catch (_) {}
+    if (firebaseDb) {
+        try {
+            const q = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
+            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
+            current = snap.docs.map(d => d.data());
+            try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
+        } catch (err) {
+            console.warn('[MERCHANT-REQUEST] Error reading isolated merchant requests:', err);
+        }
+    }
+    // Backward-compatible read only: legacy merchant requests remain visible until migrated.
+    let legacy: any[] = [];
+    try {
+        const cached = JSON.parse(localStorage.getItem(`partner_requests_${storeId}`) || '[]');
+        if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
+    } catch (_) {}
+    if (firebaseDb) {
+        try {
+            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
+            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
+            legacy = snap.docs.map(d => d.data()).filter(isLegacyMerchantRequest);
+        } catch (err) {
+            console.warn('[MERCHANT-REQUEST] Error reading legacy merchant requests:', err);
+        }
+    }
+    const merged = new Map<string, PartnerPortalRequest>();
+    current.forEach(r => merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests')));
+    legacy.forEach(r => {
+        const id = String(r.id || '');
+        if (!merged.has(id)) merged.set(id, toMerchantRequestView(r, 'partner_requests'));
+    });
+    return [...merged.values()].sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+};
+
+export const updateMerchantRequestStatus = async (
+    requestId: string,
+    storeId: string,
+    status: 'approved' | 'rejected',
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+): Promise<boolean> => {
+    try {
+        const extra = cleanUndefined({
+            ...(meta?.receiptImage ? { receiptImage: meta.receiptImage } : {}),
+            ...(meta?.transferReference ? { transferReference: meta.transferReference } : {}),
+            ...(meta?.approvedBy ? { approvedBy: meta.approvedBy } : {}),
+            ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
+        });
+        let updated = false;
+        if (firebaseDb) {
+            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
+            const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
+            updated = await runTransaction(firebaseDb, async transaction => {
+                const isolatedSnap = await transaction.get(isolatedRef);
+                if (isolatedSnap.exists()) {
+                    if (isolatedSnap.data().storeId !== storeId || isolatedSnap.data().status !== 'pending') return false;
+                    transaction.update(isolatedRef, { status, updatedAt: new Date().toISOString(), ...extra });
+                    return true;
+                }
+                const legacySnap = await transaction.get(legacyRef);
+                if (!legacySnap.exists() || legacySnap.data().storeId !== storeId || legacySnap.data().status !== 'pending' || !isLegacyMerchantRequest(legacySnap.data())) return false;
+                transaction.update(legacyRef, { status, updatedAt: new Date().toISOString(), ...extra });
+                return true;
+            });
+            if (!updated) return false;
+        }
+        for (const [key, expectedCollection] of [[`merchant_requests_${storeId}`, 'merchant_requests'], [`partner_requests_${storeId}`, 'partner_requests']] as const) {
+            try {
+                const rows = JSON.parse(localStorage.getItem(key) || '[]');
+                const updatedRows = rows.map((r: any) => {
+                    const isMatch = r.id === requestId && r.storeId === storeId && r.status === 'pending' && (expectedCollection === 'merchant_requests' || isLegacyMerchantRequest(r));
+                    if (isMatch) updated = true;
+                    return isMatch ? { ...r, status, ...extra } : r;
+                });
+                localStorage.setItem(key, JSON.stringify(updatedRows));
+            } catch (_) {}
+        }
+        return updated;
+    } catch (err) {
+        console.error('[MERCHANT-REQUEST] Error updating merchant request:', err);
+        return false;
+    }
+};
+
+export const deleteMerchantRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
+    try {
+        let found = false;
+        if (firebaseDb) {
+            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
+            const isolatedSnap = await getDoc(isolatedRef);
+            if (isolatedSnap.exists()) {
+                if (isolatedSnap.data().storeId !== storeId) return false;
+                await deleteDoc(isolatedRef);
+                found = true;
+            } else {
+                const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
+                const legacySnap = await getDoc(legacyRef);
+                if (legacySnap.exists() && legacySnap.data().storeId === storeId && isLegacyMerchantRequest(legacySnap.data())) {
+                    await deleteDoc(legacyRef);
+                    found = true;
+                }
+            }
+        }
+        for (const key of [`merchant_requests_${storeId}`, `partner_requests_${storeId}`]) {
+            try {
+                const rows = JSON.parse(localStorage.getItem(key) || '[]');
+                const before = rows.length;
+                const filtered = rows.filter((r: any) => r.id !== requestId || r.storeId !== storeId || (key.startsWith('partner_requests_') && !isLegacyMerchantRequest(r)));
+                found = found || filtered.length !== before;
+                localStorage.setItem(key, JSON.stringify(filtered));
+            } catch (_) {}
+        }
+        return found;
+    } catch (err) {
+        console.error('[MERCHANT-REQUEST] Error deleting merchant request:', err);
         return false;
     }
 };
@@ -2940,12 +3127,9 @@ export const resetMerchantAccountData = async (
             updatedSuppliers = (localData.settings?.suppliers || []).map((s: any) =>
                 isMerchantEntity(s) ? { ...s, balance: 0, transactions: [] } : s
             );
-            updatedPartners = (localData.settings?.partners || []).map((p: any) =>
-                isMerchantEntity(p) ? { ...p, balance: 0, transactions: [] } : p
-            );
-            const updatedPartnerTxs = (localData.settings?.partnerTransactions || []).filter(
-                (pt: any) => !isMerchantEntity({ id: pt.partnerId || pt.supplierId, name: pt.partnerName || pt.supplierName })
-            );
+            // Partner records and their ledger are a separate domain; preserve them verbatim.
+            updatedPartners = localData.settings?.partners || [];
+            const updatedPartnerTxs = localData.settings?.partnerTransactions || [];
 
             const nextLocalData = {
                 ...localData,
@@ -2965,9 +3149,12 @@ export const resetMerchantAccountData = async (
             const localKey = `partner_requests_${storeId}`;
             const existingReqs = JSON.parse(localStorage.getItem(localKey) || '[]');
             const filteredReqs = existingReqs.filter(
-                (r: any) => !isMerchantEntity({ id: r.partnerId, name: r.partnerName }) && !r.isMerchantRequest
+                (r: any) => !isMerchantEntity({ id: r.merchantId || r.partnerId, name: r.merchantName || r.partnerName }) && !r.isMerchantRequest
             );
             localStorage.setItem(localKey, JSON.stringify(filteredReqs));
+            const merchantLocalKey = `merchant_requests_${storeId}`;
+            const merchantReqs = JSON.parse(localStorage.getItem(merchantLocalKey) || '[]');
+            localStorage.setItem(merchantLocalKey, JSON.stringify(merchantReqs.filter((r: any) => !isMerchantEntity({ id: r.merchantId, name: r.merchantName }))));
         } catch (_) {}
 
         // 3. Clean Firestore partner_requests & orders & settings
@@ -2983,6 +3170,14 @@ export const resetMerchantAccountData = async (
                 }
             } catch (_) {}
 
+            const qMerchantReq = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
+            const merchantReqSnap = await getDocs(qMerchantReq);
+            for (const d of merchantReqSnap.docs) {
+                const rData = d.data();
+                if (isMerchantEntity({ id: rData.merchantId, name: rData.merchantName })) {
+                    await deleteDoc(d.ref).catch(() => {});
+                }
+            }
             if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
                 await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
             }
@@ -3029,7 +3224,7 @@ export const subscribeToStoreRealtimeOptimized = (
     if (!storeId) return () => {};
 
     const cleanStoreId = storeId.trim();
-    const tablesToListen = options.tables || ['orders', 'partner_requests', 'products', 'transactions'];
+    const tablesToListen = options.tables || ['orders', 'merchant_requests', 'partner_requests', 'products', 'transactions'];
     const unsubs: Array<() => void> = [];
 
     // A. Supabase Realtime Channel with Strict Row-Level Filter (.eq('store_id', cleanStoreId))
@@ -3040,7 +3235,7 @@ export const subscribeToStoreRealtimeOptimized = (
             const channel = supabase.channel(channelName);
 
             tablesToListen.forEach(table => {
-                const filterField = table === 'partner_requests' ? 'storeId' : 'store_id';
+                const filterField = (table === 'partner_requests' || table === 'merchant_requests') ? 'storeId' : 'store_id';
                 
                 channel.on(
                     'postgres_changes' as any,
@@ -3082,7 +3277,7 @@ export const subscribeToStoreRealtimeOptimized = (
     if (firebaseDb) {
         try {
             tablesToListen.forEach(colName => {
-                const filterField = colName === 'partner_requests' ? 'storeId' : 'store_id';
+                const filterField = (colName === 'partner_requests' || colName === 'merchant_requests') ? 'storeId' : 'store_id';
                 const q = query(collection(firebaseDb, colName), where(filterField, '==', cleanStoreId));
 
                 const unsubFs = onSnapshot(

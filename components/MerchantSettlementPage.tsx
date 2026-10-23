@@ -177,7 +177,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   customers = [],
   currentUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'requests' | 'partners' | 'transparency' | 'portal'>('settlements');
+  const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'requests' | 'merchants' | 'transparency' | 'portal'>('settlements');
   const [transparencyMerchantId, setTransparencyMerchantId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMerchantId, setSelectedMerchantId] = useState<string>('');
@@ -197,7 +197,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   const loadMerchantRequests = useCallback(async () => {
     try {
-      const reqs = await db.getPartnerRequests(activeStoreId);
+      const reqs = await db.getMerchantRequests(activeStoreId);
       setRawRequests(reqs);
     } catch (_) {}
   }, [activeStoreId]);
@@ -207,7 +207,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   }, [loadMerchantRequests]);
 
   const merchantRequests = useMemo(() => {
-    const fromSettings = (settings as any).partnerRequests || [];
+    const fromSettings = [ ...((settings as any).merchantRequests || []), ...((settings as any).partnerRequests || []) ];
     const map = new Map<string, any>();
     rawRequests.forEach(r => map.set(r.id, r));
     fromSettings.forEach((r: any) => {
@@ -310,7 +310,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return;
       }
 
-      await db.updatePartnerRequestStatus(req.id, activeStoreId, 'approved');
+      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved');
       setRawRequests(prev => prev.map(r => (r.id === req.id ? { ...r, status: 'approved' } : r)));
 
       const nowIso = new Date().toISOString();
@@ -413,14 +413,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         };
 
         const updatedSuppliers = (currentSettings.suppliers || []).map(updateItem);
-        const updatedPartners = (currentSettings.partners || []).map(updateItem);
         if (activeStoreId) {
-          db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+          db.updatePartnerSettings(activeStoreId, currentSettings.partners || [], updatedSuppliers).catch(() => {});
         }
         return {
           ...currentSettings,
           suppliers: updatedSuppliers,
-          partners: updatedPartners
         };
       });
 
@@ -472,7 +470,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       const cleanRef = approvalTransferRef.trim() || undefined;
       const cleanImg = approvalReceiptImage || undefined;
 
-      const statusUpdated = await db.updatePartnerRequestStatus(req.id, activeStoreId, 'approved', {
+      const statusUpdated = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
         receiptImage: cleanImg,
         transferReference: cleanRef
       });
@@ -584,7 +582,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       );
       if (!confirmed) return;
 
-      const updated = await db.updatePartnerRequestStatus(req.id, activeStoreId, 'rejected');
+      const updated = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'rejected');
       if (!updated) {
         inAppToast('لم يتم رفض الطلب؛ ربما عولج مسبقاً. حدّث القائمة.', 'error');
         return;
@@ -650,14 +648,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return item;
       };
       const updatedSuppliers = (prev.suppliers || []).map(patchFn);
-      const updatedPartners = (prev.partners || []).map(patchFn);
       if (activeStoreId) {
-        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+        db.updatePartnerSettings(activeStoreId, prev.partners || [], updatedSuppliers).catch(() => {});
       }
       return {
         ...prev,
         suppliers: updatedSuppliers,
-        partners: updatedPartners
       };
     });
 
@@ -843,7 +839,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const [isTestingMail, setIsTestingMail] = useState(false);
 
   // Extract Merchants List strictly from:
-  // 1. Registered Suppliers / Partners (settings.suppliers & settings.partners)
+  // 1. Registered merchant records (settings.suppliers)
   // 2. Customers explicitly tagged as 'merchant' / 'موكل' / 'صاحب بضاعة'
   // 3. Unique merchantId / merchantName assigned on orders (excluding 'pending')
   // 4. Historical settlements (settings.merchantSettlements)
@@ -863,30 +859,6 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           email: s.email || '',
           sourceLabel: 'مورد / صاحب بضاعة' 
         });
-      }
-    });
-
-    // Also merge email/phone from settings.partners if person exists in suppliers list, or add consignment partners
-    (settings.partners || []).forEach(p => {
-      if (!p) return;
-      const pName = (p.name || '').trim();
-      const existing = list.find(item => item.id === p.id || (pName && item.name.trim().toLowerCase() === pName.toLowerCase()));
-      if (existing) {
-        if (!existing.email && p.email) existing.email = p.email;
-        if (!existing.phone && p.phone) existing.phone = p.phone;
-      } else if (p.id && pName && !seen.has(p.id) && !seen.has(pName)) {
-        const isConsignmentRole = !p.role || String(p.role).includes('موكل') || String(p.role).includes('مورد') || String(p.role).includes('بضاعة');
-        if (isConsignmentRole || p.email) {
-          seen.add(p.id);
-          seen.add(pName);
-          list.push({
-            id: p.id,
-            name: pName,
-            phone: p.phone,
-            email: p.email || '',
-            sourceLabel: p.role || 'موكل / شريك'
-          });
-        }
       }
     });
 
@@ -925,9 +897,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     });
 
     return list;
-  }, [settings.suppliers, settings.partners, settings.merchantSettlements, customers, orders]);
+  }, [settings.suppliers, settings.merchantSettlements, customers, orders]);
 
-  // Helper to check if an order belongs to a specific merchant/partner (never matching buyer customerPhone/customerName)
+  // Helper to check if an order belongs to a merchant (never matching buyer customerPhone/customerName)
   const doesOrderBelongToMerchant = (o: Order, merchantIdOrName: string, merchantObj?: { id: string; name: string }) => {
     if (!o.merchantId && !o.merchantName) return false;
     if (o.merchantId === 'pending') return false;
@@ -957,27 +929,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       defaultMarketingFeePerOrder: newPartnerDefaultMarketing > 0 ? newPartnerDefaultMarketing : undefined
     };
 
-    const newPartnerInPartners = {
-      id: newId,
-      name: newPartnerName.trim(),
-      phone: newPartnerPhone.trim(),
-      email: cleanEmail,
-      balance: 0,
-      profitRatio: 50,
-      passcode: '0000',
-      role: 'موكل صاحب بضاعة'
-    };
-
     updateSettings(prev => {
       const nextSuppliers = [newPartner, ...(prev.suppliers || [])];
-      const nextPartners = [newPartnerInPartners, ...(prev.partners || []).filter(p => p.id !== newId)];
       if (activeStoreId) {
-        db.updatePartnerSettings(activeStoreId, nextPartners, nextSuppliers).catch(() => {});
+        db.updatePartnerSettings(activeStoreId, prev.partners || [], nextSuppliers).catch(() => {});
       }
       return {
         ...prev,
         suppliers: nextSuppliers,
-        partners: nextPartners
       };
     });
 
@@ -1026,34 +985,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           });
         }
 
-        // Also update or add to partners list
-        const existingPartner = (prev.partners || []).find(p => p.id === targetId || (targetName && (p.name || '').trim().toLowerCase() === targetName));
-        let updatedPartners = [...(prev.partners || [])];
-        if (existingPartner) {
-          updatedPartners = updatedPartners.map(p => 
-            p.id === existingPartner.id ? { ...p, email: cleanEmail, passcode: p.passcode || '0000' } : p
-          );
-        } else {
-          updatedPartners.push({
-            id: targetId,
-            name: editingPartnerForEmail.name,
-            phone: '',
-            email: cleanEmail,
-            balance: 0,
-            profitRatio: 50,
-            passcode: '0000',
-            role: 'موكل صاحب بضاعة'
-          });
-        }
-
         if (activeStoreId) {
-          db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+          db.updatePartnerSettings(activeStoreId, prev.partners || [], updatedSuppliers).catch(() => {});
         }
-
         return {
           ...prev,
-          suppliers: updatedSuppliers,
-          partners: updatedPartners
+          suppliers: updatedSuppliers
         };
       });
 
@@ -2020,15 +1957,24 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   // Reverse / Delete Settlement
   const handleReverseSettlement = async (settlement: MerchantSettlement) => {
+    const linkedOrderIds = new Set((settlement.orderSnapshots || []).map(s => s.orderId));
+    const hasPaidOrders = (orders || []).some(o =>
+      (o.settlementId === settlement.id || (!o.settlementId && linkedOrderIds.has(o.id))) &&
+      (o.payoutStatus === 'paid' || !!o.paidOutAt)
+    );
+    if (settlement.status === 'paid' || hasPaidOrders) {
+      inAppToast('لا يمكن عكس كشف معتمد أو تم صرفه من هذه الشاشة. سجّل الاسترداد بقيد محاسبي موثق؛ لم تتغير أي بيانات.', 'error', 6000);
+      return;
+    }
     if (settlement.reversedAt) {
       inAppToast('تم عكس هذا الكشف مسبقاً.', 'warning');
       return;
     }
     const confirmed = await inAppConfirm(
-      `هل أنت متأكد من إلغاء كشف التسوية (${settlement.settlementNumber}) للموكل "${settlement.merchantName}"؟ سيتم إعادة فتح (${settlement.ordersCount}) أوردر لتصبح قابلة للتسوية مرة أخرى${settlement.paidFromTreasuryAccountId ? ' واسترداد المبلغ المخصوم إلى الخزينة تلقائياً' : ''}.`,
+      `هل أنت متأكد من إلغاء كشف التسوية (${settlement.settlementNumber}) للموكل "${settlement.merchantName}"؟ سيتم إعادة فتح (${settlement.ordersCount}) أوردر لتصبح قابلة للتسوية مرة أخرى${settlement.paidFromTreasuryAccountId ? ' (لن يُسترد رصيد الخزينة تلقائياً)' : ''}.`,
       {
-        title: 'إلغاء واسترداد كشف التسوية',
-        confirmText: 'تأكيد الإلغاء والاسترداد',
+        title: 'عكس كشف غير مصروف',
+        confirmText: 'تأكيد عكس الكشف',
         cancelText: 'تراجع',
         type: 'danger'
       }
@@ -2049,33 +1995,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       return o;
     }));
 
-    // 2. Restore Treasury Balance with a compensating deposit; retain the original audit entry.
-    if (settlement.status === 'paid' && settlement.paidFromTreasuryAccountId && settlement.netPayoutToMerchant > 0 && setTreasury && treasury) {
-      setTreasury(currentTreasury => {
-        if (!currentTreasury) return currentTreasury;
-        const reversalTx = {
-          id: `tx-reversal-${settlement.id}`,
-          date: reversedAt,
-          amount: settlement.netPayoutToMerchant,
-          type: 'deposit' as const,
-          description: `قيد عكس تسوية الموكل ${settlement.settlementNumber}`,
-          toAccountId: settlement.paidFromTreasuryAccountId,
-          operatorName: currentUser?.fullName || 'النظام',
-          reference: `REV-${settlement.settlementNumber}`
-        };
-        return {
-          ...currentTreasury,
-          accounts: currentTreasury.accounts.map(acc =>
-            acc.id === settlement.paidFromTreasuryAccountId
-              ? { ...acc, balance: acc.balance + settlement.netPayoutToMerchant }
-              : acc
-          ),
-          transactions: [reversalTx, ...(currentTreasury.transactions || [])]
-        };
-      });
-    }
-
-    // 3. Reverse the merchant ledger entry and retain the settlement for audit history.
+    // Paid settlements are blocked above. Only reverse the merchant ledger for an unpaid/draft settlement.
     updateSettings(currentSettings => {
       const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
         if (s.id !== settlement.merchantId) return s;
@@ -2236,7 +2156,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         </div>
 
         <div class="info-grid">
-          <div>اسم الموكل / الشريك: <span style="color:#008060;">${settlement.merchantName}</span></div>
+          <div>اسم الموكل: <span style="color:#008060;">${settlement.merchantName}</span></div>
           <div>إجمالي الأوردرات المسواة: <span class="num">${settlement.ordersCount} أوردر</span></div>
           <div>وعاء الصرف / التسوية: <span>${settlement.paidFromTreasuryAccountName || 'تسوية دفترية'}</span></div>
         </div>
@@ -2429,7 +2349,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       '#': idx + 1,
       'رقم الكشف': st.settlementNumber,
       'التاريخ': new Date(st.date).toLocaleDateString('ar-EG'),
-      'الموكل / الشريك': st.merchantName,
+      'الموكل': st.merchantName,
       'عدد الأوردرات': st.ordersCount,
       'إجمالي التحصيل (ج.م)': st.totalCollected,
       'مستحقات البضاعة (ج.م)': st.totalMerchantGoodsCost,
@@ -2560,9 +2480,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveTab('partners')}
+              onClick={() => setActiveTab('merchants')}
               className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'partners' 
+                activeTab === 'merchants'
                   ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' 
                   : 'text-slate-300 hover:text-white hover:bg-white/5'
               }`}
@@ -2910,7 +2830,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                         onClick={() => handleReverseSettlement(st)}
                         disabled={!!st.reversedAt}
                         className="p-2.5 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-600 hover:text-white rounded-xl text-rose-600 dark:text-rose-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={st.reversedAt ? 'تم عكس الكشف بالفعل' : 'عكس الكشف وإعادة فتح الأوردرات'}
+                        title={st.reversedAt ? 'تم عكس الكشف بالفعل' : st.status === 'paid' ? 'لا يمكن عكس كشف مصروف دون تسجيل استرداد' : 'عكس الكشف وإعادة فتح الأوردرات'}
                       >
                         <RotateCcw size={16} />
                       </button>
@@ -2937,7 +2857,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 <span>تحديد الموكل / صاحب البضاعة ومعايير المحاسبة</span>
               </h3>
               <span className="text-xs font-bold text-slate-500">
-                اختر الشريك التجاري واضبط قواعد احتساب العمولة والشحن والمرتجعات
+                اختر الموكل واضبط قواعد احتساب العمولة والشحن والمرتجعات
               </span>
             </div>
 
@@ -3947,7 +3867,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       {/* ======================================================== */}
       {/* TAB 3: PARTNERS FINANCIAL DIRECTORY & BALANCES           */}
       {/* ======================================================== */}
-      {activeTab === 'partners' && (
+      {activeTab === 'merchants' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
             <div>
@@ -4098,7 +4018,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                           setActiveTab('portal');
                         }}
                         className="px-3 py-2 rounded-xl bg-teal-50 dark:bg-teal-950/50 hover:bg-teal-100 text-teal-700 dark:text-teal-300 text-xs font-bold transition-colors cursor-pointer border border-teal-200 flex items-center gap-1"
-                        title="دخول بوابة الموكل مباشرة لهذا الشريك"
+                        title="دخول بوابة الموكل مباشرة"
                       >
                         <Globe size={13} />
                         <span>دخول البوابة</span>
@@ -4543,7 +4463,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       )}
 
       {/* ======================================================== */}
-      {/* TAB 5: LIVE MERCHANT & PARTNER PORTAL VIEW              */}
+      {/* TAB 5: LIVE MERCHANT PORTAL VIEW              */}
       {/* ======================================================== */}
       {activeTab === 'portal' && (
         <div className="space-y-4">
@@ -4623,7 +4543,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
             <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-1 text-xs">
               <div className="flex justify-between items-center">
-                <span className="text-slate-600 dark:text-slate-400 font-bold">الموكل / الشريك:</span>
+                <span className="text-slate-600 dark:text-slate-400 font-bold">الموكل:</span>
                 <span className="font-black text-slate-900 dark:text-white">{selectedReqForApproval.partnerName}</span>
               </div>
               <div className="flex justify-between items-center">

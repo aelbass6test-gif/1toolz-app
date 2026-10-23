@@ -211,6 +211,12 @@ service cloud.firestore {
       allow read, update, delete: if isSignedIn() && isValidId(requestId);
     }
 
+    // Merchant portal requests are stored separately from partner requests.
+    match /merchant_requests/{requestId} {
+      allow create: if isValidId(requestId);
+      allow read, update, delete: if isSignedIn() && isValidId(requestId);
+    }
+
     match /shared_audits/{auditId} {
       allow read: if isValidId(auditId);
       allow write: if isSignedIn() && isValidId(auditId);

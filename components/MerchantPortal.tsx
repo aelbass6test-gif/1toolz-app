@@ -223,7 +223,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const targetStoreId = directStoreId || storeId || effectiveStoreId;
     if (!targetStoreId) return;
     try {
-      const reqs = await db.getPartnerRequests(targetStoreId);
+      const reqs = await db.getMerchantRequests(targetStoreId);
       setMerchantRequestsList(reqs);
     } catch (_) {}
   }, [directStoreId, storeId, effectiveStoreId]);
@@ -270,7 +270,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     if (!targetStoreId) return;
 
     const unsubscribe = db.subscribeToStoreRealtimeOptimized(targetStoreId, {
-      tables: ['orders', 'partner_requests', 'transactions', 'partners'],
+      tables: ['orders', 'merchant_requests', 'partner_requests', 'transactions', 'partners'],
       onUpdate: () => {
         db.throttledRefreshStoreData(targetStoreId, (freshData) => {
           setDirectStoreData(freshData);
@@ -2637,7 +2637,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Cancel a pending withdrawal request (releases reserved funds immediately)
   const handleCancelPendingWithdrawal = async (reqId: string) => {
     try {
-      await db.updatePartnerRequestStatus(reqId, effectiveStoreId, 'rejected');
+      await db.updateMerchantRequestStatus(reqId, effectiveStoreId, 'rejected');
       setMerchantRequestsList(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
       showToast('تم إلغاء طلب السحب المعلق وفك حجز المبلغ بنجاح', 'success');
     } catch (err: any) {
@@ -2907,7 +2907,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       planNameAr: resolvedPlanName
     };
 
-    await db.submitPartnerRequest({
+    await db.submitMerchantRequest({
       storeId: targetStore,
       partnerId: liveMerchant.id,
       partnerName: liveMerchant.name,
@@ -2925,7 +2925,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       pendingPlanRequest: normalizedRequest
     });
 
-    const refreshed = await db.getPartnerRequests(targetStore);
+    const refreshed = await db.getMerchantRequests(targetStore);
     setMerchantRequestsList(refreshed);
 
     showToast(
@@ -3087,7 +3087,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       payload.reason ||
       `طلب استرداد باقة (${planLabel}) خلال فترة الـ 14 يوماً — المحاسبة على 14 يوم (${charge14} ج.م) واسترداد الباقي (${refundAmt} ج.م) للمحفظة`;
 
-    await db.submitPartnerRequest({
+    await db.submitMerchantRequest({
       storeId: targetStore,
       partnerId: liveMerchant.id,
       partnerName: liveMerchant.name,
@@ -3127,7 +3127,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       });
     }
 
-    const refreshed = await db.getPartnerRequests(targetStore);
+    const refreshed = await db.getMerchantRequests(targetStore);
     setMerchantRequestsList(refreshed);
     showToast(`تم إرسال طلب استرداد (${refundAmt.toLocaleString()} ج.م) لمراجعة الإدارة قبل إيداعه بالمحفظة`, 'success');
   }, [liveMerchant, effectiveStoreId, persistMerchantAccountUpdates, showToast]);
@@ -3135,7 +3135,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const handleRequestWalletTopUp = useCallback(async (amount: number, notesOrMethod: string, reference?: string) => {
     if (!liveMerchant) return;
     const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
-    await db.submitPartnerRequest({
+    await db.submitMerchantRequest({
       storeId: targetStore,
       partnerId: liveMerchant.id,
       partnerName: liveMerchant.name,
@@ -3148,7 +3148,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         ? `طلب شحن محفظة بمبلغ ${amount.toLocaleString()} ج.م عبر ${notesOrMethod} (مرجع: ${reference})`
         : `${notesOrMethod || 'طلب شحن محفظة'} (${amount.toLocaleString()} ج.م)`
     });
-    const refreshed = await db.getPartnerRequests(targetStore);
+    const refreshed = await db.getMerchantRequests(targetStore);
     setMerchantRequestsList(refreshed);
     showToast(`تم إرسال طلب شحن المحفظة (${amount.toLocaleString()} ج.م) للإدارة للاعتماد الفوري`, 'success');
   }, [liveMerchant, effectiveStoreId, showToast]);
@@ -3290,7 +3290,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         netAmount?: number;
         payoutFrequency?: 'daily' | 'weekly';
       } = {
-        id: `REQ-M-${Date.now()}`,
+        id: `REQ-M-${generateUniqueOrderId('m')}`,
         storeId: effectiveStoreId,
         partnerId: liveMerchant.id,
         partnerName: liveMerchant.name,
@@ -3307,7 +3307,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         isMerchantRequest: true
       };
 
-      await db.submitPartnerRequest(effectiveStoreId, newReq as any);
+      await db.submitMerchantRequest(effectiveStoreId, newReq as any);
       setMerchantRequestsList(prev => [newReq as any, ...prev]);
       setShowRequestModal(false);
       setRequestAmount('');
@@ -10612,11 +10612,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </button>
               <button
                 type="button"
-                disabled={isSavingPayoutFrequency}
-                onClick={handleSavePayoutFrequencySettings}
+                onClick={() => handleSavePayoutFrequencyAndDay(tempPayoutFrequency, tempWeeklyPayoutDay)}
                 className="px-6 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
               >
-                {isSavingPayoutFrequency ? 'جاري الحفظ...' : 'تأكيد'}
+                تأكيد
               </button>
             </div>
           </div>

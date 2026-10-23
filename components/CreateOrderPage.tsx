@@ -338,12 +338,12 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         // Stamp merchant order with creation-time plan snapshot & deduct per-order manager fee if applicable
         if (orderWithId.merchantId || orderWithId.merchantName) {
             const supplierList: any[] = Array.isArray(settings.suppliers) ? settings.suppliers : Object.values(settings.suppliers || {});
-            const partnerList: any[] = Array.isArray(settings.partners) ? settings.partners : Object.values(settings.partners || {});
             const targetMId = String(orderWithId.merchantId || '').trim().toLowerCase();
             const targetMName = normalizeName(orderWithId.merchantName || '').toLowerCase();
-            const matchedMerchant =
-                supplierList.find(s => (targetMId && String(s?.id || '').toLowerCase() === targetMId) || (targetMName && normalizeName(s?.name || '').toLowerCase() === targetMName)) ||
-                partnerList.find(p => (targetMId && String(p?.id || '').toLowerCase() === targetMId) || (targetMName && normalizeName(p?.name || '').toLowerCase() === targetMName));
+            const matchedMerchant = supplierList.find(s =>
+                (targetMId && String(s?.id || '').toLowerCase() === targetMId) ||
+                (targetMName && normalizeName(s?.name || '').toLowerCase() === targetMName)
+            );
 
             if (matchedMerchant) {
                 const planSnap = buildOrderPlanSnapshot(matchedMerchant);
@@ -404,9 +404,6 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                             ...prev,
                             suppliers: (Array.isArray(prev.suppliers) ? prev.suppliers : Object.values(prev.suppliers || {})).map((s: any) =>
                                 s.id === matchedMerchant.id ? { ...s, balance: nextWallet, transactions: [feeTx, ...(s.transactions || [])] } : s
-                            ),
-                            partners: (Array.isArray(prev.partners) ? prev.partners : Object.values(prev.partners || {})).map((p: any) =>
-                                p.id === matchedMerchant.id ? { ...p, balance: nextWallet, transactions: [feeTx, ...(p.transactions || [])] } : p
                             )
                         }));
                     }

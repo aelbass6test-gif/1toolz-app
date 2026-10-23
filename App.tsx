@@ -847,21 +847,35 @@ const OwnerLayoutWrapper = ({
             setAllPartnerRequests([]);
             return;
         }
+        let legacy: db.PartnerPortalRequest[] = [];
+        let merchants: db.PartnerPortalRequest[] = [];
+        const publish = () => {
+            const mappedMerchants = merchants.map(r => ({
+                ...r,
+                partnerId: String((r as any).merchantId || ''),
+                partnerName: String((r as any).merchantName || ''),
+                isMerchantRequest: true
+            } as db.PartnerPortalRequest));
+            setAllPartnerRequests([...legacy, ...mappedMerchants]);
+        };
+        const unsubs: Array<() => void> = [];
         try {
-            const q = query(
-                collection(firebaseDb, 'partner_requests'),
-                where('storeId', '==', activeStoreId)
-            );
-            return onSnapshot(q, (snapshot) => {
-                const list: db.PartnerPortalRequest[] = [];
-                snapshot.forEach(docSnap => {
-                    list.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest);
-                });
-                setAllPartnerRequests(list);
-            });
+            const legacyQuery = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', activeStoreId));
+            unsubs.push(onSnapshot(legacyQuery, snapshot => {
+                legacy = [];
+                snapshot.forEach(docSnap => legacy.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
+                publish();
+            }));
+            const merchantQuery = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', activeStoreId));
+            unsubs.push(onSnapshot(merchantQuery, snapshot => {
+                merchants = [];
+                snapshot.forEach(docSnap => merchants.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
+                publish();
+            }));
         } catch (e) {
-            console.warn('[Notification] partner_requests subscription error:', e);
+            console.warn('[Notification] request subscriptions error:', e);
         }
+        return () => unsubs.forEach(unsub => unsub());
     }, [activeStoreId]);
 
     const pendingRequestsCounts = useMemo(() => {

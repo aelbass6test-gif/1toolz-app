@@ -102,7 +102,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
   const loadCloudRequests = useCallback(async () => {
     if (!storeId) return;
     try {
-      const reqs = await db.getPartnerRequests(storeId);
+      const reqs = await db.getMerchantRequests(storeId);
       setCloudRequests(reqs);
     } catch (_) {}
   }, [storeId]);
@@ -268,7 +268,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
       return;
     }
 
-    await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+    await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
     setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     const baseReqMeta: MerchantPlanChangeRequest = req.planRequestMeta || supplier.pendingPlanRequest || {
@@ -360,7 +360,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
       return;
     }
 
-    await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+    await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
     setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     const nowIso = new Date().toISOString();
@@ -468,7 +468,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
       return;
     }
 
-    await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+    await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
     setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     const nowIso = new Date().toISOString();
@@ -626,7 +626,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
       return;
     }
 
-    const statusUpdated = await db.updatePartnerRequestStatus(req.id, storeId, 'approved');
+    const statusUpdated = await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
     if (!statusUpdated) {
       showToast('تعذر اعتماد الطلب؛ ربما تمت معالجته من شاشة أخرى. حدّث القائمة وحاول مجدداً.', 'error');
       return;
@@ -1452,7 +1452,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
                             <button
                               onClick={async () => {
                                 if (storeId) {
-                                    const rejected = await db.updatePartnerRequestStatus(req.id, storeId, 'rejected');
+                                    const rejected = await db.updateMerchantRequestStatus(req.id, storeId, 'rejected');
                                     if (!rejected) {
                                       showToast('لم يتم رفض الطلب؛ ربما تمت معالجته مسبقاً. حدّث القائمة.', 'error');
                                       return;
