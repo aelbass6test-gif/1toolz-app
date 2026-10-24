@@ -92,6 +92,7 @@ const EmployeesPayrollPage = lazyWithRetry(() => import('./components/EmployeesP
 const ReportsPage = lazyWithRetry(() => import('./components/ReportsPage'));
 const InventoryTransfers = lazyWithRetry(() => import('./components/InventoryTransfers'));
 const MerchantSettlementPage = lazyWithRetry(() => import('./components/MerchantSettlementPage').then(m => ({ default: m.MerchantSettlementPage })));
+const AgencyHubPage = lazyWithRetry(() => import('./components/AgencyHubPage'));
 const OrderReturnsPage = lazyWithRetry(() => import('./components/OrderReturnsPage'));
 const PurchaseReturnsPage = lazyWithRetry(() => import('./components/PurchaseReturnsPage'));
 const POSPage = lazyWithRetry(() => import('./components/POSPage'));
@@ -4055,6 +4056,16 @@ export const AppComponent = () => {
                             />
                         </EmployeePermissionRoute>
                     } />
+                    <Route path="products" element={
+                        <EmployeePermissionRoute currentUser={currentUser} permission="PRODUCTS_VIEW">
+                            <ProductsPage {...pageProps} orders={pageProps.orders} />
+                        </EmployeePermissionRoute>
+                    } />
+                    <Route path="inventory-transfers" element={
+                        <EmployeePermissionRoute currentUser={currentUser} permission="INVENTORY_MANAGE">
+                            <InventoryTransfers settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />
+                        </EmployeePermissionRoute>
+                    } />
                     <Route path="account-settings" element={<EmployeeAccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
 
@@ -4134,58 +4145,9 @@ export const AppComponent = () => {
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
-                    <Route path="dropshipping" element={<DropshippingPage orders={pageProps.orders} settings={pageProps.settings} activeStore={pageProps.activeStore} setOrders={pageProps.setOrders} />} />
-                    <Route path="merchant-settlement" element={<MerchantSettlementPage storeId={activeStoreId} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
-                    <Route path="merchant-portal" element={
-                        <MerchantPortal 
-                            allStoresData={allStoresData} 
-                            updateSettings={(newSettings) => {
-                                setAllStoresData(p => {
-                                    const draft = { ...p };
-                                    return draft;
-                                });
-                            }} 
-                            showToast={(msg, type) => {}} 
-                        />
-                    } />
-                    <Route path="merchant-portal/:tab" element={
-                        <MerchantPortal 
-                            allStoresData={allStoresData} 
-                            updateSettings={(newSettings) => {
-                                setAllStoresData(p => {
-                                    const draft = { ...p };
-                                    return draft;
-                                });
-                            }} 
-                            showToast={(msg, type) => {}} 
-                        />
-                    } />
-                    <Route path="partner-portal" element={
-                        <PartnerPortal 
-                            allStoresData={allStoresData} 
-                            portalMode="partner"
-                            updateSettings={(newSettings) => {
-                                setAllStoresData(p => {
-                                    const draft = { ...p };
-                                    return draft;
-                                });
-                            }} 
-                            showToast={(msg, type) => {}} 
-                        />
-                    } />
-                    <Route path="partner-portal/:tab" element={
-                        <PartnerPortal 
-                            allStoresData={allStoresData} 
-                            portalMode="partner"
-                            updateSettings={(newSettings) => {
-                                setAllStoresData(p => {
-                                    const draft = { ...p };
-                                    return draft;
-                                });
-                            }} 
-                            showToast={(msg, type) => {}} 
-                        />
-                    } />
+                    <Route path="agency-hub" element={<AgencyHubPage storeId={activeStoreId} settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} wallet={pageProps.wallet} setWallet={pageProps.setWallet} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} allStoresData={allStoresData} />} />
+                    <Route path="agency" element={<Navigate to="../agency-hub" replace />} />
+                    <Route path="merchant-settlement" element={<Navigate to="../agency-hub?tab=settlements" replace />} />
                     <Route path="dropshipping/new" element={<CreateDropshippingOrderPage {...pageProps} />} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
                     <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />} />
@@ -4223,7 +4185,7 @@ export const AppComponent = () => {
                     <Route path="collections-report" element={<CollectionsReportPage {...pageProps} />} />
                     <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings?.activityLogs || []} />} />
                     <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
-                    <Route path="merchants" element={<MerchantsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
+                    <Route path="merchants" element={<Navigate to="../agency-hub?tab=merchants" replace />} />
                     <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="suppliers/:supplierId" element={<MerchantProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
@@ -4389,7 +4351,7 @@ export const AppComponent = () => {
 
                 {/* Path with store ID */}
                 <Route path="/store/:storeId/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
-                <Route path="/store/:storeId/products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                <Route path="/store/:storeId/catalog" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="/store/:storeId/products/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="/store/:storeId/p/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />

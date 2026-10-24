@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Search, LayoutDashboard, ShoppingCart, Plus, Monitor, Package, 
   Users, Truck, Wallet, FileText, Settings, Sparkles, MessageSquare, 
-  BarChart2, Landmark, Wrench, Shield, ArrowRight, X, Command
+  BarChart2, Landmark, Wrench, Shield, ArrowRight, X, Command, Building2
 } from 'lucide-react';
 import { Store } from '../types';
 
@@ -121,6 +121,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose,
     },
 
     // الـمالـية والـمـخزون
+    {
+      id: 'agency-hub-page',
+      title: 'مركز تحكم الوكالة والموكلين الشامل 🏢',
+      description: 'إدارة أصحاب البضائع، كشوفات التسوية، محافظ الأمانات، وبوابة الموكلين',
+      category: 'صفحات النظام',
+      icon: <Building2 className="text-emerald-500" size={18} />,
+      path: `${storePrefix}/agency-hub`,
+      badge: 'المركز الموحد ✨'
+    },
     {
       id: 'treasury-page',
       title: 'الخزينة والسيولة المالية',

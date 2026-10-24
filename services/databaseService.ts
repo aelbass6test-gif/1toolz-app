@@ -943,69 +943,219 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         ...storeSettings,
                         customization,
                         storeName: storeSettings.storeName || cloudData?.name || local?.settings?.storeName || 'المتجر',
-                        products: (storeSettings.products || local?.settings?.products || []).map((cp: any) => {
-                            const details = (cp.details && typeof cp.details === 'object') ? cp.details : {};
-                            const localProd = local?.settings?.products?.find((lp: any) => lp.id === cp.id);
-                            const mergedThumbnail = cp.thumbnail || details.thumbnail || localProd?.thumbnail || (Array.isArray(cp.images) && cp.images[0]) || (Array.isArray(details.images) && details.images[0]) || (localProd?.images && localProd.images[0]) || '';
-                            const candidateImages = (Array.isArray(cp.images) && cp.images.length > 0)
-                                ? cp.images
-                                : (Array.isArray(details.images) && details.images.length > 0)
-                                    ? details.images
-                                    : (localProd?.images && localProd.images.length > 0)
-                                        ? localProd.images
-                                        : (mergedThumbnail ? [mergedThumbnail] : []);
-                            return {
-                                ...details,
-                                ...(localProd || {}),
-                                ...cp,
-                                thumbnail: mergedThumbnail,
-                                images: candidateImages
-                            };
-                        }),
-                        suppliers: (storeSettings.suppliers || local?.settings?.suppliers || []).map((s: any) => {
-                            const sNameNorm = String(s.name || '').trim().toLowerCase();
-                            const localSupplier = (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
-                            return {
-                                ...(localSupplier || {}),
-                                ...s,
-                                email: s.email || localSupplier?.email || '',
-                                passcode: s.passcode || localSupplier?.passcode || '0000',
-                                payoutAccounts: s.payoutAccounts || localSupplier?.payoutAccounts || {},
-                                profitRatio: Number(s.profitRatio ?? localSupplier?.profitRatio ?? 0),
-                                transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (localSupplier?.transactions || [])
-                            };
-                        }),
-                        supplyOrders: storeSettings.supplyOrders || local?.settings?.supplyOrders || [],
-                        reviews: storeSettings.reviews || local?.settings?.reviews || [],
-                        abandonedCarts: storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [],
-                        activityLogs: storeSettings.activityLogs || local?.settings?.activityLogs || [],
-                        employees: storeSettings.employees || local?.settings?.employees || [],
-                        discountCodes: storeSettings.discountCodes || local?.settings?.discountCodes || [],
-                        collections: storeSettings.collections || local?.settings?.collections || [],
-                        customPages: storeSettings.customPages || local?.settings?.customPages || [],
-                        paymentMethods: storeSettings.paymentMethods || local?.settings?.paymentMethods || [],
-                        globalOptions: storeSettings.globalOptions || local?.settings?.globalOptions || [],
-                        shippingIntegrations: storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [],
-                        partners: (storeSettings.partners || local?.settings?.partners || []).map((p: any) => {
-                            const pNameNorm = String(p.name || '').trim().toLowerCase();
-                            const localPartner = (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
-                            return {
-                                ...(localPartner || {}),
-                                ...p,
-                                email: p.email || localPartner?.email || '',
-                                passcode: p.passcode || localPartner?.passcode || '0000'
-                            };
-                        }),
-                        partnerTransactions: storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [],
-                        warehouses: storeSettings.warehouses || local?.settings?.warehouses || [],
-                        inventoryAudits: storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [],
-                        stockTransfers: storeSettings.stockTransfers || local?.settings?.stockTransfers || [],
-                        orderReturns: storeSettings.orderReturns || local?.settings?.orderReturns || [],
-                        purchaseReturns: storeSettings.purchaseReturns || local?.settings?.purchaseReturns || [],
-                        posSales: storeSettings.posSales || local?.settings?.posSales || [],
-                        cashHolders: storeSettings.cashHolders || local?.settings?.cashHolders || [],
-                        cashHandovers: storeSettings.cashHandovers || local?.settings?.cashHandovers || [],
-                        whatsappTemplates: storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || []
+                        products: await (async () => {
+                            const embeddedProducts = storeSettings.products || local?.settings?.products || [];
+                            try {
+                                const productsSnap = await getDocs(query(collection(firebaseDb, 'products'), where('storeId', '==', storeId)));
+                                if (productsSnap.empty) return embeddedProducts;
+                                
+                                const colProducts = productsSnap.docs.map(d => ({ 
+                                    id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, 
+                                    ...d.data() 
+                                }));
+                                
+                                const merged = [...colProducts];
+                                const colIds = new Set(colProducts.map((p: any) => p.id));
+                                embeddedProducts.forEach((p: any) => { if (!colIds.has(p.id)) merged.push(p); });
+
+                                return merged.map((cp: any) => {
+                                    const details = (cp.details && typeof cp.details === 'object') ? cp.details : {};
+                                    const localProd = local?.settings?.products?.find((lp: any) => lp.id === cp.id);
+                                    const mergedThumbnail = cp.thumbnail || details.thumbnail || localProd?.thumbnail || (Array.isArray(cp.images) && cp.images[0]) || (Array.isArray(details.images) && details.images[0]) || (localProd?.images && localProd.images[0]) || '';
+                                    const candidateImages = (Array.isArray(cp.images) && cp.images.length > 0) ? cp.images : (Array.isArray(details.images) && details.images.length > 0) ? details.images : (localProd?.images && localProd.images.length > 0) ? localProd.images : (mergedThumbnail ? [mergedThumbnail] : []);
+                                    return { ...details, ...(localProd || {}), ...cp, thumbnail: mergedThumbnail, images: candidateImages };
+                                });
+                            } catch { return embeddedProducts; }
+                        })(),
+                        suppliers: await (async () => {
+                            const embedded = storeSettings.suppliers || local?.settings?.suppliers || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        supplyOrders: await (async () => {
+                            const embedded = storeSettings.supplyOrders || local?.settings?.supplyOrders || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'supply_orders'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        reviews: await (async () => {
+                            const embedded = storeSettings.reviews || local?.settings?.reviews || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'reviews'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        abandonedCarts: await (async () => {
+                            const embedded = storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'abandoned_carts'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        activityLogs: await (async () => {
+                            const embedded = storeSettings.activityLogs || local?.settings?.activityLogs || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'activity_logs'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        employees: await (async () => {
+                            const embedded = storeSettings.employees || local?.settings?.employees || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'employees'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.split('_').pop(), ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        discountCodes: await (async () => {
+                            const embedded = storeSettings.discountCodes || local?.settings?.discountCodes || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'discount_codes'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        collections: await (async () => {
+                            const embedded = storeSettings.collections || local?.settings?.collections || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'collections'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        customPages: await (async () => {
+                            const embedded = storeSettings.customPages || local?.settings?.customPages || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'custom_pages'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        paymentMethods: await (async () => {
+                            const embedded = storeSettings.paymentMethods || local?.settings?.paymentMethods || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'payment_methods'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        globalOptions: await (async () => {
+                            const embedded = storeSettings.globalOptions || local?.settings?.globalOptions || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'global_options'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        shippingIntegrations: await (async () => {
+                            const embedded = storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'shipping_integrations'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        partners: await (async () => {
+                            const embedded = storeSettings.partners || local?.settings?.partners || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        partnerTransactions: await (async () => {
+                            const embedded = storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        warehouses: await (async () => {
+                            const embedded = storeSettings.warehouses || local?.settings?.warehouses || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'warehouses'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        inventoryAudits: await (async () => {
+                            const embedded = storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'inventory_audits'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        stockTransfers: await (async () => {
+                            const embedded = storeSettings.stockTransfers || local?.settings?.stockTransfers || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'stock_transfers'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        orderReturns: await (async () => {
+                            const embedded = storeSettings.orderReturns || local?.settings?.orderReturns || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'order_returns'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        purchaseReturns: await (async () => {
+                            const embedded = storeSettings.purchaseReturns || local?.settings?.purchaseReturns || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        posSales: await (async () => {
+                            const embedded = storeSettings.posSales || local?.settings?.posSales || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'pos_sales'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        cashHolders: await (async () => {
+                            const embedded = storeSettings.cashHolders || local?.settings?.cashHolders || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ ...d.data(), userId: d.id.split('_').pop() }));
+                            } catch { return embedded; }
+                        })(),
+                        cashHandovers: await (async () => {
+                            const embedded = storeSettings.cashHandovers || local?.settings?.cashHandovers || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'cash_handovers'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            } catch { return embedded; }
+                        })(),
+                        whatsappTemplates: await (async () => {
+                            const embedded = storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || [];
+                            try {
+                                const snap = await getDocs(query(collection(firebaseDb, 'whatsapp_templates'), where('storeId', '==', storeId)));
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => {
+                                    const data = d.data();
+                                    const details = (data.details && typeof data.details === 'object') ? data.details : {};
+                                    return { id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...data, ...details };
+                                });
+                            } catch { return embedded; }
+                        })(),
+                        callScripts: storeSettings.callScripts || local?.settings?.callScripts || []
                     },
                     orders: await (async () => {
                         const embeddedOrders = cloudData?.orders || local?.orders || [];
@@ -1021,11 +1171,28 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             return embeddedOrders;
                         }
                     })(),
-                    wallet: cloudData?.wallet || local?.wallet || {
-                        balance: storeSettings.wallet_balance || 0,
-                        transactions: storeSettings.wallet_transactions || []
-                    },
-                    treasury: cloudData?.treasury || local?.treasury || { accounts: [], transactions: [] },
+                    wallet: await (async () => {
+                        const baseWallet = cloudData?.wallet || local?.wallet || { balance: storeSettings.wallet_balance || 0, transactions: [] };
+                        try {
+                            const snap = await getDocs(query(collection(firebaseDb, 'transactions'), where('storeId', '==', storeId)));
+                            if (snap.empty) return baseWallet;
+                            const txs = snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                            return { ...baseWallet, transactions: txs };
+                        } catch { return baseWallet; }
+                    })(),
+                    treasury: await (async () => {
+                        const baseTreasury = cloudData?.treasury || local?.treasury || { accounts: [], transactions: [] };
+                        try {
+                            const [accSnap, txSnap] = await Promise.all([
+                                getDocs(query(collection(firebaseDb, 'treasury_accounts'), where('storeId', '==', storeId))),
+                                getDocs(query(collection(firebaseDb, 'treasury_transactions'), where('storeId', '==', storeId)))
+                            ]);
+                            return {
+                                accounts: accSnap.empty ? baseTreasury.accounts : accSnap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() })),
+                                transactions: txSnap.empty ? baseTreasury.transactions : txSnap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }))
+                            };
+                        } catch { return baseTreasury; }
+                    })(),
                     cart: [],
                     customers: cloudData?.customers || local?.customers || [],
                     quotations: cloudData?.quotations || local?.quotations || []

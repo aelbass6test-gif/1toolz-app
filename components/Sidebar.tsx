@@ -5,7 +5,7 @@ import {
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
     Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, ShieldAlert,
     AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake,
-    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet, Activity, PanelLeftClose, PanelLeftOpen
+    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet, Activity, PanelLeftClose, PanelLeftOpen, Building2
 } from 'lucide-react';
 import { Store as StoreType, Settings } from '../types';
 
@@ -97,7 +97,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                 { to: `${storePrefix}/collections-report`, label: 'تقرير مبيعات المجموعات', icon: <BarChart2 size={14} /> },
                 { to: `${storePrefix}/product-options`, label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={18} /> },
                 { to: `${storePrefix}/reviews`, label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
-                { to: `${storePrefix}/suppliers`, label: 'إدارة الموردين والمخازن', icon: <Handshake size={18} /> },
                 { to: `${storePrefix}/inventory-transfers`, label: 'تحويلات المخزون الداخلية', icon: <ArrowRightLeft size={18} /> },
                 { to: `${storePrefix}/purchase-returns`, label: 'مرتجعات المشتريات (موردين)', icon: <RotateCw size={18} /> },
             ]
@@ -126,6 +125,30 @@ const Sidebar: React.FC<SidebarProps> = ({
         },
         {
             type: 'group',
+            title: 'منظومة الموكلين والشركاء',
+            links: [
+                { 
+                    to: `${storePrefix}/agency-hub`, 
+                    label: 'إدارة منظومة الموكلين الشاملة 💼', 
+                    icon: <Building2 size={18} />,
+                    badge: pendingRequestsCounts.merchants > 0 
+                      ? { text: `${pendingRequestsCounts.merchants} طلب جديد`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20 text-[9px] font-black" }
+                      : { text: "المركز الموحد ✨", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
+                },
+                { to: `${storePrefix}/suppliers`, label: 'إدارة الموردين والمخازن المباشرة', icon: <Handshake size={18} /> },
+                { 
+                    to: `${storePrefix}/partners`, 
+                    label: 'إدارة الشركاء والمسوقين (Wallet)', 
+                    icon: <Users2 size={18} />,
+                    badge: pendingRequestsCounts.partners > 0
+                      ? { text: `${pendingRequestsCounts.partners} جديد`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20 text-[9px] font-black" }
+                      : undefined
+                },
+                { to: `${storePrefix}/purchase-returns`, label: 'مرتجعات المشتريات (موردين)', icon: <RotateCw size={18} /> },
+            ]
+        },
+        {
+            type: 'group',
             title: 'نظام الإدارة المالية الشاملة',
             links: [
                 { 
@@ -135,32 +158,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     badge: { text: "الرئيسية 💎", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
                 },
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
-                { 
-                    to: `${storePrefix}/merchant-settlement`, 
-                    label: 'تسوية حسابات الموكلين والبضائع 📄', 
-                    icon: <Receipt size={18} />, 
-                    badge: pendingRequestsCounts.merchants > 0 
-                      ? { text: `${pendingRequestsCounts.merchants} طلب`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20" }
-                      : { text: "جديد", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px]" } 
-                },
-                { to: `${storePrefix}/merchant-portal`, label: 'بوابة الموكل الإلكترونية 🌐', icon: <Globe size={18} />, badge: { text: "دخول الموكل 🚀", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[9px] font-black" } },
-                { 
-                    to: `${storePrefix}/merchants`, 
-                    label: 'إدارة الموكلين ومحافظ الأمانات 💼', 
-                    icon: <Users2 size={18} />,
-                    badge: pendingRequestsCounts.merchants > 0 
-                      ? { text: `${pendingRequestsCounts.merchants} طلب`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20" }
-                      : { text: "المحافظ 💎", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[9px] font-black" }
-                },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
-                { 
-                    to: `${storePrefix}/partners`, 
-                    label: 'إدارة الشركاء والمسوقين (Wallet)', 
-                    icon: <Handshake size={18} />,
-                    badge: pendingRequestsCounts.partners > 0
-                      ? { text: `${pendingRequestsCounts.partners} جديد`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20" }
-                      : { text: "الأرباح", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
-                },
                 { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={18} /> },
                 { to: `${storePrefix}/reconciliation`, label: 'مطابقة الحسابات (إكسيل)', icon: <FileSpreadsheet size={18} /> },
                 { to: `${storePrefix}/cash-management`, label: 'إدارة العهد النقدية', icon: <Landmark size={18} /> },

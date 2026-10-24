@@ -45,6 +45,7 @@ interface MerchantsPageProps {
   orders: Order[];
   treasury?: Treasury;
   setTreasury?: (updater: any) => void;
+  embedded?: boolean;
 }
 
 const normalizeName = (name: string): string => {
@@ -61,10 +62,19 @@ const normalizeName = (name: string): string => {
     .trim();
 };
 
-const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings, wallet, setWallet, orders, treasury, setTreasury }) => {
+const MerchantsPage: React.FC<MerchantsPageProps> = ({ 
+  settings, 
+  updateSettings, 
+  wallet, 
+  setWallet, 
+  orders, 
+  treasury, 
+  setTreasury,
+  embedded = false 
+}) => {
   const { storeId } = useParams<{ storeId: string }>();
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeSection, setActiveSection] = useState<'overview' | 'merchants_list' | 'requests' | 'analytics'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'merchants_list' | 'requests' | 'analytics'>(embedded ? 'merchants_list' : 'overview');
   const [cloudRequests, setCloudRequests] = useState<db.PartnerPortalRequest[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -114,11 +124,38 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
   }, [loadCloudRequests]);
 
   const merchants = useMemo(() => {
-    const list = Object.values(settings.suppliers || {});
+    const supplierList = Array.isArray(settings.suppliers) ? settings.suppliers : Object.values(settings.suppliers || {});
+    const partnerList = Array.isArray(settings.partners) ? settings.partners : Object.values(settings.partners || {});
+
+    const relevantPartners = partnerList.filter((p: any) => 
+      p.role?.toLowerCase().includes('merchant') || 
+      p.role?.includes('موكل') || 
+      p.role?.includes('مورد') ||
+      p.isMerchant === true
+    );
+
+    const combined = [...supplierList, ...relevantPartners];
+    
+    // De-duplicate by ID or normalized name
+    const map = new Map<string, any>();
+    combined.forEach((m: any) => {
+      const key = (m.id || normalizeName(m.name || '')).toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, m);
+      } else {
+        // Merge data if duplicate (keep the one with more fields)
+        const existing = map.get(key);
+        if (existing && typeof existing === 'object' && typeof m === 'object') {
+          map.set(key, { ...existing, ...m });
+        }
+      }
+    });
+
+    const list = Array.from(map.values());
     if (!searchQuery) return list;
     const q = normalizeName(searchQuery);
     return list.filter(m => normalizeName(m.name).includes(q) || (m.email && m.email.toLowerCase().includes(q.toLowerCase())));
-  }, [settings.suppliers, searchQuery]);
+  }, [settings.suppliers, settings.partners, searchQuery]);
 
   const merchantRequests = useMemo(() => {
     const supplierIds = new Set(Object.values(settings.suppliers || {}).map((s: any) => String(s.id || '').toLowerCase()));
@@ -938,7 +975,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-8 space-y-8 pb-24">
+    <div className={embedded ? "space-y-6" : "min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-8 space-y-8 pb-24"}>
       {/* Toast */}
       <AnimatePresence>
         {toast && (
@@ -956,65 +993,107 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({ settings, updateSettings,
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-             <div className="p-3 bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-500/20">
-                <Handshake size={24} />
-             </div>
-             <div>
-                <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">إدارة محافظ وباقات الموكلين</h1>
-                <p className="text-sm font-bold text-slate-400">نظام تصفية الأمانات، شحن المحافظ، وتخصيص الباقات والمدير المخصص للأوردرات</p>
-             </div>
+      {embedded ? (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="text"
+              placeholder="بحث في أسماء الموكلين أو الهواتف..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pr-10 pl-4 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500/20"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveSection('merchants_list')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeSection === 'merchants_list' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              قائمة الموكلين ({merchants.length})
+            </button>
+            <button
+              onClick={() => setActiveSection('analytics')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                activeSection === 'analytics' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              التحليلات والمقارنة
+            </button>
           </div>
         </div>
+      ) : (
+        <>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="space-y-1">
+              <div className="flex items-center gap-3">
+                 <div className="p-3 bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-500/20">
+                    <Handshake size={24} />
+                 </div>
+                 <div>
+                    <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">إدارة محافظ وباقات الموكلين</h1>
+                    <p className="text-sm font-bold text-slate-400">نظام تصفية الأمانات، شحن المحافظ، وتخصيص الباقات والمدير المخصص للأوردرات</p>
+                 </div>
+              </div>
+            </div>
 
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
-             <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-             <input
-               type="text"
-               placeholder="بحث عن موكل..."
-               value={searchQuery}
-               onChange={(e) => setSearchQuery(e.target.value)}
-               className="w-full pr-10 pl-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
-             />
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <Link
+                to={`/store/${storeId || 'default'}/agency-hub`}
+                className="px-4 py-3 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-700 hover:text-white rounded-2xl text-xs font-black transition-all border border-emerald-500/20 flex items-center gap-2 shrink-0 shadow-sm"
+              >
+                <Building2 size={16} />
+                <span>مركز تحكم الوكالة 🏢</span>
+              </Link>
+              <div className="relative flex-1 md:w-64">
+                 <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                 <input
+                   type="text"
+                   placeholder="بحث عن موكل..."
+                   value={searchQuery}
+                   onChange={(e) => setSearchQuery(e.target.value)}
+                   className="w-full pr-10 pl-4 py-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm"
+                 />
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Modern Navigation Tabs */}
-      <div className="flex items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800 w-fit">
-        {[
-          { id: 'overview', label: 'نظرة عامة', icon: <PieChart size={14} /> },
-          { id: 'merchants_list', label: 'كافة الموكلين والباقات', icon: <Users2 size={14} /> },
-          { 
-            id: 'requests', 
-            label: 'طلبات الموكلين والاسترداد', 
-            icon: <Activity size={14} />,
-            badge: pendingRequestsCount > 0 ? pendingRequestsCount : null
-          },
-          { id: 'analytics', label: 'التحليلات المالية', icon: <TrendingUp size={14} /> }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveSection(tab.id as any)}
-            className={`px-6 py-2.5 rounded-[1.5rem] text-xs font-black transition-all duration-300 flex items-center gap-2 relative ${
-              activeSection === tab.id 
-                ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-md scale-105' 
-                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-            }`}
-          >
-            {tab.icon}
-            {tab.label}
-            {tab.badge && (
-              <span className="absolute -top-1 -left-1 w-5 h-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] animate-pulse">
-                {tab.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+          {/* Modern Navigation Tabs */}
+          <div className="flex items-center gap-2 p-1.5 bg-slate-100 dark:bg-slate-900/50 rounded-[2rem] border border-slate-200 dark:border-slate-800 w-fit">
+            {[
+              { id: 'overview', label: 'نظرة عامة', icon: <PieChart size={14} /> },
+              { id: 'merchants_list', label: 'كافة الموكلين والباقات', icon: <Users2 size={14} /> },
+              { 
+                id: 'requests', 
+                label: 'طلبات الموكلين والاسترداد', 
+                icon: <Activity size={14} />,
+                badge: pendingRequestsCount > 0 ? pendingRequestsCount : null
+              },
+              { id: 'analytics', label: 'التحليلات المالية', icon: <TrendingUp size={14} /> }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveSection(tab.id as any)}
+                className={`px-6 py-2.5 rounded-[1.5rem] text-xs font-black transition-all duration-300 flex items-center gap-2 relative ${
+                  activeSection === tab.id 
+                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-md scale-105' 
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+                {tab.badge && (
+                  <span className="absolute -top-1 -left-1 w-5 h-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-[10px] animate-pulse">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <AnimatePresence mode="wait">
         {activeSection === 'overview' && (

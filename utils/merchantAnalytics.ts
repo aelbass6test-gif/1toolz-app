@@ -113,21 +113,38 @@ export interface TransparencyFilterOptions {
 
 /**
  * Helper to compute single order shipping and carrier breakdown
+ * Synchronized strictly with financials.ts (calculateOrderProfitLoss & calculateOrderShippingAndFees)
  */
 export function computeOrderCarrierBreakdown(order: Order, settings: Settings) {
+  const isPos = order.channel === 'pos' || 
+                order.shippingCompany === 'كاشير - بيع مباشر' || 
+                order.shippingArea === 'نقطة البيع' ||
+                (order.id && order.id.startsWith('POS-'));
+
+  if (isPos) {
+    return {
+      baseShippingFee: 0,
+      insuranceFee: 0,
+      inspectionFee: 0,
+      vatFee: 0,
+      codFee: 0,
+      carrierAdditionalFees: 0,
+      totalShippingAndCarrier: 0
+    };
+  }
+
   const isDelivered = TRANSPARENCY_DELIVERED_STATUSES.includes(order.status);
   const compFees = getCompanySpecificFees(settings, order.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
 
   // 1. Base shipping fee
-  const baseShippingFee = Number(order.shippingFee) > 0 
-    ? Number(order.shippingFee) 
-    : Math.max(0, getStandardShippingFee(order, settings));
+  const manualShippingFee = (order.isManualShippingOverride && order.shippingFee !== undefined) ? order.shippingFee : null;
+  const baseShippingFee = manualShippingFee !== null 
+    ? manualShippingFee 
+    : (Number(order.shippingFee) > 0 ? Number(order.shippingFee) : getStandardShippingFee(order, settings));
 
   // 2. Insurance fee
-  const insuranceRate = useCustom 
-    ? (compFees?.insuranceFeePercent ?? 1) 
-    : (settings?.enableInsurance !== false ? (settings?.insuranceFeePercent ?? 1) : 0);
+  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings?.enableInsurance ? settings.insuranceFeePercent : 0);
   const isInsured = order.isInsured ?? true;
   const calculatedInsurance = isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
   const insuranceFee = Number((
@@ -136,29 +153,25 @@ export function computeOrderCarrierBreakdown(order: Order, settings: Settings) {
       : calculatedInsurance
   ).toFixed(2));
 
-  // 3. Inspection fee (المعاينة / السماح بفتح الطرد: 7.00 ج.م)
-  const isCompanyBosta = order.shippingCompany?.toLowerCase().includes('bosta') || order.shippingCompany === 'بوسطة';
-  const defaultInspection = isCompanyBosta ? 7 : 0;
-  const inspectionCost = useCustom 
-    ? (compFees?.inspectionFee ?? defaultInspection) 
-    : (settings?.enableInspection !== false ? (settings?.inspectionFee ?? defaultInspection) : 0);
-  const isInspectionEnabled = (order.includeInspectionFee ?? true) || order.allowOpenShipment === true;
+  // 3. Inspection fee
+  const inspectionCost = useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? (settings.inspectionFee ?? 0) : 0);
   const inspectionFee = Number((
-    (order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0)
-      ? Number(order.inspectionFee)
-      : (baseShippingFee > 0 && isInspectionEnabled ? inspectionCost : 0)
+    (order.includeInspectionFee !== false)
+      ? ((order.inspectionFee !== undefined && order.inspectionFee !== null && Number(order.inspectionFee) > 0)
+          ? Number(order.inspectionFee)
+          : inspectionCost)
+      : 0
   ).toFixed(2));
 
   // 4. COD Fee
-  const codFee = Number((isDelivered && order.status !== 'مدفوعة' ? calculateCodFee(order, settings) : 0).toFixed(2));
+  const isExchange = order.status === 'تم_الاستبدال';
+  const codFee = Number(((isDelivered || order.status === 'تم_الارسال' || order.status === 'قيد_الشحن') && order.status !== 'مدفوعة' && !isExchange ? calculateCodFee(order, settings) : 0).toFixed(2));
 
-  // 5. VAT 14% (ضريبة القيمة المضافة 14% على الشحن + التأمين + المعاينة + رسوم التحصيل)
-  const calculatedVat = calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings);
-  const fallbackVat = baseShippingFee > 0 ? Number(((baseShippingFee + insuranceFee + inspectionFee + codFee) * 0.14).toFixed(2)) : 0;
+  // 5. VAT 14% (ضريبة القيمة المضافة)
   const vatFee = Number((
     (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
       ? Number(order.vatValue)
-      : (calculatedVat > 0 ? calculatedVat : fallbackVat)
+      : calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings)
   ).toFixed(2));
 
   // Carrier Additional: insurance + vat + inspection

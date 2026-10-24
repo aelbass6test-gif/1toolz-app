@@ -164,6 +164,7 @@ interface MerchantSettlementPageProps {
   setTreasury?: React.Dispatch<React.SetStateAction<Treasury | undefined>>;
   customers?: CustomerProfile[];
   currentUser?: any;
+  embedded?: boolean;
 }
 
 export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
@@ -175,7 +176,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   treasury,
   setTreasury,
   customers = [],
-  currentUser
+  currentUser,
+  embedded = false
 }) => {
   const [activeTab, setActiveTab] = useState<'settlements' | 'create' | 'requests' | 'merchants' | 'transparency' | 'portal'>('settlements');
   const [transparencyMerchantId, setTransparencyMerchantId] = useState<string>('all');
@@ -2380,68 +2382,38 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     <div className="space-y-6 sm:space-y-7 text-right font-sans animate-in fade-in duration-300" dir="rtl">
       
       {/* ======================================================== */}
-      {/* 1. BRAND IDENTITY ARCHITECTURAL HERO BANNER              */}
+      {/* 1. EMBEDDED TOOLBAR VS STANDALONE HERO BANNER            */}
       {/* ======================================================== */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-[#0d1b2a] to-emerald-950 text-white p-6 sm:p-8 rounded-[2.25rem] shadow-2xl border border-slate-800/90">
-        {/* Subtle Brand Ambient Glow */}
-        <div className="absolute -top-20 -left-20 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 right-1/3 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-emerald-300/90">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>منظومة الإدارة المالية الشاملة</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span className="text-slate-300">تسوية حسابات أصحاب البضائع والموكلين</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span className="text-emerald-400 font-mono">{merchantsList.length} موكل مسجل</span>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-950/50 shrink-0">
-                <Building2 className="w-7 h-7" />
-              </div>
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                  كشوف تسوية أصحاب البضائع والمنتجات
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-300 font-medium mt-1 max-w-2xl leading-relaxed">
-                  محاسبة دقيقة وشفافة للموكلين بنظامي العمولة الثابتة ومشاركة الأرباح، مع خصم آلي لفروق الشحن والـ COD والمرتجعات والإعلانات وربط مباشر بالخزينة.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Primary Segmented Navigation Controls */}
-          <div className="flex flex-wrap items-center gap-2 bg-slate-950/50 p-1.5 rounded-2xl border border-white/10 self-start lg:self-center">
+      {embedded ? (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
             <button
               onClick={() => setActiveTab('settlements')}
-              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
                 activeTab === 'settlements' 
-                  ? 'bg-white text-slate-900 shadow-lg' 
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <FileText size={15} />
-              <span>سجل الكشوف</span>
-              <span className={`font-mono text-[11px] ${activeTab === 'settlements' ? 'text-emerald-700' : 'text-slate-400'}`}>
+              <span>سجل الكشوفات</span>
+              <span className="font-mono tabular-nums text-[11px] text-slate-400">
                 ({settings.merchantSettlements?.length || 0})
               </span>
             </button>
 
             <button
               onClick={() => setActiveTab('create')}
-              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
                 activeTab === 'create' 
-                  ? 'bg-[#008060] text-white shadow-lg shadow-emerald-900/50' 
-                  : 'text-emerald-300 hover:bg-emerald-500/15'
+                  ? 'bg-emerald-600 text-white shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <Plus size={15} />
               <span>إصدار كشف تسوية جديد</span>
               {executiveMetrics.totalUnsettledOrders > 0 && (
-                <span className="font-mono text-[11px] bg-white/20 px-1.5 py-0.2 rounded-md text-white">
+                <span className="font-mono tabular-nums text-[11px] bg-white/20 px-1.5 py-0.2 rounded text-white">
                   {executiveMetrics.totalUnsettledOrders}
                 </span>
               )}
@@ -2449,68 +2421,115 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
             <button
               onClick={() => setActiveTab('transparency')}
-              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
                 activeTab === 'transparency' 
-                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-900/50' 
-                  : 'text-indigo-300 hover:text-white hover:bg-white/5'
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <Sparkles size={15} />
               <span>تقرير الشفافية</span>
-              <span className="font-mono text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md text-white">
-                جديد
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('requests')}
-              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'requests' 
-                  ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-900/50' 
-                  : 'text-amber-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Coins size={15} />
-              <span>طلبات سحب الموكلين</span>
-              {pendingMerchantRequestsCount > 0 && (
-                <span className="font-mono text-[10px] bg-rose-600 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
-                  {pendingMerchantRequestsCount} معلق
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('merchants')}
-              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'merchants'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' 
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <User size={15} />
-              <span>أرصدة الموكلين</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('portal')}
-              className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
-                activeTab === 'portal' 
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-900/50' 
-                  : 'text-teal-300 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Globe size={15} />
-              <span>بوابة الموكل الإلكترونية</span>
-              <span className="font-mono text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md text-white">
-                LIVE 🌐
-              </span>
             </button>
           </div>
-        </div>
-      </div>
 
-      {/* Alert Banner for Pending Merchant Withdrawal Requests */}
-      {pendingMerchantRequestsCount > 0 && activeTab !== 'requests' && (
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {activeTab === 'settlements' && (settings.merchantSettlements?.length || 0) > 0 && (
+              <button
+                onClick={handleExportAllHistoryExcel}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <FileSpreadsheet size={14} className="text-emerald-600" />
+                <span>تصدير Excel</span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-[#0d1b2a] to-emerald-950 text-white p-6 sm:p-8 rounded-[2.25rem] shadow-2xl border border-slate-800/90">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-emerald-300/90">
+                <span>منظومة الإدارة المالية</span>
+                <span aria-hidden="true" className="text-slate-500">·</span>
+                <span className="text-slate-300">تسوية حسابات أصحاب البضائع والموكلين</span>
+                <span aria-hidden="true" className="text-slate-500">·</span>
+                <span className="text-emerald-400 font-mono tabular-nums">{merchantsList.length} موكل مسجل</span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-400 flex items-center justify-center shadow-lg shadow-emerald-950/50 shrink-0">
+                  <Building2 className="w-7 h-7" />
+                </div>
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                    كشوف تسوية أصحاب البضائع والمنتجات
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-300 font-medium mt-1 max-w-2xl leading-relaxed">
+                    محاسبة دقيقة وشفافة للموكلين بنظامي العمولة الثابتة ومشاركة الأرباح، مع خصم آلي لفروق الشحن والـ COD والمرتجعات.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 bg-slate-950/50 p-1.5 rounded-2xl border border-white/10 self-start lg:self-center">
+              <Link
+                to={`/store/${activeStoreId}/agency-hub`}
+                className="px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500 hover:text-slate-950"
+              >
+                <Building2 size={15} />
+                <span>مركز تحكم الوكالة 🏢</span>
+              </Link>
+
+              <button
+                onClick={() => setActiveTab('settlements')}
+                className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'settlements' 
+                    ? 'bg-white text-slate-900 shadow-lg' 
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <FileText size={15} />
+                <span>سجل الكشوف</span>
+                <span className={`font-mono text-[11px] ${activeTab === 'settlements' ? 'text-emerald-700' : 'text-slate-400'}`}>
+                  ({settings.merchantSettlements?.length || 0})
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('create')}
+                className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'create' 
+                    ? 'bg-[#008060] text-white shadow-lg shadow-emerald-900/50' 
+                    : 'text-emerald-300 hover:bg-emerald-500/15'
+                }`}
+              >
+                <Plus size={15} />
+                <span>إصدار كشف تسوية جديد</span>
+                {executiveMetrics.totalUnsettledOrders > 0 && (
+                  <span className="font-mono text-[11px] bg-white/20 px-1.5 py-0.2 rounded-md text-white">
+                    {executiveMetrics.totalUnsettledOrders}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('transparency')}
+                className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'transparency' 
+                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-900/50' 
+                    : 'text-indigo-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Sparkles size={15} />
+                <span>تقرير الشفافية</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alert Banner for Pending Merchant Withdrawal Requests (Standalone only) */}
+      {!embedded && pendingMerchantRequestsCount > 0 && activeTab !== 'requests' && (
         <div 
           onClick={() => setActiveTab('requests')}
           className="bg-amber-500/15 border border-amber-500/40 rounded-2xl p-4 text-amber-200 flex items-center justify-between gap-3 cursor-pointer hover:bg-amber-500/25 transition-all shadow-lg"

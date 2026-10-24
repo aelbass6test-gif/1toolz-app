@@ -544,8 +544,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
 
-  // Portal View States (synced with URL & localStorage for persistent refresh)
   const [currentTab, setCurrentTab] = useState<TabKey>(activeTab);
+
+  // Auto-expand menu section based on active tab
+  useEffect(() => {
+    if (['orders', 'create_order', 'inventory', 'analytics'].includes(currentTab)) {
+      setExpandedMenuSection('products_orders');
+    } else if (['transparency', 'statement', 'account'].includes(currentTab)) {
+      setExpandedMenuSection('financial_tools');
+    }
+  }, [currentTab]);
   const isNavigatingTabRef = useRef(false);
   const [ordersStatusFilter, setOrdersStatusFilter] = useState<'all' | 'collected' | 'returned' | 'unpaid' | 'shipping' | 'pending' | 'outside_cycle'>(() => {
     const s = searchParams.get('status');
@@ -618,6 +626,155 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     if (sf === 'all' || sf === 'available' || sf === 'low' || sf === 'out') return sf;
     return 'all';
   });
+
+  // Merchant Product Creation & Editing Modal State
+  const [showAddEditProductModal, setShowAddEditProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [prodFormName, setProdFormName] = useState('');
+  const [prodFormSku, setProdFormSku] = useState('');
+  const [prodFormPrice, setProdFormPrice] = useState<number | ''>('');
+  const [prodFormCostPrice, setProdFormCostPrice] = useState<number | ''>('');
+  const [prodFormProfitMode, setProdFormProfitMode] = useState<'commission' | 'margin' | 'manual'>('commission');
+  const [prodFormCommissionPct, setProdFormCommissionPct] = useState<number>(15);
+  const [prodFormStock, setProdFormStock] = useState<number>(10);
+  const [prodFormThumbnail, setProdFormThumbnail] = useState('');
+  const [prodFormDescription, setProdFormDescription] = useState('');
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+
+  const handleOpenAddProduct = useCallback(() => {
+    setEditingProduct(null);
+    setProdFormName('');
+    setProdFormSku(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
+    setProdFormPrice('');
+    setProdFormCostPrice('');
+    setProdFormProfitMode('commission');
+    setProdFormCommissionPct(liveMerchant?.profitRatio || 15);
+    setProdFormStock(10);
+    setProdFormThumbnail('');
+    setProdFormDescription('');
+    setShowAddEditProductModal(true);
+  }, [liveMerchant]);
+
+  const handleOpenEditProduct = useCallback((p: any) => {
+    setEditingProduct(p);
+    setProdFormName(p.name || p.title || '');
+    setProdFormSku(p.sku || '');
+    setProdFormPrice(p.price || p.sellingPrice || '');
+    setProdFormCostPrice(p.costPrice || p.cost || p.wholesalePrice || '');
+    setProdFormProfitMode(p.profitMode || 'commission');
+    setProdFormCommissionPct(p.commissionPercentage || p.profitPercentage || liveMerchant?.profitRatio || 15);
+    setProdFormStock(Number(p.stock || p.quantity || 0));
+    setProdFormThumbnail(p.thumbnail || p.imageUrl || p.image || '');
+    setProdFormDescription(p.description || '');
+    setShowAddEditProductModal(true);
+  }, [liveMerchant]);
+
+  const handleSaveProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveMerchant) return;
+    if (!prodFormName.trim()) {
+      showToast('يرجى إدخال اسم الصنف أو المنتج', 'error');
+      return;
+    }
+    const priceNum = Number(prodFormPrice) || 0;
+    if (priceNum <= 0) {
+      showToast('يرجى إدخال سعر البيع بصورة أرقام صحيحة', 'error');
+      return;
+    }
+
+    setIsSavingProduct(true);
+    try {
+      const allProds: any[] = Array.isArray(activeStoreData?.settings?.products) 
+        ? [...activeStoreData.settings.products] 
+        : (Array.isArray(settings.products) ? [...settings.products] : []);
+
+      let updatedProducts: any[];
+      if (editingProduct?.id) {
+        updatedProducts = allProds.map(p => {
+          if (p.id === editingProduct.id) {
+            return {
+              ...p,
+              name: prodFormName.trim(),
+              sku: prodFormSku.trim() || p.sku,
+              price: priceNum,
+              costPrice: Number(prodFormCostPrice) || 0,
+              profitMode: prodFormProfitMode,
+              commissionPercentage: prodFormCommissionPct,
+              profitPercentage: prodFormCommissionPct,
+              stock: prodFormStock,
+              stockQuantity: prodFormStock,
+              thumbnail: prodFormThumbnail.trim(),
+              description: prodFormDescription.trim(),
+              merchantId: liveMerchant.id,
+              supplierId: liveMerchant.id,
+              merchantName: liveMerchant.name,
+              supplierName: liveMerchant.name
+            };
+          }
+          return p;
+        });
+      } else {
+        const newProd = {
+          id: `prod_m_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: prodFormName.trim(),
+          sku: prodFormSku.trim() || `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
+          price: priceNum,
+          costPrice: Number(prodFormCostPrice) || 0,
+          profitMode: prodFormProfitMode,
+          commissionPercentage: prodFormCommissionPct,
+          profitPercentage: prodFormCommissionPct,
+          stock: prodFormStock,
+          stockQuantity: prodFormStock,
+          thumbnail: prodFormThumbnail.trim(),
+          description: prodFormDescription.trim(),
+          merchantId: liveMerchant.id,
+          supplierId: liveMerchant.id,
+          merchantName: liveMerchant.name,
+          supplierName: liveMerchant.name,
+          hasVariants: false,
+          variants: [],
+          options: [],
+          weight: 0.5
+        };
+        updatedProducts = [newProd, ...allProds];
+      }
+
+      const nextSettings = { ...settings, products: updatedProducts };
+      updateSettings(nextSettings);
+
+      if (directStoreData) {
+        setDirectStoreData({
+          ...directStoreData,
+          settings: {
+            ...directStoreData.settings,
+            products: updatedProducts
+          }
+        });
+      }
+
+      const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
+      if (targetStore) {
+        const curStore = (await db.getStoreData(targetStore, false)) || activeStoreData;
+        if (curStore) {
+          await db.saveStoreData(targetStore, {
+            ...curStore,
+            settings: {
+              ...(curStore.settings || {}),
+              products: updatedProducts
+            } as any
+          });
+        }
+      }
+
+      setShowAddEditProductModal(false);
+      showToast(editingProduct ? 'تم تعديل بيانات الصنف بنجاح' : 'تمت إضافة الصنف الجديد بنجاح إلى مخزونك', 'success');
+    } catch (err: any) {
+      console.error('Error saving merchant product:', err);
+      showToast('تعذر حفظ الصنف: ' + (err.message || ''), 'error');
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
 
   // Create Order Studio State
   const [createOrderMode, setCreateOrderMode] = useState<'form' | 'dev_seal'>('form');
@@ -1054,27 +1211,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       } catch (_) {}
     }
 
-    if (clean.includes('@') && clean.includes('.')) {
-      if (urlPartnerId) {
-        const urlMatched = merchants.find(m => String(m.id) === String(urlPartnerId) || normalizeName(m.name) === normalizeName(urlPartnerId));
-        if (urlMatched && (!urlMatched.email || !urlMatched.email.trim())) {
-          const updated = { ...urlMatched, email: clean };
-          await linkEmailToMerchantRecord(updated, clean);
-          return updated;
-        }
-      }
-
-      const unlinkedSuppliers = merchants.filter(m => !m.email || !m.email.trim());
-      if (unlinkedSuppliers.length >= 1) {
-        const targetSupplier = unlinkedSuppliers[0];
-        const updated = { ...targetSupplier, email: clean };
-        await linkEmailToMerchantRecord(updated, clean);
-        return updated;
-      }
-    }
-
     return null;
-  }, [merchants, effectiveStoreId, urlPartnerId, linkEmailToMerchantRecord]);
+  }, [merchants, effectiveStoreId]);
 
   // Handle Send Email OTP
   const handleInitiateOtp = async (e?: React.FormEvent) => {
@@ -1225,22 +1363,44 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Filter Orders for Live Merchant
   const merchantOrders = useMemo(() => {
     if (!liveMerchant) return [];
-    const mName = (liveMerchant.name || '').trim().toLowerCase();
-    const mId = (liveMerchant.id || '').trim().toLowerCase();
-    const mPhone = (liveMerchant.phone || '').trim().toLowerCase();
+    const mName = normalizeName(liveMerchant.name || '');
+    const mId = String(liveMerchant.id || '').trim().toLowerCase();
+    const mPhone = String(liveMerchant.phone || '').trim().replace(/[^\d]/g, '');
 
     return rawOrders.filter(o => {
-      const oMName = (o.merchantName || '').trim().toLowerCase();
-      const oMId = (o.merchantId || '').trim().toLowerCase();
-      const oMPhone = (o.merchantBrandPhone || '').trim().toLowerCase();
+      const oMName = normalizeName(o.merchantName || '');
+      const oMId = String(o.merchantId || '').trim().toLowerCase();
+      const oMPhone = String(o.merchantBrandPhone || '').trim().replace(/[^\d]/g, '');
 
       return (
         (mId && oMId === mId) ||
         (mName && oMName === mName) ||
-        (mPhone && oMPhone === mPhone)
+        (mPhone && mPhone.length > 5 && oMPhone === mPhone)
       );
     });
   }, [rawOrders, liveMerchant]);
+
+  // Consignment Products & Stock Valuation
+  const merchantProducts = useMemo(() => {
+    if (!liveMerchant) return [];
+    const mName = normalizeName(liveMerchant.name || '');
+    const mId = String(liveMerchant.id || '').trim().toLowerCase();
+    const mPhone = String(liveMerchant.phone || '').trim().replace(/[^\d]/g, '');
+    const allProds: any[] = activeStoreData?.settings?.products || settings.products || [];
+
+    return allProds.filter(p => {
+      const pMId = String(p.merchantId || p.supplierId || '').trim().toLowerCase();
+      const pMName = normalizeName(String(p.merchantName || p.supplierName || ''));
+      const pMPhone = String(p.merchantPhone || p.supplierPhone || '').trim().replace(/[^\d]/g, '');
+
+      return (
+        (mId && pMId === mId) ||
+        (mName && pMName === mName) ||
+        (mName && pMName.includes(mName)) ||
+        (mPhone && mPhone.length > 5 && pMPhone === mPhone)
+      );
+    });
+  }, [activeStoreData, settings, liveMerchant]);
 
   // Orders Counts by Status for Filter Pills
   const orderStatusCounts = useMemo(() => {
@@ -1509,19 +1669,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     };
   }, [filteredOrders, computeOrderFeeBreakdown]);
 
-  // Consignment Products & Stock Valuation
-  const merchantProducts = useMemo(() => {
-    if (!liveMerchant) return [];
-    const mName = normalizeName(liveMerchant.name || '');
-    const mId = (liveMerchant.id || '').trim().toLowerCase();
-    const allProds: any[] = activeStoreData?.settings?.products || settings.products || [];
 
-    return allProds.filter(p => {
-      const pMId = (p.merchantId || p.supplierId || '').trim().toLowerCase();
-      const pMName = normalizeName(p.merchantName || p.supplierName || '');
-      return (mId && pMId === mId) || (mName && pMName === mName) || (mName && pMName.includes(mName));
-    });
-  }, [activeStoreData, settings, liveMerchant]);
 
   const inventoryValuation = useMemo(() => {
     return merchantProducts.reduce((sum, p) => {
@@ -1922,10 +2070,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         subtotal: itemsTotal,
         shippingFee: shipFee,
         allowOpenShipment: orderAllowOpen,
-        paymentMethod: 'cod',
         merchantId: liveMerchant.id,
         merchantName: liveMerchant.name,
+        merchantBrandName: (liveMerchant as any)?.brandName || liveMerchant.name,
         brandName: (liveMerchant as any)?.brandName || liveMerchant.name,
+        storeName: storeName || activeStoreData?.name || (activeStoreData?.settings as any)?.storeName || 'المتجر الرئيسي',
+        warehouseId: (selectedProd as any)?.warehouseId || (activeStoreData?.settings as any)?.defaultWarehouseId || (activeStoreData?.settings?.warehouses?.[0]?.id) || 'wh_main',
+        warehouseName: ((activeStoreData?.settings?.warehouses || []) as any[]).find((w: any) => w.id === (selectedProd as any)?.warehouseId)?.name || (activeStoreData?.settings?.warehouses?.[0]?.name) || 'المخزن الرئيسي',
         serviceFeePerOrder: operatingFee,
         stockDeducted: true,
         items: [
@@ -7404,13 +7555,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenAddProduct}
+                    className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-md shadow-emerald-600/20 transition-all active:scale-95"
+                  >
+                    <PlusCircle size={16} />
+                    <span>+ إضافة صنف جديد للمخزون</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => navigateToTab('create_order')}
-                    className="px-4 py-2.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs transition-all"
+                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer transition-all border border-slate-200 dark:border-slate-700"
                   >
-                    <PlusCircle size={15} />
+                    <PackageIcon size={15} />
                     <span>إنشاء أوردر من المخزون</span>
                   </button>
                 </div>
@@ -7501,16 +7660,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <th className="py-3.5 px-4">اسم الصنف والرمز</th>
                       <th className="py-3.5 px-4 text-center">سعر التكلفة</th>
                       <th className="py-3.5 px-4 text-center">سعر البيع المقترح</th>
-                      <th className="py-3.5 px-4 text-center">الرصيد الحالي بالمستودع</th>
-                      <th className="py-3.5 px-4 text-center">إجمالي قيمة المخزون</th>
+                      <th className="py-3.5 px-4 text-center">ربح الوكيل للقطعة</th>
+                      <th className="py-3.5 px-4 text-center">الرصيد بالمستودع</th>
+                      <th className="py-3.5 px-4 text-center">إجمالي القيمة</th>
                       <th className="py-3.5 px-4 text-center">حالة التوفر</th>
+                      <th className="py-3.5 px-4 text-center">إجراءات</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y font-medium ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-700'}`}>
                     {filteredConsignmentProducts.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">
-                          لا توجد أصناف مطابقة لبحثك في مخزون الوكيل
+                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold space-y-3">
+                          <p>لا توجد أصناف مطابقة لبحثك في مخزون الوكيل</p>
+                          <button
+                            type="button"
+                            onClick={handleOpenAddProduct}
+                            className="px-4 py-2 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black cursor-pointer shadow-md"
+                          >
+                            + إضافة صنف جديد للمخزون
+                          </button>
                         </td>
                       </tr>
                     ) : (
@@ -7519,16 +7687,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
                         const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));
                         const val = stock * cost;
+                        const profitMode = p.profitMode || 'commission';
+                        const commissionPct = Number(p.commissionPercentage || p.profitPercentage || liveMerchant?.profitRatio || 15);
+                        const unitProfit = profitMode === 'commission'
+                          ? Math.round(price * (commissionPct / 100))
+                          : Math.max(0, price - cost);
 
                         return (
                           <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
                             <td className="py-4 px-4 font-black">
                               <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0 overflow-hidden">
-                                  {p.imageUrl || p.image ? (
-                                    <img src={p.imageUrl || p.image} alt={p.name} className="w-full h-full object-cover" />
+                                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0 overflow-hidden border border-slate-200 dark:border-slate-700">
+                                  {p.thumbnail || p.imageUrl || p.image ? (
+                                    <img src={p.thumbnail || p.imageUrl || p.image} alt={p.name} className="w-full h-full object-cover" />
                                   ) : (
-                                    <PackageIcon size={18} />
+                                    <PackageIcon size={20} />
                                   )}
                                 </div>
                                 <div>
@@ -7542,6 +7715,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             </td>
                             <td className="py-4 px-4 text-center font-mono font-black text-[#008060]">
                               {formatMoney(price)}
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              <div className="inline-flex flex-col items-center">
+                                <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
+                                  +{formatMoney(unitProfit)}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-bold">
+                                  {profitMode === 'commission' ? `نسبة: ${commissionPct}%` : 'هامش ثابت'}
+                                </span>
+                              </div>
                             </td>
                             <td className="py-4 px-4 text-center">
                               <span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-slate-400">قطعة</span>
@@ -7563,6 +7746,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   متوفر بالمستودع
                                 </span>
                               )}
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditProduct(p)}
+                                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
+                              >
+                                تعديل الصنف
+                              </button>
                             </td>
                           </tr>
                         );
@@ -9247,58 +9439,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </span>
                 </button>
               </div>
-
-              {/* Clean Slate / Reset Merchant Data for Testing Card */}
-              <div className={`rounded-3xl p-5 sm:p-6 border space-y-3 ${
-                isDark ? 'bg-rose-950/15 border-rose-900/40' : 'bg-rose-50/40 border-rose-200/80'
-              }`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h4 className={`font-black text-sm ${isDark ? 'text-rose-300' : 'text-rose-900'}`}>
-                      تصفير بيانات الموكل (بدء اختبار جديد)
-                    </h4>
-                    <p className={`text-xs mt-0.5 ${isDark ? 'text-rose-400/80' : 'text-rose-700/80'}`}>
-                      مسح كافة الأوردرات وطلبات السحب والحركات المالية وتصفير الرصيد للموكل الحالي للبدء من جديد
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!liveMerchant) return;
-                    const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
-                    setIsRefreshing(true);
-                    try {
-                      const res = await db.resetMerchantAccountData(targetStore, liveMerchant.id, liveMerchant.name);
-                      setMerchantRequestsList([]);
-                      setDirectStoreData(prev => prev ? {
-                        ...prev,
-                        orders: res.remainingOrders,
-                        settings: {
-                          ...prev.settings,
-                          suppliers: res.updatedSuppliers.length > 0 ? res.updatedSuppliers : prev.settings.suppliers,
-                          partners: res.updatedPartners.length > 0 ? res.updatedPartners : prev.settings.partners,
-                          partnerTransactions: []
-                        }
-                      } : prev);
-                      setAuthenticatedMerchant(prev => prev ? { ...prev, balance: 0, transactions: [] } : prev);
-                      await fetchFreshData(false);
-                      showToast('تم مسح جميع الأوردرات والسحوبات وتصفير الرصيد بنجاح للبدء من جديد!', 'success');
-                    } catch (e: any) {
-                      showToast('حدث خطأ أثناء التصفير: ' + (e.message || ''), 'error');
-                    } finally {
-                      setIsRefreshing(false);
-                    }
-                  }}
-                  disabled={isRefreshing}
-                  className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                >
-                  <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
-                  <span>مسح الأوردرات والسحوبات وتصفير الحساب الآن</span>
-                </button>
-              </div>
             </div>
-
           </div>
         )}
 
@@ -11252,6 +11393,245 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           onRequestWalletTopUp={handleRequestWalletTopUp}
         />
       )}
+
+      {/* =========================================================
+          ADD / EDIT MERCHANT PRODUCT MODAL (إضافة / تعديل صنف أمانة)
+         ========================================================= */}
+      <AnimatePresence>
+        {showAddEditProductModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setShowAddEditProductModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-xl rounded-[32px] border p-6 sm:p-8 space-y-6 shadow-2xl my-8 ${
+                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+              dir="rtl"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black">
+                    <PackageIcon size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black">
+                      {editingProduct ? 'تعديل بيانات الصنف بالمخزن' : 'إضافة صنف جديد لمخزون الوكيل'}
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      حدد اسم الصنف وسعر التكلفة ونسبة الربح لمتابعة مستحقاتك بدقة
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddEditProductModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleSaveProductSubmit} className="space-y-4">
+                {/* 1. Name & SKU */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <label className="text-xs font-black block">اسم المنتج / الصنف *</label>
+                    <input
+                      type="text"
+                      required
+                      value={prodFormName}
+                      onChange={(e) => setProdFormName(e.target.value)}
+                      placeholder="مثال: حذاء كاجوال جلد طبيعي"
+                      className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block">كود SKU</label>
+                    <input
+                      type="text"
+                      value={prodFormSku}
+                      onChange={(e) => setProdFormSku(e.target.value)}
+                      placeholder="SKU-101"
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Selling Price, Cost Price, & Stock */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block">سعر البيع للمستهلك (ج.م) *</label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      step="0.5"
+                      value={prodFormPrice}
+                      onChange={(e) => setProdFormPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="500"
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-[#008060]'
+                      }`}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block">سعر التكلفة بالجملة (ج.م)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      value={prodFormCostPrice}
+                      onChange={(e) => setProdFormCostPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="300"
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-bold outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block">الكمية المتوفرة بمخزنك *</label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      value={prodFormStock}
+                      onChange={(e) => setProdFormStock(parseInt(e.target.value) || 0)}
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#008060] ${
+                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Profit Mode & Commission % */}
+                <div className="p-4 rounded-2xl border bg-slate-50/50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 space-y-3">
+                  <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
+                    طريقة احتساب ربح الوكيل من هذا المنتج
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setProdFormProfitMode('commission')}
+                      className={`p-3 rounded-xl border text-xs font-black transition-all cursor-pointer text-center ${
+                        prodFormProfitMode === 'commission'
+                          ? 'bg-[#008060] text-white border-[#008060] shadow-sm'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      نسبة مئوية (%) من المبيعات
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProdFormProfitMode('margin')}
+                      className={`p-3 rounded-xl border text-xs font-black transition-all cursor-pointer text-center ${
+                        prodFormProfitMode === 'margin'
+                          ? 'bg-[#008060] text-white border-[#008060] shadow-sm'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      فرق السعر والتكلفة (هامش ثابت)
+                    </button>
+                  </div>
+
+                  {prodFormProfitMode === 'commission' && (
+                    <div className="space-y-1.5 pt-2">
+                      <div className="flex justify-between text-xs font-black">
+                        <span>نسبة عمولة/ربح الموكل (%)</span>
+                        <span className="font-mono text-[#008060]">{prodFormCommissionPct}%</span>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={prodFormCommissionPct}
+                        onChange={(e) => setProdFormCommissionPct(parseFloat(e.target.value) || 0)}
+                        className={`w-full p-3 border rounded-xl font-mono text-xs font-bold outline-none focus:border-[#008060] ${
+                          isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                        }`}
+                      />
+                    </div>
+                  )}
+
+                  {/* Live Calculation Preview */}
+                  {Boolean(prodFormPrice) && (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs space-y-1 font-bold">
+                      <div className="flex justify-between text-emerald-800 dark:text-emerald-200">
+                        <span>ربح الوكيل المتوقع للقطعة:</span>
+                        <span className="font-mono font-black text-sm text-[#008060]">
+                          {prodFormProfitMode === 'commission'
+                            ? Math.round((Number(prodFormPrice) || 0) * (prodFormCommissionPct / 100))
+                            : Math.max(0, (Number(prodFormPrice) || 0) - (Number(prodFormCostPrice) || 0))} ج.م
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Image URL */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black block">رابط صورة المنتج (اختياري)</label>
+                  <input
+                    type="url"
+                    value={prodFormThumbnail}
+                    onChange={(e) => setProdFormThumbnail(e.target.value)}
+                    placeholder="https://example.com/product.jpg"
+                    className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#008060] ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                {/* 5. Description */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-black block">وصف أو ملاحظات الصنف (اختياري)</label>
+                  <textarea
+                    rows={2}
+                    value={prodFormDescription}
+                    onChange={(e) => setProdFormDescription(e.target.value)}
+                    placeholder="تفاصيل المادة، المقاسات، الملاحظات..."
+                    className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#008060] ${
+                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+
+                {/* Submit buttons */}
+                <div className="pt-3 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddEditProductModal(false)}
+                    className="px-5 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-xs font-black cursor-pointer hover:bg-slate-200 transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingProduct || !prodFormName.trim() || !prodFormPrice}
+                    className="flex-1 py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl text-xs font-black shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 active:scale-[0.98]"
+                  >
+                    {isSavingProduct ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                    <span>{editingProduct ? 'تعديل وحفظ البيانات' : 'حفظ وإضافة الصنف للمخزون'}</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

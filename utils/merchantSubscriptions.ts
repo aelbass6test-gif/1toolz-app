@@ -173,20 +173,20 @@ export interface DedicatedManagerPlanDefinition {
 export const DEDICATED_MANAGER_PLANS: DedicatedManagerPlanDefinition[] = [
   {
     id: 'monthly_1000',
-    nameAr: 'باقة المدير المخصص لمتجرك (1000 ج.م / 50 أوردر مجاني)',
+    nameAr: 'باقة المدير المخصص لمتجرك (1000 ج.م + 20 ج.م / أوردر)',
     badgeText: 'الباقة المعتمدة',
     priceLabelAr: '1,000 ج.م / شهريًا',
     baseMonthlyPrice: 1000,
-    defaultOrderFee: 0,
-    includedOrdersQuota: 50,
+    defaultOrderFee: 20,
+    includedOrdersQuota: 0,
     extraOrderFee: 20,
     isFeaturedExpert: true,
-    description: 'مدير حسابات وأوردرات مخصص لمتجرك باشتراك شهري 1,000 ج.م يشمل أول 50 أوردر مؤكد مجاناً بدون أي رسوم، وما زاد عن 50 أوردر يُحسب بـ 20 ج.م فقط لكل أوردر.',
+    description: 'مدير حسابات وأوردرات مخصص لمتجرك باشتراك شهري 1,000 ج.م، وخصم 20 ج.م رسم تشغيل عن كل أوردر مؤكد.',
     features: [
-      'اشتراك شهري 1,000 ج.م يشمل أول 50 أوردر مؤكد بالكامل مجاناً',
-      'كل أوردر إضافي بعد الـ 50 أوردر بـ 20 ج.م فقط',
+      'اشتراك شهري 1,000 ج.م لوحة وتحليلات وإشراف كامل',
+      'خصم 20 ج.م فقط رسم تشغيل عن كل أوردر يتم تأكيده أو إرساله للشحن',
       'يتولى المدير المخصص إنشاء وتأكيد وشحن ومتابعة الأوردرات بالكامل',
-      'حماية كاملة من تكرار الخصم مع كشف حساب مالي دقيق'
+      'كشف حساب مالي دقيق وحماية كاملة من تكرار الخصم'
     ]
   },
   {
@@ -209,8 +209,8 @@ export const DEDICATED_MANAGER_PLANS: DedicatedManagerPlanDefinition[] = [
     badgeText: 'باقة سابقة',
     priceLabelAr: '700 ج.م / شهريًا',
     baseMonthlyPrice: 700,
-    defaultOrderFee: 0,
-    includedOrdersQuota: 50,
+    defaultOrderFee: 20,
+    includedOrdersQuota: 0,
     extraOrderFee: 20,
     description: 'باقة سابقة لمدير الحسابات المخصص.',
     features: [

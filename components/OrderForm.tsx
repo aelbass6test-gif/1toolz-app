@@ -2476,7 +2476,22 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   // Render Step 2: Products & Warehouses
   const renderStep2_ProductsAndFulfillment = () => {
-    const productsList = getArray(settings.products);
+    const rawProductsList = getArray(settings.products);
+    const selectedMerchantId = (orderData.merchantId && orderData.merchantId !== "pending") ? orderData.merchantId : null;
+    const selectedMerchantObj = selectedMerchantId ? merchantsList.find(m => m.id === selectedMerchantId) : null;
+    const selectedMerchantName = selectedMerchantObj?.name || orderData.merchantName || "";
+
+    const productsList = selectedMerchantId
+      ? rawProductsList.filter((p) => {
+          const pMId = String(p.merchantId || (p as any).supplierId || "").trim().toLowerCase();
+          const pMName = String((p as any).merchantName || (p as any).supplierName || "").trim().toLowerCase();
+          const targetId = String(selectedMerchantId).trim().toLowerCase();
+          const targetName = String(selectedMerchantName).trim().toLowerCase();
+
+          return (pMId && pMId === targetId) || (targetName && pMName && pMName.includes(targetName));
+        })
+      : rawProductsList;
+
     const selectedProductForBar = productsList.find(p => p.id === selectedProductIdToAdd) || productsList[0];
     const availableVariants = selectedProductForBar?.variants || [];
 
@@ -2710,7 +2725,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                              <p className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-bold">
                          سيتم خصم (مصاريف الشحن، التأمين، الضريبة، المعاينة، الـ COD، والإعلانات) من إجمالي تحصيل الأوردر.
                          الصافي المتبقي بعد خصم "تكلفة البضاعة" سيتم تقسيمه بالنسبة المحددة. في حالة المرتجع، يتم تقاسم الخسارة (المصاريف) بنفس النسبة.
-                       </p>
+                             </p>
+                           </div>
+                         </div>
                       </div>
                     )}
                   </>
@@ -2943,13 +2960,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                 return (
                   <div className="col-span-full py-12 text-center bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700">
                     <Package size={36} className="text-slate-400 mx-auto mb-2" />
-                    <p className="text-sm font-black text-slate-600 dark:text-slate-400">لا توجد منتجات مطابقة للبحث أو الفلتر المختار</p>
+                    <p className="text-sm font-black text-slate-600 dark:text-slate-400">
+                      {selectedMerchantId 
+                        ? `لا توجد منتجات مسجلة باسم الوكيل المختار (${selectedMerchantName || "الموكل"}) في كتالوج المستودع.`
+                        : "لا توجد منتجات مطابقة للبحث أو الفلتر المختار"}
+                    </p>
                     <button
                       type="button"
                       onClick={() => { setProductSearchQuery(""); setProductFilterTab("all"); }}
-                      className="mt-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                      className="mt-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                     >
-                      عرض جميع المنتجات
+                      إعادة ضبط تصفية البحث
                     </button>
                   </div>
                 );

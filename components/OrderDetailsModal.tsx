@@ -788,14 +788,18 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     <span>بيانات لوجستية وملاحظات إضافية</span>
                     <Truck size={16} className="text-indigo-500" />
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-black">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs font-black">
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
                       <span className="text-[10px] text-slate-400 block mb-1">مرجع المنصة / الرقم الأصلي</span>
                       <span className="text-slate-800 dark:text-white font-mono">{order.platformOrderId || order.originalOrderId || '---'}</span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
+                      <span className="text-[10px] text-slate-400 block mb-1">متجر / براند الموكل</span>
+                      <span className="text-[#008060] dark:text-emerald-400">{order.merchantBrandName || (order as any).brandName || order.merchantName || order.storeName || settings.storeName || 'المتجر الرئيسي'}</span>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
                       <span className="text-[10px] text-slate-400 block mb-1">مخزن الشحن / الاسترجاع</span>
-                      <span className="text-slate-800 dark:text-white">{orderWarehouseName}</span>
+                      <span className="text-slate-800 dark:text-white">{order.warehouseName || orderWarehouseName}</span>
                     </div>
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-white/5">
                       <span className="text-[10px] text-slate-400 block mb-1">شركة الشحن والتوصيل</span>

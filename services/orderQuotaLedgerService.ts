@@ -297,14 +297,8 @@ export async function confirmOrderWithQuotaAndFee(params: {
             cycleOrderNumber = cycleOrders.length + 1;
 
             if (effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700') {
-              const includedQuota = activeMgr.includedOrdersQuota ?? 50;
-              if (isCycleActive && cycleOrders.length < includedQuota) {
-                feeDeducted = 0;
-                quotaIncluded = true;
-              } else {
-                feeDeducted = activeMgr.extraOrderFee ?? 20;
-                quotaIncluded = false;
-              }
+              feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.extraOrderFee ?? activeMgr.orderFee ?? 20);
+              quotaIncluded = false;
             } else if (effectivePlanId === 'per_order_20') {
               feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.orderFee ?? 20);
               quotaIncluded = false;
@@ -500,15 +494,8 @@ export async function confirmOrderWithQuotaAndFee(params: {
         cycleOrderNumber = cycleOrders.length + 1;
 
         if (effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700') {
-          const includedQuota = activeMgr.includedOrdersQuota ?? 50;
-          // Audit Fix #6 & #11: Free quota ONLY applies if the paid cycle is currently active and not expired!
-          if (isCycleActive && cycleOrders.length < includedQuota) {
-            feeDeducted = 0;
-            quotaIncluded = true;
-          } else {
-            feeDeducted = activeMgr.extraOrderFee ?? 20;
-            quotaIncluded = false;
-          }
+          feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.extraOrderFee ?? activeMgr.orderFee ?? 20);
+          quotaIncluded = false;
         } else if (effectivePlanId === 'per_order_20') {
           feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.orderFee ?? 20);
           quotaIncluded = false;
@@ -1369,6 +1356,34 @@ export async function processCarrierEventOrSettlementAtomic(
       merchant.transactions = [colTx, ...(merchant.transactions || [])];
       order.collectionProcessed = true;
       order.settlementStatus = 'settled';
+    }
+
+    // Deduct return shipping fee loss directly from merchant wallet if order is returned
+    if (
+      (effectiveStatus === 'مرتجع' || effectiveStatus === 'فشل_التوصيل') &&
+      merchant &&
+      !order.returnFeeProcessed
+    ) {
+      const returnFee = Number((storeData.settings as any)?.returnShippingFee || 35);
+      if (returnFee > 0) {
+        const curPiasters = toPiasters(newBalance);
+        const subPiasters = toPiasters(returnFee);
+        newBalance = fromPiasters(curPiasters - subPiasters);
+        const retTx: MerchantTransaction = {
+          id: `RET-${merchant.id}-${order.id}`,
+          merchantId: merchant.id,
+          merchantName: merchant.name,
+          date: nowIso,
+          type: 'carrier_fee',
+          amount: -returnFee,
+          balanceAfter: newBalance,
+          referenceId: order.id,
+          notes: `خصم رسوم الشحن المرتجع للأوردر #${order.orderNumber}`
+        };
+        merchant.balance = newBalance;
+        merchant.transactions = [retTx, ...(merchant.transactions || [])];
+        order.returnFeeProcessed = true;
+      }
     }
 
     if ((effectiveStatus === 'مرتجع' || effectiveStatus === 'فشل_التوصيل') && restockOnReturn && order.stockDeducted) {

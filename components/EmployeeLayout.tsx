@@ -30,7 +30,10 @@ import {
   FileSpreadsheet,
   X,
   Bell,
-  Users2
+  Users2,
+  Package,
+  ArrowRightLeft,
+  Handshake
 } from 'lucide-react';
 import FloatingChat, { FloatingChatHandles } from './FloatingChat';
 import IosInstallPrompt from './IosInstallPrompt';
@@ -409,6 +412,26 @@ export const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({
                             >
                                 <Users2 size={15} />
                                 <span>قاعدة العملاء</span>
+                            </NavLink>
+                        )}
+
+                        {Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('PRODUCTS_VIEW')) && (
+                            <NavLink 
+                                to="/employee/products" 
+                                className={({ isActive }) => `flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isActive ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
+                            >
+                                <Package size={15} />
+                                <span>المنتجات والمخزون</span>
+                            </NavLink>
+                        )}
+
+                        {Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('INVENTORY_MANAGE')) && (
+                            <NavLink 
+                                to="/employee/inventory-transfers" 
+                                className={({ isActive }) => `flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${isActive ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}`}
+                            >
+                                <ArrowRightLeft size={15} />
+                                <span>تحويلات المخزون</span>
                             </NavLink>
                         )}
                     </nav>
@@ -829,6 +852,16 @@ export const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({
                     >
                         <Users2 size={18} />
                         <span>العملاء</span>
+                    </NavLink>
+                )}
+
+                {Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('PRODUCTS_VIEW')) && (
+                    <NavLink 
+                        to="/employee/products" 
+                        className={({ isActive }) => `flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition text-[10px] font-bold ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}`}
+                    >
+                        <Package size={18} />
+                        <span>المخزن</span>
                     </NavLink>
                 )}
 

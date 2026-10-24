@@ -829,7 +829,7 @@ export interface MerchantTransaction {
   merchantId: string;
   merchantName: string;
   date: string;
-  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit';
+  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit' | 'carrier_fee';
   amount: number; // Positive = Credit (Merchant gets money), Negative = Debit
   balanceAfter: number;
   notes: string;
@@ -1276,6 +1276,15 @@ export interface Settings {
   cashHolders?: CashHolder[];
   cashHandovers?: CashHandover[];
   merchantSettlements?: MerchantSettlement[]; // كشوف تسوية الموكلين وأصحاب البضاعة
+  holdingDaysAfterSettlement?: number; // فترة تعليق أرباح الأوردر بعد التسوية (افتراضي 7 أيام)
+  weeklyPayoutDay?: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday (default 1 = Monday)
+  weeklyPayoutMode?: 'auto' | 'admin_confirm'; // تحويل آلي أو بتأكيد الإدارة
+  minWeeklyPayout?: number; // الحد الأدنى للسحبة الأسبوعية
+  maxWeeklyPayout?: number; // الحد الأقصى للسحبة الأسبوعية
+  weeklyTransferFee?: number;
+  weeklyTransferFeeType?: 'fixed' | 'percentage';
+  dailyTransferFee?: number;
+  dailyTransferFeeType?: 'fixed' | 'percentage';
   auditAlertDays?: number; // Days between manual audits before alert
   confettiSettings?: {
     particleCount: number;
@@ -1987,6 +1996,8 @@ export interface Order {
   quotaIncludedOrder?: boolean;    // هل هذا الأوردر مجاني مشمول ضمن كوتة الباقة (مثلاً أول 50 أوردر)
   cycleOrderNumber?: number;       // رقم تسلسل الأوردر داخل دورة الباقة
   quotaConsumedAt?: string;        // توقيت استهلاك الكوتة/الخصم لأول مرة (لمنع التكرار)
+  returnFeeProcessed?: boolean;    // هل تم خصم رسوم المرتجع
+  warehouseName?: string;          // اسم الفرع/المستودع
 }
 
 export interface MerchantSettlement {

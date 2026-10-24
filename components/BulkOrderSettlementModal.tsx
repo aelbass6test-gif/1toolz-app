@@ -288,10 +288,26 @@ export const BulkOrderSettlementModal: React.FC<BulkOrderSettlementModalProps> =
               merchantId: group.merchantId,
               merchantName: group.merchantName,
               date: new Date(Date.now() + 10).toISOString(),
-              type: 'adjustment',
+              type: 'carrier_fee',
               amount: -group.totalCarrierFees,
               balanceAfter: 0, // computed during balance update
-              notes: `مقابل ${group.orders.length} شحنة تم إضافتها في ${dateStr}`,
+              notes: `خصم مصاريف الشحن ورسوم الشحنات (${group.orders.length} أوردر)`,
+              referenceId: settlementId,
+              performedBy: currentUser?.fullName || 'الإدارة'
+            });
+          }
+
+          // 3. Service / Manager Order Fee Deduction (-): رسوم المدير المخصص والخدمة
+          if (group.totalServiceFees > 0) {
+            newLedgerTransactions.push({
+              id: String(Math.floor(1000000000 + Math.random() * 9000000000)),
+              merchantId: group.merchantId,
+              merchantName: group.merchantName,
+              date: new Date(Date.now() + 20).toISOString(),
+              type: 'manager_order_fee',
+              amount: -group.totalServiceFees,
+              balanceAfter: 0, // computed during balance update
+              notes: `خصم رسوم تشغيل المدير المخصص وعمولة الخدمة (${group.orders.length} أوردر)`,
               referenceId: settlementId,
               performedBy: currentUser?.fullName || 'الإدارة'
             });
