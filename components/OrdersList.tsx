@@ -76,7 +76,7 @@ import {
   Wallet as WalletIcon,
   Store as StoreIcon,
 } from "lucide-react";
-import { deleteStoreItem, getSupabaseClient } from "../services/databaseService";
+import { deleteStoreItem, getSupabaseClient, updatePartnerSettings } from "../services/databaseService";
 import {
   Order,
   Settings,
@@ -93,6 +93,7 @@ import {
   User,
   AuditLog,
   Quotation,
+  MerchantTransaction,
 } from "../types";
 import {
   ORDER_STATUSES,
@@ -3228,6 +3229,95 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     const { updatedOrderData: financialUpdatedOrder, newTransactions } =
       processFinancialsForStatusChange(orderWithFlexShip, newStatus);
     const updatedOrderData = { ...financialUpdatedOrder, stockDeducted };
+
+    // 2.1 Late Return / Post-Settlement Merchant Debit Handling
+    const isReturnStatus = ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مرتجع_بعد_الاستلام"].includes(newStatus);
+    const wasDeliveredOrSettled = ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "تم_الاستبدال", "مدفوعة"].includes(orderToUpdate.status) || orderToUpdate.settlementStatus === 'settled';
+
+    if (isReturnStatus && wasDeliveredOrSettled && (orderToUpdate.merchantId || orderToUpdate.merchantName) && !orderToUpdate.merchantLateReturnDebited) {
+      const merchantId = orderToUpdate.merchantId;
+      const merchantName = (orderToUpdate.merchantName || '').trim();
+
+      // Calculate credited goods cost / payout that was originally allocated to merchant
+      let creditedAmountToRevert = 0;
+      if (orderToUpdate.settlementId) {
+        const st = (settings.merchantSettlements || []).find(s => s.id === orderToUpdate.settlementId);
+        const snap = st?.orderSnapshots?.find(sn => sn.orderId === orderToUpdate.id);
+        if (snap && (snap.netMerchantAmount || 0) > 0) {
+          creditedAmountToRevert = snap.netMerchantAmount;
+        }
+      }
+      if (creditedAmountToRevert <= 0) {
+        const goodsCost = orderToUpdate.merchantItemCost || (orderToUpdate.items || []).reduce((sum, item) => sum + (item.cost || 0) * (item.quantity || 1), 0);
+        creditedAmountToRevert = goodsCost;
+      }
+
+      const returnShippingCharge = settings.returnShippingFee ?? 35;
+      const totalDebit = Number((creditedAmountToRevert + returnShippingCharge).toFixed(2));
+
+      if (totalDebit > 0) {
+        setSettings(prevSettings => {
+          const updatedSuppliers = (prevSettings.suppliers || []).map(s => {
+            const isMatch = s.id === merchantId || (merchantName && s.name.trim() === merchantName);
+            if (isMatch) {
+              const curBal = Number(s.balance || 0);
+              const nextBal = Number((curBal - totalDebit).toFixed(2));
+              const revTx: MerchantTransaction = {
+                id: `mtx-rev-${Date.now()}`,
+                merchantId: s.id,
+                merchantName: s.name,
+                date: new Date().toISOString(),
+                type: 'order_returned',
+                amount: -totalDebit,
+                balanceAfter: nextBal,
+                notes: `خصم عكسي لمرتجع متأخر بعد التسوية (أوردر #${orderToUpdate.orderNumber}) - استرداد أرباح/بضاعة: ${creditedAmountToRevert} ج.م + شحن مرتجع: ${returnShippingCharge} ج.م`,
+                referenceId: orderToUpdate.id,
+                performedBy: currentUser?.fullName || 'النظام التلقائي'
+              };
+              return {
+                ...s,
+                balance: nextBal,
+                transactions: [revTx, ...(s.transactions || [])]
+              };
+            }
+            return s;
+          });
+
+          const updatedPartners = (prevSettings.partners || []).map(p => {
+            const isMatch = p.id === merchantId || (merchantName && p.name.trim() === merchantName);
+            if (isMatch) {
+              return {
+                ...p,
+                balance: Number(((p.balance || 0) - totalDebit).toFixed(2))
+              };
+            }
+            return p;
+          });
+
+          if (activeStore?.id) {
+            updatePartnerSettings(activeStore.id, updatedPartners, updatedSuppliers).catch(() => {});
+          }
+
+          return {
+            ...prevSettings,
+            suppliers: updatedSuppliers,
+            partners: updatedPartners
+          };
+        });
+
+        updatedOrderData.merchantLateReturnDebited = true;
+        updatedOrderData.settlementStatus = 'returned_after_settlement';
+        updatedOrderData.lateReturnDebitAmount = totalDebit;
+
+        addAuditLog(
+          id,
+          "خصم مرتجع متأخر للموكل",
+          `تم قيد تسوية عكسية وخصم ${totalDebit} ج.م من محفظة الموكل (${merchantName || merchantId}) نظير تحول الأوردر إلى مرتجع بعد التسوية (استرداد بضاعة: ${creditedAmountToRevert} ج.م + شحن: ${returnShippingCharge} ج.م)`
+        );
+
+        inAppToast(`تم تسجيل تسوية عكسية وخصم ${totalDebit} ج.م من محفظة الموكل (${merchantName || 'الموكل'}) نظير ارتجاع الأوردر بعد التسوية ↩️`, 'info');
+      }
+    }
 
     if (newTransactions.length > 0) {
       setWallet((prev) => {

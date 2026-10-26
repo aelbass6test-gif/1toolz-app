@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Partner, StoreData, Order, MerchantSubscriptionConfig, MerchantManagerConfig, MerchantTransaction, MerchantPlanChangeRequest, MerchantPlanCycleRecord, ScheduledMerchantPlanTransition } from '../types';
+import { Partner, StoreData, Order, Product, MerchantSubscriptionConfig, MerchantManagerConfig, MerchantTransaction, MerchantPlanChangeRequest, MerchantPlanCycleRecord, ScheduledMerchantPlanTransition } from '../types';
 import { 
   Building2, Loader2, Shield, AlertCircle, CheckCircle2, Send, ShieldCheck, 
   Coins, RefreshCw, LogOut, DollarSign, Package as PackageIcon, Wallet as WalletIcon, FileText, Key, X,
@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
 import { MerchantChangePlanModal } from './MerchantChangePlanModal';
+import WelcomeLoader from './WelcomeLoader';
 import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlanSnapshot, SELF_SERVICE_PLANS, DEDICATED_MANAGER_PLANS } from '../utils/merchantSubscriptions';
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
@@ -38,13 +39,17 @@ import {
 const normalizeName = (name: string): string => {
   if (!name) return '';
   let normalized = name.trim().replace(/\s+/g, ' ');
-  normalized = normalized.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin)\)/gi, '');
+  normalized = normalized.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)/gi, '');
+  // Normalize compound Arabic names so "عبد الرحمن" matches "عبدالرحمن", "ابو بكر" -> "ابوبكر"
+  normalized = normalized.replace(/عبد\s+/g, 'عبد');
+  normalized = normalized.replace(/ابو\s+/g, 'ابو');
+  normalized = normalized.replace(/بن\s+/g, 'بن');
   return normalized
-    .replace(/أ/g, 'ا')
-    .replace(/إ/g, 'ا')
-    .replace(/آ/g, 'ا')
+    .replace(/[أإآ]/g, 'ا')
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
+    .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
+    .replace(/ـ+/g, '') // remove tatweel
     .toLowerCase()
     .trim();
 };
@@ -131,7 +136,91 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   const [directStoreId, setDirectStoreId] = useState<string>('');
   const [directStoreData, setDirectStoreData] = useState<StoreData | null>(null);
+  const [crossStoreProducts, setCrossStoreProducts] = useState<Product[]>([]);
+  const [isFetchingCrossStore, setIsFetchingCrossStore] = useState(false);
   const [isLoadingStore, setIsLoadingStore] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+
+  // Audio state for hissing sound during loading
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const noiseSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  useEffect(() => {
+    if (isLoadingStore) {
+      try {
+        const AudioContextClass = (window.AudioContext || (window as any).webkitAudioContext);
+        if (AudioContextClass) {
+          const audioCtx = new AudioContextClass();
+          audioCtxRef.current = audioCtx;
+          
+          const bufferSize = 2 * audioCtx.sampleRate;
+          const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+          const output = noiseBuffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            output[i] = Math.random() * 2 - 1;
+          }
+
+          const whiteNoise = audioCtx.createBufferSource();
+          whiteNoise.buffer = noiseBuffer;
+          whiteNoise.loop = true;
+          noiseSourceRef.current = whiteNoise;
+
+          const filter = audioCtx.createBiquadFilter();
+          filter.type = 'highpass';
+          filter.frequency.value = 1200; // High-pass for a "hiss" sound
+
+          const gainNode = audioCtx.createGain();
+          gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+          gainNode.gain.linearRampToValueAtTime(0.04, audioCtx.currentTime + 1);
+
+          whiteNoise.connect(filter);
+          filter.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+
+          whiteNoise.start();
+        }
+      } catch (e) {
+        console.warn("Hissing audio effect could not start:", e);
+      }
+    } else {
+      if (audioCtxRef.current) {
+        const ctx = audioCtxRef.current;
+        setTimeout(() => {
+          if (ctx.state !== 'closed') {
+            ctx.close().catch(() => {});
+          }
+          audioCtxRef.current = null;
+          noiseSourceRef.current = null;
+        }, 1000);
+      }
+    }
+
+    return () => {
+      if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+        audioCtxRef.current.close().catch(() => {});
+      }
+    };
+  }, [isLoadingStore]);
+
+  // Loading Progress Simulation
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isLoadingStore) {
+      setLoadingProgress(0);
+      interval = setInterval(() => {
+        setLoadingProgress(prev => {
+          if (prev >= 98) return prev;
+          const remaining = 100 - prev;
+          const increment = Math.max(1, Math.random() * (remaining / 10)); 
+          return Math.min(prev + increment, 98);
+        });
+      }, 300);
+    } else {
+      setLoadingProgress(100);
+    }
+    return () => clearInterval(interval);
+  }, [isLoadingStore]);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [merchantRequestsList, setMerchantRequestsList] = useState<db.PartnerPortalRequest[]>([]);
 
@@ -231,56 +320,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
-
-  // Fetch fresh store data on mount
-  const fetchFreshData = useCallback(async (isManualRefresh = false) => {
-    const targetStoreId = directStoreId || storeId || effectiveStoreId;
-    if (!targetStoreId) return;
-
-    if (isManualRefresh) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoadingStore(true);
-    }
-
-    try {
-      const fetchedData = await db.getStoreData(targetStoreId, true);
-      if (fetchedData) {
-        setDirectStoreData(fetchedData);
-        if (isManualRefresh) {
-          showToast('تم تحديث البيانات المالية للحساب بنجاح', 'success');
-        }
-      }
-      await loadRequests();
-    } catch (err) {
-      console.error('[MerchantPortal] Error loading store data:', err);
-    } finally {
-      setIsLoadingStore(false);
-      setIsRefreshing(false);
-    }
-  }, [directStoreId, storeId, effectiveStoreId, loadRequests]);
-
-  useEffect(() => {
-    fetchFreshData(false);
-  }, [fetchFreshData]);
-
-  // Realtime Optimized Subscription with Strict Row-Level Filters & Throttling
-  useEffect(() => {
-    const targetStoreId = directStoreId || storeId || effectiveStoreId;
-    if (!targetStoreId) return;
-
-    const unsubscribe = db.subscribeToStoreRealtimeOptimized(targetStoreId, {
-      tables: ['orders', 'merchant_requests', 'partner_requests', 'transactions', 'partners'],
-      onUpdate: () => {
-        db.throttledRefreshStoreData(targetStoreId, (freshData) => {
-          setDirectStoreData(freshData);
-          loadRequests();
-        }, 3000);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [directStoreId, storeId, effectiveStoreId, loadRequests]);
 
   const localStoreData = (storeId && allStoresData[storeId]) || (effectiveStoreId ? allStoresData[effectiveStoreId] : null);
   const activeStoreData = directStoreData || localStoreData;
@@ -439,6 +478,35 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           }
         });
       }
+
+      // NEW: Extract & merge joint merchants from product allocations (Option B)
+      const productsList = Array.isArray(st.products) ? st.products : (st.settings?.products || []);
+      if (Array.isArray(productsList)) {
+        productsList.forEach((p: any) => {
+          if (Array.isArray(p.merchantAllocations)) {
+            p.merchantAllocations.forEach((alloc: any) => {
+              if (alloc.merchantId || alloc.merchantName) {
+                upsertEntity({
+                  id: alloc.merchantId,
+                  name: alloc.merchantName,
+                  role: 'موكل مشترك'
+                }, 'موكل مشترك', stId, isFreshCloud);
+              }
+            });
+          }
+          if (Array.isArray(p.merchantIds)) {
+            p.merchantIds.forEach((mId: string) => {
+              if (mId) {
+                upsertEntity({
+                  id: mId,
+                  name: 'موكل مشترك مسجل',
+                  role: 'موكل مشترك'
+                }, 'موكل مشترك', stId, isFreshCloud);
+              }
+            });
+          }
+        });
+      }
     };
 
     // Prioritize directStoreData (freshly fetched from cloud) first so zeroed balances/transactions are authoritative
@@ -459,10 +527,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     return list;
   }, [localStoreData, directStoreData, allStoresData, effectiveStoreId]);
 
-  const portalTitle = 'بوابة الموكلين والوكلاء';
-  const storeName = portalTitle;
-
-  // Authentication State
   const [authenticatedMerchant, setAuthenticatedMerchant] = useState<Partner | null>(() => {
     try {
       const saved = localStorage.getItem('authenticated_merchant');
@@ -470,15 +534,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     } catch {}
     return null;
   });
-
-  // Persist authenticatedMerchant change
-  useEffect(() => {
-    if (authenticatedMerchant) {
-      localStorage.setItem('authenticated_merchant', JSON.stringify(authenticatedMerchant));
-    } else {
-      localStorage.removeItem('authenticated_merchant');
-    }
-  }, [authenticatedMerchant]);
 
   const liveMerchant = useMemo(() => {
     if (!authenticatedMerchant) return null;
@@ -512,10 +567,102 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     };
   }, [authenticatedMerchant, merchants]);
 
+  // Fetch fresh store data on mount
+  const fetchFreshData = useCallback(async (isManualRefresh = false) => {
+    const targetStoreId = directStoreId || storeId || effectiveStoreId;
+    if (!targetStoreId) return;
+
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoadingStore(true);
+    }
+
+    try {
+      const fetchedData = await db.getStoreData(targetStoreId, true);
+      if (fetchedData) {
+        setDirectStoreData(fetchedData);
+        if (isManualRefresh) {
+          showToast('تم تحديث البيانات المالية للحساب بنجاح', 'success');
+        }
+      }
+      await loadRequests();
+
+      // NEW: Fetch products for this merchant from ALL stores to ensure cross-store allocations are visible
+      if (liveMerchant?.id) {
+        setIsFetchingCrossStore(true);
+        const allocated = await db.getMerchantAllocatedProducts(liveMerchant.id, liveMerchant.name);
+        setCrossStoreProducts(allocated);
+        setIsFetchingCrossStore(false);
+      }
+    } catch (err) {
+      console.error('[MerchantPortal] Error loading store data:', err);
+    } finally {
+      setIsLoadingStore(false);
+      setIsRefreshing(false);
+      setIsFetchingCrossStore(false);
+    }
+  }, [directStoreId, storeId, effectiveStoreId, loadRequests, liveMerchant]);
+
+  useEffect(() => {
+    const fetchAllocated = async () => {
+      const targetId = String(liveMerchant?.id || authenticatedMerchant?.id || '').trim();
+      const targetName = String(liveMerchant?.name || authenticatedMerchant?.name || '').trim();
+      if (targetId || targetName) {
+        console.log('[MerchantPortal] Fetching cross-store products for:', targetName, targetId);
+        setIsFetchingCrossStore(true);
+        try {
+          const allocated = await db.getMerchantAllocatedProducts(targetId, targetName);
+          console.log('[MerchantPortal] Found cross-store products:', allocated.length);
+          setCrossStoreProducts(allocated);
+        } catch (err) {
+          console.error('[MerchantPortal] Error fetching cross-store products:', err);
+        } finally {
+          setIsFetchingCrossStore(false);
+        }
+      } else {
+        setCrossStoreProducts([]);
+      }
+    };
+    fetchAllocated();
+  }, [liveMerchant?.id, liveMerchant?.name, authenticatedMerchant?.id, authenticatedMerchant?.name]);
+
+  // Realtime Optimized Subscription with Strict Row-Level Filters & Throttling
+  useEffect(() => {
+    const targetStoreId = directStoreId || storeId || effectiveStoreId;
+    if (!targetStoreId) return;
+
+    const unsubscribe = db.subscribeToStoreRealtimeOptimized(targetStoreId, {
+      tables: ['orders', 'merchant_requests', 'partner_requests', 'transactions', 'partners', 'products'],
+      onUpdate: () => {
+        db.throttledRefreshStoreData(targetStoreId, (freshData) => {
+          setDirectStoreData(freshData);
+          loadRequests();
+        }, 3000);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [directStoreId, storeId, effectiveStoreId, loadRequests]);
+
+
+
+  const portalTitle = 'عبده ميديا · بوابة الموكلين';
+  const storeName = portalTitle;
+
+  // Persist authenticatedMerchant change
+  useEffect(() => {
+    if (authenticatedMerchant) {
+      localStorage.setItem('authenticated_merchant', JSON.stringify(authenticatedMerchant));
+    } else {
+      localStorage.removeItem('authenticated_merchant');
+    }
+  }, [authenticatedMerchant]);
+
   useEffect(() => {
     document.title = liveMerchant?.name
-      ? `${liveMerchant.name} | بوابة الموكلين والوكلاء`
-      : 'بوابة الموكلين والوكلاء';
+      ? `${liveMerchant.name} | عبده ميديا`
+      : 'عبده ميديا · بوابة الموكلين';
   }, [liveMerchant?.name]);
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -641,8 +788,154 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [prodFormDescription, setProdFormDescription] = useState('');
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
+  // Tab State & Custom Pricing States for Merchant Edit Product Modal
+  const [prodModalTab, setProdModalTab] = useState<'general' | 'custom_pricing'>('general');
+  const [merchantCustomCostPrice, setMerchantCustomCostPrice] = useState<number | ''>('');
+  const [merchantCustomSellingPrice, setMerchantCustomSellingPrice] = useState<number | ''>('');
+  const [merchantCustomStock, setMerchantCustomStock] = useState<number | ''>('');
+
+  // Dedicated Merchant Custom Pricing & Allocation Modal State
+  const [pricingModalProduct, setPricingModalProduct] = useState<any | null>(null);
+  const [customCostPrice, setCustomCostPrice] = useState<number | ''>('');
+  const [customSellingPrice, setCustomSellingPrice] = useState<number | ''>('');
+  const [customAllocatedStock, setCustomAllocatedStock] = useState<number | ''>('');
+  const [isSavingCustomPricing, setIsSavingCustomPricing] = useState(false);
+
+  const handleOpenPricingModal = useCallback((p: any) => {
+    setPricingModalProduct(p);
+    const existingCost = p.merchantAllocation?.costPrice ?? p.costPrice ?? p.cost ?? 0;
+    const existingSelling = p.merchantAllocation?.sellingPrice ?? p.price ?? p.sellingPrice ?? 0;
+    const existingStock = p.merchantAllocation?.stock ?? p.stock ?? p.quantity ?? 10;
+    setCustomCostPrice(existingCost || '');
+    setCustomSellingPrice(existingSelling || '');
+    setCustomAllocatedStock(existingStock);
+  }, []);
+
+  const handleSaveCustomPricing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveMerchant || !pricingModalProduct) return;
+    const costNum = Number(customCostPrice) || 0;
+    const priceNum = Number(customSellingPrice) || 0;
+    const stockNum = Number(customAllocatedStock) || 0;
+
+    if (priceNum <= 0) {
+      showToast('يرجى تحديد سعر بيع مقترح أكبر من 0', 'error');
+      return;
+    }
+
+    setIsSavingCustomPricing(true);
+    try {
+      const allProds: any[] = Array.isArray(activeStoreData?.settings?.products) 
+        ? [...activeStoreData.settings.products] 
+        : (Array.isArray(settings.products) ? [...settings.products] : []);
+
+      const targetProdId = pricingModalProduct.id;
+      const mId = String(liveMerchant.id || '').trim();
+      const mName = String(liveMerchant.name || '').trim();
+
+      const updatedProducts = allProds.map(p => {
+        if (p.id === targetProdId) {
+          const currentAllocations: any[] = Array.isArray(p.merchantAllocations) ? [...p.merchantAllocations] : [];
+          const existingAllocIndex = currentAllocations.findIndex((a: any) => 
+            (a.merchantId && String(a.merchantId).trim().toLowerCase() === mId.toLowerCase()) ||
+            (normalizeName(a.merchantName || '') === normalizeName(mName))
+          );
+
+          const updatedAllocItem = {
+            merchantId: mId,
+            merchantName: mName,
+            costPrice: costNum,
+            sellingPrice: priceNum,
+            stock: stockNum
+          };
+
+          if (existingAllocIndex >= 0) {
+            currentAllocations[existingAllocIndex] = {
+              ...currentAllocations[existingAllocIndex],
+              ...updatedAllocItem
+            };
+          } else {
+            currentAllocations.push(updatedAllocItem);
+          }
+
+          const currentMerchantIds: string[] = Array.isArray(p.merchantIds) ? [...p.merchantIds] : [];
+          if (!currentMerchantIds.includes(mId)) {
+            currentMerchantIds.push(mId);
+          }
+
+          const isPrimary = p.merchantId === mId || normalizeName(p.merchantName || '') === normalizeName(mName);
+
+          return {
+            ...p,
+            merchantAllocations: currentAllocations,
+            merchantIds: currentMerchantIds,
+            ...(isPrimary ? { costPrice: costNum, price: priceNum, stock: stockNum } : {})
+          };
+        }
+        return p;
+      });
+
+      const nextSettings = { ...settings, products: updatedProducts };
+      updateSettings(nextSettings);
+
+      if (directStoreData) {
+        setDirectStoreData({
+          ...directStoreData,
+          settings: {
+            ...directStoreData.settings,
+            products: updatedProducts
+          }
+        });
+      }
+
+      setCrossStoreProducts(prev => prev.map(cp => {
+        if (cp.id === targetProdId) {
+          return {
+            ...cp,
+            costPrice: costNum,
+            price: priceNum,
+            stock: stockNum,
+            stockQuantity: stockNum,
+            merchantAllocation: {
+              ...((cp as any).merchantAllocation || {}),
+              costPrice: costNum,
+              sellingPrice: priceNum,
+              stock: stockNum,
+              merchantId: mId,
+              merchantName: mName
+            }
+          };
+        }
+        return cp;
+      }));
+
+      const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
+      if (targetStore) {
+        const curStore = (await db.getStoreData(targetStore, false)) || activeStoreData;
+        if (curStore) {
+          await db.saveStoreData(targetStore, {
+            ...curStore,
+            settings: {
+              ...(curStore.settings || {}),
+              products: updatedProducts
+            } as any
+          });
+        }
+      }
+
+      setPricingModalProduct(null);
+      showToast(`تم حفظ تسعيرتك الخاصة بنجاح: تكلفة ${costNum} ج.م / بيع ${priceNum} ج.م (ربحك ${Math.max(0, priceNum - costNum)} ج.م للقطعة)`, 'success');
+    } catch (err: any) {
+      console.error('Error saving custom pricing:', err);
+      showToast('تعذر حفظ التسعيرة: ' + (err.message || ''), 'error');
+    } finally {
+      setIsSavingCustomPricing(false);
+    }
+  };
+
   const handleOpenAddProduct = useCallback(() => {
     setEditingProduct(null);
+    setProdModalTab('general');
     setProdFormName('');
     setProdFormSku(`SKU-${Math.floor(1000 + Math.random() * 9000)}`);
     setProdFormPrice('');
@@ -652,11 +945,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     setProdFormStock(10);
     setProdFormThumbnail('');
     setProdFormDescription('');
+
+    setMerchantCustomCostPrice('');
+    setMerchantCustomSellingPrice('');
+    setMerchantCustomStock(10);
+
     setShowAddEditProductModal(true);
   }, [liveMerchant]);
 
   const handleOpenEditProduct = useCallback((p: any) => {
     setEditingProduct(p);
+    setProdModalTab('general');
     setProdFormName(p.name || p.title || '');
     setProdFormSku(p.sku || '');
     setProdFormPrice(p.price || p.sellingPrice || '');
@@ -666,6 +965,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     setProdFormStock(Number(p.stock || p.quantity || 0));
     setProdFormThumbnail(p.thumbnail || p.imageUrl || p.image || '');
     setProdFormDescription(p.description || '');
+
+    const alloc = p.merchantAllocation || (Array.isArray(p.merchantAllocations) ? p.merchantAllocations.find((a: any) => 
+      (a.merchantId && String(a.merchantId).trim().toLowerCase() === String(liveMerchant?.id || '').trim().toLowerCase()) ||
+      (normalizeName(a.merchantName || '') === normalizeName(liveMerchant?.name || ''))
+    ) : null);
+
+    setMerchantCustomCostPrice(alloc?.costPrice ?? p.costPrice ?? p.cost ?? '');
+    setMerchantCustomSellingPrice(alloc?.sellingPrice ?? p.price ?? p.sellingPrice ?? '');
+    setMerchantCustomStock(alloc?.stock ?? p.stock ?? p.quantity ?? 10);
+
     setShowAddEditProductModal(true);
   }, [liveMerchant]);
 
@@ -690,25 +999,61 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       let updatedProducts: any[];
       if (editingProduct?.id) {
+        const mId = String(liveMerchant.id || '').trim();
+        const mName = String(liveMerchant.name || '').trim();
+
+        const customCostNum = merchantCustomCostPrice !== '' ? Number(merchantCustomCostPrice) : Number(prodFormCostPrice) || 0;
+        const customSellingNum = merchantCustomSellingPrice !== '' ? Number(merchantCustomSellingPrice) : priceNum;
+        const customStockNum = merchantCustomStock !== '' ? Number(merchantCustomStock) : prodFormStock;
+
         updatedProducts = allProds.map(p => {
           if (p.id === editingProduct.id) {
+            const currentAllocations: any[] = Array.isArray(p.merchantAllocations) ? [...p.merchantAllocations] : [];
+            const existingAllocIndex = currentAllocations.findIndex((a: any) => 
+              (a.merchantId && String(a.merchantId).trim().toLowerCase() === mId.toLowerCase()) ||
+              (normalizeName(a.merchantName || '') === normalizeName(mName))
+            );
+
+            const updatedAllocItem = {
+              merchantId: mId,
+              merchantName: mName,
+              costPrice: customCostNum,
+              sellingPrice: customSellingNum,
+              stock: customStockNum
+            };
+
+            if (existingAllocIndex >= 0) {
+              currentAllocations[existingAllocIndex] = {
+                ...currentAllocations[existingAllocIndex],
+                ...updatedAllocItem
+              };
+            } else {
+              currentAllocations.push(updatedAllocItem);
+            }
+
+            const isPrimary = p.merchantId === mId || normalizeName(p.merchantName || '') === normalizeName(mName);
+
             return {
               ...p,
               name: prodFormName.trim(),
               sku: prodFormSku.trim() || p.sku,
-              price: priceNum,
-              costPrice: Number(prodFormCostPrice) || 0,
+              // Only update primary product price & cost if this merchant IS the primary merchant!
+              ...(isPrimary ? {
+                price: priceNum,
+                costPrice: Number(prodFormCostPrice) || 0,
+                stock: prodFormStock,
+                stockQuantity: prodFormStock
+              } : {}),
               profitMode: prodFormProfitMode,
               commissionPercentage: prodFormCommissionPct,
               profitPercentage: prodFormCommissionPct,
-              stock: prodFormStock,
-              stockQuantity: prodFormStock,
               thumbnail: prodFormThumbnail.trim(),
               description: prodFormDescription.trim(),
-              merchantId: liveMerchant.id,
-              supplierId: liveMerchant.id,
-              merchantName: liveMerchant.name,
-              supplierName: liveMerchant.name
+              merchantAllocations: currentAllocations,
+              merchantIds: Array.from(new Set([
+                ...(Array.isArray(p.merchantIds) ? p.merchantIds : []),
+                mId
+              ])).filter(Boolean)
             };
           }
           return p;
@@ -1372,35 +1717,189 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       const oMId = String(o.merchantId || '').trim().toLowerCase();
       const oMPhone = String(o.merchantBrandPhone || '').trim().replace(/[^\d]/g, '');
 
-      return (
+      const matchMain = (
         (mId && oMId === mId) ||
         (mName && oMName === mName) ||
         (mPhone && mPhone.length > 5 && oMPhone === mPhone)
       );
+
+      if (matchMain) return true;
+
+      // NEW: Check individual items for joint merchant association (Option B)
+      return (o.items || []).some(item => {
+        const iMId = String(item.merchantId || '').trim().toLowerCase();
+        const iMName = normalizeName(item.merchantName || '');
+        const iMPhone = String(item.merchantPhone || '').trim().replace(/[^\d]/g, '');
+        return (
+          (mId && iMId === mId) ||
+          (mName && iMName === mName) ||
+          (mPhone && mPhone.length > 5 && iMPhone === mPhone)
+        );
+      });
     });
   }, [rawOrders, liveMerchant]);
 
-  // Consignment Products & Stock Valuation
+  // Consignment Products & Stock Valuation (Option B Support)
   const merchantProducts = useMemo(() => {
     if (!liveMerchant) return [];
     const mName = normalizeName(liveMerchant.name || '');
     const mId = String(liveMerchant.id || '').trim().toLowerCase();
     const mPhone = String(liveMerchant.phone || '').trim().replace(/[^\d]/g, '');
-    const allProds: any[] = activeStoreData?.settings?.products || settings.products || [];
+
+    const candidateMerchantIds = new Set<string>();
+    if (mId) candidateMerchantIds.add(mId);
+
+    // Look up in settings.suppliers and settings.partners across current store and all stores
+    const allSuppliers: any[] = [...(settings?.suppliers || [])];
+    const allPartners: any[] = [...(settings?.partners || [])];
+    if (allStoresData) {
+      Object.values(allStoresData).forEach((st: any) => {
+        if (Array.isArray(st?.settings?.suppliers)) allSuppliers.push(...st.settings.suppliers);
+        if (Array.isArray(st?.settings?.partners)) allPartners.push(...st.settings.partners);
+        if (Array.isArray(st?.suppliers)) allSuppliers.push(...st.suppliers);
+        if (Array.isArray(st?.partners)) allPartners.push(...st.partners);
+      });
+    }
+
+    allSuppliers.forEach((s: any) => {
+      const sName = normalizeName(s.name || '');
+      const sPhone = String(s.phone || '').trim().replace(/[^\d]/g, '');
+      if ((mName && sName && (sName === mName || sName.includes(mName) || mName.includes(sName))) || (mPhone && sPhone && sPhone === mPhone)) {
+        if (s.id) candidateMerchantIds.add(String(s.id).trim().toLowerCase());
+      }
+    });
+
+    allPartners.forEach((pt: any) => {
+      const ptName = normalizeName(pt.name || '');
+      const ptPhone = String(pt.phone || '').trim().replace(/[^\d]/g, '');
+      if ((mName && ptName && (ptName === mName || ptName.includes(mName) || mName.includes(ptName))) || (mPhone && ptPhone && ptPhone === mPhone)) {
+        if (pt.id) candidateMerchantIds.add(String(pt.id).trim().toLowerCase());
+      }
+    });
+
+    // Gather all products across current store, crossStoreProducts, activeStoreData, and allStoresData without duplicates
+    const prodsMap = new Map<string, any>();
+    if (Array.isArray(crossStoreProducts)) {
+      crossStoreProducts.forEach((p: any) => {
+        if (p?.id) prodsMap.set(String(p.id), p);
+      });
+    }
+    if (Array.isArray(activeStoreData?.settings?.products)) {
+      activeStoreData.settings.products.forEach((p: any) => {
+        if (p?.id) prodsMap.set(String(p.id), p);
+      });
+    }
+    if (Array.isArray((activeStoreData as any)?.products)) {
+      (activeStoreData as any).products.forEach((p: any) => {
+        if (p?.id && !prodsMap.has(String(p.id))) prodsMap.set(String(p.id), p);
+      });
+    }
+    if (Array.isArray(settings?.products)) {
+      settings.products.forEach((p: any) => {
+        if (p?.id && !prodsMap.has(String(p.id))) prodsMap.set(String(p.id), p);
+      });
+    }
+    if (allStoresData) {
+      Object.values(allStoresData).forEach((st: any) => {
+        const stProds = Array.isArray(st?.settings?.products) 
+          ? st.settings.products 
+          : (Array.isArray(st?.products) ? st.products : []);
+        stProds.forEach((p: any) => {
+          if (p?.id && !prodsMap.has(String(p.id))) {
+            prodsMap.set(String(p.id), p);
+          }
+        });
+      });
+    }
+
+    // Emergency scan of localStorage backup stores if prodsMap is empty
+    if (prodsMap.size === 0 && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('emergency_store_backup_') || k.startsWith('store_data_'))) {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              const pList = parsed?.settings?.products || parsed?.products || [];
+              if (Array.isArray(pList)) {
+                pList.forEach((p: any) => {
+                  if (p?.id && !prodsMap.has(String(p.id))) prodsMap.set(String(p.id), p);
+                });
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    const allProds = Array.from(prodsMap.values());
+
+    // Harvest any merchant IDs from product allocations matching our merchant name
+    allProds.forEach((p: any) => {
+      if (Array.isArray(p.merchantAllocations)) {
+        p.merchantAllocations.forEach((alloc: any) => {
+          const aName = normalizeName(alloc.merchantName || '');
+          if (mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName))) {
+            if (alloc.merchantId) candidateMerchantIds.add(String(alloc.merchantId).trim().toLowerCase());
+          }
+        });
+      }
+    });
 
     return allProds.filter(p => {
       const pMId = String(p.merchantId || p.supplierId || '').trim().toLowerCase();
       const pMName = normalizeName(String(p.merchantName || p.supplierName || ''));
       const pMPhone = String(p.merchantPhone || p.supplierPhone || '').trim().replace(/[^\d]/g, '');
+      
+      const hasInMerchantIds = Array.isArray(p.merchantIds) && p.merchantIds.some((id: any) => candidateMerchantIds.has(String(id).trim().toLowerCase()));
 
-      return (
-        (mId && pMId === mId) ||
-        (mName && pMName === mName) ||
-        (mName && pMName.includes(mName)) ||
-        (mPhone && mPhone.length > 5 && pMPhone === mPhone)
-      );
+      const hasInAllocations = Array.isArray(p.merchantAllocations) && p.merchantAllocations.some((alloc: any) => {
+        const aId = String(alloc.merchantId || '').trim().toLowerCase();
+        const aName = normalizeName(alloc.merchantName || '');
+        const idMatches = Boolean(aId && candidateMerchantIds.has(aId));
+        const nameMatches = Boolean(mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
+        return idMatches || nameMatches;
+      });
+
+      const matchId = Boolean(pMId && candidateMerchantIds.has(pMId));
+      const matchName = Boolean(mName && pMName && (pMName === mName || pMName.includes(mName) || mName.includes(pMName)));
+      const matchPhone = Boolean(mPhone && mPhone.length > 5 && pMPhone === mPhone);
+
+      return matchId || hasInMerchantIds || hasInAllocations || matchName || matchPhone;
+    }).map(p => {
+      // Option B: Attach merchant-specific allocation stock & cost
+      const alloc = Array.isArray(p.merchantAllocations)
+        ? p.merchantAllocations.find((a: any) => {
+            const aId = String(a.merchantId || '').trim().toLowerCase();
+            const aName = normalizeName(a.merchantName || '');
+            const idMatches = Boolean(aId && candidateMerchantIds.has(aId));
+            const nameMatches = Boolean(mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
+            return idMatches || nameMatches;
+          })
+        : null;
+
+      if (alloc) {
+        return {
+          ...p,
+          stock: Number(alloc.stock ?? 0),
+          stockQuantity: Number(alloc.stock ?? 0),
+          quantity: Number(alloc.stock ?? 0),
+          costPrice: Number(alloc.costPrice ?? p.costPrice ?? 0),
+          price: Number(alloc.sellingPrice ?? p.price ?? 0),
+          isAllocatedConsignment: true,
+          merchantAllocation: alloc
+        };
+      }
+
+      return {
+        ...p,
+        stock: Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0),
+        stockQuantity: Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0),
+        costPrice: Number(p.costPrice ?? p.cost ?? p.wholesalePrice ?? 0)
+      };
     });
-  }, [activeStoreData, settings, liveMerchant]);
+  }, [activeStoreData, settings, liveMerchant, allStoresData, crossStoreProducts]);
 
   // Orders Counts by Status for Filter Pills
   const orderStatusCounts = useMemo(() => {
@@ -3090,70 +3589,87 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const handleAcceptAdminCustomQuote = useCallback(async (request: MerchantPlanChangeRequest) => {
     if (!liveMerchant) return;
     const unitFee = Number(request.quotedOrderFee || 20);
-    const quota = Number(request.requestedCustomQuota || 200);
+    const quota = Number(request.requestedCustomQuota || request.requestedOrdersTarget || 200);
     const isPrepaid = request.requestedCustomBillingPreference === 'prepaid_quota';
-    const totalCharge = isPrepaid ? Number((unitFee * quota).toFixed(2)) : 0;
+
+    // Check if merchant is already active on custom manager plan (Quota Increase)
+    const isQuotaIncrease = Boolean(
+      liveMerchant.managerPlan?.enabled &&
+      liveMerchant.managerPlan.status === 'active' &&
+      liveMerchant.managerPlan.planId === 'custom_manager'
+    );
+
+    const oldQuota = Number(liveMerchant.managerPlan?.customOrderQuota || liveMerchant.managerPlan?.customOrdersTarget || 0);
+    const incrementalQuota = isQuotaIncrease ? Math.max(0, quota - oldQuota) : quota;
+    const totalCharge = isPrepaid ? Number((unitFee * incrementalQuota).toFixed(2)) : 0;
 
     if (totalCharge > availableForWithdrawal) {
       showToast(`رصيد المحفظة غير كافٍ لتفعيل عرض السعر (${totalCharge.toLocaleString()} ج.م). يرجى شحن المحفظة أولاً.`, 'error');
       return;
     }
 
-    // Archive existing active cycle into planCyclesHistory to keep previous orders' accounting isolated
-    const existingHistory: MerchantPlanCycleRecord[] = Array.isArray(liveMerchant.planCyclesHistory)
-      ? [...liveMerchant.planCyclesHistory]
-      : [];
-
-    if (liveMerchant.managerPlan?.enabled && liveMerchant.managerPlan.status === 'active') {
-      existingHistory.unshift({
-        cycleId: liveMerchant.managerPlan.cycleId || `CYC-OLD-${Date.now()}`,
-        mode: 'manager',
-        planId: liveMerchant.managerPlan.planId,
-        planNameAr: liveMerchant.managerPlan.planNameAr,
-        orderFee: liveMerchant.managerPlan.customOrderFee || liveMerchant.managerPlan.orderFee || 20,
-        quotaOrders: liveMerchant.managerPlan.customOrderQuota || 0,
-        usedOrders: planUsage.usedOrders,
-        paidAmount: liveMerchant.managerPlan.totalPrepaidAmount || 0,
-        activatedAt: liveMerchant.managerPlan.activatedAt || new Date().toISOString(),
-        endedAt: new Date().toISOString(),
-        endReason: 'upgraded'
-      });
-    } else if (liveMerchant.subscriptionPlan && liveMerchant.subscriptionPlan.status === 'active') {
-      existingHistory.unshift({
-        cycleId: liveMerchant.subscriptionPlan.cycleId || `CYC-OLD-${Date.now()}`,
-        mode: 'self_service',
-        planId: liveMerchant.subscriptionPlan.planId,
-        planNameAr: liveMerchant.subscriptionPlan.planNameAr,
-        billingCycle: liveMerchant.subscriptionPlan.billingCycle,
-        quotaOrders: liveMerchant.subscriptionPlan.monthlyOrderLimit || 0,
-        usedOrders: planUsage.usedOrders,
-        paidAmount: liveMerchant.subscriptionPlan.paidAmount || 0,
-        activatedAt: liveMerchant.subscriptionPlan.activatedAt || new Date().toISOString(),
-        endedAt: new Date().toISOString(),
-        endReason: 'switched_mode'
-      });
-    }
-
-    const newCycleId = `CYC-MGR-${Date.now()}`;
     const nowIso = new Date().toISOString();
     const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
 
-    const nextManagerPlan: MerchantManagerConfig = {
-      enabled: true,
-      planId: 'custom_manager',
-      planNameAr: `باقة المدير المخصصة (${unitFee} ج.م / أوردر)`,
-      cycleId: newCycleId,
-      orderFee: unitFee,
-      customOrderFee: unitFee,
-      customOrderQuota: quota,
-      customPrepaidQuota: isPrepaid,
-      totalPrepaidAmount: totalCharge,
-      usedOrdersInCycle: 0,
-      activatedAt: nowIso,
-      expiresAt: expIso,
-      status: 'active',
-      notes: `تم التفعيل بموافقة الموكل على تسعير الإدارة (${unitFee} ج.م للأوردر — ${quota} أوردر)`
-    };
+    let nextManagerPlan: MerchantManagerConfig;
+    let nextHistory: MerchantPlanCycleRecord[];
+
+    if (isQuotaIncrease && liveMerchant.managerPlan) {
+      // PRESERVE ongoing cycle and previously executed orders!
+      nextManagerPlan = {
+        ...liveMerchant.managerPlan,
+        orderFee: unitFee,
+        customOrderFee: unitFee,
+        customOrderQuota: quota,
+        customOrdersTarget: quota,
+        customPrepaidQuota: isPrepaid,
+        totalPrepaidAmount: (liveMerchant.managerPlan.totalPrepaidAmount || 0) + totalCharge,
+        usedOrdersInCycle: planUsage.usedOrders, // preserve executed orders!
+        expiresAt: expIso,
+        status: 'active',
+        notes: `تمت زيادة كوتة الأوردرات من (${oldQuota}) إلى (${quota}) أوردر مع الحفاظ على الأوردرات المنفذة سابقاً (${planUsage.usedOrders} أوردر)`
+      };
+      nextHistory = Array.isArray(liveMerchant.planCyclesHistory) ? [...liveMerchant.planCyclesHistory] : [];
+    } else {
+      // Starting new cycle from scratch
+      const existingHistory: MerchantPlanCycleRecord[] = Array.isArray(liveMerchant.planCyclesHistory)
+        ? [...liveMerchant.planCyclesHistory]
+        : [];
+      if (liveMerchant.subscriptionPlan && liveMerchant.subscriptionPlan.status === 'active') {
+        existingHistory.unshift({
+          cycleId: liveMerchant.subscriptionPlan.cycleId || `CYC-OLD-${Date.now()}`,
+          mode: 'self_service',
+          planId: liveMerchant.subscriptionPlan.planId,
+          planNameAr: liveMerchant.subscriptionPlan.planNameAr,
+          billingCycle: liveMerchant.subscriptionPlan.billingCycle,
+          quotaOrders: liveMerchant.subscriptionPlan.monthlyOrderLimit || 0,
+          usedOrders: planUsage.usedOrders,
+          paidAmount: liveMerchant.subscriptionPlan.paidAmount || 0,
+          activatedAt: liveMerchant.subscriptionPlan.activatedAt || new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          endReason: 'switched_mode'
+        });
+      }
+      nextHistory = existingHistory;
+      const newCycleId = `CYC-MGR-${Date.now()}`;
+      nextManagerPlan = {
+        enabled: true,
+        planId: 'custom_manager',
+        planNameAr: `باقة المدير المخصصة (${unitFee} ج.م / أوردر)`,
+        cycleId: newCycleId,
+        orderFee: unitFee,
+        customOrderFee: unitFee,
+        customOrderQuota: quota,
+        customOrdersTarget: quota,
+        customPrepaidQuota: isPrepaid,
+        totalPrepaidAmount: totalCharge,
+        usedOrdersInCycle: 0,
+        activatedAt: nowIso,
+        expiresAt: expIso,
+        status: 'active',
+        notes: `تم التفعيل بموافقة الموكل على تسعير الإدارة (${unitFee} ج.م للأوردر — ${quota} أوردر)`
+      };
+    }
 
     const nextSubscriptionPlan: MerchantSubscriptionConfig = liveMerchant.subscriptionPlan
       ? { ...liveMerchant.subscriptionPlan, status: 'cancelled' }
@@ -3186,7 +3702,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       subscriptionPlan: nextSubscriptionPlan,
       managerPlan: nextManagerPlan,
       pendingPlanRequest: null,
-      planCyclesHistory: existingHistory,
+      planCyclesHistory: nextHistory,
       ...(totalCharge > 0 ? { balance: nextBalance } : {}),
       ...(newTx ? { newTransaction: newTx } : {})
     });
@@ -3565,33 +4081,33 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   }, [searchParams, validTabs, currentTab]);
 
   // RENDER 1: Loading
-  if (isLoadingStore) {
+  if (isLoadingStore || loadingProgress < 100) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans" dir="rtl">
-        <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-[#008060] to-[#0a664e] flex items-center justify-center text-white shadow-2xl shadow-emerald-500/30 mb-4">
-          <Building2 size={30} />
-        </div>
-        <h2 className="text-xl font-black mb-1">{storeName}</h2>
-        <p className="text-xs text-emerald-400 font-bold mb-5">جاري تجهيز بوابة الموكلين والموردين...</p>
-        <Loader2 className="animate-spin text-[#008060]" size={26} />
-      </div>
+      <WelcomeLoader 
+        userName={authenticatedMerchant?.name || 'عزيزنا الموكل'} 
+        storeName={portalTitle}
+        onFastPass={() => {
+          setLoadingProgress(100);
+          setIsLoadingStore(false);
+        }}
+      />
     );
   }
 
   // RENDER 2: Dedicated Merchant Login View (Upgraded Modern Fintech Mobile-First Design)
   if (!liveMerchant) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950/60 text-white flex items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden" dir="rtl">
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-[#008060]/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-teal-500/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="min-h-screen bg-[#f8faf9] text-zinc-900 flex items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden" dir="rtl">
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-[#00ab84]/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-[#062d24]/5 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="w-full max-w-[420px] bg-slate-900/90 backdrop-blur-xl border border-slate-800/90 rounded-[32px] p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
+        <div className="w-full max-w-[420px] bg-white border border-zinc-200 rounded-[32px] p-6 sm:p-8 shadow-xl relative z-10 space-y-6">
           
           <div className="text-center space-y-2.5">
-            <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-[#008060] to-emerald-500 flex items-center justify-center text-white shadow-xl shadow-emerald-600/30 mb-2 ring-4 ring-emerald-500/15">
+            <div className="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-[#062d24] to-[#00ab84] flex items-center justify-center text-white shadow-xl shadow-emerald-600/30 mb-2 ring-4 ring-emerald-500/15">
               <Building2 size={30} />
             </div>
-            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">{storeName}</h1>
+            <h1 className="text-xl sm:text-2xl font-black text-zinc-900 tracking-tight">{storeName}</h1>
             <p className="text-xs text-emerald-400 font-bold">
               بوابة الموكلين والموردين · إدارة البضائع والتسويات المالية
             </p>
@@ -3613,14 +4129,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
           {/* Login Mode Selector: OTP vs PIN */}
           {!isOtpSent && (
-            <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-slate-950/80 rounded-2xl border border-slate-800 text-xs font-bold">
+            <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-zinc-100 rounded-2xl border border-zinc-200 text-xs font-bold">
               <button
                 type="button"
                 onClick={() => { setAuthMode('otp'); setAuthError(''); }}
                 className={`py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
                   authMode === 'otp'
-                    ? 'bg-[#008060] text-white shadow-md font-black'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-[#00ab84] text-white shadow-md font-black'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 <Mail size={14} />
@@ -3631,8 +4147,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => { setAuthMode('pin'); setAuthError(''); }}
                 className={`py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
                   authMode === 'pin'
-                    ? 'bg-[#008060] text-white shadow-md font-black'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-[#00ab84] text-white shadow-md font-black'
+                    : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 <Key size={14} />
@@ -3646,7 +4162,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             authMode === 'otp' ? (
               <form onSubmit={handleInitiateOtp} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-black text-slate-300 mb-2">
+                  <label className="block text-xs font-black text-zinc-600 mb-2">
                     البريد الإلكتروني المسجل للموكل
                   </label>
                   <div className="relative">
@@ -3656,15 +4172,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       value={loginEmailInput}
                       onChange={e => { setLoginEmailInput(e.target.value); setAuthError(''); }}
                       placeholder="partner@example.com"
-                      className="w-full py-3.5 px-4 pl-10 bg-slate-950/90 border border-slate-700/80 rounded-2xl font-mono text-sm text-white placeholder:text-slate-500 outline-none focus:border-[#008060] focus:ring-2 focus:ring-emerald-500/20 text-left"
+                      className="w-full py-3.5 px-4 pl-10 bg-white border border-zinc-200 rounded-2xl font-mono text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-[#00ab84] focus:ring-2 focus:ring-emerald-500/20 text-left"
                       dir="ltr"
                       autoFocus
                     />
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none">
+                    <div className="absolute left-3.5 top-1/2 -tranzinc-y-1/2 text-zinc-500 pointer-events-none">
                       <Mail size={16} />
                     </div>
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-2 font-medium leading-relaxed">
+                  <p className="text-[11px] text-zinc-400 mt-2 font-medium leading-relaxed">
                     أدخل بريدك الإلكتروني المسجل لدى المتجر؛ سيصلك كود تحقق فوري (OTP) للدخول الآمن.
                   </p>
                 </div>
@@ -3672,7 +4188,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="submit"
                   disabled={isSendingOtp || !loginEmailInput.trim()}
-                  className="w-full py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+                  className="w-full py-3.5 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
                 >
                   {isSendingOtp ? <Loader2 size={16} className="animate-spin" /> : <Send size={15} />}
                   <span>إرسال كود التحقق الأمني (OTP)</span>
@@ -3681,7 +4197,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             ) : (
               <form onSubmit={handleLoginWithPin} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-black text-slate-300 mb-2">
+                  <label className="block text-xs font-black text-zinc-600 mb-2">
                     البريد الإلكتروني المسجل أو رقم الهاتف
                   </label>
                   <input
@@ -3690,13 +4206,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     value={loginEmailInput}
                     onChange={e => { setLoginEmailInput(e.target.value); setAuthError(''); }}
                     placeholder="partner@example.com أو 010xxxxxxx"
-                    className="w-full py-3.5 px-4 bg-slate-950/90 border border-slate-700/80 rounded-2xl text-xs font-bold text-white placeholder:text-slate-500 outline-none focus:border-[#008060] focus:ring-2 focus:ring-emerald-500/20"
+                    className="w-full py-3.5 px-4 bg-white border border-zinc-200 rounded-2xl text-xs font-bold text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-[#00ab84] focus:ring-2 focus:ring-emerald-500/20"
                     autoFocus
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black text-slate-300 mb-2">
+                  <label className="block text-xs font-black text-zinc-600 mb-2">
                     رمز المرور السري (PIN)
                   </label>
                   <input
@@ -3706,9 +4222,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onChange={e => { setLoginPinInput(e.target.value); setAuthError(''); }}
                     placeholder="••••"
                     maxLength={10}
-                    className="w-full py-3.5 px-4 bg-slate-950/90 border border-slate-700/80 rounded-2xl text-center font-mono font-black text-lg tracking-[6px] text-white placeholder:text-slate-500 outline-none focus:border-[#008060] focus:ring-2 focus:ring-emerald-500/20"
+                    className="w-full py-3.5 px-4 bg-white border border-zinc-200 rounded-2xl text-center font-mono font-black text-lg tracking-[6px] text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-[#00ab84] focus:ring-2 focus:ring-emerald-500/20"
                   />
-                  <p className="text-[11px] text-slate-400 mt-1.5 font-medium">
+                  <p className="text-[11px] text-zinc-400 mt-1.5 font-medium">
                     الرمز السري الممنوح لك من إدارة المتجر (الافتراضي: 0000).
                   </p>
                 </div>
@@ -3716,7 +4232,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="submit"
                   disabled={!loginEmailInput.trim() || !loginPinInput.trim()}
-                  className="w-full py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+                  className="w-full py-3.5 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
                 >
                   <Key size={15} />
                   <span>دخول البوابة برمز PIN</span>
@@ -3726,9 +4242,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           ) : (
             /* OTP Verification Step */
             <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div className="p-3.5 bg-emerald-950/50 border border-emerald-800/80 rounded-2xl text-xs text-emerald-300 font-bold leading-relaxed">
+              <div className="p-3.5 bg-emerald-50 border border-emerald-100 rounded-2xl text-xs text-emerald-800 font-bold leading-relaxed">
                 أدخل كود التحقق المكون من 6 أرقام المرسل إلى:
-                <span className="font-mono text-white block mt-1 text-left" dir="ltr">{maskEmail(otpTargetEmail)}</span>
+                <span className="font-mono text-zinc-900 block mt-1 text-left" dir="ltr">{maskEmail(otpTargetEmail)}</span>
               </div>
 
               {import.meta.env.DEV && devOtpCode && (
@@ -3744,7 +4260,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   value={otpCode}
                   onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="000000"
-                  className="w-full py-3.5 px-4 bg-slate-950 border-2 border-[#008060] rounded-2xl text-center font-mono font-black text-2xl tracking-[8px] text-emerald-400 outline-none focus:ring-2 focus:ring-emerald-400"
+                  className="w-full py-3.5 px-4 bg-white border-2 border-[#00ab84] rounded-2xl text-center font-mono font-black text-2xl tracking-[8px] text-[#062d24] outline-none focus:ring-2 focus:ring-emerald-400"
                   autoFocus
                 />
               </div>
@@ -3753,14 +4269,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => { setIsOtpSent(false); setOtpCode(''); setAuthError(''); }}
-                  className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                  className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold cursor-pointer transition-colors"
                 >
                   تغيير البريد
                 </button>
                 <button
                   type="submit"
                   disabled={isVerifyingOtp || otpCode.length !== 6}
-                  className="flex-1 py-3 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black cursor-pointer shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black cursor-pointer shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isVerifyingOtp ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
                   <span>تأكيد الكود والدخول</span>
@@ -3771,11 +4287,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
           {/* Biometric Quick Login Button on Mobile/Supported Devices */}
           {biometricAvailable && !isOtpSent && (
-            <div className="pt-2 border-t border-slate-800/80">
+            <div className="pt-2 border-t border-zinc-800/80">
               <button
                 type="button"
                 onClick={handleBiometricQuickLogin}
-                className="w-full py-3 bg-slate-800/80 hover:bg-slate-800 text-emerald-400 border border-slate-700/80 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
+                className="w-full py-3 bg-zinc-800/80 hover:bg-zinc-800 text-emerald-400 border border-zinc-700/80 rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
               >
                 <Fingerprint size={17} />
                 <span>الدخول السريع ببصمة الهاتف / FaceID</span>
@@ -3810,8 +4326,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     <div
       className={`min-h-screen font-sans pb-24 lg:pb-0 transition-colors duration-200 ${
         isDark
-          ? 'bg-slate-950 text-slate-100'
-          : 'bg-gradient-to-b from-[#f1f5f9] via-[#f8fafc] to-[#f1f5f9] text-slate-800'
+          ? 'bg-[#050505] text-zinc-100'
+          : 'bg-[#f8faf9] text-zinc-900'
       }`}
       dir="rtl"
     >
@@ -3822,10 +4338,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-4 left-1/2 -translate-x-1/2 z-[160] px-5 py-3 rounded-2xl text-xs font-black shadow-2xl flex items-center gap-2 border ${
+            className={`fixed top-4 left-1/2 -tranzinc-x-1/2 z-[160] px-5 py-3 rounded-2xl text-xs font-black shadow-2xl flex items-center gap-2 border ${
               toast.type === 'error'
                 ? 'bg-rose-950 text-rose-200 border-rose-800'
-                : 'bg-slate-900 text-emerald-300 border-emerald-700/60'
+                : 'bg-zinc-900 text-emerald-300 border-emerald-700/60'
             }`}
           >
             {toast.type === 'error' ? <AlertCircle size={15} className="text-rose-400" /> : <CheckCircle2 size={15} className="text-emerald-400" />}
@@ -3839,30 +4355,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
         {/* =====================================================================
             1. RIGHT PERSISTENT SIDEBAR (Desktop & Laptop: lg:flex)
-            Exact structural match to reference image in brand identity colors (#008060)
+            Exact structural match to reference image in brand identity colors (#00ab84)
            ===================================================================== */}
         <aside
           className={`hidden lg:flex flex-col w-64 xl:w-72 shrink-0 border-l fixed top-0 bottom-0 right-0 h-screen z-40 select-none overflow-y-auto no-scrollbar justify-between ${
             isDark
-              ? 'bg-slate-900 border-slate-800 text-slate-300'
-              : 'bg-white border-slate-200/90 text-slate-700 shadow-xs'
+              ? 'bg-[#0a0a0a] border-zinc-800 text-zinc-300'
+              : 'bg-white border-zinc-200 text-zinc-900'
           }`}
         >
           {/* TOP ZONE: Brand Logo & Tier Pill */}
           <div className="p-4 space-y-3">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800/80">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-sm shadow-emerald-600/30">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#00ab84] to-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-sm shadow-emerald-600/30">
                   ع.م
                 </div>
                 <div>
-                  <div className="font-black text-sm text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
+                  <div className="font-black text-sm text-zinc-900 dark:text-white tracking-tight flex items-center gap-1.5">
                     <span>عبده ميديا</span>
-                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/60 text-[#008060] dark:text-emerald-400 px-1.5 py-0.2 rounded-md font-black border border-emerald-200 dark:border-emerald-800">
+                    <span className="text-[10px] bg-emerald-50 dark:bg-emerald-950/60 text-[#00ab84] dark:text-emerald-400 px-1.5 py-0.2 rounded-md font-black border border-emerald-200 dark:border-emerald-800">
                       وكيل
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-400 font-medium truncate max-w-[110px]">
+                  <div className="text-[11px] text-zinc-400 font-medium truncate max-w-[110px]">
                     {storeName}
                   </div>
                 </div>
@@ -3872,12 +4388,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <button
                 type="button"
                 onClick={() => setShowChangePlanModal(true)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-[11px] font-black text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-emerald-50 hover:border-emerald-300 hover:text-[#008060] dark:hover:bg-slate-700 transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-[11px] font-black text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-emerald-50 hover:border-emerald-300 hover:text-[#00ab84] dark:hover:bg-zinc-700 transition-colors"
                 title="تغيير الباقة أو تفعيل المدير المخصص"
               >
                 <span>{planUsage.badgeText}</span>
                 <Coins size={12} className="text-amber-500" />
-                <ChevronLeft size={12} className="text-slate-400" />
+                <ChevronLeft size={12} className="text-zinc-400" />
               </button>
             </div>
 
@@ -3889,10 +4405,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('overview')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'overview'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -3907,10 +4423,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('wallet')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'wallet'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -3920,7 +4436,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-full ${
                   currentTab === 'wallet'
                     ? 'bg-white/20 text-white'
-                    : 'bg-emerald-500/15 text-[#008060]'
+                    : 'bg-emerald-500/10 text-[#00ab84]'
                 }`}>
                   {formatMoney(availableForWithdrawal)}
                 </span>
@@ -3933,10 +4449,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   onClick={() => setExpandedMenuSection(prev => prev === 'products_orders' ? null : 'products_orders')}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                     ['orders', 'create_order', 'inventory', 'analytics'].includes(currentTab)
-                      ? 'text-[#008060] dark:text-emerald-400 font-black'
+                      ? 'text-[#00ab84] dark:text-emerald-400 font-black'
                       : isDark
-                      ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -3944,25 +4460,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <span>المنتجات والطلبات</span>
                   </div>
                   {expandedMenuSection === 'products_orders' ? (
-                    <ChevronDown size={14} className="text-slate-400" />
+                    <ChevronDown size={14} className="text-zinc-400" />
                   ) : (
-                    <ChevronLeft size={14} className="text-slate-400" />
+                    <ChevronLeft size={14} className="text-zinc-400" />
                   )}
                 </button>
 
                 {/* Collapsed Sub-items (Matching screenshot) */}
                 {expandedMenuSection === 'products_orders' && (
-                  <div className="mr-4 pr-2 border-r-2 border-slate-200 dark:border-slate-800 space-y-1 mt-1">
+                  <div className="mr-4 pr-2 border-r-2 border-zinc-200 dark:border-zinc-800 space-y-1 mt-1">
                     {/* الاوردرات */}
                     <button
                       type="button"
                       onClick={() => navigateToTab('orders')}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                         currentTab === 'orders'
-                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                           : isDark
-                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                          ? 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70'
                       }`}
                     >
                       <div className="flex items-center gap-2">
@@ -3971,7 +4487,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </div>
                       {merchantOrders.length > 0 && (
                         <span className={`font-mono text-[10px] px-1.5 py-0.2 rounded-full ${
-                          currentTab === 'orders' ? 'bg-white/20 text-white' : 'bg-emerald-500/15 text-[#008060]'
+                          currentTab === 'orders' ? 'bg-white/20 text-white' : 'bg-emerald-500/15 text-[#00ab84]'
                         }`}>
                           {merchantOrders.length}
                         </span>
@@ -3984,10 +4500,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       onClick={() => navigateToTab('create_order')}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                         currentTab === 'create_order'
-                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                           : isDark
-                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                          ? 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70'
                       }`}
                     >
                       <div className="flex items-center gap-2">
@@ -4011,17 +4527,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       onClick={() => navigateToTab('inventory')}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                         currentTab === 'inventory'
-                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                           : isDark
-                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                          ? 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <Layers size={14} />
                         <span>المنتجات والمخزون</span>
                       </div>
-                      <span className="font-mono text-[10px] text-slate-400">
+                      <span className="font-mono text-[10px] text-zinc-400">
                         {totalStockUnits} ق
                       </span>
                     </button>
@@ -4032,10 +4548,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       onClick={() => navigateToTab('analytics')}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                         currentTab === 'analytics'
-                          ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                          ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                           : isDark
-                          ? 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+                          ? 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100/70'
                       }`}
                     >
                       <div className="flex items-center gap-2">
@@ -4053,10 +4569,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('customers')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'customers'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -4066,7 +4582,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-full ${
                   currentTab === 'customers'
                     ? 'bg-white/20 text-white'
-                    : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500'
+                    : 'bg-zinc-200/60 dark:bg-zinc-800 text-zinc-500'
                 }`}>
                   {uniqueCustomersCount}
                 </span>
@@ -4080,8 +4596,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -4101,15 +4617,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => setShowStoreModal(true)}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
                   <ShoppingBag size={16} />
                   <span>المتجر الإلكتروني</span>
                 </div>
-                <ExternalLink size={13} className="text-slate-400" />
+                <ExternalLink size={13} className="text-zinc-400" />
               </button>
 
               {/* 6. حركة البضاعة والشفافية */}
@@ -4118,10 +4634,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('transparency')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'transparency'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -4136,17 +4652,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('statement')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'statement'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
                   <FileText size={16} />
                   <span>كشف الحساب والـ P&L</span>
                 </div>
-                <ChevronLeft size={13} className="text-slate-400" />
+                <ChevronLeft size={13} className="text-zinc-400" />
               </button>
 
               {/* 8. التطبيقات */}
@@ -4155,10 +4671,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('apps')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'apps'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -4168,7 +4684,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-black ${
                   currentTab === 'apps'
                     ? 'bg-white/20 text-white'
-                    : 'bg-emerald-500/15 text-[#008060]'
+                    : 'bg-emerald-500/15 text-[#00ab84]'
                 }`}>
                   نشط 4
                 </span>
@@ -4180,17 +4696,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab('account')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
                   currentTab === 'account'
-                    ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
                     : isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
                   <Settings size={16} />
                   <span>الإعدادات والأمان</span>
                 </div>
-                <ChevronLeft size={13} className="text-slate-400" />
+                <ChevronLeft size={13} className="text-zinc-400" />
               </button>
 
               {/* 10. كن شريكاً / الدعم */}
@@ -4202,8 +4718,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                   isDark
-                    ? 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -4215,17 +4731,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           </div>
 
           {/* BOTTOM ZONE: Alerts, Profile Card & Usage Progress */}
-          <div className="p-3 border-t border-slate-100 dark:border-slate-800/80 space-y-2.5">
+          <div className="p-3 border-t border-zinc-100 dark:border-zinc-800/80 space-y-2.5">
             {/* Alerts Row */}
             <button
               type="button"
               onClick={() => setShowNotificationsSheet(true)}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-700'
+                isDark ? 'hover:bg-zinc-800 text-zinc-300' : 'hover:bg-zinc-100 text-zinc-700'
               }`}
             >
               <div className="flex items-center gap-2">
-                <Bell size={15} className="text-slate-400" />
+                <Bell size={15} className="text-zinc-400" />
                 <span>الإشعارات</span>
               </div>
               {unreadAlertsCount > 0 && (
@@ -4238,27 +4754,27 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               onClick={() => setShowProfileBottomSheet(true)}
               className={`flex items-center justify-between p-2.5 rounded-2xl border transition-all cursor-pointer group ${
                 isDark
-                  ? 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
-                  : 'bg-slate-50 border-slate-200/80 hover:border-emerald-300'
+                  ? 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700'
+                  : 'bg-zinc-50 border-zinc-200/80 hover:border-emerald-300'
               }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="relative shrink-0">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-xs shadow-sm shadow-emerald-700/20">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#062d24] to-[#00ab84] text-white flex items-center justify-center font-black text-xs shadow-sm shadow-emerald-700/20">
                     {getInitials(liveMerchant.name)}
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 bg-emerald-500" />
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-zinc-900 bg-emerald-500" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-black truncate text-slate-900 dark:text-white">
+                  <div className="text-xs font-black truncate text-zinc-900 dark:text-white">
                     {liveMerchant.name}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-bold truncate">
+                  <div className="text-[10px] text-zinc-400 font-bold truncate">
                     {storeName} · وكيل معتمد
                   </div>
                 </div>
               </div>
-              <div className="flex flex-col items-center justify-center text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200">
+              <div className="flex flex-col items-center justify-center text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-200">
                 <ChevronUp size={11} />
                 <ChevronDown size={11} className="-mt-1" />
               </div>
@@ -4269,8 +4785,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               onClick={() => setShowChangePlanModal(true)}
               className={`rounded-2xl p-3 text-white shadow-md space-y-2 cursor-pointer hover:brightness-105 transition-all ${
                 planUsage.managerPlanActive
-                  ? 'bg-gradient-to-tr from-amber-600 to-[#008060] shadow-amber-950/20'
-                  : 'bg-gradient-to-tr from-cyan-500 to-[#008060] shadow-emerald-950/20'
+                  ? 'bg-gradient-to-tr from-amber-600 to-[#062d24] shadow-amber-950/20'
+                  : 'bg-gradient-to-tr from-[#00ab84] to-[#062d24] shadow-emerald-950/20'
               }`}
               title="اضغط لإدارة الباقة أو المدير المخصص"
             >
@@ -4307,13 +4823,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           <header
             className={`hidden lg:flex items-center justify-between px-8 py-3.5 sticky top-0 z-30 backdrop-blur-md border-b transition-colors ${
               isDark
-                ? 'bg-slate-900/95 border-slate-800'
-                : 'bg-white/95 border-slate-200/90 shadow-2xs'
+                ? 'bg-zinc-900/95 border-zinc-800'
+                : 'bg-white/95 border-zinc-200/80 shadow-xs'
             }`}
           >
             {/* Right: Page Title + Refresh Status */}
             <div className="flex items-center gap-4">
-              <h1 className={`text-lg xl:text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              <h1 className={`text-lg xl:text-xl font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                 {currentTab === 'orders' ? 'جميع الاوردرات' : tabTitleMap[currentTab]?.title || 'لوحة تحكم الوكيل'}
               </h1>
 
@@ -4321,10 +4837,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 type="button"
                 onClick={() => fetchFreshData(true)}
                 disabled={isRefreshing}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-200 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 text-xs font-bold border border-zinc-200 dark:border-zinc-700 cursor-pointer hover:bg-zinc-200 transition-colors"
                 title="مزامنة وتحديث البيانات"
               >
-                <RefreshCw size={12} className={isRefreshing ? 'animate-spin text-[#008060]' : ''} />
+                <RefreshCw size={12} className={isRefreshing ? 'animate-spin text-[#00ab84]' : ''} />
                 <span>{isRefreshing ? 'جارِ التحديث...' : 'تحديث'}</span>
               </button>
             </div>
@@ -4365,8 +4881,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 }}
                 className={`px-4 py-2 rounded-xl border text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
                   isDark
-                    ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    ? 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
+                    : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
                 }`}
               >
                 <Download size={14} />
@@ -4387,7 +4903,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => navigateToTab('create_order')}
-                  className="flex items-center gap-1.5 bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black shadow-md shadow-emerald-700/20 transition-all cursor-pointer active:scale-95"
+                  className="flex items-center gap-1.5 bg-[#00ab84] hover:bg-[#00ab84] text-white px-4 py-2 rounded-xl text-xs font-black shadow-md shadow-emerald-700/20 transition-all cursor-pointer active:scale-95"
                 >
                   <PlusCircle size={15} />
                   <span>+ إنشاء اوردر</span>
@@ -4413,8 +4929,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* Desktop Announcement / Plan Upgrade Banner (Dynamic with Active Plan) */}
             <div className={`relative overflow-hidden rounded-2xl text-white p-3.5 sm:p-4 shadow-md border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
               planUsage.managerPlanActive
-                ? 'bg-gradient-to-r from-amber-700 via-[#05654c] to-[#0f172a] border-amber-500/30 shadow-amber-950/20'
-                : 'bg-gradient-to-r from-[#008060] via-[#05654c] to-[#0f172a] border-emerald-600/30 shadow-emerald-950/20'
+                ? 'bg-gradient-to-r from-amber-700 via-[#062d24] to-[#09090b] border-amber-500/30 shadow-amber-950/20'
+                : 'bg-gradient-to-r from-[#062d24] via-[#00ab84] to-[#09090b] border-emerald-600/30 shadow-emerald-950/20'
             }`}>
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
@@ -4432,7 +4948,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => setShowChangePlanModal(true)}
-                  className="px-3.5 py-1.5 bg-white text-[#008060] hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95"
+                  className="px-3.5 py-1.5 bg-white text-[#062d24] hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95"
                 >
                   {planUsage.managerPlanActive ? 'إدارة باقة المدير المخصص' : 'ترقية / تغيير الخطة'}
                 </button>
@@ -4463,8 +4979,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="flex items-start gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                     liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                      ? 'bg-[#008060] text-white'
-                      : 'bg-amber-500 text-slate-950'
+                      ? 'bg-[#00ab84] text-white'
+                      : 'bg-amber-500 text-zinc-950'
                   }`}>
                     {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant' ? <CheckCircle2 size={18} /> : <Lock size={18} />}
                   </div>
@@ -4496,7 +5012,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <button
                       type="button"
                       onClick={() => handleAcceptAdminCustomQuote(liveMerchant.pendingPlanRequest!)}
-                      className="px-4 py-2 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-sm cursor-pointer transition-all"
+                      className="px-4 py-2 rounded-xl bg-[#00ab84] hover:bg-[#00ab84] text-white text-xs font-black shadow-sm cursor-pointer transition-all"
                     >
                       موافقة وتفعيل الآن من المحفظة
                     </button>
@@ -4505,7 +5021,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     type="button"
                     onClick={() => setShowChangePlanModal(true)}
                     className={`px-3.5 py-2 rounded-xl text-xs font-black border cursor-pointer transition-all ${
-                      isDark ? 'bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800' : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
+                      isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800' : 'bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-100'
                     }`}
                   >
                     عرض التفاصيل
@@ -4538,17 +5054,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => navigateToTab(t.id as TabKey)}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-black whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer border ${
                   active
-                    ? 'bg-[#008060] text-white border-[#008060] shadow-sm shadow-emerald-600/20'
+                    ? 'bg-[#00ab84] text-white border-[#00ab84] shadow-sm shadow-emerald-600/20'
                     : isDark
-                    ? 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
-                    : 'bg-white text-slate-600 border-slate-200/80 hover:bg-slate-50'
+                    ? 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:bg-zinc-800'
+                    : 'bg-white text-zinc-600 border-zinc-200/80 hover:bg-zinc-50'
                 }`}
               >
                 <Icon size={14} />
                 <span>{t.label}</span>
                 {(t as any).soon && (
                   <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
-                    active ? 'bg-amber-400 text-slate-950' : 'bg-amber-500/15 text-amber-600'
+                    active ? 'bg-amber-400 text-zinc-950' : 'bg-amber-500/15 text-amber-600'
                   }`}>
                     قريباً
                   </span>
@@ -4564,24 +5080,82 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         {currentTab === 'overview' && (
           <div className="space-y-5">
             
-            {/* Personalized Welcome Section */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
-              <div>
-                <h2 className={`text-xl sm:text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  أهلاً بك يا {liveMerchant.name.split(' ')[0]} 👋
-                </h2>
-                <p className="text-xs text-slate-400 font-bold mt-1">
-                  نظرة شاملة على نشاطك التجاري، الأرصدة المتوفرة، وحركة بضاعتك بالمخزن.
-                </p>
+            {/* Modern High-Fidelity Welcome Section */}
+            <div className="relative group px-1">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2.5 mb-1">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[#00ab84]/10 text-[#00ab84] border border-[#00ab84]/20 shadow-sm">
+                      <Sparkles size={16} />
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#00ab84]">لوحة التحكم الذكية</span>
+                  </div>
+                  
+                  {(() => {
+                    const getGreeting = () => {
+                    const hour = new Date().getHours();
+                    if (hour >= 4 && hour < 12) return 'صباح الخير والبركة';
+                    if (hour >= 12 && hour < 17) return 'طاب يومك بكل خير';
+                    if (hour >= 17 && hour < 23) return 'مساء الخير والنجاح';
+                    return 'أهلاً بك في ساعات الإنجاز';
+                  };
+
+                  return (
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <h2 className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                          {getGreeting()}، {liveMerchant.name}
+                        </h2>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[#00ab84] text-white">عبده ميديا</span>
+                          <span className={`text-[10px] font-bold ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}>· شريك النجاح والريادة</span>
+                        </div>
+                      </div>
+                      <span className="flex items-center justify-center w-10 h-10 rounded-2xl bg-amber-100 text-amber-600 text-xl shadow-sm animate-bounce [animation-duration:3s]">👋</span>
+                    </div>
+                  );
+                })()}
+                  
+                  <p className={`text-xs sm:text-sm font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'} max-w-lg leading-relaxed`}>
+                    نحن نراقب نشاطك التجاري بدقة. إليك ملخص لأرصدتك المالية وحركة بضاعتك في المخازن لهذا اليوم.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border transition-all duration-300 shadow-sm ${
+                    isDark 
+                      ? 'bg-zinc-900/50 border-zinc-800 hover:border-[#00ab84]/40 text-zinc-300' 
+                      : 'bg-white border-zinc-200 hover:border-[#00ab84]/30 text-zinc-600'
+                  }`}>
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#00ab84] to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-600/20">
+                      <Crown size={20} />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-black uppercase tracking-wider text-[#00ab84]">فئة الحساب</div>
+                      <div className="text-xs font-black">موكل بلاتيني</div>
+                    </div>
+                  </div>
+                  
+                  <button 
+                    onClick={() => fetchFreshData(true)}
+                    disabled={isRefreshing}
+                    className={`p-3 rounded-2xl border transition-all duration-300 ${
+                      isDark 
+                        ? 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-emerald-400' 
+                        : 'bg-white border-zinc-200 hover:bg-zinc-50 text-[#00ab84]'
+                    } ${isRefreshing ? 'animate-spin' : 'hover:shadow-lg hover:shadow-emerald-500/10 active:scale-95'}`}
+                  >
+                    <RefreshCw size={20} />
+                  </button>
+                </div>
               </div>
-              <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'} text-[11px] font-black`}>
-                <Building2 size={13} className="text-[#008060]" />
-                <span>{portalTitle}</span>
-              </div>
+
+              {/* Subtle Decorative Line */}
+              <div className="mt-6 h-px w-full bg-gradient-to-r from-transparent via-zinc-200 to-transparent dark:via-zinc-800 opacity-50" />
             </div>
 
             {/* Hero Fintech Wallet Card */}
-            <div className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#064e3b] via-[#008060] to-[#0f172a] text-white p-5 sm:p-7 shadow-xl shadow-emerald-950/20">
+            <div className="relative overflow-hidden rounded-[28px] bg-[#062d24] text-white p-5 sm:p-7 shadow-xl shadow-emerald-950/20">
 
               <div className="absolute -top-24 -left-24 w-72 h-72 rounded-full bg-white/5 blur-2xl pointer-events-none" />
               <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -4601,7 +5175,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     {weeklyPayoutOverview.holdingSettledBalance > 0 && (
                       <>
                         <span>·</span>
-                        <span className="text-sky-200 font-bold">
+                        <span className="text-cyan-200 font-bold">
                           مسوّى قيد التعليق ({weeklyPayoutOverview.holdingDaysSetting} أيام): <strong className="font-mono">{formatMoney(weeklyPayoutOverview.holdingSettledBalance)}</strong>
                         </span>
                       </>
@@ -4633,7 +5207,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => setShowRequestModal(true)}
-                    className="px-4 py-3 bg-white text-[#008060] hover:bg-emerald-50 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all active:scale-95"
+                    className="px-4 py-3 bg-white text-[#00ab84] hover:bg-emerald-50 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all active:scale-95"
                   >
                     <Coins size={16} />
                     <span>إعدادات وطلب السحب الأسبوعي</span>
@@ -4641,7 +5215,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => navigateToTab('create_order')}
-                    className="px-4 py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
+                    className="px-4 py-3 bg-amber-400 hover:bg-amber-300 text-zinc-950 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-lg cursor-pointer transition-all active:scale-95"
                   >
                     <PlusCircle size={15} />
                     <span>إنشاء أوردر جديد</span>
@@ -4649,7 +5223,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => navigateToTab('wallet')}
-                    className="col-span-2 sm:col-span-1 px-4 py-3 bg-slate-900/50 hover:bg-slate-900/80 text-emerald-200 border border-emerald-400/20 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
+                    className="col-span-2 sm:col-span-1 px-4 py-3 bg-white/10 hover:bg-white/20 text-emerald-200 border border-emerald-400/20 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
                   >
                     <WalletIcon size={15} />
                     <span>المحفظة والدورة المالية</span>
@@ -4693,19 +5267,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('orders')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-emerald-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-emerald-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>إجمالي المحصل</span>
-                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>إجمالي المحصل</span>
+                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center">
                     <DollarSign size={18} />
                   </div>
                 </div>
-                <div className={`text-lg sm:text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <div className={`text-lg sm:text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                   {formatMoney(overviewStats.totalDeliveredCollected)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   إجمالي المبالغ المحصلة من العملاء
                 </div>
               </div>
@@ -4714,11 +5288,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('transparency')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-rose-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-rose-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>مصروفات الشحن</span>
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>مصروفات الشحن</span>
                   <div className="w-9 h-9 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center">
                     <Truck size={18} />
                   </div>
@@ -4726,7 +5300,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-rose-500">
                   -{formatMoney(overviewStats.totalShippingDeductions)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   شحن + تأمين + ضريبة + معاينة + COD
                 </div>
               </div>
@@ -4735,19 +5309,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('transparency')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-indigo-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-emerald-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>عمولة تشغيل الأوردرات</span>
-                  <div className="w-9 h-9 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center">
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>عمولة تشغيل الأوردرات</span>
+                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
                     <Cpu size={18} />
                   </div>
                 </div>
-                <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-indigo-500">
+                <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-emerald-500">
                   -{formatMoney(overviewStats.totalServiceFees)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   رسوم المعالجة وإنشاء الأوردرات
                 </div>
               </div>
@@ -4756,11 +5330,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('transparency')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-amber-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-amber-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>مصروفات التسويق</span>
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>مصروفات التسويق</span>
                   <div className="w-9 h-9 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
                     <Megaphone size={18} />
                   </div>
@@ -4768,7 +5342,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-amber-600">
                   -{formatMoney(overviewStats.totalMarketingCosts)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   حملات إعلانية وتأجير وتسويق
                 </div>
               </div>
@@ -4777,11 +5351,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('transparency')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-purple-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-purple-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>مصروفات أخرى وتشغيل</span>
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>مصروفات أخرى وتشغيل</span>
                   <div className="w-9 h-9 rounded-2xl bg-purple-500/10 text-purple-600 flex items-center justify-center">
                     <Layers size={18} />
                   </div>
@@ -4789,7 +5363,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-purple-600">
                   -{formatMoney(overviewStats.totalOtherStoreExpenses)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   تغليف + إعلانات + عمالة + رسوم سحب
                 </div>
               </div>
@@ -4798,19 +5372,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('transparency')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-sky-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-cyan-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>رأس مال المباع</span>
-                  <div className="w-9 h-9 rounded-2xl bg-sky-500/10 text-sky-600 flex items-center justify-center">
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>رأس مال المباع</span>
+                  <div className="w-9 h-9 rounded-2xl bg-cyan-500/10 text-cyan-600 flex items-center justify-center">
                     <PackageCheck size={18} />
                   </div>
                 </div>
-                <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-sky-600">
+                <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-cyan-600">
                   {formatMoney(overviewStats.totalGoodsCostCapital)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   قيمة البضاعة المستردة من المبيعات
                 </div>
               </div>
@@ -4819,19 +5393,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div
                 onClick={() => navigateToTab('analytics')}
                 className={`p-4 sm:p-5 rounded-3xl border transition-all cursor-pointer ${
-                  isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200/80 hover:border-emerald-300 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200/80 hover:border-emerald-300 shadow-xs'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>بانتظار التسوية</span>
-                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                  <span className={`text-xs font-bold ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>بانتظار التسوية</span>
+                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center">
                     <Calculator size={18} />
                   </div>
                 </div>
-                <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-[#008060]">
+                <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-[#00ab84]">
                   {formatMoney(overviewStats.netPayoutReady)}
                 </div>
-                <div className="text-[11px] text-slate-400 mt-1">
+                <div className="text-[11px] text-zinc-400 mt-1">
                   أرباح أوردرات لم تضف للمحفظة بعد
                 </div>
               </div>
@@ -4842,21 +5416,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               
               {/* Balance Progression Chart (7 cols) */}
               <div className={`lg:col-span-7 p-5 sm:p-6 rounded-3xl border ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               } space-y-4`}>
-                <div className={`flex items-center justify-between border-b pb-3.5 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                <div className={`flex items-center justify-between border-b pb-3.5 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
                   <div>
-                    <h3 className={`text-sm sm:text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <h3 className={`text-sm sm:text-base font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                       منحنى تطور الرصيد الجاري
                     </h3>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-zinc-400">
                       حركة المحفظة عبر التسويات والمسحوبات المعتمدة
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => navigateToTab('statement')}
-                    className="text-xs font-black text-[#008060] hover:underline cursor-pointer"
+                    className="text-xs font-black text-[#00ab84] hover:underline cursor-pointer"
                   >
                     كشف الحساب ←
                   </button>
@@ -4864,8 +5438,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                 <div className="h-60 sm:h-64 w-full pt-2" dir="ltr">
                   {(!overviewStats.chartData || overviewStats.chartData.length === 0) ? (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs font-bold gap-2">
-                      <WalletIcon size={28} className="text-slate-300 dark:text-slate-700" />
+                    <div className="h-full flex flex-col items-center justify-center text-zinc-400 text-xs font-bold gap-2">
+                      <WalletIcon size={28} className="text-zinc-300 dark:text-zinc-700" />
                       <span>لا توجد حركات مسجلة في كشف الحساب لرسم المنحنى حالياً</span>
                     </div>
                   ) : (
@@ -4873,8 +5447,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <AreaChart data={overviewStats.chartData}>
                         <defs>
                           <linearGradient id="merchantPortalEmerald" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#008060" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#008060" stopOpacity={0.02}/>
+                            <stop offset="5%" stopColor="#00ab84" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#00ab84" stopOpacity={0.02}/>
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#1e293b' : '#e2e8f0'} />
@@ -4882,10 +5456,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <YAxis tick={{ fontSize: 10, fill: '#64748b' }} stroke={isDark ? '#334155' : '#cbd5e1'} />
                         <Tooltip 
                           contentStyle={{ 
-                            backgroundColor: isDark ? '#0f172a' : '#ffffff', 
+                            backgroundColor: isDark ? '#09090b' : '#ffffff', 
                             borderColor: isDark ? '#1e293b' : '#cbd5e1', 
                             borderRadius: '16px',
-                            color: isDark ? '#f8fafc' : '#0f172a',
+                            color: isDark ? '#f8fafc' : '#09090b',
                             fontSize: '11px',
                             fontWeight: 'bold',
                             direction: 'rtl'
@@ -4894,7 +5468,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <Area 
                           type="monotone" 
                           dataKey="الرصيد الجاري" 
-                          stroke="#008060" 
+                          stroke="#00ab84" 
                           strokeWidth={3} 
                           fillOpacity={1} 
                           fill="url(#merchantPortalEmerald)" 
@@ -4907,52 +5481,52 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* Consignment Inventory List (5 cols) */}
               <div className={`lg:col-span-5 p-5 sm:p-6 rounded-3xl border ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               } flex flex-col justify-between space-y-4`}>
                 <div className="space-y-3">
-                  <div className={`flex items-center justify-between border-b pb-3.5 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                  <div className={`flex items-center justify-between border-b pb-3.5 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
                     <div>
-                      <h4 className={`font-black text-sm sm:text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <h4 className={`font-black text-sm sm:text-base ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                         بضاعة الأمانة بالمخزن ({merchantProducts.length})
                       </h4>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-zinc-400">
                         إجمالي {overviewStats.totalStockUnits} قطعة متوفرة حالياً
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => navigateToTab('analytics')}
-                      className="text-xs font-black text-[#008060] hover:underline cursor-pointer"
+                      className="text-xs font-black text-[#00ab84] hover:underline cursor-pointer"
                     >
                       ترتيب المبيعات ←
                     </button>
                   </div>
 
                   {merchantProducts.length === 0 ? (
-                    <div className="py-12 text-center text-slate-400 font-bold text-xs space-y-2">
-                      <PackageIcon size={28} className="mx-auto text-slate-300 dark:text-slate-700" />
+                    <div className="py-12 text-center text-zinc-400 font-bold text-xs space-y-2">
+                      <PackageIcon size={28} className="mx-auto text-zinc-300 dark:text-zinc-700" />
                       <p>لا توجد أصناف مسجلة بالمخزن باسم الموكل حالياً</p>
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-60 overflow-y-auto pr-1">
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800 max-h-60 overflow-y-auto pr-1">
                       {merchantProducts.map((p, idx) => {
                         const stock = Number(p.stock || p.quantity || p.inventory || 0);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || p.supplierPrice || 0);
                         return (
                           <div key={p.id || idx} className="py-3 flex items-center justify-between gap-3 text-xs">
                             <div className="min-w-0">
-                              <div className={`font-black truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              <div className={`font-black truncate ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                                 {p.name || p.title || 'منتج أمانة'}
                               </div>
-                              <div className="text-[11px] text-slate-400 font-mono">
+                              <div className="text-[11px] text-zinc-400 font-mono">
                                 تكلفة القطعة: {formatMoney(cost)}
                               </div>
                             </div>
                             <div className="text-left shrink-0">
-                              <div className="font-mono tabular-nums font-black text-[#008060]">
+                              <div className="font-mono tabular-nums font-black text-[#00ab84]">
                                 {stock} قطعة
                               </div>
-                              <div className="text-[10px] font-mono text-slate-400">
+                              <div className="text-[10px] font-mono text-zinc-400">
                                 {formatMoney(stock * cost)}
                               </div>
                             </div>
@@ -4964,10 +5538,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </div>
 
                 <div className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs ${
-                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/60 border-emerald-200/70'
+                  isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-emerald-50/60 border-emerald-200/70'
                 }`}>
-                  <span className="font-bold text-slate-500 dark:text-slate-400">إجمالي تقييم المخزون المتبقي:</span>
-                  <span className="font-mono tabular-nums font-black text-sm text-[#008060]">
+                  <span className="font-bold text-zinc-500 dark:text-zinc-400">إجمالي تقييم المخزون المتبقي:</span>
+                  <span className="font-mono tabular-nums font-black text-sm text-[#00ab84]">
                     {formatMoney(overviewStats.inventoryValuation)}
                   </span>
                 </div>
@@ -4976,18 +5550,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* New & Pre-Dispatch Orders Table Card (Matching image_7fe9dee8.png) */}
             <div className={`p-5 sm:p-6 rounded-3xl border space-y-4 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 dark:border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 dark:border-zinc-800">
                 <div>
-                  <h3 className={`text-sm sm:text-base font-black flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    <FileText size={18} className="text-[#008060]" />
+                  <h3 className={`text-sm sm:text-base font-black flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                    <FileText size={18} className="text-[#00ab84]" />
                     <span>سجل الطلبات المفصل والجديدة وقيد المراجعة الخاص بالموكل</span>
                     <span className="px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-mono text-xs font-black">
                       ({newOrdersList.length} طلب)
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-zinc-400 mt-1">
                     انقر على أي سطر لعرض تفاصيل التكاليف والمعادلة الرياضية بالكامل • تنبيه: الطلبات قبل الإرسال لا تظهر بالمحفظة
                   </p>
                 </div>
@@ -5002,7 +5576,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       setOrdersTopViewMode('financial_cycle');
                       navigateToTab('wallet');
                     }}
-                    className="text-xs font-black text-[#008060] hover:underline cursor-pointer whitespace-nowrap"
+                    className="text-xs font-black text-[#00ab84] hover:underline cursor-pointer whitespace-nowrap"
                   >
                     الدورة المالية ←
                   </button>
@@ -5010,14 +5584,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               {newOrdersList.length === 0 ? (
-                <div className="py-10 text-center text-slate-400 text-xs font-bold space-y-2">
+                <div className="py-10 text-center text-zinc-400 text-xs font-bold space-y-2">
                   <PackageCheck size={32} className="mx-auto text-emerald-500/50" />
                   <p>جميع الطلبات الحالية تم إرسالها للشحن ومتابعتها في المحفظة والدورة المالية</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-right text-xs">
-                    <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-50 text-slate-700'} font-black border-b border-slate-100 dark:border-slate-800`}>
+                    <thead className={`${isDark ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-700'} font-black border-b border-zinc-100 dark:border-zinc-800`}>
                       <tr>
                         <th className="py-3.5 px-3 whitespace-nowrap">رقم الطلب والتاريخ</th>
                         <th className="py-3.5 px-3 whitespace-nowrap">شركة الشحن والتتبع</th>
@@ -5031,7 +5605,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <th className="py-3.5 px-3 text-center whitespace-nowrap">الإجراء</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                    <tbody className={`divide-y font-bold ${isDark ? 'divide-zinc-800' : 'divide-zinc-100'}`}>
                       {newOrdersList.map((o, idx) => {
                         const feeBreakdown = computeOrderFeeBreakdown(o);
                         const itemsStr = (o.items || []).map(i => `${i.name || i.productName || 'منتج'} (${i.quantity || 1})`).join(', ') || 'منتجات أمانة';
@@ -5042,57 +5616,57 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const netExpected = codAmount > 0 ? (codAmount - feeBreakdown.totalShipFee) : -feeBreakdown.totalShipFee;
 
                         return (
-                          <tr key={o.id || idx} className={`${isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50/70'}`}>
+                          <tr key={o.id || idx} className={`${isDark ? 'hover:bg-zinc-800/50' : 'hover:bg-zinc-50/70'}`}>
                             <td className="py-3.5 px-3 font-mono font-black whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-slate-900 dark:text-white">{orderNum}</span>
-                                <span className="px-2 py-0.5 rounded-lg bg-[#008060]/10 text-[#008060] dark:text-emerald-400 font-black text-[10px] font-sans">
+                                <span className="text-zinc-900 dark:text-white">{orderNum}</span>
+                                <span className="px-2 py-0.5 rounded-lg bg-[#00ab84]/10 text-[#00ab84] dark:text-emerald-400 font-black text-[10px] font-sans">
                                   {brandName}
                                 </span>
                               </div>
-                              <div className="text-[10px] text-slate-400 font-normal mt-0.5">{formattedDate}</div>
+                              <div className="text-[10px] text-zinc-400 font-normal mt-0.5">{formattedDate}</div>
                             </td>
                             <td className="py-3.5 px-3 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-200">
-                                <Truck size={14} className="text-[#008060]" />
+                              <div className="flex items-center gap-1.5 font-bold text-zinc-700 dark:text-zinc-200">
+                                <Truck size={14} className="text-[#00ab84]" />
                                 <span>بوسطة</span>
                               </div>
-                              <div className="text-[10px] text-slate-400">قيد إصدار البوليسة</div>
+                              <div className="text-[10px] text-zinc-400">قيد إصدار البوليسة</div>
                               <button
                                 type="button"
                                 onClick={() => showToast(`تتبع الشحنة رقم ${orderNum}`, 'info')}
-                                className="mt-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black cursor-pointer flex items-center gap-1"
+                                className="mt-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black cursor-pointer flex items-center gap-1"
                               >
                                 <span>تتبع الشحنة</span>
                                 🚚
                               </button>
                             </td>
                             <td className="py-3.5 px-3 whitespace-nowrap">
-                              <div className="text-slate-900 dark:text-white font-black">{o.customerName || 'عميل المتجر'}</div>
-                              <div className="text-[10px] text-slate-400 font-normal">{(o as any).province || (o as any).city || 'القاهرة'}</div>
+                              <div className="text-zinc-900 dark:text-white font-black">{o.customerName || 'عميل المتجر'}</div>
+                              <div className="text-[10px] text-zinc-400 font-normal">{(o as any).province || (o as any).city || 'القاهرة'}</div>
                             </td>
                             <td className="py-3.5 px-3 whitespace-nowrap">
                               <span className="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 text-[11px] font-black border border-amber-500/20">
                                 جاري_المراجعة
                               </span>
                             </td>
-                            <td className="py-3.5 px-3 max-w-xs truncate text-slate-600 dark:text-slate-300">
+                            <td className="py-3.5 px-3 max-w-xs truncate text-zinc-600 dark:text-zinc-300">
                               {itemsStr}
                             </td>
-                            <td className="py-3.5 px-3 text-center font-mono font-black text-[#008060] dark:text-emerald-400 whitespace-nowrap">
+                            <td className="py-3.5 px-3 text-center font-mono font-black text-[#00ab84] dark:text-emerald-400 whitespace-nowrap">
                               {formatMoney(codAmount)}
                             </td>
-                            <td className="py-3.5 px-3 text-center font-mono font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                            <td className="py-3.5 px-3 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300 whitespace-nowrap">
                               {formatMoney(feeBreakdown.goodsCost)}
                             </td>
                             <td className="py-3.5 px-3 text-center font-mono font-bold text-rose-500 whitespace-nowrap">
                               -{formatMoney(feeBreakdown.totalShipFee)}
                             </td>
-                            <td className="py-3.5 px-3 text-center font-mono font-black text-[#008060] dark:text-emerald-400 bg-emerald-500/5 rounded-xl whitespace-nowrap">
+                            <td className="py-3.5 px-3 text-center font-mono font-black text-[#00ab84] dark:text-emerald-400 bg-emerald-500/5 rounded-xl whitespace-nowrap">
                               {formatMoney(netExpected)}
                             </td>
                             <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                              <span className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-black inline-flex items-center gap-1.5 cursor-not-allowed">
+                              <span className="px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 text-[11px] font-black inline-flex items-center gap-1.5 cursor-not-allowed">
                                 <Send size={12} className="opacity-50" />
                                 <span>قريباً</span>
                               </span>
@@ -5116,11 +5690,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* 1. Top Header Banner for Created Orders */}
             <div className={`p-5 sm:p-6 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
               isDark
-                ? 'bg-slate-900 border-slate-800 text-white'
-                : 'bg-white border-slate-200/80 text-slate-900 shadow-xs'
+                ? 'bg-zinc-900 border-zinc-800 text-white'
+                : 'bg-white border-zinc-200/80 text-zinc-900 shadow-xs'
             }`}>
               <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-[#008060]/10 text-[#008060] flex items-center justify-center shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-[#00ab84]/10 text-[#00ab84] flex items-center justify-center shrink-0">
                   <PackageIcon size={24} />
                 </div>
                 <div>
@@ -5131,12 +5705,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black border ${
                       planUsage.managerPlanActive
                         ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                        : 'bg-emerald-500/15 text-[#008060] dark:text-emerald-400 border-emerald-500/30'
+                        : 'bg-emerald-500/15 text-[#00ab84] dark:text-emerald-400 border-emerald-500/30'
                     }`}>
                       {planUsage.planLabelAr} ({planUsage.quotaTextAr})
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 font-bold mt-1">
+                  <p className="text-xs text-zinc-400 font-bold mt-1">
                     {planUsage.managerPlanActive
                       ? 'يتولى المدير المخصص تسجيل وتأكيد وشحن أوردراتك، وتظهر جميعها هنا لحظة بلحظة.'
                       : 'جميع الأوردرات التي قمت بإنشائها لبضاعتك ومتابعة حالة شحنها وتحصيلها بالتفصيل.'}
@@ -5158,7 +5732,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => navigateToTab('create_order')}
-                    className="px-4 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-700/20 cursor-pointer transition-all"
+                    className="px-4 py-2.5 rounded-2xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-700/20 cursor-pointer transition-all"
                   >
                     <PlusCircle size={15} />
                     <span>+ إنشاء أوردر جديد</span>
@@ -5170,8 +5744,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   onClick={() => navigateToTab('wallet')}
                   className={`px-3.5 py-2.5 rounded-2xl border text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all ${
                     isDark
-                      ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
-                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      ? 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-100'
                   }`}
                 >
                   <WalletIcon size={14} />
@@ -5183,10 +5757,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* 2. Created Orders Status KPI Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
-                { id: 'all', label: 'إجمالي الأوردرات المنشأة', count: orderStatusCounts.all, color: 'text-slate-900 dark:text-white' },
+                { id: 'all', label: 'إجمالي الأوردرات المنشأة', count: orderStatusCounts.all, color: 'text-zinc-900 dark:text-white' },
                 { id: 'pending', label: 'قيد التنفيذ / جديد', count: orderStatusCounts.pending, color: 'text-amber-600 dark:text-amber-400' },
-                { id: 'shipping', label: 'جاري التوصيل والشحن', count: orderStatusCounts.shipping, color: 'text-blue-600 dark:text-blue-400' },
-                { id: 'collected', label: 'تم التسليم والتحصيل', count: orderStatusCounts.collected, color: 'text-[#008060] dark:text-emerald-400' },
+                { id: 'shipping', label: 'جاري التوصيل والشحن', count: orderStatusCounts.shipping, color: 'text-teal-600 dark:text-teal-400' },
+                { id: 'collected', label: 'تم التسليم والتحصيل', count: orderStatusCounts.collected, color: 'text-[#00ab84] dark:text-emerald-400' },
                 { id: 'returned', label: 'المرتجعات والملغي', count: orderStatusCounts.returned, color: 'text-rose-500' }
               ].map(card => {
                 const isActive = ordersStatusFilter === card.id;
@@ -5197,15 +5771,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onClick={() => setOrdersStatusFilter(card.id as any)}
                     className={`p-4 rounded-3xl border text-right transition-all cursor-pointer flex flex-col justify-between gap-2 ${
                       isActive
-                        ? 'border-[#008060] ring-2 ring-[#008060]/20 bg-emerald-50/40 dark:bg-emerald-950/20'
+                        ? 'border-[#00ab84] ring-2 ring-[#00ab84]/20 bg-emerald-50/40 dark:bg-emerald-950/20'
                         : isDark
-                        ? 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                        : 'bg-white border-slate-200/80 hover:border-emerald-300 shadow-2xs'
+                        ? 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
+                        : 'bg-white border-zinc-200/80 hover:border-emerald-300 shadow-2xs'
                     }`}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span className="text-[11px] font-black text-slate-500 dark:text-slate-400">{card.label}</span>
-                      <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#008060]' : 'bg-slate-300 dark:bg-slate-700'}`} />
+                      <span className="text-[11px] font-black text-zinc-500 dark:text-zinc-400">{card.label}</span>
+                      <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-[#00ab84]' : 'bg-zinc-300 dark:bg-zinc-700'}`} />
                     </div>
                     <div className={`text-2xl font-black font-mono tabular-nums ${card.color}`}>
                       {card.count}
@@ -5217,10 +5791,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* 3. Search & Filter Bar */}
             <div className={`p-4 rounded-3xl border flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-2xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-2xs'
             }`}>
               <div className="relative flex-1 max-w-md">
-                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={16} className="absolute right-3.5 top-1/2 -tranzinc-y-1/2 text-zinc-400" />
                 <input
                   type="text"
                   value={ordersSearchQuery}
@@ -5228,15 +5802,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   placeholder="ابحث برقم الأوردر، اسم العميل، الهاتف، أو المحافظة..."
                   className={`w-full pr-10 pl-8 py-2.5 rounded-2xl text-xs font-bold border outline-none transition-all ${
                     isDark
-                      ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-[#008060]'
-                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-[#008060]'
+                      ? 'bg-zinc-950 border-zinc-800 text-white placeholder-zinc-500 focus:border-[#00ab84]'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-400 focus:border-[#00ab84]'
                   }`}
                 />
                 {ordersSearchQuery && (
                   <button
                     type="button"
                     onClick={() => setOrdersSearchQuery('')}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    className="absolute left-3 top-1/2 -tranzinc-y-1/2 text-zinc-400 hover:text-zinc-600 cursor-pointer"
                   >
                     <X size={14} />
                   </button>
@@ -5257,10 +5831,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onClick={() => setOrdersStatusFilter(tab.id as any)}
                     className={`px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap transition-all cursor-pointer ${
                       ordersStatusFilter === tab.id
-                        ? 'bg-[#008060] text-white shadow-xs'
+                        ? 'bg-[#00ab84] text-white shadow-xs'
                         : isDark
-                        ? 'bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
+                        ? 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:bg-zinc-800'
+                        : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/80'
                     }`}
                   >
                     {tab.label}
@@ -5274,17 +5848,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   value={cycleStartDate}
                   onChange={e => setCycleStartDate(e.target.value)}
                   className={`px-3 py-2 rounded-xl border text-xs font-mono outline-none ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-700'
                   }`}
                   title="من تاريخ"
                 />
-                <span className="text-slate-400">إلى</span>
+                <span className="text-zinc-400">إلى</span>
                 <input
                   type="date"
                   value={cycleEndDate}
                   onChange={e => setCycleEndDate(e.target.value)}
                   className={`px-3 py-2 rounded-xl border text-xs font-mono outline-none ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-700'
                   }`}
                   title="إلى تاريخ"
                 />
@@ -5305,12 +5879,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* 4. Created Orders Table (Desktop) & Cards (Mobile) */}
             <div className={`rounded-3xl border overflow-hidden ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-xs'
             }`}>
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-right text-xs">
                   <thead className={`border-b font-black ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/80 text-slate-600'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200/80 text-zinc-600'
                   }`}>
                     <tr>
                       <th className="py-3.5 px-4">رقم الأوردر / التتبع</th>
@@ -5323,16 +5897,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <th className="py-3.5 px-4 text-center">صافي مستحقاتك</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800/70' : 'divide-slate-100'}`}>
+                  <tbody className={`divide-y font-bold ${isDark ? 'divide-zinc-800/70' : 'divide-zinc-100'}`}>
                     {filteredOrders.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-16 text-center">
                           <div className="max-w-sm mx-auto space-y-2">
-                            <PackageIcon size={36} className="mx-auto text-slate-300 dark:text-slate-700" />
-                            <div className="font-black text-sm text-slate-700 dark:text-slate-200">
+                            <PackageIcon size={36} className="mx-auto text-zinc-300 dark:text-zinc-700" />
+                            <div className="font-black text-sm text-zinc-700 dark:text-zinc-200">
                               لا توجد أوردرات منشأة مطابقة للفلتر الحالي
                             </div>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-zinc-400">
                               {planUsage.managerPlanActive
                                 ? 'سيقوم مدير حسابك المخصص بإنشاء الأوردرات وتأكيدها لتظهر هنا تلقائياً.'
                                 : 'يمكنك إنشاء أوردر جديد الآن من خلال زر (+ إنشاء أوردر جديد).'}
@@ -5365,36 +5939,36 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const mgrFee = Number(orderSnap.lockedFee || 0);
 
                         return (
-                          <tr key={o.id} className={`transition-colors ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/70'}`}>
+                          <tr key={o.id} className={`transition-colors ${isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/70'}`}>
                             <td className="py-3.5 px-4">
-                              <div className="font-mono font-black text-slate-900 dark:text-white text-xs">
+                              <div className="font-mono font-black text-zinc-900 dark:text-white text-xs">
                                 #{orderNum}
                               </div>
                               {trackNum && trackNum !== orderNum && (
-                                <div className="text-[10px] font-mono text-[#008060] mt-0.5">
+                                <div className="text-[10px] font-mono text-[#00ab84] mt-0.5">
                                   بوليصة: {trackNum}
                                 </div>
                               )}
                             </td>
-                            <td className="py-3.5 px-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                            <td className="py-3.5 px-4 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
                               {dateStr}
                             </td>
                             <td className="py-3.5 px-4">
-                              <div className="font-black text-slate-900 dark:text-white">
+                              <div className="font-black text-zinc-900 dark:text-white">
                                 {o.customerName || 'عميل'}
                               </div>
-                              <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                              <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
                                 <span className="font-mono">{o.customerPhone || '—'}</span>
                                 <span>•</span>
-                                <span className="text-[#008060] font-black">{destGov}</span>
+                                <span className="text-[#00ab84] font-black">{destGov}</span>
                               </div>
                             </td>
                             <td className="py-3.5 px-4">
-                              <div className="text-xs font-bold text-slate-700 dark:text-slate-200 max-w-[240px] truncate" title={itemsText}>
+                              <div className="text-xs font-bold text-zinc-700 dark:text-zinc-200 max-w-[240px] truncate" title={itemsText}>
                                 {itemsText}
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-black text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700" title={`كود الدورة المعزولة: ${orderSnap.cycleId}`}>
+                                <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-[10px] font-black text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700" title={`كود الدورة المعزولة: ${orderSnap.cycleId}`}>
                                   🔒 {orderSnap.planNameAr}
                                   {orderSnap.cycleOrderNumber ? ` (#${orderSnap.cycleOrderNumber})` : ''}
                                 </span>
@@ -5408,24 +5982,24 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             <td className="py-3.5 px-4 text-center">
                               <span className={`px-2.5 py-1 rounded-full text-[10.5px] font-black inline-flex items-center gap-1.5 ${
                                 isDelivered
-                                  ? 'bg-emerald-500/15 text-[#008060] dark:text-emerald-400'
+                                  ? 'bg-emerald-500/15 text-[#00ab84] dark:text-emerald-400'
                                   : isReturned
                                   ? 'bg-rose-500/15 text-rose-500'
                                   : isShipping
-                                  ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400'
+                                  ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400'
                                   : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                               }`}>
                                 <span className="w-1.5 h-1.5 rounded-full bg-current" />
                                 <span>{String(o.status || 'جديد').replace(/_/g, ' ')}</span>
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-center font-mono font-black text-slate-900 dark:text-white">
+                            <td className="py-3.5 px-4 text-center font-mono font-black text-zinc-900 dark:text-white">
                               {formatMoney(codTotal)}
                             </td>
                             <td className="py-3.5 px-4 text-center font-mono text-rose-500">
                               {formatMoney(b.totalShipFee)}
                             </td>
-                            <td className="py-3.5 px-4 text-center font-mono font-black text-[#008060] dark:text-emerald-400">
+                            <td className="py-3.5 px-4 text-center font-mono font-black text-[#00ab84] dark:text-emerald-400">
                               {formatMoney(b.netEntitlement)}
                             </td>
                           </tr>
@@ -5437,9 +6011,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               {/* Mobile Cards View for Created Orders */}
-              <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
                 {filteredOrders.length === 0 ? (
-                  <div className="py-12 px-4 text-center text-slate-400 font-bold text-xs">
+                  <div className="py-12 px-4 text-center text-zinc-400 font-bold text-xs">
                     لا توجد أوردرات منشأة مطابقة للفلتر الحالي
                   </div>
                 ) : (
@@ -5466,43 +6040,43 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <div key={o.id} className="p-4 space-y-3 text-xs">
                         <div className="flex items-center justify-between">
                           <div>
-                            <span className="font-mono font-black text-sm text-slate-900 dark:text-white">#{orderNum}</span>
-                            <span className="text-[11px] text-slate-400 mr-2 font-mono">{dateStr}</span>
+                            <span className="font-mono font-black text-sm text-zinc-900 dark:text-white">#{orderNum}</span>
+                            <span className="text-[11px] text-zinc-400 mr-2 font-mono">{dateStr}</span>
                           </div>
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
                             isDelivered
-                              ? 'bg-emerald-500/15 text-[#008060]'
+                              ? 'bg-emerald-500/15 text-[#00ab84]'
                               : isReturned
                               ? 'bg-rose-500/15 text-rose-500'
                               : isShipping
-                              ? 'bg-blue-500/15 text-blue-600'
+                              ? 'bg-teal-500/15 text-teal-600'
                               : 'bg-amber-500/15 text-amber-600'
                           }`}>
                             {String(o.status || 'جديد').replace(/_/g, ' ')}
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 font-bold">
+                        <div className="flex items-center justify-between text-zinc-600 dark:text-zinc-300 font-bold">
                           <span>{o.customerName || 'عميل'} ({o.customerPhone || '—'})</span>
-                          <span className="text-[#008060] font-black">{destGov}</span>
+                          <span className="text-[#00ab84] font-black">{destGov}</span>
                         </div>
 
-                        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold truncate">
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold truncate">
                           الأصناف: {itemsText}
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-center">
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 text-center">
                           <div>
-                            <div className="text-[10px] text-slate-400">إجمالي COD</div>
-                            <div className="font-mono font-black text-slate-900 dark:text-white">{formatMoney(codTotal)}</div>
+                            <div className="text-[10px] text-zinc-400">إجمالي COD</div>
+                            <div className="font-mono font-black text-zinc-900 dark:text-white">{formatMoney(codTotal)}</div>
                           </div>
                           <div>
-                            <div className="text-[10px] text-slate-400">الشحن</div>
+                            <div className="text-[10px] text-zinc-400">الشحن</div>
                             <div className="font-mono font-bold text-rose-500">{formatMoney(b.totalShipFee)}</div>
                           </div>
                           <div>
-                            <div className="text-[10px] text-slate-400">صافي مستحقاتك</div>
-                            <div className="font-mono font-black text-[#008060]">{formatMoney(b.netEntitlement)}</div>
+                            <div className="text-[10px] text-zinc-400">صافي مستحقاتك</div>
+                            <div className="font-mono font-black text-[#00ab84]">{formatMoney(b.netEntitlement)}</div>
                           </div>
                         </div>
                       </div>
@@ -5522,18 +6096,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* Top Wallet Header & Sub-View Switcher (الرصيد الحالي vs الدورة المالية) */}
             <div className={`p-5 sm:p-6 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
               isDark
-                ? 'bg-slate-900 border-slate-800 text-white'
-                : 'bg-white border-slate-200/80 text-slate-900 shadow-xs'
+                ? 'bg-zinc-900 border-zinc-800 text-white'
+                : 'bg-white border-zinc-200/80 text-zinc-900 shadow-xs'
             }`}>
               <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-[#008060]/10 text-[#008060] flex items-center justify-center shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-[#00ab84]/10 text-[#00ab84] flex items-center justify-center shrink-0">
                   <WalletIcon size={24} />
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-black">
                     المحفظة ومعاملاتها والدورة المالية
                   </h2>
-                  <p className="text-xs text-slate-400 font-bold mt-1">
+                  <p className="text-xs text-zinc-400 font-bold mt-1">
                     متابعة الرصيد الحالي المتاح للسحب، قائمة المعاملات، والدورة المالية لتحصيل الشحنات.
                   </p>
                 </div>
@@ -5542,17 +6116,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div className="flex flex-wrap items-center gap-2">
                 {/* Segmented Toggle: الرصيد الحالي vs الدورة المالية */}
                 <div className={`p-1 rounded-2xl border flex items-center gap-1 ${
-                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200/70'
+                  isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-100 border-zinc-200/70'
                 }`}>
                   <button
                     type="button"
                     onClick={() => setOrdersTopViewMode('current_balance')}
                     className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
                       ordersTopViewMode === 'current_balance'
-                        ? 'bg-[#008060] text-white shadow-sm'
+                        ? 'bg-[#00ab84] text-white shadow-sm'
                         : isDark
-                        ? 'text-slate-300 hover:text-white'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'text-zinc-300 hover:text-white'
+                        : 'text-zinc-600 hover:text-zinc-900'
                     }`}
                   >
                     <WalletIcon size={14} />
@@ -5563,10 +6137,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onClick={() => setOrdersTopViewMode('financial_cycle')}
                     className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
                       ordersTopViewMode === 'financial_cycle'
-                        ? 'bg-[#008060] text-white shadow-sm'
+                        ? 'bg-[#00ab84] text-white shadow-sm'
                         : isDark
-                        ? 'text-slate-300 hover:text-white'
-                        : 'text-slate-600 hover:text-slate-900'
+                        ? 'text-zinc-300 hover:text-white'
+                        : 'text-zinc-600 hover:text-zinc-900'
                     }`}
                   >
                     <Calendar size={14} />
@@ -5577,7 +6151,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => setShowRequestModal(true)}
-                  className="px-4 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-700/20 cursor-pointer transition-all"
+                  className="px-4 py-2.5 rounded-2xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-700/20 cursor-pointer transition-all"
                 >
                   <Coins size={15} />
                   <span>طلب سحب</span>
@@ -5588,12 +6162,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* Dedicated Plan & Quota Governance Card (Point 4: Complete Separation Between COD Sales Wallet & Order Plan Quota) */}
             <div className={`p-5 rounded-3xl border transition-all ${
               isDark
-                ? 'bg-gradient-to-l from-slate-900 via-slate-900 to-emerald-950/30 border-slate-800 text-white'
-                : 'bg-gradient-to-l from-white via-white to-emerald-50/50 border-slate-200/80 text-slate-900 shadow-xs'
+                ? 'bg-gradient-to-l from-zinc-900 via-zinc-900 to-emerald-950/30 border-zinc-800 text-white'
+                : 'bg-gradient-to-l from-white via-white to-emerald-50/50 border-zinc-200/80 text-zinc-900 shadow-xs'
             }`}>
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex items-start gap-3.5">
-                  <div className="w-11 h-11 rounded-2xl bg-[#008060]/15 text-[#008060] flex items-center justify-center shrink-0 mt-0.5">
+                  <div className="w-11 h-11 rounded-2xl bg-[#00ab84]/15 text-[#00ab84] flex items-center justify-center shrink-0 mt-0.5">
                     <Crown size={21} />
                   </div>
                   <div className="space-y-1">
@@ -5601,25 +6175,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <span className="text-xs sm:text-sm font-black">
                         حوكمة الباقات وعزل الدورات: {planUsage.planNameAr}
                       </span>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-[#008060]/15 text-[#008060]">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-[#00ab84]/15 text-[#00ab84]">
                         دورة نشطة: {planUsage.cycleId}
                       </span>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-500/10 text-slate-500 dark:text-slate-400">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-zinc-500/10 text-zinc-500 dark:text-zinc-400">
                         🔒 بصمة الأوردرات مفعّلة لمنع التداخل
                       </span>
                     </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold">
                       رصيد محفظة المبيعات ({formatMoney(effectiveMerchantBalance)}) منفصل محاسبياً عن رصيد كوتة الأوردرات ({planUsage.isUnlimited ? 'غير محدود' : `${planUsage.usedOrdersCount} مستخدم من ${planUsage.limitOrders ?? 0} أوردر — متبقي ${planUsage.remainingQuota ?? 0} أوردر`}). كل أوردر يحتفظ ببصمة الباقة التي أُنشئ عليها.
                     </p>
                     {liveMerchant?.scheduledNextPlan && (
                       <div className="pt-1 flex flex-wrap items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 text-[11px] font-black">
+                        <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[11px] font-black">
                           ⏳ باقة مجدولة تالية: {liveMerchant.scheduledNextPlan.planNameAr || liveMerchant.scheduledNextPlan.targetPlanNameAr} (تبدأ تلقائياً بعد انتهاء الكوتة الحالية)
                         </span>
                         <button
                           type="button"
                           onClick={handleActivateScheduledPlanNow}
-                          className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black cursor-pointer"
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black cursor-pointer"
                         >
                           تفعيل المجدولة الآن
                         </button>
@@ -5630,14 +6204,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
                   {Array.isArray(liveMerchant?.planCyclesHistory) && liveMerchant.planCyclesHistory.length > 0 && (
-                    <span className="px-3 py-2 rounded-xl bg-slate-500/10 text-slate-600 dark:text-slate-300 text-[11px] font-black">
+                    <span className="px-3 py-2 rounded-xl bg-zinc-500/10 text-zinc-600 dark:text-zinc-300 text-[11px] font-black">
                       دورات مؤرشفة معزولة: {liveMerchant.planCyclesHistory.length}
                     </span>
                   )}
                   <button
                     type="button"
                     onClick={() => setShowChangePlanModal(true)}
-                    className="px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all"
+                    className="px-4 py-2.5 rounded-2xl bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-black flex items-center gap-1.5 cursor-pointer transition-all"
                   >
                     <Crown size={14} className="text-amber-500" />
                     <span>إدارة الباقة / جدولة الترقية</span>
@@ -5656,18 +6230,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   {/* Card 1 (Right): الرصيد الحالي + عرض التفاصيل (Dark Popover) + سحب الرصيد */}
                   <div className={`p-6 rounded-[28px] border space-y-3.5 relative transition-all ${
                     isDark 
-                      ? 'bg-emerald-950/25 border-[#008060]/40 text-white' 
-                      : 'bg-teal-50/70 border-teal-200/80 text-slate-900 shadow-xs'
+                      ? 'bg-emerald-950/25 border-[#00ab84]/40 text-white' 
+                      : 'bg-teal-50/70 border-teal-200/80 text-zinc-900 shadow-xs'
                   }`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs sm:text-sm font-black text-[#008060] dark:text-emerald-400">
+                      <span className="text-xs sm:text-sm font-black text-[#00ab84] dark:text-emerald-400">
                         الرصيد الحالي : <strong className="font-mono text-xl sm:text-2xl">{formatMoney(effectiveMerchantBalance)}</strong>
                       </span>
                     </div>
 
-                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 leading-relaxed">
+                    <p className="text-[11px] font-bold text-zinc-600 dark:text-zinc-300 leading-relaxed">
                       قيمة المبلغ المالي المتاح في حسابك (الجاهز للتحويل في السحبة القادمة من تسويات الأسبوع السابق:{' '}
-                      <strong className="font-mono text-[#008060] dark:text-emerald-400">{formatMoney(weeklyPayoutOverview.maturedWalletBalance)}</strong>)
+                      <strong className="font-mono text-[#00ab84] dark:text-emerald-400">{formatMoney(weeklyPayoutOverview.maturedWalletBalance)}</strong>)
                     </p>
 
                     <div className="space-y-1 text-[11px] font-bold">
@@ -5678,7 +6252,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         </div>
                       )}
                       {overviewStats.netPayoutReady > 0 && (
-                        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
                           <span>أوردرات مسلمة بانتظار التسوية:</span>
                           <span className="font-mono font-black">{formatMoney(overviewStats.netPayoutReady)}</span>
                         </div>
@@ -5705,7 +6279,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => setShowBalanceDetailsPopover(prev => !prev)}
                         className={`px-4 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
-                          isDark ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-2xs'
+                          isDark ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700' : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 shadow-2xs'
                         }`}
                       >
                         عرض التفاصيل
@@ -5713,7 +6287,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <button
                         type="button"
                         onClick={() => setShowRequestModal(true)}
-                        className="px-4 py-2 rounded-xl text-xs font-black bg-[#008060] hover:bg-[#0a664e] text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5"
+                        className="px-4 py-2 rounded-xl text-xs font-black bg-[#00ab84] hover:bg-[#0a664e] text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center gap-1.5"
                       >
                         <Coins size={15} />
                         <span>سحب الرصيد</span>
@@ -5722,15 +6296,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       {/* Dark Balance Breakdown Popover (Matching Screenshot 5: الرصيد + vs الديون -) */}
                       {showBalanceDetailsPopover && (
                         <div
-                          className="fixed sm:absolute top-1/2 sm:top-full left-1/2 sm:left-auto sm:right-0 -translate-x-1/2 sm:translate-x-0 -translate-y-1/2 sm:translate-y-2 z-50 w-[92vw] max-w-[360px] rounded-2xl bg-[#1e242b] text-white p-5 shadow-2xl border border-slate-700/80 space-y-4"
+                          className="fixed sm:absolute top-1/2 sm:top-full left-1/2 sm:left-auto sm:right-0 -tranzinc-x-1/2 sm:tranzinc-x-0 -tranzinc-y-1/2 sm:tranzinc-y-2 z-50 w-[92vw] max-w-[360px] rounded-2xl bg-[#1e242b] text-white p-5 shadow-2xl border border-zinc-700/80 space-y-4"
                           dir="rtl"
                         >
-                          <div className="flex items-center justify-between border-b border-slate-700/70 pb-2.5">
+                          <div className="flex items-center justify-between border-b border-zinc-700/70 pb-2.5">
                             <span className="text-xs font-black text-emerald-400">تفاصيل الرصيد الحالي</span>
                             <button
                               type="button"
                               onClick={() => setShowBalanceDetailsPopover(false)}
-                              className="text-slate-400 hover:text-white cursor-pointer"
+                              className="text-zinc-400 hover:text-white cursor-pointer"
                             >
                               <X size={15} />
                             </button>
@@ -5744,13 +6318,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   <span>الرصيد</span>
                                   <span className="text-emerald-400 font-mono">(+)</span>
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-bold">المبلغ المضاف إلى رصيد المحفظة</div>
+                                <div className="text-[10px] text-zinc-400 font-bold">المبلغ المضاف إلى رصيد المحفظة</div>
                               </div>
                               <span className="font-mono text-sm font-black text-emerald-400">
                                 {formatMoney(weeklyPayoutOverview.balanceBreakdown.totalAddedCredits)}
                               </span>
                             </div>
-                            <div className="space-y-1.5 pr-2 border-r-2 border-emerald-500/30 text-[11px] font-bold text-slate-300">
+                            <div className="space-y-1.5 pr-2 border-r-2 border-emerald-500/30 text-[11px] font-bold text-zinc-300">
                               <div className="flex items-center justify-between">
                                 <span>المبلغ المحصل</span>
                                 <span className="font-mono">{formatMoney(weeklyPayoutOverview.balanceBreakdown.collectedOrdersTotal)}</span>
@@ -5771,20 +6345,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           </div>
 
                           {/* Section 2: الديون (-) */}
-                          <div className="space-y-2 pt-2 border-t border-slate-700/70">
+                          <div className="space-y-2 pt-2 border-t border-zinc-700/70">
                             <div className="flex items-center justify-between">
                               <div>
                                 <div className="text-xs font-black text-white flex items-center gap-1">
                                   <span>الديون</span>
                                   <span className="text-rose-400 font-mono">(-)</span>
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-bold">المبلغ المخصوم من رصيد المحفظة</div>
+                                <div className="text-[10px] text-zinc-400 font-bold">المبلغ المخصوم من رصيد المحفظة</div>
                               </div>
                               <span className="font-mono text-sm font-black text-rose-400">
                                 -{formatMoney(weeklyPayoutOverview.balanceBreakdown.totalDeductedDebits)}
                               </span>
                             </div>
-                            <div className="space-y-1.5 pr-2 border-r-2 border-rose-500/30 text-[11px] font-bold text-slate-300">
+                            <div className="space-y-1.5 pr-2 border-r-2 border-rose-500/30 text-[11px] font-bold text-zinc-300">
                               <div className="flex items-center justify-between">
                                 <span>السحب النقدي</span>
                                 <span className="font-mono">-{formatMoney(weeklyPayoutOverview.balanceBreakdown.withdrawalsTotal)}</span>
@@ -5806,39 +6380,39 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   {/* Card 2 (Middle): تكرار السحب النقدي (Bosta-Style: أسبوعي / يومي + تغيير النظام + الدورة المالية) */}
                   <div className={`p-6 rounded-[28px] border space-y-3.5 relative overflow-hidden flex flex-col justify-between ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-xs'
                   }`}>
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100">
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-zinc-800 dark:text-zinc-100">
                           <span>تكرار السحب النقدي</span>
                           <button
                             type="button"
                             onClick={() => setShowFinancialCycleModal(true)}
-                            className="text-slate-400 hover:text-[#008060] cursor-pointer"
+                            className="text-zinc-400 hover:text-[#00ab84] cursor-pointer"
                             title="عرض الدورة المالية"
                           >
                             <HelpCircle size={15} />
                           </button>
                         </div>
-                        <span className="px-3 py-1 rounded-xl bg-teal-500/15 text-[#008060] dark:text-emerald-400 text-xs font-black">
+                        <span className="px-3 py-1 rounded-xl bg-teal-500/15 text-[#00ab84] dark:text-emerald-400 text-xs font-black">
                           {weeklyPayoutOverview.payoutFrequency === 'daily'
                             ? 'يومي'
                             : `أسبوعي (${weeklyPayoutOverview.weeklyDayNameAr})`}
                         </span>
                       </div>
 
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold leading-relaxed">
                         {weeklyPayoutOverview.payoutFrequency === 'daily'
                           ? `يتم السحب النقدي تلقائياً في يوم العمل التالي للطلبات التي أتمت مدة التسوية (${weeklyPayoutOverview.holdingDaysSetting} أيام).`
                           : `يتم السحب النقدي تلقائياً مرة واحدة في الأسبوع يوم (${weeklyPayoutOverview.weeklyDayNameAr}) للطلبات التي أتمت (${weeklyPayoutOverview.holdingDaysSetting} أيام) من التسوية.`}
                       </p>
 
                       <div className={`px-3 py-2 rounded-xl border text-[11px] font-black flex items-center justify-between ${
-                        isDark ? 'bg-slate-950/80 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200/80 text-slate-700'
+                        isDark ? 'bg-zinc-950/80 border-zinc-800 text-zinc-300' : 'bg-zinc-50 border-zinc-200/80 text-zinc-700'
                       }`}>
                         <span>عمولة/رسوم التحويل المحددة من الإدارة:</span>
-                        <span className="font-mono text-[#008060] dark:text-emerald-400">{weeklyPayoutOverview.activeFeeLabelAr}</span>
+                        <span className="font-mono text-[#00ab84] dark:text-emerald-400">{weeklyPayoutOverview.activeFeeLabelAr}</span>
                       </div>
                     </div>
 
@@ -5852,8 +6426,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         }}
                         className={`px-4 py-2 rounded-xl text-xs font-black border transition-all cursor-pointer ${
                           isDark
-                            ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'
-                            : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50 shadow-2xs'
+                            ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700'
+                            : 'bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-50 shadow-2xs'
                         }`}
                       >
                         تغيير النظام
@@ -5861,7 +6435,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <button
                         type="button"
                         onClick={() => setShowFinancialCycleModal(true)}
-                        className="text-xs font-black text-[#008060] dark:text-emerald-400 hover:underline cursor-pointer"
+                        className="text-xs font-black text-[#00ab84] dark:text-emerald-400 hover:underline cursor-pointer"
                       >
                         اعرف أكثر
                       </button>
@@ -5870,36 +6444,36 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   {/* Card 3 (Left): تاريخ السحب النقدي القادم */}
                   <div className={`p-6 rounded-[28px] border space-y-3 relative overflow-hidden flex flex-col justify-between ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-xs'
                   }`}>
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100">
-                          <Calendar size={15} className="text-[#008060]" />
+                        <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-zinc-800 dark:text-zinc-100">
+                          <Calendar size={15} className="text-[#00ab84]" />
                           <span>تاريخ السحب النقدي القادم</span>
                         </div>
-                        <span className="text-[10px] font-mono font-black text-[#008060] bg-emerald-500/10 px-2.5 py-0.5 rounded-lg">
+                        <span className="text-[10px] font-mono font-black text-[#00ab84] bg-emerald-500/10 px-2.5 py-0.5 rounded-lg">
                           {weeklyPayoutOverview.payoutFrequency === 'daily'
                             ? 'سحب يومي'
                             : `بعد ${weeklyPayoutOverview.daysUntilNextPayout} يوم`}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold leading-relaxed">
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold leading-relaxed">
                         {weeklyPayoutOverview.holdingOrdersCount > 0 && weeklyPayoutOverview.minRemainingDays !== null
                           ? `لديك (${weeklyPayoutOverview.holdingOrdersCount}) أوردر مسوّى هذا الأسبوع يُرحّل للسحبة التالية بعد (${weeklyPayoutOverview.minRemainingDays} يوم)، بينما تسويات الأسبوع السابق تُحوّل في:`
                           : 'تسويات الأسبوع السابق الجاهزة للصرف سيتم تحويلها إلى حسابك في:'}
                       </p>
                       <div className={`p-2.5 rounded-xl border text-sm font-mono font-black text-center ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-slate-800'
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                       }`}>
                         {weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1 text-[11px] font-black">
-                      <div className="flex items-center justify-between text-slate-500">
+                    <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-1 text-[11px] font-black">
+                      <div className="flex items-center justify-between text-zinc-500">
                         <span>المبلغ الجاهز للتحويل:</span>
-                        <span className="font-mono text-slate-800 dark:text-white">{formatMoney(weeklyPayoutOverview.cappedNextPayoutAmount)}</span>
+                        <span className="font-mono text-zinc-800 dark:text-white">{formatMoney(weeklyPayoutOverview.cappedNextPayoutAmount)}</span>
                       </div>
                       {weeklyPayoutOverview.nextPayoutFeeAmount > 0 && (
                         <div className="flex items-center justify-between text-rose-500">
@@ -5907,7 +6481,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           <span className="font-mono">-{formatMoney(weeklyPayoutOverview.nextPayoutFeeAmount)}</span>
                         </div>
                       )}
-                      <div className="flex items-center justify-between text-[#008060] dark:text-emerald-400">
+                      <div className="flex items-center justify-between text-[#00ab84] dark:text-emerald-400">
                         <span>صافي التحويل المتوقع:</span>
                         <span className="font-mono">{formatMoney(weeklyPayoutOverview.nextPayoutNetAmount)}</span>
                       </div>
@@ -5917,7 +6491,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </div>
 
                 {/* Sub-filter Tabs & Action Bar */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 border-t border-zinc-200/60 dark:border-zinc-800">
                   
                   {/* Category Filter Pills (Matching Image 3) */}
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -5936,10 +6510,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         onClick={() => setTxListTypeFilter(f.id as any)}
                         className={`px-3.5 py-2 rounded-xl text-xs font-black whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                           txListTypeFilter === f.id
-                            ? 'bg-[#008060] text-white shadow-xs'
+                            ? 'bg-[#00ab84] text-white shadow-xs'
                             : isDark
-                            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
                         }`}
                       >
                         {f.label}
@@ -5953,10 +6527,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       type="button"
                       onClick={() => setShowCycleDatePicker(prev => !prev)}
                       className={`px-3.5 py-2 rounded-xl border text-xs font-black flex items-center gap-2 cursor-pointer ${
-                        isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-2xs'
+                        isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-700 shadow-2xs'
                       }`}
                     >
-                      <Calendar size={14} className="text-[#008060]" />
+                      <Calendar size={14} className="text-[#00ab84]" />
                       <span>المدة الزمنية</span>
                       <ChevronDown size={14} />
                     </button>
@@ -5985,7 +6559,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         showToast('تم تصدير كشف المعاملات بنجاح', 'success');
                       }}
                       className={`px-3.5 py-2 rounded-xl border text-xs font-black flex items-center gap-2 cursor-pointer ${
-                        isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-2xs'
+                        isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-700 shadow-2xs'
                       }`}
                     >
                       <Download size={14} />
@@ -5996,19 +6570,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                 {/* Desktop Transactions Table (Matching Image 3) */}
                 <div className={`hidden md:block rounded-[28px] border overflow-hidden ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-xs'
                 }`}>
-                  <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <h3 className={`text-sm font-black flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  <div className="p-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+                    <h3 className={`text-sm font-black flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                       <span>قائمة المعاملات</span>
-                      <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-mono text-xs text-slate-600 dark:text-slate-300">
+                      <span className="px-2.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 font-mono text-xs text-zinc-600 dark:text-zinc-300">
                         {groupedTransactions.length}
                       </span>
                     </h3>
                   </div>
 
                   <table className="w-full text-right text-xs">
-                    <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-50 text-slate-700'} font-black border-b border-slate-100 dark:border-slate-800`}>
+                    <thead className={`${isDark ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-700'} font-black border-b border-zinc-100 dark:border-zinc-800`}>
                       <tr>
                         <th className="py-3.5 px-4">رقم المعاملة</th>
                         <th className="py-3.5 px-4">التاريخ</th>
@@ -6018,10 +6592,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <th className="py-3.5 px-4 text-center">الخيارات</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                    <tbody className={`divide-y font-bold ${isDark ? 'divide-zinc-800' : 'divide-zinc-100'}`}>
                       {groupedTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">لا توجد حركات مالية مسجلة بهذه الفئة</td>
+                          <td colSpan={6} className="py-12 text-center text-zinc-400 font-bold">لا توجد حركات مالية مسجلة بهذه الفئة</td>
                         </tr>
                       ) : (
                         groupedTransactions.map((tx, idx) => {
@@ -6062,32 +6636,32 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           });
 
                           return (
-                            <tr key={tx.id || idx} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
+                            <tr key={tx.id || idx} className={isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/60'}>
                               <td className="py-3.5 px-4 font-mono font-black">
                                 <div className="flex items-center gap-2">
                                   <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-mono font-black shrink-0 ${
-                                    isCredit ? 'bg-emerald-500/15 text-[#008060]' : 'bg-rose-500/15 text-rose-500'
+                                    isCredit ? 'bg-emerald-500/15 text-[#00ab84]' : 'bg-rose-500/15 text-rose-500'
                                   }`}>
                                     {isCredit ? '+' : '-'}
                                   </span>
-                                  <span className="text-slate-800 dark:text-slate-200">{tx.id.replace(/^grouped_/, '').slice(0, 12)}</span>
+                                  <span className="text-zinc-800 dark:text-zinc-200">{tx.id.replace(/^grouped_/, '').slice(0, 12)}</span>
                                 </div>
                               </td>
-                              <td className="py-3.5 px-4 font-mono text-slate-500 dark:text-slate-400 text-[11px]">
+                              <td className="py-3.5 px-4 font-mono text-zinc-500 dark:text-zinc-400 text-[11px]">
                                 {formattedDate}
                               </td>
                               <td className="py-3.5 px-4 max-w-xs">
-                                <div className="text-slate-900 dark:text-white font-black text-xs">
+                                <div className="text-zinc-900 dark:text-white font-black text-xs">
                                   {catTitle}
                                 </div>
-                                <div className="text-[11px] text-slate-400 font-normal mt-0.5 truncate">
+                                <div className="text-[11px] text-zinc-400 font-normal mt-0.5 truncate">
                                   {subText}
                                 </div>
                               </td>
-                              <td className={`py-3.5 px-4 font-mono font-black tabular-nums ${isCredit ? 'text-[#008060]' : 'text-rose-500'}`}>
+                              <td className={`py-3.5 px-4 font-mono font-black tabular-nums ${isCredit ? 'text-[#00ab84]' : 'text-rose-500'}`}>
                                 {isCredit ? '' : ''}{formatMoney(tx.amount)}
                               </td>
-                              <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300 tabular-nums">
+                              <td className="py-3.5 px-4 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300 tabular-nums">
                                 {formatMoney(tx.balanceAfter)}
                               </td>
                               <td className="py-3.5 px-4 text-center">
@@ -6095,7 +6669,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   <button
                                     type="button"
                                     onClick={() => showToast('جاري تصدير ملف التعويض المعتمد', 'success')}
-                                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                                    className="px-3.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-black text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all cursor-pointer"
                                   >
                                     تصدير الملف
                                   </button>
@@ -6103,7 +6677,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   <button
                                     type="button"
                                     onClick={() => showToast(`إشعار تحويل بنكي للمسحوبات رقم ${tx.id}`, 'info')}
-                                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
+                                    className="px-3.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-black text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-all cursor-pointer"
                                   >
                                     عرض الفاتورة
                                   </button>
@@ -6125,7 +6699,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                         document.getElementById('merchant-orders-list')?.scrollIntoView({ behavior: 'smooth' });
                                       }, 150);
                                     }}
-                                    className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-black text-[#008060] hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-all cursor-pointer"
+                                    className="px-3.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-black text-[#00ab84] hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-all cursor-pointer"
                                   >
                                     عرض التفاصيل
                                   </button>
@@ -6142,8 +6716,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 {/* Mobile Transactions List (Matching Image 3 Mobile) */}
                 <div className="md:hidden space-y-3">
                   {groupedTransactions.length === 0 ? (
-                    <div className={`p-10 rounded-3xl border text-center text-xs font-bold text-slate-400 ${
-                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80'
+                    <div className={`p-10 rounded-3xl border text-center text-xs font-bold text-zinc-400 ${
+                      isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80'
                     }`}>لا توجد حركات مالية مسجلة</div>
                   ) : (
                     groupedTransactions.slice(0, 15).map(tx => {
@@ -6175,30 +6749,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         : (tx.notes || 'تسوية معتمدة للحساب');
 
                       return (
-                        <div key={tx.id} className={`p-4 rounded-[24px] border space-y-3 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+                        <div key={tx.id} className={`p-4 rounded-[24px] border space-y-3 ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-black text-xs ${
-                                isCredit ? 'bg-emerald-500/15 text-[#008060]' : 'bg-rose-500/15 text-rose-500'
+                                isCredit ? 'bg-emerald-500/15 text-[#00ab84]' : 'bg-rose-500/15 text-rose-500'
                               }`}>
                                 {isCredit ? '+' : '-'}
                               </div>
                               <div>
-                                <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                                   {catTitle}
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-normal mt-0.5">{subText}</div>
+                                <div className="text-[10px] text-zinc-400 font-normal mt-0.5">{subText}</div>
                               </div>
                             </div>
                             <div className="text-left">
-                              <div className={`font-mono tabular-nums font-black text-sm ${isCredit ? 'text-[#008060]' : 'text-rose-500'}`}>
+                              <div className={`font-mono tabular-nums font-black text-sm ${isCredit ? 'text-[#00ab84]' : 'text-rose-500'}`}>
                                 {formatMoney(tx.amount)}
                               </div>
-                              <div className="text-[9px] font-mono text-slate-400">الرصيد: {formatMoney(tx.balanceAfter)}</div>
+                              <div className="text-[9px] font-mono text-zinc-400">الرصيد: {formatMoney(tx.balanceAfter)}</div>
                             </div>
                           </div>
                           
-                          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400">
+                          <div className="flex items-center justify-between pt-1 border-t border-zinc-100 dark:border-zinc-800 text-[10px] text-zinc-400">
                             <span className="font-mono">{tx.id.replace(/^grouped_/, '').slice(0, 12)}</span>
                             <span>{new Date(tx.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long' })}</span>
                           </div>
@@ -6207,7 +6781,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             <button
                               type="button"
                               onClick={() => showToast('جاري تصدير ملف التعويض المعتمد', 'success')}
-                              className="w-full py-2 rounded-xl border border-slate-100 dark:border-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                              className="w-full py-2 rounded-xl border border-zinc-100 dark:border-zinc-800 text-xs font-black text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 transition-colors cursor-pointer"
                             >
                               تصدير الملف
                             </button>
@@ -6215,7 +6789,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             <button
                               type="button"
                               onClick={() => showToast(`إشعار تحويل بنكي للمسحوبات رقم ${tx.id}`, 'success')}
-                              className="w-full py-2 rounded-xl border border-slate-100 dark:border-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
+                              className="w-full py-2 rounded-xl border border-zinc-100 dark:border-zinc-800 text-xs font-black text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 transition-colors cursor-pointer"
                             >
                               عرض الفاتورة
                             </button>
@@ -6237,7 +6811,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   document.getElementById('merchant-orders-list')?.scrollIntoView({ behavior: 'smooth' });
                                 }, 150);
                               }}
-                              className="w-full py-2 rounded-xl border border-slate-100 dark:border-slate-800 text-xs font-black text-[#008060] hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors cursor-pointer"
+                              className="w-full py-2 rounded-xl border border-zinc-100 dark:border-zinc-800 text-xs font-black text-[#00ab84] hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-colors cursor-pointer"
                             >
                               عرض التفاصيل
                             </button>
@@ -6256,8 +6830,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   {/* Top Bar: Date Picker Filter */}
                   <div className="flex items-center justify-between px-1">
                     <div className="flex items-center gap-2">
-                      <Calendar size={18} className="text-[#008060]" />
-                      <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>الدورة المالية الحالية</h3>
+                      <Calendar size={18} className="text-[#00ab84]" />
+                      <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>الدورة المالية الحالية</h3>
                     </div>
 
                     <div className="relative">
@@ -6265,44 +6839,44 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => setShowCycleDatePicker(prev => !prev)}
                         className={`text-xs font-mono font-black px-3.5 py-2 rounded-2xl border flex items-center gap-2 transition-all cursor-pointer ${
-                          isDark ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-700 shadow-2xs'
+                          isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-200' : 'bg-white border-zinc-200 text-zinc-700 shadow-2xs'
                         }`}
                       >
-                        <ChevronDown size={14} className="text-slate-400" />
+                        <ChevronDown size={14} className="text-zinc-400" />
                         <span>{cycleStartDate && cycleEndDate ? `${cycleStartDate} - ${cycleEndDate}` : 'جميع الفترات'}</span>
-                        <Calendar size={14} className="text-[#008060]" />
+                        <Calendar size={14} className="text-[#00ab84]" />
                       </button>
 
                       {showCycleDatePicker && (
                         <div className={`absolute top-11 left-0 z-40 p-4 rounded-[24px] border shadow-2xl space-y-3 w-72 ${
-                          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                          isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
                         }`}>
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <label className="block text-[10px] font-bold text-slate-400 mb-1">من تاريخ</label>
+                              <label className="block text-[10px] font-bold text-zinc-400 mb-1">من تاريخ</label>
                               <input
                                 type="date"
                                 value={cycleStartDate}
                                 onChange={e => setCycleStartDate(e.target.value)}
                                 className={`w-full p-2 rounded-xl border font-mono text-xs ${
-                                  isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                  isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                                 }`}
                               />
                             </div>
                             <div>
-                              <label className="block text-[10px] font-bold text-slate-400 mb-1">إلى تاريخ</label>
+                              <label className="block text-[10px] font-bold text-zinc-400 mb-1">إلى تاريخ</label>
                               <input
                                 type="date"
                                 value={cycleEndDate}
                                 onChange={e => setCycleEndDate(e.target.value)}
                                 className={`w-full p-2 rounded-xl border font-mono text-xs ${
-                                  isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                  isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                                 }`}
                               />
                             </div>
                           </div>
                           <div className="flex items-center justify-end gap-2 pt-1">
-                            <button type="button" onClick={() => setShowCycleDatePicker(false)} className="px-3.5 py-1.5 rounded-xl bg-[#008060] text-white text-[11px] font-black cursor-pointer">تطبيق</button>
+                            <button type="button" onClick={() => setShowCycleDatePicker(false)} className="px-3.5 py-1.5 rounded-xl bg-[#00ab84] text-white text-[11px] font-black cursor-pointer">تطبيق</button>
                             <button 
                               type="button" 
                               onClick={() => { 
@@ -6311,7 +6885,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 setSelectedSettlementId(null);
                                 setShowCycleDatePicker(false); 
                               }} 
-                              className="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-600 text-[11px] font-black cursor-pointer"
+                              className="px-3.5 py-1.5 rounded-xl bg-zinc-100 text-zinc-600 text-[11px] font-black cursor-pointer"
                             >
                               عرض الكل
                             </button>
@@ -6323,7 +6897,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   {selectedSettlementId && (
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 max-w-fit">
-                       <span className="text-[10px] font-bold text-[#008060]">تصفية بالتسوية المجمعة: {selectedSettlementId.slice(0, 15)}...</span>
+                       <span className="text-[10px] font-bold text-[#00ab84]">تصفية بالتسوية المجمعة: {selectedSettlementId.slice(0, 15)}...</span>
                        <button onClick={() => setSelectedSettlementId(null)} className="text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"><X size={14} /></button>
                     </div>
                   )}
@@ -6332,43 +6906,43 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 relative">
                     
                     {/* Card 1 (Right): المبلغ المحصل */}
-                    <div className={`p-5 rounded-[28px] border relative ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-2xs'}`}>
+                    <div className={`p-5 rounded-[28px] border relative ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-2xs'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5 text-xs font-black text-slate-500">
+                        <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500">
                           <span>المبلغ المحصل</span>
-                          <HelpCircle size={14} className="text-slate-400" />
+                          <HelpCircle size={14} className="text-zinc-400" />
                         </div>
                         <button
                           type="button"
                           onClick={() => setShowCycleDetailsModal(showCycleDetailsModal === 'collected' ? null : 'collected')}
-                          className="text-xs font-bold text-[#008060] hover:underline cursor-pointer"
+                          className="text-xs font-bold text-[#00ab84] hover:underline cursor-pointer"
                         >
                           عرض التفاصيل
                         </button>
                       </div>
 
-                      <div className={`text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <div className={`text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                         {formatMoney(financialCycleSummary.totalCollected || 0)}
                       </div>
 
                       {/* Collected Revenue Dark Popover */}
                       {showCycleDetailsModal === 'collected' && (
-                        <div className="absolute top-14 left-4 z-40 w-72 bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 space-y-3">
-                          <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
+                        <div className="absolute top-14 left-4 z-40 w-72 bg-zinc-900 text-white rounded-2xl p-4 shadow-2xl border border-zinc-700 animate-in fade-in zoom-in-95 space-y-3">
+                          <div className="flex items-center justify-between border-b border-zinc-700/80 pb-2">
                             <span className="text-xs font-black">المبلغ المحصل</span>
                             <span className="font-mono font-black text-sm text-emerald-400">{formatMoney(financialCycleSummary.totalCollected || 0)}</span>
                           </div>
-                          <div className="space-y-2 text-xs font-bold text-slate-300">
+                          <div className="space-y-2 text-xs font-bold text-zinc-300">
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">المبالغ النقدية المحصلة</span>
+                              <span className="text-zinc-400">المبالغ النقدية المحصلة</span>
                               <span className="font-mono">{formatMoney(financialCycleSummary.totalCollected || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">المدفوعات عبر الإنترنت</span>
+                              <span className="text-zinc-400">المدفوعات عبر الإنترنت</span>
                               <span className="font-mono">0 ج.م</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">النقدية المسترجعة</span>
+                              <span className="text-zinc-400">النقدية المسترجعة</span>
                               <span className="font-mono">0 ج.م</span>
                             </div>
                           </div>
@@ -6377,47 +6951,47 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </div>
                     
                     {/* Card 2 (Middle): سعر الشحن */}
-                    <div className={`p-5 rounded-[28px] border relative ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-2xs'}`}>
+                    <div className={`p-5 rounded-[28px] border relative ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-2xs'}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5 text-xs font-black text-slate-500">
+                        <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500">
                           <span>سعر الشحن</span>
-                          <HelpCircle size={14} className="text-slate-400" />
+                          <HelpCircle size={14} className="text-zinc-400" />
                         </div>
                         <button
                           type="button"
                           onClick={() => setShowCycleDetailsModal(showCycleDetailsModal === 'shipping' ? null : 'shipping')}
-                          className="text-xs font-bold text-[#008060] hover:underline cursor-pointer"
+                          className="text-xs font-bold text-[#00ab84] hover:underline cursor-pointer"
                         >
                           عرض التفاصيل
                         </button>
                       </div>
 
-                      <div className={`text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <div className={`text-2xl font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                         {formatMoney(financialCycleSummary.totalShippingFees || 0)}
                       </div>
 
                       {/* Shipping Fees Breakdown Dark Popover (Matching image_c642fb6b.png) */}
                       {showCycleDetailsModal === 'shipping' && (
-                        <div className="absolute top-14 left-4 z-40 w-72 bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 space-y-3">
-                          <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
+                        <div className="absolute top-14 left-4 z-40 w-72 bg-zinc-900 text-white rounded-2xl p-4 shadow-2xl border border-zinc-700 animate-in fade-in zoom-in-95 space-y-3">
+                          <div className="flex items-center justify-between border-b border-zinc-700/80 pb-2">
                             <span className="text-xs font-black">سعر الشحن</span>
                             <span className="font-mono font-black text-sm text-emerald-400">{formatMoney(financialCycleSummary.totalShippingFees || 0)}</span>
                           </div>
-                          <div className="space-y-2 text-xs font-bold text-slate-300">
-                            <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                              <span className="text-slate-400">سعر الشحن</span>
+                          <div className="space-y-2 text-xs font-bold text-zinc-300">
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-1">
+                              <span className="text-zinc-400">سعر الشحن</span>
                               <span className="font-mono">{formatMoney(financialCycleSummary.totalBaseShipping || 0)}</span>
                             </div>
-                            <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                              <span className="text-slate-400">التأمين</span>
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-1">
+                              <span className="text-zinc-400">التأمين</span>
                               <span className="font-mono">{formatMoney(financialCycleSummary.totalInsurance || 0)}</span>
                             </div>
-                            <div className="flex items-center justify-between border-b border-slate-800 pb-1">
-                              <span className="text-slate-400">رسوم فتح الشحنة</span>
+                            <div className="flex items-center justify-between border-b border-zinc-800 pb-1">
+                              <span className="text-zinc-400">رسوم فتح الشحنة</span>
                               <span className="font-mono">{formatMoney(financialCycleSummary.totalOpenPackage || 0)}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">ضريبة قيمة مضافة 14%</span>
+                              <span className="text-zinc-400">ضريبة قيمة مضافة 14%</span>
                               <span className="font-mono">{formatMoney(financialCycleSummary.totalVat || 0)}</span>
                             </div>
                           </div>
@@ -6426,12 +7000,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </div>
 
                     {/* Card 3 (Left): صافي المستحقات */}
-                    <div className={`p-5 rounded-[28px] border relative ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-2xs'}`}>
-                      <div className="flex items-center gap-1.5 text-xs font-black text-slate-500 mb-2">
+                    <div className={`p-5 rounded-[28px] border relative ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-2xs'}`}>
+                      <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 mb-2">
                         <span>صافي المستحقات</span>
-                        <HelpCircle size={14} className="text-slate-400" />
+                        <HelpCircle size={14} className="text-zinc-400" />
                       </div>
-                      <div className="text-2xl sm:text-3xl font-black font-mono tabular-nums text-[#008060] dark:text-emerald-400">
+                      <div className="text-2xl sm:text-3xl font-black font-mono tabular-nums text-[#00ab84] dark:text-emerald-400">
                         {formatMoney(financialCycleSummary.netEntitlement || 0)}
                       </div>
                     </div>
@@ -6441,22 +7015,22 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                 {/* 2. قائمة الأوردرات Section Container (Matching image_c642fb6b.png) */}
                 <div id="merchant-orders-list" className={`rounded-[28px] border p-4 sm:p-6 space-y-4 ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-xs'
                 }`}>
                   
                   {/* Title & Actions Bar */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <Truck size={19} className={isDark ? 'text-slate-200' : 'text-slate-800'} />
-                        <h3 className={`text-base sm:text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <Truck size={19} className={isDark ? 'text-zinc-200' : 'text-zinc-800'} />
+                        <h3 className={`text-base sm:text-lg font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                           قائمة الأوردرات
                         </h3>
-                        <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-black bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                        <span className="px-2.5 py-0.5 rounded-full font-mono text-xs font-black bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                           {filteredOrders.length}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                      <p className="text-xs text-zinc-400 font-medium leading-relaxed">
                         قد يكون لديك المزيد من الطلبات المكتملة ، لكنها ستظهر في المحفظة بعد تأكيدها.
                       </p>
                     </div>
@@ -6496,8 +7070,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         }}
                         className={`px-3 py-2 rounded-xl border text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer ${
                           isDark
-                            ? 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
-                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 shadow-2xs'
+                            ? 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+                            : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50 shadow-2xs'
                         }`}
                         title="تحميل قائمة الأوردرات (Excel / CSV)"
                       >
@@ -6508,9 +7082,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
 
                   {/* Applications Indicator Pill (Matching Reference Screenshot) */}
-                  <div className="flex items-center gap-2 pt-1 text-xs font-bold text-slate-500">
+                  <div className="flex items-center gap-2 pt-1 text-xs font-bold text-zinc-500">
                     <span>التطبيقات:</span>
-                    <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-[#008060] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-1.5 font-black text-[11px]">
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-[#00ab84] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-1.5 font-black text-[11px]">
                       <ShoppingBag size={13} />
                       <span>تأكيد الطلبات</span>
                     </span>
@@ -6527,11 +7101,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         placeholder="رقم الطلب أو العميل أو الهاتف أو المنتج أو الكود..."
                         className={`w-full pr-10 pl-4 py-2.5 rounded-xl border text-xs font-bold outline-none transition-all ${
                           isDark
-                            ? 'bg-slate-950 border-slate-800 text-white focus:border-[#008060]'
-                            : 'bg-white border-slate-200 text-slate-800 focus:border-[#008060]'
+                            ? 'bg-zinc-950 border-zinc-800 text-white focus:border-[#00ab84]'
+                            : 'bg-white border-zinc-200 text-zinc-800 focus:border-[#00ab84]'
                         }`}
                       />
-                      <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      <Search size={16} className="absolute right-3.5 top-1/2 -tranzinc-y-1/2 text-zinc-400 pointer-events-none" />
                     </div>
 
                     {/* Date Picker Button */}
@@ -6540,12 +7114,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => setShowCycleDatePicker(prev => !prev)}
                         className={`px-3.5 py-2.5 rounded-xl border text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-white border-zinc-200 text-zinc-700'
                         }`}
                       >
-                        <Calendar size={14} className="text-[#008060]" />
+                        <Calendar size={14} className="text-[#00ab84]" />
                         <span>{cycleStartDate && cycleEndDate ? `${cycleStartDate} - ${cycleEndDate}` : 'التاريخ'}</span>
-                        <ChevronDown size={13} className="text-slate-400" />
+                        <ChevronDown size={13} className="text-zinc-400" />
                       </button>
                     </div>
 
@@ -6555,7 +7129,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         value={ordersStatusFilter}
                         onChange={e => handleOrdersStatusFilterChange(e.target.value as any)}
                         className={`px-3.5 py-2.5 rounded-xl border text-xs font-black outline-none cursor-pointer ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-white border-zinc-200 text-zinc-700'
                         }`}
                       >
                         <option value="all">الوسوم / كافة الحالات ({orderStatusCounts.all})</option>
@@ -6580,7 +7154,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           showToast('جميع الفلاتر نشطة ومفعلة', 'info');
                         }
                       }}
-                      className="px-4 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-emerald-700/20 transition-all cursor-pointer whitespace-nowrap active:scale-95"
+                      className="px-4 py-2.5 rounded-xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-md shadow-emerald-700/20 transition-all cursor-pointer whitespace-nowrap active:scale-95"
                     >
                       <Layers size={14} />
                       <span>جميع الفلاتر</span>
@@ -6602,15 +7176,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         onClick={() => handleOrdersStatusFilterChange(f.id as any)}
                         className={`px-3.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                           ordersStatusFilter === f.id
-                            ? 'bg-[#008060] text-white shadow-xs'
+                            ? 'bg-[#00ab84] text-white shadow-xs'
                             : isDark
-                            ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
                         }`}
                       >
                         <span>{f.label}</span>
                         <span className={`mr-1 font-mono text-[11px] ${
-                          ordersStatusFilter === f.id ? 'text-emerald-100' : 'text-slate-400'
+                          ordersStatusFilter === f.id ? 'text-emerald-100' : 'text-zinc-400'
                         }`}>
                           ({f.count})
                         </span>
@@ -6621,16 +7195,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   {/* Empty State Card (Exact Match to Reference Screenshot) */}
                   {filteredOrders.length === 0 && (
                     <div className={`p-12 sm:p-16 rounded-[28px] border text-center space-y-4 my-3 ${
-                      isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                      isDark ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                     }`}>
-                      <div className="w-16 h-16 rounded-3xl bg-emerald-50 dark:bg-emerald-950/40 text-[#008060] dark:text-emerald-400 mx-auto flex items-center justify-center shadow-inner">
+                      <div className="w-16 h-16 rounded-3xl bg-emerald-50 dark:bg-emerald-950/40 text-[#00ab84] dark:text-emerald-400 mx-auto flex items-center justify-center shadow-inner">
                         <ShoppingBag size={30} />
                       </div>
                       <div className="space-y-1.5 max-w-md mx-auto">
-                        <h4 className={`text-base sm:text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <h4 className={`text-base sm:text-lg font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                           لا توجد طلبات بعد
                         </h4>
-                        <p className="text-xs text-slate-400 font-bold leading-relaxed">
+                        <p className="text-xs text-zinc-400 font-bold leading-relaxed">
                           طلبات متجرك ومحادثاتك واللي بتعملها هنا بتظهر كلها في القائمة دي.
                         </p>
                       </div>
@@ -6638,7 +7212,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <button
                           type="button"
                           onClick={() => navigateToTab('create_order')}
-                          className="px-5 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-700/20 cursor-pointer transition-all active:scale-95 inline-flex items-center gap-2"
+                          className="px-5 py-2.5 rounded-xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-700/20 cursor-pointer transition-all active:scale-95 inline-flex items-center gap-2"
                         >
                           <PlusCircle size={15} />
                           <span>إنشاء أول أوردر الآن</span>
@@ -6649,10 +7223,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   {/* Desktop Table View (Matching Image image_c642fb6b.png) */}
                   <div className={`hidden md:block rounded-2xl border ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-xs'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-xs'
                   }`}>
                     <table className="w-full text-right text-xs">
-                      <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-50 text-slate-600'} font-black border-b border-slate-100 dark:border-slate-800`}>
+                      <thead className={`${isDark ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-600'} font-black border-b border-zinc-100 dark:border-zinc-800`}>
                         <tr>
                           <th className="py-3.5 px-4">رقم الشحنة</th>
                           <th className="py-3.5 px-4">النوع</th>
@@ -6664,10 +7238,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           <th className="py-3.5 px-4 text-center">حالة السداد ⇅</th>
                         </tr>
                       </thead>
-                      <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                      <tbody className={`divide-y font-bold ${isDark ? 'divide-zinc-800' : 'divide-zinc-100'}`}>
                         {filteredOrders.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-8 text-center text-slate-400 font-bold">لا توجد أوردرات مطابقة للبحث المحدد</td>
+                            <td colSpan={8} className="py-8 text-center text-zinc-400 font-bold">لا توجد أوردرات مطابقة للبحث المحدد</td>
                           </tr>
                         ) : (
                           filteredOrders.map(o => {
@@ -6683,8 +7257,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             const isSettlementPopoverOpen = activeOrderPopover?.orderId === o.id && activeOrderPopover?.type === 'settlement_status';
 
                             return (
-                              <tr key={o.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
-                                <td className="py-3.5 px-4 font-mono font-black text-sky-600 dark:text-sky-400">
+                              <tr key={o.id} className={isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/60'}>
+                                <td className="py-3.5 px-4 font-mono font-black text-cyan-600 dark:text-cyan-400">
                                   {trackUrl ? (
                                     <a href={trackUrl} target="_blank" rel="noopener noreferrer" className="hover:underline flex items-center gap-1">
                                       <span>{trackNum}</span>
@@ -6693,68 +7267,68 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                     <span>{trackNum}</span>
                                   )}
                                 </td>
-                                <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                                <td className="py-3.5 px-4 text-zinc-700 dark:text-zinc-300">
                                   {b.isReturn ? 'استرجاع' : (o as any).packageType || 'توصيل'}
                                 </td>
-                                <td className="py-3.5 px-4 text-slate-700 dark:text-slate-300">
+                                <td className="py-3.5 px-4 text-zinc-700 dark:text-zinc-300">
                                   {originName}-{destGov}
                                 </td>
                                 <td className="py-3.5 px-4 font-mono">
                                   {b.collected > 0 ? (
                                     <div>
-                                      <div className="font-black text-slate-900 dark:text-white flex items-center gap-1">
+                                      <div className="font-black text-zinc-900 dark:text-white flex items-center gap-1">
                                         <span>{formatMoney(b.collected)}</span>
                                         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">💳</span>
                                       </div>
-                                      <div className="text-[10px] text-slate-400 font-normal">المبالغ النقدية المحصلة</div>
+                                      <div className="text-[10px] text-zinc-400 font-normal">المبالغ النقدية المحصلة</div>
                                     </div>
                                   ) : (
-                                    <div className="text-slate-400 font-normal flex items-center gap-1">
+                                    <div className="text-zinc-400 font-normal flex items-center gap-1">
                                       <span>🚫</span>
                                       <span>بدون تحصيل</span>
                                     </div>
                                   )}
                                 </td>
-                                <td className="py-3.5 px-4 font-mono font-bold text-slate-700 dark:text-slate-300 relative">
+                                <td className="py-3.5 px-4 font-mono font-bold text-zinc-700 dark:text-zinc-300 relative">
                                   <div className="flex items-center gap-1">
                                     <span>{formatMoney(b.totalShipFee)}</span>
                                     <button 
                                       type="button" 
                                       onClick={() => setActiveOrderPopover(isFeePopoverOpen ? null : { orderId: o.id, type: 'fee' })}
-                                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                      className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
                                     >
                                       <HelpCircle size={13} />
                                     </button>
                                   </div>
                                   {isFeePopoverOpen && (
-                                    <div className="absolute top-10 right-2 z-50 w-64 bg-slate-900 text-white rounded-xl p-3 shadow-2xl border border-slate-700 space-y-2 text-xs animate-in fade-in zoom-in-95">
-                                      <div className="flex justify-between border-b border-slate-700 pb-1 font-black">
+                                    <div className="absolute top-10 right-2 z-50 w-64 bg-zinc-900 text-white rounded-xl p-3 shadow-2xl border border-zinc-700 space-y-2 text-xs animate-in fade-in zoom-in-95">
+                                      <div className="flex justify-between border-b border-zinc-700 pb-1 font-black">
                                         <span>سعر الشحن</span>
                                         <span className="font-mono text-emerald-400">{formatMoney(b.totalShipFee)}</span>
                                       </div>
-                                      <div className="flex justify-between text-slate-300"><span>سعر الشحن</span><span className="font-mono">{formatMoney(b.baseShipping)}</span></div>
-                                      <div className="flex justify-between text-slate-300"><span>التأمين</span><span className="font-mono">{formatMoney(b.insuranceFee)}</span></div>
-                                      <div className="flex justify-between text-slate-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 0)}</span></div>
-                                      <div className="flex justify-between text-slate-300"><span>ضريبة قيمة مضافة 14%</span><span className="font-mono">{formatMoney(b.vatFee)}</span></div>
+                                      <div className="flex justify-between text-zinc-300"><span>سعر الشحن</span><span className="font-mono">{formatMoney(b.baseShipping)}</span></div>
+                                      <div className="flex justify-between text-zinc-300"><span>التأمين</span><span className="font-mono">{formatMoney(b.insuranceFee)}</span></div>
+                                      <div className="flex justify-between text-zinc-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 0)}</span></div>
+                                      <div className="flex justify-between text-zinc-300"><span>ضريبة قيمة مضافة 14%</span><span className="font-mono">{formatMoney(b.vatFee)}</span></div>
                                     </div>
                                   )}
                                 </td>
                                 <td className="py-3.5 px-4 font-mono relative">
-                                  <div className={`font-black ${b.netEntitlement >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
+                                  <div className={`font-black ${b.netEntitlement >= 0 ? 'text-zinc-900 dark:text-white' : 'text-rose-500'}`}>
                                     {formatMoney(b.netEntitlement)}
                                   </div>
-                                  <div className="text-[10px] text-slate-400 font-normal flex items-center gap-1">
+                                  <div className="text-[10px] text-zinc-400 font-normal flex items-center gap-1">
                                     <span>{formattedArabicDate}</span>
                                     <button
                                       type="button"
                                       onClick={() => setActiveOrderPopover(isDatePopoverOpen ? null : { orderId: o.id, type: 'added_date' })}
-                                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                      className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
                                     >
                                       <HelpCircle size={12} />
                                     </button>
                                   </div>
                                   {isDatePopoverOpen && (
-                                    <div className="absolute top-10 right-2 z-50 w-64 bg-slate-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95">
+                                    <div className="absolute top-10 right-2 z-50 w-64 bg-zinc-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-zinc-700 animate-in fade-in zoom-in-95">
                                       تاريخ إضافة النقدية المحصلة ومصاريف بوسطة إلى محفظتك.
                                     </div>
                                   )}
@@ -6762,7 +7336,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 <td className="py-3.5 px-4 text-center">
                                   <span className={`px-3 py-1 rounded-full text-[11px] font-black inline-block ${
                                     isDeliveredSuccess
-                                      ? 'bg-emerald-500/10 text-[#008060] dark:text-emerald-400'
+                                      ? 'bg-emerald-500/10 text-[#00ab84] dark:text-emerald-400'
                                       : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
                                   }`}>
                                     {isDeliveredSuccess ? 'تم بنجاح' : 'تم الاسترجاع'}
@@ -6772,11 +7346,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   <div className="inline-flex items-center gap-1">
                                     <span className={`px-3 py-1 rounded-full text-[11px] font-black inline-block ${
                                       b.payoutStage === 'paid'
-                                        ? 'bg-emerald-500/15 text-[#008060] dark:text-emerald-400'
+                                        ? 'bg-emerald-500/15 text-[#00ab84] dark:text-emerald-400'
                                         : b.payoutStage === 'ready'
                                         ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30'
                                         : b.payoutStage === 'holding'
-                                        ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
+                                        ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
                                         : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                                     }`}>
                                       {b.payoutStageLabelAr}
@@ -6784,14 +7358,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                     <button
                                       type="button"
                                       onClick={() => setActiveOrderPopover(isSettlementPopoverOpen ? null : { orderId: o.id, type: 'settlement_status' })}
-                                      className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                      className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
                                     >
                                       <HelpCircle size={12} />
                                     </button>
                                   </div>
                                   {isSettlementPopoverOpen && (
-                                    <div className="absolute top-10 left-2 z-50 w-72 bg-slate-900 text-white text-[11px] font-bold p-3.5 rounded-xl shadow-2xl border border-slate-700 text-right animate-in fade-in zoom-in-95 space-y-1.5">
-                                      <div className="font-black text-emerald-400 border-b border-slate-700 pb-1">
+                                    <div className="absolute top-10 left-2 z-50 w-72 bg-zinc-900 text-white text-[11px] font-bold p-3.5 rounded-xl shadow-2xl border border-zinc-700 text-right animate-in fade-in zoom-in-95 space-y-1.5">
+                                      <div className="font-black text-emerald-400 border-b border-zinc-700 pb-1">
                                         تفاصيل حالة السداد والتحويل الأسبوعي
                                       </div>
                                       {b.payoutStage === 'unsettled' && (
@@ -6817,15 +7391,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </table>
 
                     {/* Table Pagination Footer (Matching image_c642fb6b.png) */}
-                    <div className="p-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-center gap-3 text-xs font-bold text-slate-500">
-                      <div className="flex items-center gap-1 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1 text-[11px]">
+                    <div className="p-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-center gap-3 text-xs font-bold text-zinc-500">
+                      <div className="flex items-center gap-1 border border-zinc-200 dark:border-zinc-800 rounded-xl px-2.5 py-1 text-[11px]">
                         <span>50 / صفحة</span>
                         <ChevronDown size={13} />
                       </div>
                       <div className="flex items-center gap-1">
-                        <button type="button" className="p-1 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronRight size={14} /></button>
-                        <span className="px-2.5 py-0.5 rounded-lg bg-[#008060] text-white font-mono font-black text-[11px]">1</span>
-                        <button type="button" className="p-1 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"><ChevronLeft size={14} /></button>
+                        <button type="button" className="p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"><ChevronRight size={14} /></button>
+                        <span className="px-2.5 py-0.5 rounded-lg bg-[#00ab84] text-white font-mono font-black text-[11px]">1</span>
+                        <button type="button" className="p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"><ChevronLeft size={14} /></button>
                       </div>
                     </div>
                   </div>
@@ -6833,8 +7407,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   {/* Mobile Order Cards View (Matching image_b0cae16d.png, image_405fbc8a.png, image_5b28f778.png) */}
                   <div className="md:hidden grid grid-cols-1 gap-4 pt-1">
                     {filteredOrders.length === 0 ? (
-                      <div className={`p-12 rounded-3xl border text-center text-xs font-bold text-slate-400 ${
-                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50/70 border-slate-200/70'
+                      <div className={`p-12 rounded-3xl border text-center text-xs font-bold text-zinc-400 ${
+                        isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50/70 border-zinc-200/70'
                       }`}>
                         لا توجد أوردرات مطابقة للبحث أو الدورة المالية المحددة
                       </div>
@@ -6852,43 +7426,43 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const isSettlementPopoverOpen = activeOrderPopover?.orderId === o.id && activeOrderPopover?.type === 'settlement_status';
 
                         return (
-                          <div key={o.id} className={`rounded-[22px] border relative transition-all ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/90 shadow-2xs'}`}>
+                          <div key={o.id} className={`rounded-[22px] border relative transition-all ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/90 shadow-2xs'}`}>
                             
                             {/* Card Header */}
-                            <div className="p-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+                            <div className="p-4 flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800">
                               <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-500">{b.isReturn ? 'مرتجع شحنة' : (o as any).packageType || 'توصيل'}</span>
-                                <a href={trackUrl || '#'} target="_blank" rel="noopener noreferrer" className="font-mono font-black text-sm text-[#008060] hover:underline">
+                                <span className="text-xs font-bold text-zinc-500">{b.isReturn ? 'مرتجع شحنة' : (o as any).packageType || 'توصيل'}</span>
+                                <a href={trackUrl || '#'} target="_blank" rel="noopener noreferrer" className="font-mono font-black text-sm text-[#00ab84] hover:underline">
                                   {trackNum}
                                 </a>
                               </div>
                               <span className={`px-3 py-1 rounded-full text-[11px] font-black ${
-                                isDeliveredSuccess ? 'bg-emerald-500/10 text-[#008060]' : 'bg-purple-500/10 text-purple-600'
+                                isDeliveredSuccess ? 'bg-emerald-500/10 text-[#00ab84]' : 'bg-purple-500/10 text-purple-600'
                               }`}>
                                 {isDeliveredSuccess ? 'تم بنجاح' : 'تم الاسترجاع'}
                               </span>
                             </div>
 
                             {/* Row 1: الوجهة (Right) | تاريخ الإضافة (Left) */}
-                            <div className="grid grid-cols-2 p-4 border-b border-slate-100 dark:border-slate-800 text-xs gap-2">
+                            <div className="grid grid-cols-2 p-4 border-b border-zinc-100 dark:border-zinc-800 text-xs gap-2">
                               <div>
-                                <div className="text-[11px] text-slate-400 font-bold mb-1">الوجهة</div>
-                                <div className="font-black text-slate-800 dark:text-slate-200">{originName} - {destGov}</div>
+                                <div className="text-[11px] text-zinc-400 font-bold mb-1">الوجهة</div>
+                                <div className="font-black text-zinc-800 dark:text-zinc-200">{originName} - {destGov}</div>
                               </div>
                               <div className="relative text-left">
-                                <div className="flex items-center justify-end gap-1 text-[11px] text-slate-400 font-bold mb-1">
+                                <div className="flex items-center justify-end gap-1 text-[11px] text-zinc-400 font-bold mb-1">
                                   <button 
                                     type="button" 
                                     onClick={() => setActiveOrderPopover(isDatePopoverOpen ? null : { orderId: o.id, type: 'added_date' })} 
-                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
                                   >
                                     <HelpCircle size={13} />
                                   </button>
                                   <span>تاريخ الإضافة</span>
                                 </div>
-                                <div className="font-black text-slate-800 dark:text-slate-200">{formattedArabicDate}</div>
+                                <div className="font-black text-zinc-800 dark:text-zinc-200">{formattedArabicDate}</div>
                                 {isDatePopoverOpen && (
-                                  <div className="absolute top-11 right-0 z-50 w-60 sm:w-64 bg-slate-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 pointer-events-auto text-right">
+                                  <div className="absolute top-11 right-0 z-50 w-60 sm:w-64 bg-zinc-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-zinc-700 animate-in fade-in zoom-in-95 pointer-events-auto text-right">
                                     تاريخ إضافة النقدية المحصلة ومصاريف بوسطة إلى محفظتك.
                                   </div>
                                 )}
@@ -6896,65 +7470,65 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             </div>
 
                             {/* Row 2: المبلغ (Right) | مصاريف بوسطة (Left) */}
-                            <div className="grid grid-cols-2 p-4 border-b border-slate-100 dark:border-slate-800 text-xs gap-2">
+                            <div className="grid grid-cols-2 p-4 border-b border-zinc-100 dark:border-zinc-800 text-xs gap-2">
                               <div>
-                                <div className="text-[11px] text-slate-400 font-bold mb-1">المبلغ</div>
+                                <div className="text-[11px] text-zinc-400 font-bold mb-1">المبلغ</div>
                                 {b.collected > 0 ? (
                                   <div>
-                                    <div className="font-mono font-black text-slate-900 dark:text-white flex items-center gap-1 text-sm">
+                                    <div className="font-mono font-black text-zinc-900 dark:text-white flex items-center gap-1 text-sm">
                                       <span>{formatMoney(b.collected)}</span>
                                       <span className="text-xs">💳</span>
                                     </div>
-                                    <div className="text-[10px] text-slate-400 font-medium">المبالغ النقدية المحصلة</div>
+                                    <div className="text-[10px] text-zinc-400 font-medium">المبالغ النقدية المحصلة</div>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center gap-1 text-slate-400 font-bold">
+                                  <div className="flex items-center gap-1 text-zinc-400 font-bold">
                                     <span>🚫</span>
                                     <span>بدون تحصيل</span>
                                   </div>
                                 )}
                               </div>
                               <div className="relative text-left">
-                                <div className="text-[11px] text-slate-400 font-bold mb-1">مصاريف بوسطة</div>
-                                <div className="flex items-center justify-end gap-1 font-mono font-black text-slate-800 dark:text-slate-200 text-sm">
+                                <div className="text-[11px] text-zinc-400 font-bold mb-1">مصاريف بوسطة</div>
+                                <div className="flex items-center justify-end gap-1 font-mono font-black text-zinc-800 dark:text-zinc-200 text-sm">
                                   <button 
                                     type="button" 
                                     onClick={() => setActiveOrderPopover(isFeePopoverOpen ? null : { orderId: o.id, type: 'fee' })} 
-                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
                                   >
                                     <HelpCircle size={13} />
                                   </button>
                                   <span>{formatMoney(b.totalShipFee)}</span>
                                 </div>
                                 {isFeePopoverOpen && (
-                                  <div className="absolute top-11 left-0 z-50 w-60 sm:w-64 bg-slate-900 text-white rounded-xl p-3 shadow-2xl border border-slate-700 space-y-2 text-xs animate-in fade-in zoom-in-95 pointer-events-auto text-right">
-                                    <div className="flex justify-between border-b border-slate-700 pb-1 font-black">
+                                  <div className="absolute top-11 left-0 z-50 w-60 sm:w-64 bg-zinc-900 text-white rounded-xl p-3 shadow-2xl border border-zinc-700 space-y-2 text-xs animate-in fade-in zoom-in-95 pointer-events-auto text-right">
+                                    <div className="flex justify-between border-b border-zinc-700 pb-1 font-black">
                                       <span>سعر الشحن</span>
                                       <span className="font-mono text-emerald-400">{formatMoney(b.totalShipFee)}</span>
                                     </div>
-                                    <div className="flex justify-between text-slate-300"><span>سعر الشحن</span><span className="font-mono">{formatMoney(b.baseShipping)}</span></div>
-                                    <div className="flex justify-between text-slate-300"><span>التأمين</span><span className="font-mono">{formatMoney(b.insuranceFee)}</span></div>
-                                    <div className="flex justify-between text-slate-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 0)}</span></div>
-                                    <div className="flex justify-between text-slate-300"><span>ضريبة قيمة مضافة 14%</span><span className="font-mono">{formatMoney(b.vatFee)}</span></div>
+                                    <div className="flex justify-between text-zinc-300"><span>سعر الشحن</span><span className="font-mono">{formatMoney(b.baseShipping)}</span></div>
+                                    <div className="flex justify-between text-zinc-300"><span>التأمين</span><span className="font-mono">{formatMoney(b.insuranceFee)}</span></div>
+                                    <div className="flex justify-between text-zinc-300"><span>رسوم فتح الشحنة</span><span className="font-mono">{formatMoney(b.openPackageFee || 0)}</span></div>
+                                    <div className="flex justify-between text-zinc-300"><span>ضريبة قيمة مضافة 14%</span><span className="font-mono">{formatMoney(b.vatFee)}</span></div>
                                   </div>
                                 )}
                               </div>
                             </div>
 
                             {/* Row 3: صافي المستحقات (Right) | حالة السداد (Left) */}
-                            <div className="grid grid-cols-2 p-4 text-xs bg-slate-50/50 dark:bg-slate-900/50 gap-2">
+                            <div className="grid grid-cols-2 p-4 text-xs bg-zinc-50/50 dark:bg-zinc-900/50 gap-2">
                               <div>
-                                <div className="text-[11px] text-slate-400 font-bold mb-1">صافي المستحقات</div>
-                                <div className={`font-mono font-black text-sm ${b.netEntitlement >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-500'}`}>
+                                <div className="text-[11px] text-zinc-400 font-bold mb-1">صافي المستحقات</div>
+                                <div className={`font-mono font-black text-sm ${b.netEntitlement >= 0 ? 'text-zinc-900 dark:text-white' : 'text-rose-500'}`}>
                                   {formatMoney(b.netEntitlement)}
                                 </div>
                               </div>
                               <div className="relative text-left">
-                                <div className="flex items-center justify-end gap-1 text-[11px] text-slate-400 font-bold mb-1">
+                                <div className="flex items-center justify-end gap-1 text-[11px] text-zinc-400 font-bold mb-1">
                                   <button 
                                     type="button" 
                                     onClick={() => setActiveOrderPopover(isSettlementPopoverOpen ? null : { orderId: o.id, type: 'settlement_status' })} 
-                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                                    className="text-zinc-400 hover:text-zinc-600 cursor-pointer"
                                   >
                                     <HelpCircle size={13} />
                                   </button>
@@ -6962,18 +7536,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 </div>
                                 <span className={`px-3 py-1 rounded-full text-[10.5px] font-black inline-flex items-center gap-1 ${
                                   b.payoutStage === 'paid'
-                                    ? 'bg-emerald-500/15 text-[#008060]'
+                                    ? 'bg-emerald-500/15 text-[#00ab84]'
                                     : b.payoutStage === 'ready'
                                     ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30'
                                     : b.payoutStage === 'holding'
-                                    ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
+                                    ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
                                     : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
                                 }`}>
                                   <span className="w-1.5 h-1.5 rounded-full bg-current" />
                                   <span>{b.payoutStageLabelAr}</span>
                                 </span>
                                 {isSettlementPopoverOpen && (
-                                  <div className="absolute top-11 left-0 z-50 w-64 bg-slate-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in zoom-in-95 pointer-events-auto text-right">
+                                  <div className="absolute top-11 left-0 z-50 w-64 bg-zinc-900 text-white text-[11px] font-bold p-3 rounded-xl shadow-2xl border border-zinc-700 animate-in fade-in zoom-in-95 pointer-events-auto text-right">
                                     {b.payoutStage === 'unsettled'
                                       ? `بانتظار التسوية المالية من الإدارة ثم مرور (${b.holdingDaysRequired} أيام) للتحويل.`
                                       : b.payoutStage === 'holding'
@@ -7010,7 +7584,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 className={`rounded-[2.5rem] border-2 p-8 sm:p-14 text-center max-w-3xl mx-auto space-y-8 relative overflow-hidden shadow-2xl ${
                   isDark
                     ? 'bg-[#030712] border-amber-500/20 text-white'
-                    : 'bg-white border-amber-200 text-slate-900'
+                    : 'bg-white border-amber-200 text-zinc-900'
                 }`}
               >
                 {/* Decorative Background Glows */}
@@ -7033,8 +7607,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </div>
                   </div>
 
-                  <p className="text-sm sm:text-base text-slate-500 dark:text-slate-400 font-bold leading-relaxed max-w-xl mx-auto">
-                    لقد اخترت نظام <span className="text-[#008060] dark:text-emerald-400 font-black">({planUsage.planLabelAr})</span>. 
+                  <p className="text-sm sm:text-base text-zinc-500 dark:text-zinc-400 font-bold leading-relaxed max-w-xl mx-auto">
+                    لقد اخترت نظام <span className="text-[#00ab84] dark:text-emerald-400 font-black">({planUsage.planLabelAr})</span>. 
                     في هذا النظام، لا تحتاج لإنشاء الأوردرات يدوياً؛ حيث يتولى فريقنا الاحترافي مراجعة طلبياتك، التأكيد مع العملاء، 
                     وتجهيز بوالص الشحن لضمان أعلى جودة تنفيذ وأقل نسبة مرتجعات.
                   </p>
@@ -7047,13 +7621,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       { title: 'شفافية مالية', desc: 'كشف حساب لحظي لكل حركة مالية على أوردراتك' }
                     ].map((item, i) => (
                       <div key={i} className={`p-4 rounded-2xl border transition-all ${
-                        isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-100'
+                        isDark ? 'bg-zinc-900/50 border-zinc-800' : 'bg-zinc-50 border-zinc-100'
                       }`}>
                         <div className="flex items-center gap-2.5 mb-1">
                           <CheckCircle2 size={16} className="text-amber-500" />
                           <h4 className="text-xs font-black">{item.title}</h4>
                         </div>
-                        <p className="text-[10px] text-slate-400 font-bold leading-normal">{item.desc}</p>
+                        <p className="text-[10px] text-zinc-400 font-bold leading-normal">{item.desc}</p>
                       </div>
                     ))}
                   </div>
@@ -7062,15 +7636,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <button
                       type="button"
                       onClick={() => navigateToTab('orders')}
-                      className="w-full sm:w-auto px-10 py-4 rounded-[1.5rem] bg-[#008060] hover:bg-emerald-700 text-white text-sm font-black transition-all hover:scale-105 active:scale-95 shadow-xl shadow-emerald-500/20 cursor-pointer"
+                      className="w-full sm:w-auto px-10 py-4 rounded-[1.5rem] bg-[#00ab84] hover:bg-emerald-700 text-white text-sm font-black transition-all hover:scale-105 active:scale-95 shadow-xl shadow-emerald-500/20 cursor-pointer"
                     >
                       متابعة أوردراتك المنشأة ({toArabicDigits(merchantOrders.length)})
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowChangePlanModal(true)}
-                      className={`w-full sm:w-auto px-8 py-4 rounded-[1.5rem] border text-sm font-black transition-all hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer ${
-                        isDark ? 'border-slate-700 text-slate-300' : 'border-slate-200 text-slate-600'
+                      className={`w-full sm:w-auto px-8 py-4 rounded-[1.5rem] border text-sm font-black transition-all hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer ${
+                        isDark ? 'border-zinc-700 text-zinc-300' : 'border-zinc-200 text-zinc-600'
                       }`}
                     >
                       إدارة الخطة / تغيير النظام
@@ -7081,15 +7655,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             ) : (
               <>
             {/* View Switcher: Live Form vs Official Dev Stamp */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-zinc-900 p-3 sm:p-4 rounded-3xl border border-zinc-200/80 dark:border-zinc-800 shadow-xs">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setCreateOrderMode('form')}
                   className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
                     createOrderMode === 'form'
-                      ? 'bg-[#008060] text-white shadow-md shadow-emerald-700/20'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
+                      : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                   }`}
                 >
                   <PlusCircle size={15} />
@@ -7100,8 +7674,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   onClick={() => setCreateOrderMode('dev_seal')}
                   className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
                     createOrderMode === 'dev_seal'
-                      ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      ? 'bg-amber-500 text-zinc-950 shadow-md shadow-amber-500/20'
+                      : 'text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                   }`}
                 >
                   <Sparkles size={15} />
@@ -7109,8 +7683,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </button>
               </div>
 
-              <div className="text-[11px] font-bold text-slate-400">
-                أصناف بضاعتك بالمستودع: <span className="font-black text-[#008060]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة متاحة)
+              <div className="text-[11px] font-bold text-zinc-400">
+                أصناف بضاعتك بالمستودع: <span className="font-black text-[#00ab84]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة متاحة)
               </div>
             </div>
 
@@ -7119,17 +7693,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <form onSubmit={handleMerchantSubmitOrder} className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Left Column (7 cols): Customer & Shipping Address */}
                 <div className={`lg:col-span-7 rounded-3xl p-6 sm:p-7 border space-y-5 ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                 }`}>
-                  <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                  <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center font-black">
                       <Truck size={20} />
                     </div>
                     <div>
-                      <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                         بيانات العميل ومقر التوصيل
                       </h3>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-zinc-400">
                         أدخل تفاصيل المستلم ومحافظة الشحن لاحتساب تكلفة البوليصة آلياً
                       </p>
                     </div>
@@ -7137,7 +7711,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-bold">
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                         اسم العميل المستلم *
                       </label>
                       <input
@@ -7146,14 +7720,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         value={orderCustomerName}
                         onChange={e => setOrderCustomerName(e.target.value)}
                         placeholder="مثال: محمد السيد أحمد"
-                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
 
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                         رقم هاتف العميل (للتوصيل والمندوب) *
                       </label>
                       <input
@@ -7162,21 +7736,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         value={orderCustomerPhone}
                         onChange={e => setOrderCustomerPhone(e.target.value)}
                         placeholder="010XXXXXXXX"
-                        className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
 
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                         المحافظة *
                       </label>
                       <select
                         value={orderGovernorate}
                         onChange={e => setOrderGovernorate(e.target.value)}
-                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       >
                         {Object.keys(EGYPT_GOV_SHIPPING_RATES).map(gov => (
@@ -7188,7 +7762,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </div>
 
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                         المدينة أو المركز / الحي
                       </label>
                       <input
@@ -7196,15 +7770,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         value={orderCity}
                         onChange={e => setOrderCity(e.target.value)}
                         placeholder="مثال: مدينة نصر / الدقي"
-                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
                   </div>
 
                   <div className="text-xs font-bold">
-                    <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                       العنوان التفصيلي وملاحظات العنوان
                     </label>
                     <input
@@ -7212,14 +7786,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       value={orderAddress}
                       onChange={e => setOrderAddress(e.target.value)}
                       placeholder="اسم الشارع، رقم العمارة، رقم الشقة، علامة مميزة"
-                      className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
 
                   <div className="text-xs font-bold">
-                    <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                       ملاحظات خاصة للمندوب وشركة الشحن
                     </label>
                     <textarea
@@ -7227,8 +7801,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       value={orderNotes}
                       onChange={e => setOrderNotes(e.target.value)}
                       placeholder="مثال: يرجى الاتصال قبل الوصول / تسليم بعد الساعة 4 مساءً"
-                      className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
@@ -7239,7 +7813,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="checkbox"
                         checked={orderAllowOpen}
                         onChange={e => setOrderAllowOpen(e.target.checked)}
-                        className="w-4 h-4 rounded text-[#008060] focus:ring-[#008060]"
+                        className="w-4 h-4 rounded text-[#00ab84] focus:ring-[#00ab84]"
                       />
                       <span>السماح للعميل بفتح الشحنة ومعاينتها مع مندوب التوصيل قبل السداد</span>
                     </label>
@@ -7249,17 +7823,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 {/* Right Column (5 cols): Product Selection & Live Financial Calculation */}
                 <div className="lg:col-span-5 space-y-5">
                   <div className={`rounded-3xl p-6 border space-y-4 ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                   }`}>
-                    <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
                       <div className="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-black">
                         <PackageIcon size={20} />
                       </div>
                       <div>
-                        <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                           اختيار الصنف والتسعير
                         </h3>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-zinc-400">
                           اختر الصنف المتوفر ببضاعتك في المستودع
                         </p>
                       </div>
@@ -7272,15 +7846,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     ) : (
                       <div className="space-y-3.5 text-xs font-bold">
                         <div>
-                          <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                          <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                             الصنف المطلوب *
                           </label>
                           <select
                             required
                             value={orderProductId}
                             onChange={e => setOrderProductId(e.target.value)}
-                            className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#008060] ${
-                              isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            className={`w-full p-3 border rounded-2xl font-bold text-xs outline-none focus:border-[#00ab84] ${
+                              isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                             }`}
                           >
                             <option value="">-- اختر المنتج من مخزونك --</option>
@@ -7297,7 +7871,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                            <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                               الكمية المطلوبة
                             </label>
                             <input
@@ -7306,14 +7880,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               max={orderProductId ? Number(merchantProducts.find(p => p.id === orderProductId)?.stock || 10) : 100}
                               value={orderQuantity}
                               onChange={e => setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                              className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                                isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                              className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                                isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                               }`}
                             />
                           </div>
 
                           <div>
-                            <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                            <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                               سعر البيع للقطعة (ج.م)
                             </label>
                             <input
@@ -7322,8 +7896,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               value={orderSellingPrice}
                               onChange={e => setOrderSellingPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
                               placeholder="سعر البيع"
-                              className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                                isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                              className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                                isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                               }`}
                             />
                           </div>
@@ -7331,7 +7905,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                         <div>
                           <div className="flex justify-between items-center mb-1.5">
-                            <label className={isDark ? 'text-slate-300' : 'text-slate-700'}>
+                            <label className={isDark ? 'text-zinc-300' : 'text-zinc-700'}>
                               مصاريف الشحن والتوصيل (ج.م)
                             </label>
                             <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-black">
@@ -7342,8 +7916,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             type="number"
                             value={orderShippingFee}
                             onChange={e => setOrderShippingFee(parseFloat(e.target.value) || 0)}
-                            className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                              isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                            className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                              isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                             }`}
                           />
                         </div>
@@ -7353,23 +7927,23 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     {/* Live Accounting Summary Card */}
                     {orderProductId && (
                       <div className={`p-4 rounded-2xl border space-y-2.5 text-xs ${
-                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/70 border-emerald-200'
+                        isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-emerald-50/70 border-emerald-200'
                       }`}>
                         <div className="flex justify-between">
-                          <span className="text-slate-400 font-bold">إجمالي سعر الأصناف:</span>
+                          <span className="text-zinc-400 font-bold">إجمالي سعر الأصناف:</span>
                           <span className="font-mono font-black">{((Number(orderSellingPrice) || 0) * orderQuantity).toLocaleString()} ج.م</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400 font-bold">مصاريف الشحن:</span>
+                          <span className="text-zinc-400 font-bold">مصاريف الشحن:</span>
                           <span className="font-mono font-black text-rose-500">+{orderShippingFee} ج.م</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400 font-bold">عمولة تشغيل النظام:</span>
+                          <span className="text-zinc-400 font-bold">عمولة تشغيل النظام:</span>
                           <span className="font-mono font-black text-amber-600">-{Number((activeStoreData?.settings as any)?.serviceFeePerOrder || 15)} ج.م</span>
                         </div>
-                        <div className="border-t border-dashed border-emerald-300 dark:border-slate-800 pt-2 flex justify-between items-center">
-                          <span className="font-black text-slate-900 dark:text-white">المبلغ المطلوب تحصيله (COD):</span>
-                          <span className="font-mono font-black text-base text-[#008060]">
+                        <div className="border-t border-dashed border-emerald-300 dark:border-zinc-800 pt-2 flex justify-between items-center">
+                          <span className="font-black text-zinc-900 dark:text-white">المبلغ المطلوب تحصيله (COD):</span>
+                          <span className="font-mono font-black text-base text-[#00ab84]">
                             {(((Number(orderSellingPrice) || 0) * orderQuantity) + orderShippingFee).toLocaleString()} ج.م
                           </span>
                         </div>
@@ -7379,7 +7953,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <button
                       type="submit"
                       disabled={isSubmittingOrder || merchantProducts.length === 0}
-                      className="w-full py-4 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-700/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                      className="w-full py-4 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-700/25 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 active:scale-[0.98]"
                     >
                       {isSubmittingOrder ? (
                         <>
@@ -7402,11 +7976,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {createOrderMode === 'dev_seal' && (
               <div className={`relative overflow-hidden rounded-[32px] border p-6 sm:p-10 shadow-xl ${
                 isDark
-                  ? 'bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950/50 border-slate-800 text-white'
-                  : 'bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/40 border-emerald-200/80 text-slate-900'
+                  ? 'bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-950/50 border-zinc-800 text-white'
+                  : 'bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/40 border-emerald-200/80 text-zinc-900'
               }`}>
                 {/* Decorative Ambient Glow */}
-                <div className="absolute -top-24 -left-24 w-80 h-80 rounded-full bg-[#008060]/10 blur-3xl pointer-events-none" />
+                <div className="absolute -top-24 -left-24 w-80 h-80 rounded-full bg-[#00ab84]/10 blur-3xl pointer-events-none" />
                 <div className="absolute -bottom-24 -right-24 w-80 h-80 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
 
                 <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
@@ -7418,44 +7992,44 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <span>تحديث قادم لبوابة الموكلين · قريباً جداً</span>
                     </div>
 
-                    <h2 className={`text-2xl sm:text-3xl font-black leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <h2 className={`text-2xl sm:text-3xl font-black leading-tight ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                       استوديو إنشاء وإرسال الأوردرات المباشر للوكيل
                     </h2>
 
-                    <p className={`text-sm sm:text-base leading-relaxed font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                      يقوم حالياً الديفلوبر <span className="text-[#008060] dark:text-emerald-400 font-black underline decoration-amber-400/70 decoration-2 underline-offset-4">الباشمهندس / عبدالرحمن سعيد وفريقه</span> بالتطوير في الفترة الحالية لإطلاق منظومة تسجيل الأوردرات الذكية الخاصة بالوكلاء، لتتمكن من رفع أوردرات عملائك مباشرة من بضاعتك بالمخزن وإصدار بوليصة الشحن بضغطة زر.
+                    <p className={`text-sm sm:text-base leading-relaxed font-bold ${isDark ? 'text-zinc-300' : 'text-zinc-600'}`}>
+                      يقوم حالياً الديفلوبر <span className="text-[#00ab84] dark:text-emerald-400 font-black underline decoration-amber-400/70 decoration-2 underline-offset-4">الباشمهندس / عبدالرحمن سعيد وفريقه</span> بالتطوير في الفترة الحالية لإطلاق منظومة تسجيل الأوردرات الذكية الخاصة بالوكلاء، لتتمكن من رفع أوردرات عملائك مباشرة من بضاعتك بالمخزن وإصدار بوليصة الشحن بضغطة زر.
                     </p>
 
                     {/* 3 Capabilities Preview Pills */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                       <div className={`p-3.5 rounded-2xl border ${
-                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
+                        isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white/90 border-zinc-200/80 shadow-2xs'
                       }`}>
-                        <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-[#008060] flex items-center justify-center mb-2">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-[#00ab84] flex items-center justify-center mb-2">
                           <PackageIcon size={16} />
                         </div>
                         <div className="text-xs font-black">ربط لحظي بمخزونك</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">اختيار الأصناف المتوفرة من بضاعتك بالمخزن تلقائياً</div>
+                        <div className="text-[11px] text-zinc-400 mt-0.5">اختيار الأصناف المتوفرة من بضاعتك بالمخزن تلقائياً</div>
                       </div>
 
                       <div className={`p-3.5 rounded-2xl border ${
-                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
+                        isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white/90 border-zinc-200/80 shadow-2xs'
                       }`}>
                         <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 flex items-center justify-center mb-2">
                           <Calculator size={16} />
                         </div>
                         <div className="text-xs font-black">حساب فوري لصافي ربحك</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">معاينة سعر الشحن والضرائب وصافي مستحقاتك قبل الإرسال</div>
+                        <div className="text-[11px] text-zinc-400 mt-0.5">معاينة سعر الشحن والضرائب وصافي مستحقاتك قبل الإرسال</div>
                       </div>
 
                       <div className={`p-3.5 rounded-2xl border ${
-                        isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-white/90 border-slate-200/80 shadow-2xs'
+                        isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-white/90 border-zinc-200/80 shadow-2xs'
                       }`}>
-                        <div className="w-8 h-8 rounded-xl bg-sky-500/15 text-sky-600 flex items-center justify-center mb-2">
+                        <div className="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-600 flex items-center justify-center mb-2">
                           <Truck size={16} />
                         </div>
                         <div className="text-xs font-black">إصدار البوليصة والتتبع</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">تحويل الطلب مباشرة لشركة الشحن ومتابعة دورته المالية</div>
+                        <div className="text-[11px] text-zinc-400 mt-0.5">تحويل الطلب مباشرة لشركة الشحن ومتابعة دورته المالية</div>
                       </div>
                     </div>
 
@@ -7463,7 +8037,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <button
                         type="button"
                         onClick={() => setCreateOrderMode('form')}
-                        className="px-6 py-3.5 rounded-2xl text-xs font-black bg-[#008060] hover:bg-[#0a664e] text-white shadow-emerald-600/25 cursor-pointer transition-all flex items-center gap-2"
+                        className="px-6 py-3.5 rounded-2xl text-xs font-black bg-[#00ab84] hover:bg-[#0a664e] text-white shadow-emerald-600/25 cursor-pointer transition-all flex items-center gap-2"
                       >
                         <PlusCircle size={16} />
                         <span>التبديل إلى نموذج تسجيل الأوردر الآن</span>
@@ -7474,13 +8048,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   {/* Left Column (5 cols): Official Developer Seal */}
                   <div className="lg:col-span-5 flex flex-col items-center justify-center">
                     <div className="relative group">
-                      <div className="absolute -inset-3 rounded-full bg-gradient-to-tr from-[#008060]/30 via-amber-400/30 to-emerald-500/30 blur-xl opacity-80 group-hover:opacity-100 transition-opacity" />
+                      <div className="absolute -inset-3 rounded-full bg-gradient-to-tr from-[#00ab84]/30 via-amber-400/30 to-emerald-500/30 blur-xl opacity-80 group-hover:opacity-100 transition-opacity" />
 
                       <div
                         className={`relative w-64 h-64 sm:w-72 sm:h-72 rounded-full p-3 shadow-2xl flex items-center justify-center -rotate-6 hover:rotate-0 transition-transform duration-300 border-4 border-double ${
                           isDark
-                            ? 'bg-gradient-to-br from-slate-950 via-[#07261f] to-slate-900 border-amber-400/80 text-white'
-                            : 'bg-gradient-to-br from-[#052e24] via-[#008060] to-[#042f2e] border-amber-300 text-white'
+                            ? 'bg-gradient-to-br from-zinc-950 via-[#07261f] to-zinc-900 border-amber-400/80 text-white'
+                            : 'bg-gradient-to-br from-[#052e24] via-[#00ab84] to-[#042f2e] border-amber-300 text-white'
                         }`}
                       >
                         <div className="w-full h-full rounded-full border-2 border-dashed border-amber-300/70 flex flex-col items-center justify-between p-5 text-center relative">
@@ -7511,7 +8085,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           </div>
 
                           <div className="space-y-1">
-                            <span className="inline-block px-3 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] tracking-wide shadow-sm">
+                            <span className="inline-block px-3 py-0.5 rounded-full bg-amber-400 text-zinc-950 font-black text-[10px] tracking-wide shadow-sm">
                               قريباً جداً · COMING SOON
                             </span>
                             <div className="text-[9px] font-mono text-emerald-200/80">
@@ -7538,18 +8112,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           <div className="space-y-5">
             {/* Header & KPI Summary Banner */}
             <div className={`p-6 sm:p-7 rounded-[32px] border ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-5">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-700/20">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#00ab84] to-emerald-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-700/20">
                     <Layers size={24} />
                   </div>
                   <div>
-                    <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                       مخزون بضاعة الأمانة بالمستودع ({merchantProducts.length} صنف)
                     </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
+                    <p className="text-xs text-zinc-400 mt-0.5">
                       متابعة حية لكميات الأصناف المودعة، والقطع المحجوزة في أوردرات الطريق، وتقييم رأس المال بسعر التكلفة
                     </p>
                   </div>
@@ -7567,7 +8141,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => navigateToTab('create_order')}
-                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer transition-all border border-slate-200 dark:border-slate-700"
+                    className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer transition-all border border-zinc-200 dark:border-zinc-700"
                   >
                     <PackageIcon size={15} />
                     <span>إنشاء أوردر من المخزون</span>
@@ -7577,28 +8151,28 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* 4 Financial & Unit Inventory Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 pt-5">
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-[11px] font-bold text-slate-400 block mb-1">إجمالي القطع بالمخزن</span>
-                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-slate-900 dark:text-white">
-                    {totalStockUnits} <span className="text-xs font-bold text-slate-400">قطعة</span>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="text-[11px] font-bold text-zinc-400 block mb-1">إجمالي القطع بالمخزن</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-zinc-900 dark:text-white">
+                    {totalStockUnits} <span className="text-xs font-bold text-zinc-400">قطعة</span>
                   </div>
                 </div>
 
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/70 border-emerald-200'}`}>
-                  <span className="text-[11px] font-bold text-[#008060] block mb-1">تقييم المخزون (سعر التكلفة)</span>
-                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-[#008060]">
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-emerald-50/70 border-emerald-200'}`}>
+                  <span className="text-[11px] font-bold text-[#00ab84] block mb-1">تقييم المخزون (سعر التكلفة)</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-[#00ab84]">
                     {formatMoney(inventoryValuation)}
                   </div>
                 </div>
 
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-sky-50/70 border-sky-200'}`}>
-                  <span className="text-[11px] font-bold text-sky-600 block mb-1">قطع في الطريق (مع المناديب)</span>
-                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-sky-600">
-                    {returnsReserveAssessment.inTransitCount} <span className="text-xs font-bold text-sky-500">شحنة</span>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-cyan-50/70 border-cyan-200'}`}>
+                  <span className="text-[11px] font-bold text-cyan-600 block mb-1">قطع في الطريق (مع المناديب)</span>
+                  <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-cyan-600">
+                    {returnsReserveAssessment.inTransitCount} <span className="text-xs font-bold text-cyan-500">شحنة</span>
                   </div>
                 </div>
 
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-amber-50/70 border-amber-200'}`}>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-amber-50/70 border-amber-200'}`}>
                   <span className="text-[11px] font-bold text-amber-600 block mb-1">أصناف قاربت على النفاد (&le; 5)</span>
                   <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-amber-600">
                     {merchantProducts.filter(p => Number(p.stock || p.quantity || 0) <= 5).length} <span className="text-xs font-bold text-amber-500">صنف</span>
@@ -7609,17 +8183,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* Inventory Search & Filters */}
             <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
             }`}>
               <div className="relative w-full sm:w-80">
-                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={16} className="absolute right-3.5 top-1/2 -tranzinc-y-1/2 text-zinc-400" />
                 <input
                   type="text"
                   value={inventorySearch}
                   onChange={e => setInventorySearch(e.target.value)}
                   placeholder="بحث باسم الصنف أو الكود..."
-                  className={`w-full pr-10 pl-3 py-2.5 border rounded-xl text-xs font-bold outline-none focus:border-[#008060] ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  className={`w-full pr-10 pl-3 py-2.5 border rounded-xl text-xs font-bold outline-none focus:border-[#00ab84] ${
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                   }`}
                 />
               </div>
@@ -7637,10 +8211,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onClick={() => setInventoryStockFilter(f.id as any)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap ${
                       inventoryStockFilter === f.id
-                        ? 'bg-[#008060] text-white shadow-xs'
+                        ? 'bg-[#00ab84] text-white shadow-xs'
                         : isDark
-                        ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                        : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
                     }`}
                   >
                     {f.label}
@@ -7651,11 +8225,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* Inventory Products Table */}
             <div className={`rounded-3xl border overflow-hidden ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-right text-xs">
-                  <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'} font-black`}>
+                  <thead className={`${isDark ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-900 text-white'} font-black`}>
                     <tr>
                       <th className="py-3.5 px-4">اسم الصنف والرمز</th>
                       <th className="py-3.5 px-4 text-center">سعر التكلفة</th>
@@ -7667,15 +8241,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <th className="py-3.5 px-4 text-center">إجراءات</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y font-medium ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-700'}`}>
+                  <tbody className={`divide-y font-medium ${isDark ? 'divide-zinc-800 text-zinc-300' : 'divide-zinc-100 text-zinc-700'}`}>
                     {filteredConsignmentProducts.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold space-y-3">
+                        <td colSpan={8} className="py-12 text-center text-zinc-400 font-bold space-y-3">
                           <p>لا توجد أصناف مطابقة لبحثك في مخزون الوكيل</p>
                           <button
                             type="button"
                             onClick={handleOpenAddProduct}
-                            className="px-4 py-2 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black cursor-pointer shadow-md"
+                            className="px-4 py-2 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black cursor-pointer shadow-md"
                           >
                             + إضافة صنف جديد للمخزون
                           </button>
@@ -7694,10 +8268,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           : Math.max(0, price - cost);
 
                         return (
-                          <tr key={p.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
+                          <tr key={p.id} className={isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/60'}>
                             <td className="py-4 px-4 font-black">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0 overflow-hidden border border-slate-200 dark:border-slate-700">
+                                <div className="w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 shrink-0 overflow-hidden border border-zinc-200 dark:border-zinc-700">
                                   {p.thumbnail || p.imageUrl || p.image ? (
                                     <img src={p.thumbnail || p.imageUrl || p.image} alt={p.name} className="w-full h-full object-cover" />
                                   ) : (
@@ -7705,15 +8279,27 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   )}
                                 </div>
                                 <div>
-                                  <div className={`font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{p.name || p.title}</div>
-                                  <div className="text-[10px] font-mono text-slate-400">SKU: {p.sku || p.barcode || p.id}</div>
+                                  <div className={`font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>{p.name || p.title}</div>
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                    <span className="text-[10px] font-mono text-zinc-400">SKU: {p.sku || p.barcode || p.id}</span>
+                                    {p.isAllocatedConsignment && (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                        📦 رصيد أمانة مخصص لك: {stock} قطعة (تكلفة: {formatMoney(cost)})
+                                      </span>
+                                    )}
+                                    {!p.isAllocatedConsignment && (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                        👑 الموكل الرئيسي
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             </td>
-                            <td className="py-4 px-4 text-center font-mono font-bold text-slate-600 dark:text-slate-400">
+                            <td className="py-4 px-4 text-center font-mono font-bold text-zinc-600 dark:text-zinc-400">
                               {formatMoney(cost)}
                             </td>
-                            <td className="py-4 px-4 text-center font-mono font-black text-[#008060]">
+                            <td className="py-4 px-4 text-center font-mono font-black text-[#00ab84]">
                               {formatMoney(price)}
                             </td>
                             <td className="py-4 px-4 text-center">
@@ -7721,15 +8307,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 <span className="font-mono font-black text-emerald-600 dark:text-emerald-400">
                                   +{formatMoney(unitProfit)}
                                 </span>
-                                <span className="text-[10px] text-slate-400 font-bold">
+                                <span className="text-[10px] text-zinc-400 font-bold">
                                   {profitMode === 'commission' ? `نسبة: ${commissionPct}%` : 'هامش ثابت'}
                                 </span>
                               </div>
                             </td>
                             <td className="py-4 px-4 text-center">
-                              <span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-slate-400">قطعة</span>
+                              <span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-zinc-400">قطعة</span>
                             </td>
-                            <td className="py-4 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                            <td className="py-4 px-4 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300">
                               {formatMoney(val)}
                             </td>
                             <td className="py-4 px-4 text-center">
@@ -7742,19 +8328,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   مخزون حرج ({stock})
                                 </span>
                               ) : (
-                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-[#008060]">
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-[#00ab84]">
                                   متوفر بالمستودع
                                 </span>
                               )}
                             </td>
                             <td className="py-4 px-4 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditProduct(p)}
-                                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
-                              >
-                                تعديل الصنف
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPricingModal(p)}
+                                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+                                >
+                                  <Coins size={14} />
+                                  <span>تسعيرتي ومخزوني</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditProduct(p)}
+                                  className="px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-black text-zinc-700 dark:text-zinc-300 transition-all cursor-pointer"
+                                  title="تعديل بيانات الصنف بالكامل"
+                                >
+                                  تعديل
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -7773,7 +8370,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         {currentTab === 'analytics' && (
           <div className="space-y-5">
             {/* Header & Sort Bar */}
-            <div className="bg-gradient-to-r from-[#064e3b] via-[#008060] to-slate-900 text-white rounded-3xl p-5 sm:p-6 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="bg-gradient-to-r from-[#064e3b] via-[#00ab84] to-zinc-900 text-white rounded-3xl p-5 sm:p-6 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-emerald-200 shrink-0">
                   <Award size={26} />
@@ -7800,7 +8397,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onClick={() => setProductSortBy(opt.id as any)}
                     className={`px-3 py-2 rounded-xl font-black transition-all cursor-pointer whitespace-nowrap ${
                       productSortBy === opt.id
-                        ? 'bg-white text-[#008060] shadow-xs'
+                        ? 'bg-white text-[#00ab84] shadow-xs'
                         : 'bg-white/10 text-white hover:bg-white/20'
                     }`}
                   >
@@ -7812,19 +8409,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* Products Performance Section (Mobile Cards + Desktop Table) */}
             <div className={`rounded-3xl border overflow-hidden ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
-              <div className={`p-4 sm:p-5 border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                <h4 className={`font-black text-sm sm:text-base flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  <TrendingUp size={18} className="text-[#008060]" />
+              <div className={`p-4 sm:p-5 border-b ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                <h4 className={`font-black text-sm sm:text-base flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                  <TrendingUp size={18} className="text-[#00ab84]" />
                   <span>جدول أداء وترتيب أصناف بضاعتك ({merchantAnalyticsReport.productsList.length} صنف)</span>
                 </h4>
               </div>
 
               {/* Mobile Cards for Products */}
-              <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              <div className="md:hidden divide-y divide-zinc-100 dark:divide-zinc-800">
                 {merchantAnalyticsReport.productsList.length === 0 ? (
-                  <div className="py-12 text-center text-slate-400 font-bold text-xs">
+                  <div className="py-12 text-center text-zinc-400 font-bold text-xs">
                     لا توجد بيانات مبيعات للأصناف حتى الآن
                   </div>
                 ) : (
@@ -7832,33 +8429,33 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <div key={prod.id + idx} className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-7 h-7 rounded-xl bg-emerald-500/15 text-[#008060] font-mono font-black text-xs flex items-center justify-center shrink-0">
+                          <span className="w-7 h-7 rounded-xl bg-emerald-500/15 text-[#00ab84] font-mono font-black text-xs flex items-center justify-center shrink-0">
                             {idx + 1}
                           </span>
                           <div>
-                            <div className={`font-black text-xs ${isDark ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                            <div className="text-[11px] text-slate-400">
-                              بالمخزن: <span className="font-mono text-[#008060] font-bold">{prod.stock} ق</span>
+                            <div className={`font-black text-xs ${isDark ? 'text-white' : 'text-zinc-900'}`}>{prod.name}</div>
+                            <div className="text-[11px] text-zinc-400">
+                              بالمخزن: <span className="font-mono text-[#00ab84] font-bold">{prod.stock} ق</span>
                               {prod.shippingQty > 0 && ` · في الطريق: ${prod.shippingQty} ق`}
                             </div>
                           </div>
                         </div>
                         <div className="text-left">
-                          <div className="font-mono tabular-nums font-black text-sm text-[#008060]">
+                          <div className="font-mono tabular-nums font-black text-sm text-[#00ab84]">
                             {formatMoney(prod.netMerchantProfit)}
                           </div>
-                          <div className="text-[10px] text-slate-400">صافي مستحقاتك</div>
+                          <div className="text-[10px] text-zinc-400">صافي مستحقاتك</div>
                         </div>
                       </div>
 
                       {/* Delivery vs Return Bar */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-[11px] font-bold">
-                          <span className="text-[#008060]">تسليم: {prod.deliveredQty} ق ({prod.deliveryRate}%)</span>
+                          <span className="text-[#00ab84]">تسليم: {prod.deliveredQty} ق ({prod.deliveryRate}%)</span>
                           <span className="text-rose-500">مرتجع: {prod.returnedQty} ق ({prod.returnRate}%)</span>
                         </div>
-                        <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
-                          <div className="bg-[#008060] h-full" style={{ width: `${Math.min(100, prod.deliveryRate)}%` }} />
+                        <div className="h-2 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden flex">
+                          <div className="bg-[#00ab84] h-full" style={{ width: `${Math.min(100, prod.deliveryRate)}%` }} />
                           <div className="bg-rose-500 h-full" style={{ width: `${Math.min(100, prod.returnRate)}%` }} />
                         </div>
                       </div>
@@ -7870,7 +8467,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* Desktop Table for Products */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-right text-xs">
-                  <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'} font-black`}>
+                  <thead className={`${isDark ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-900 text-white'} font-black`}>
                     <tr>
                       <th className="py-3.5 px-4">#</th>
                       <th className="py-3.5 px-4">اسم الصنف / المنتج</th>
@@ -7883,24 +8480,24 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <th className="py-3.5 px-4 text-center">صافي مستحقاتك</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                  <tbody className={`divide-y font-bold ${isDark ? 'divide-zinc-800' : 'divide-zinc-100'}`}>
                     {merchantAnalyticsReport.productsList.map((prod, idx) => (
-                      <tr key={prod.id + idx} className={isDark ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50/80'}>
+                      <tr key={prod.id + idx} className={isDark ? 'hover:bg-zinc-800/50' : 'hover:bg-zinc-50/80'}>
                         <td className="py-3.5 px-4 font-mono">{idx + 1}</td>
                         <td className="py-3.5 px-4">
-                          <div className={`font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                          <div className="text-[10px] text-slate-400">
-                            بالمخزن: <span className="font-mono text-[#008060]">{prod.stock} قطعة</span>
+                          <div className={`font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>{prod.name}</div>
+                          <div className="text-[10px] text-zinc-400">
+                            بالمخزن: <span className="font-mono text-[#00ab84]">{prod.stock} قطعة</span>
                             {prod.shippingQty > 0 && ` · في الطريق: ${prod.shippingQty} قطعة`}
                           </div>
                         </td>
                         <td className="py-3.5 px-3 text-center font-mono tabular-nums">{prod.orderedQty} ق</td>
-                        <td className="py-3.5 px-3 text-center font-mono tabular-nums text-[#008060] font-black">{prod.deliveredQty} ق</td>
+                        <td className="py-3.5 px-3 text-center font-mono tabular-nums text-[#00ab84] font-black">{prod.deliveredQty} ق</td>
                         <td className="py-3.5 px-3 text-center font-mono tabular-nums text-rose-500">{prod.returnedQty} ق</td>
-                        <td className="py-3.5 px-3 text-center font-mono tabular-nums text-[#008060] font-black">{prod.deliveryRate}%</td>
+                        <td className="py-3.5 px-3 text-center font-mono tabular-nums text-[#00ab84] font-black">{prod.deliveryRate}%</td>
                         <td className="py-3.5 px-3 text-center font-mono tabular-nums text-rose-500">{prod.returnRate}%</td>
                         <td className="py-3.5 px-3 text-center font-mono tabular-nums">{formatMoney(prod.totalRevenue)}</td>
-                        <td className="py-3.5 px-4 text-center font-mono tabular-nums font-black text-[#008060] text-sm">
+                        <td className="py-3.5 px-4 text-center font-mono tabular-nums font-black text-[#00ab84] text-sm">
                           {formatMoney(prod.netMerchantProfit)}
                         </td>
                       </tr>
@@ -7912,18 +8509,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* Governorates Ranking Section */}
             <div className={`rounded-3xl border overflow-hidden ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
-              <div className={`p-4 sm:p-5 border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                <h4 className={`font-black text-sm sm:text-base flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  <MapPin size={18} className="text-[#008060]" />
+              <div className={`p-4 sm:p-5 border-b ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                <h4 className={`font-black text-sm sm:text-base flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                  <MapPin size={18} className="text-[#00ab84]" />
                   <span>ترتيب المحافظات الأكثر شراءً لبضاعتك ({merchantAnalyticsReport.governoratesList.length} محافظة)</span>
                 </h4>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4">
                 {merchantAnalyticsReport.governoratesList.length === 0 ? (
-                  <div className="col-span-full py-10 text-center text-slate-400 font-bold text-xs">
+                  <div className="col-span-full py-10 text-center text-zinc-400 font-bold text-xs">
                     لا توجد بيانات شحن للمحافظات حتى الآن
                   </div>
                 ) : (
@@ -7931,25 +8528,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <div
                       key={gov.governorate + idx}
                       className={`p-4 rounded-2xl border space-y-2.5 ${
-                        isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50/70 border-slate-200/70'
+                        isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50/70 border-zinc-200/70'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-black text-[#008060]">#{idx + 1}</span>
-                          <span className={`font-black text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{gov.governorate}</span>
+                          <span className="font-mono text-xs font-black text-[#00ab84]">#{idx + 1}</span>
+                          <span className={`font-black text-sm ${isDark ? 'text-white' : 'text-zinc-900'}`}>{gov.governorate}</span>
                         </div>
-                        <span className="font-mono tabular-nums text-xs font-black text-[#008060]">
+                        <span className="font-mono tabular-nums text-xs font-black text-[#00ab84]">
                           {formatMoney(gov.netMerchantPayout)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 font-bold">
                         <span>إجمالي: {gov.totalOrders} طلب</span>
-                        <span className="text-[#008060]">مسلّم: {gov.deliveredOrders} ({gov.deliveryRate}%)</span>
+                        <span className="text-[#00ab84]">مسلّم: {gov.deliveredOrders} ({gov.deliveryRate}%)</span>
                         <span className="text-rose-500">مرتجع: {gov.returnedOrders}</span>
                       </div>
-                      <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#008060] rounded-full" style={{ width: `${Math.min(100, gov.deliveryRate)}%` }} />
+                      <div className="h-1.5 w-full bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-[#00ab84] rounded-full" style={{ width: `${Math.min(100, gov.deliveryRate)}%` }} />
                       </div>
                     </div>
                   ))
@@ -7966,10 +8563,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           <div className="space-y-6">
             {/* Top Toolbar Card: Search + Export */}
             <div className={`p-4 sm:p-5 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
               <div className="flex-1 max-w-md relative">
-                <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={16} className="absolute right-3.5 top-1/2 -tranzinc-y-1/2 text-zinc-400" />
                 <input
                   type="text"
                   value={customersSearchQuery}
@@ -7977,15 +8574,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   placeholder="ابحث باسم العميل، رقم الهاتف، أو المحافظة..."
                   className={`w-full pr-10 pl-4 py-2.5 rounded-2xl text-xs font-bold border outline-none transition-all ${
                     isDark 
-                      ? 'bg-slate-950 border-slate-800 text-white placeholder-slate-500 focus:border-[#008060]' 
-                      : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-[#008060]'
+                      ? 'bg-zinc-950 border-zinc-800 text-white placeholder-zinc-500 focus:border-[#00ab84]' 
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-900 placeholder-zinc-400 focus:border-[#00ab84]'
                   }`}
                 />
                 {customersSearchQuery && (
                   <button
                     type="button"
                     onClick={() => setCustomersSearchQuery('')}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    className="absolute left-3 top-1/2 -tranzinc-y-1/2 text-zinc-400 hover:text-zinc-600"
                   >
                     <X size={14} />
                   </button>
@@ -8022,7 +8619,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     document.body.removeChild(link);
                     showToast('تم تصدير سجل العملاء بنجاح', 'success');
                   }}
-                  className="px-4 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                  className="px-4 py-2.5 rounded-2xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-2 shadow-xs cursor-pointer transition-all"
                 >
                   <Download size={14} />
                   <span>تصدير ملف Excel / CSV</span>
@@ -8032,24 +8629,24 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* KPI Cards: Customers Highlights */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-slate-400 font-bold">إجمالي المشترين</span>
-                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                  <span className="text-xs text-zinc-400 font-bold">إجمالي المشترين</span>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center">
                     <Users size={16} />
                   </div>
                 </div>
-                <div className="text-xl font-black font-mono tabular-nums text-slate-900 dark:text-white">
+                <div className="text-xl font-black font-mono tabular-nums text-zinc-900 dark:text-white">
                   {uniqueCustomersCount}
                 </div>
-                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                <div className="text-[10px] text-zinc-400 font-bold mt-1">
                   عميل فريد مسجل بقاعدة البيانات
                 </div>
               </div>
 
-              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-slate-400 font-bold">استلموا بنجاح</span>
+                  <span className="text-xs text-zinc-400 font-bold">استلموا بنجاح</span>
                   <div className="w-8 h-8 rounded-xl bg-teal-500/10 text-teal-600 flex items-center justify-center">
                     <CheckCircle2 size={16} />
                   </div>
@@ -8057,14 +8654,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="text-xl font-black font-mono tabular-nums text-teal-600 dark:text-teal-400">
                   {totalDeliveredCustomers}
                 </div>
-                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                <div className="text-[10px] text-zinc-400 font-bold mt-1">
                   {uniqueCustomersCount > 0 ? Math.round((totalDeliveredCustomers / uniqueCustomersCount) * 100) : 0}% نسبة نجاح الاستلام
                 </div>
               </div>
 
-              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-slate-400 font-bold">عملاء متكررون</span>
+                  <span className="text-xs text-zinc-400 font-bold">عملاء متكررون</span>
                   <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
                     <Award size={16} />
                   </div>
@@ -8072,44 +8669,44 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="text-xl font-black font-mono tabular-nums text-amber-600 dark:text-amber-400">
                   {repeatCustomersCount}
                 </div>
-                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                <div className="text-[10px] text-zinc-400 font-bold mt-1">
                   طلبوا أكثر من أوردر واحد
                 </div>
               </div>
 
-              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
+              <div className={`p-4 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-slate-400 font-bold">متوسط قيمة العميل</span>
-                  <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center">
+                  <span className="text-xs text-zinc-400 font-bold">متوسط قيمة العميل</span>
+                  <div className="w-8 h-8 rounded-xl bg-teal-500/10 text-teal-600 flex items-center justify-center">
                     <Banknote size={16} />
                   </div>
                 </div>
-                <div className="text-xl font-black font-mono tabular-nums text-slate-900 dark:text-white">
+                <div className="text-xl font-black font-mono tabular-nums text-zinc-900 dark:text-white">
                   {formatMoney(avgSpentPerCustomer)}
                 </div>
-                <div className="text-[10px] text-slate-400 font-bold mt-1">
+                <div className="text-[10px] text-zinc-400 font-bold mt-1">
                   متوسط المشتريات المسلمة
                 </div>
               </div>
             </div>
 
             {/* Customers Data Table & Cards */}
-            <div className={`rounded-3xl border overflow-hidden ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-              <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className={`rounded-3xl border overflow-hidden ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
+              <div className="p-4 sm:p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
                 <div>
-                  <h3 className="font-black text-sm text-slate-900 dark:text-white">قائمة العملاء والمشترين</h3>
-                  <p className="text-xs text-slate-400 font-bold mt-0.5">
+                  <h3 className="font-black text-sm text-zinc-900 dark:text-white">قائمة العملاء والمشترين</h3>
+                  <p className="text-xs text-zinc-400 font-bold mt-0.5">
                     يتم استخراج البيانات وتحديثها تلقائياً مع كل أوردر وشحنة
                   </p>
                 </div>
-                <span className="text-xs font-mono font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl">
+                <span className="text-xs font-mono font-black text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-3 py-1 rounded-xl">
                   {filteredCustomersList.length} عميل
                 </span>
               </div>
 
               {filteredCustomersList.length === 0 ? (
-                <div className="p-12 text-center text-slate-400 font-bold">
-                  <Users size={36} className="mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                <div className="p-12 text-center text-zinc-400 font-bold">
+                  <Users size={36} className="mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
                   <p className="text-sm">لا توجد نتائج مطابقة لبحث العملاء</p>
                 </div>
               ) : (
@@ -8117,7 +8714,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <table className="w-full text-right text-xs">
                     <thead>
                       <tr className={`border-b text-[11px] font-black uppercase tracking-wider ${
-                        isDark ? 'border-slate-800 bg-slate-950/60 text-slate-400' : 'border-slate-100 bg-slate-50/80 text-slate-500'
+                        isDark ? 'border-zinc-800 bg-zinc-950/60 text-zinc-400' : 'border-zinc-100 bg-zinc-50/80 text-zinc-500'
                       }`}>
                         <th className="py-3.5 px-4">العميل</th>
                         <th className="py-3.5 px-4">المحافظة والعنوان</th>
@@ -8127,36 +8724,36 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <th className="py-3.5 px-4 text-center">إجراءات التواصل</th>
                       </tr>
                     </thead>
-                    <tbody className={`divide-y font-bold ${isDark ? 'divide-slate-800/60' : 'divide-slate-100'}`}>
+                    <tbody className={`divide-y font-bold ${isDark ? 'divide-zinc-800/60' : 'divide-zinc-100'}`}>
                       {filteredCustomersList.map(cust => (
-                        <tr key={cust.id} className={`transition-colors ${isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/70'}`}>
+                        <tr key={cust.id} className={`transition-colors ${isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/70'}`}>
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#008060] to-emerald-400 text-white flex items-center justify-center font-black text-xs shrink-0">
+                              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#00ab84] to-emerald-400 text-white flex items-center justify-center font-black text-xs shrink-0">
                                 {getInitials(cust.name)}
                               </div>
                               <div>
-                                <div className="font-black text-slate-900 dark:text-white">{cust.name}</div>
-                                <div className="font-mono text-[11px] text-slate-400 dir-ltr text-right">{cust.phone}</div>
+                                <div className="font-black text-zinc-900 dark:text-white">{cust.name}</div>
+                                <div className="font-mono text-[11px] text-zinc-400 dir-ltr text-right">{cust.phone}</div>
                               </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-                              <MapPin size={13} className="text-[#008060] shrink-0" />
+                            <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-300">
+                              <MapPin size={13} className="text-[#00ab84] shrink-0" />
                               <span className="font-black">{cust.governorate}</span>
-                              {cust.city && <span className="text-slate-400 text-[11px]">({cust.city})</span>}
+                              {cust.city && <span className="text-zinc-400 text-[11px]">({cust.city})</span>}
                             </div>
                             {cust.address && (
-                              <div className="text-[10px] text-slate-400 truncate max-w-[220px] mt-0.5">
+                              <div className="text-[10px] text-zinc-400 truncate max-w-[220px] mt-0.5">
                                 {cust.address}
                               </div>
                             )}
                           </td>
                           <td className="py-3.5 px-4 text-center">
-                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 font-mono font-black text-xs">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 font-mono font-black text-xs">
                               <span>{cust.totalOrders}</span>
-                              <span className="text-[10px] text-slate-400 font-sans">أوردر</span>
+                              <span className="text-[10px] text-zinc-400 font-sans">أوردر</span>
                             </div>
                             <div className="flex items-center justify-center gap-1 mt-1 text-[10px] font-mono">
                               {cust.deliveredOrders > 0 && (
@@ -8168,16 +8765,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <div className="font-mono font-black text-slate-900 dark:text-white">
+                            <div className="font-mono font-black text-zinc-900 dark:text-white">
                               {formatMoney(cust.totalSpent)}
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                            <div className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
                               {cust.lastOrderDate ? new Date(cust.lastOrderDate).toLocaleDateString('ar-EG') : '—'}
                             </div>
                             {cust.lastOrderNumber && (
-                              <div className="text-[10px] text-[#008060] font-mono">#{cust.lastOrderNumber}</div>
+                              <div className="text-[10px] text-[#00ab84] font-mono">#{cust.lastOrderNumber}</div>
                             )}
                           </td>
                           <td className="py-3.5 px-4">
@@ -8190,14 +8787,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                       const clean = cust.phone.replace(/\D/g, '');
                                       window.open(`https://wa.me/2${clean}?text=${encodeURIComponent(`مرحباً ${cust.name}، بخصوص شحنتك مع متجرنا`)}`, '_blank');
                                     }}
-                                    className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-[#008060] transition-colors cursor-pointer"
+                                    className="p-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-[#00ab84] transition-colors cursor-pointer"
                                     title="مراسلة عبر واتساب"
                                   >
                                     <MessageCircle size={15} />
                                   </button>
                                   <a
                                     href={`tel:${cust.phone}`}
-                                    className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+                                    className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors"
                                     title="اتصال هاتفي"
                                   >
                                     <Phone size={15} />
@@ -8212,7 +8809,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                   navigateToTab('orders');
                                   showToast(`تم عرض شحنات العميل: ${cust.name}`, 'info');
                                 }}
-                                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-black transition-colors cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-[11px] font-black transition-colors cursor-pointer"
                                 title="عرض شحنات هذا العميل بالدورة المالية"
                               >
                                 الشحنات
@@ -8244,7 +8841,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <h4 className="text-xs sm:text-sm font-black text-amber-800 dark:text-amber-300">
                       إدارة الشحن وبوت التأكيد مفوضة لمدير حسابك المخصص 🔒
                     </h4>
-                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mt-0.5">
+                    <p className="text-[11px] font-bold text-zinc-600 dark:text-zinc-300 mt-0.5">
                       أنت مشترك في ({planUsage.planLabelAr})؛ يقوم المدير المخصص بإدارة الربط مع شركة الشحن وبوت تأكيد الأوردرات نيابةً عنك.
                     </p>
                   </div>
@@ -8252,7 +8849,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => setShowChangePlanModal(true)}
-                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black shrink-0 cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-zinc-950 text-xs font-black shrink-0 cursor-pointer"
                 >
                   تغيير نظام الباقة
                 </button>
@@ -8262,23 +8859,23 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* Header Banner */}
             <div className={`p-5 rounded-3xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${
               isDark 
-                ? 'bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 border-slate-800' 
-                : 'bg-gradient-to-r from-emerald-50/70 via-white to-teal-50/60 border-slate-200/80 shadow-xs'
+                ? 'bg-gradient-to-r from-zinc-900 via-zinc-900 to-emerald-950/40 border-zinc-800' 
+                : 'bg-gradient-to-r from-emerald-50/70 via-white to-teal-50/60 border-zinc-200/80 shadow-xs'
             }`}>
               <div className="flex items-center gap-3.5">
-                <div className="w-12 h-12 rounded-2xl bg-[#008060] text-white flex items-center justify-center shadow-lg shadow-emerald-700/20 shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-[#00ab84] text-white flex items-center justify-center shadow-lg shadow-emerald-700/20 shrink-0">
                   <LayoutGrid size={24} />
                 </div>
                 <div>
-                  <h3 className="font-black text-base text-slate-900 dark:text-white">مركز التطبيقات والتكامل الآلي</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                  <h3 className="font-black text-base text-zinc-900 dark:text-white">مركز التطبيقات والتكامل الآلي</h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 font-bold mt-0.5">
                     ربط شركات الشحن (بوسطة)، أتمتة رسائل تأكيد الواتساب، والربط البرمجي للمخازن
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="px-3.5 py-1.5 rounded-full bg-emerald-500/15 text-[#008060] font-black text-xs flex items-center gap-1.5 border border-emerald-500/20">
-                  <span className="w-2 h-2 rounded-full bg-[#008060] animate-pulse" />
+                <span className="px-3.5 py-1.5 rounded-full bg-emerald-500/15 text-[#00ab84] font-black text-xs flex items-center gap-1.5 border border-emerald-500/20">
+                  <span className="w-2 h-2 rounded-full bg-[#00ab84] animate-pulse" />
                   <span>{planUsage.managerPlanActive ? 'تحت إدارة المدير المخصص 🔒' : '4 تطبيقات نشطة ومتصلة'}</span>
                 </span>
               </div>
@@ -8289,7 +8886,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               
               {/* APP 1: Bosta Express */}
               <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               }`}>
                 <div className="space-y-3">
                   <div className="flex items-start justify-between">
@@ -8298,30 +8895,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <Truck size={22} />
                       </div>
                       <div>
-                        <h4 className="font-black text-sm text-slate-900 dark:text-white">بوسطة للشحن السريع (Bosta Express)</h4>
-                        <span className="text-[10px] text-slate-400 font-bold">Logistics & Tracking API v2</span>
+                        <h4 className="font-black text-sm text-zinc-900 dark:text-white">بوسطة للشحن السريع (Bosta Express)</h4>
+                        <span className="text-[10px] text-zinc-400 font-bold">Logistics & Tracking API v2</span>
                       </div>
                     </div>
-                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#008060] text-[10px] font-black flex items-center gap-1">
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#00ab84] text-[10px] font-black flex items-center gap-1">
                       <CheckCircle2 size={12} />
                       <span>متصل ونشط</span>
                     </span>
                   </div>
 
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                  <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed font-bold">
                     إصدار بوالص الشحن التلقائية بنقرة واحدة، جلب رقم التتبع الفوري، وتحديث حالة الأوردر بالدورة المالية آلياً عند التسليم للمشتري أو الإعادة للمخزن.
                   </p>
 
                   <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1.5 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/70 text-slate-600'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200/70 text-zinc-600'
                   }`}>
                     <div className="flex items-center justify-between">
                       <span>نقطة الاستلام والبيك أب:</span>
-                      <span className="text-slate-900 dark:text-white font-black">{DEFAULT_BOSTA_BUSINESS_LOCATIONS[0]?.city || 'مخزن الجيزة الرئيسي'}</span>
+                      <span className="text-zinc-900 dark:text-white font-black">{DEFAULT_BOSTA_BUSINESS_LOCATIONS[0]?.city || 'مخزن الجيزة الرئيسي'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span>إشعار التسليم اللحظي:</span>
-                      <span className="text-[#008060] font-black">Webhook مفعل</span>
+                      <span className="text-[#00ab84] font-black">Webhook مفعل</span>
                     </div>
                   </div>
                 </div>
@@ -8337,7 +8934,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         showToast('تم اختبار اتصال API بوسطة بنجاح - استجابة الخادم 38ms', 'success');
                       }, 700);
                     }}
-                    className="flex-1 py-2.5 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all disabled:opacity-50"
+                    className="flex-1 py-2.5 rounded-2xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all disabled:opacity-50"
                   >
                     {isTestingBosta ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                     <span>فحص استجابة الـ API</span>
@@ -8347,17 +8944,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* APP 2: WhatsApp Confirmation Bot */}
               <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               }`}>
                 <div className="space-y-3">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center font-black">
                         <MessageCircle size={22} />
                       </div>
                       <div>
-                        <h4 className="font-black text-sm text-slate-900 dark:text-white">بوت تأكيد شحنات الواتساب</h4>
-                        <span className="text-[10px] text-slate-400 font-bold">WhatsApp Automation & Address Verification</span>
+                        <h4 className="font-black text-sm text-zinc-900 dark:text-white">بوت تأكيد شحنات الواتساب</h4>
+                        <span className="text-[10px] text-zinc-400 font-bold">WhatsApp Automation & Address Verification</span>
                       </div>
                     </div>
                     <button
@@ -8367,23 +8964,23 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         showToast(isWhatsAppBotEnabled ? 'تم إيقاف بوت التأكيد مؤقتاً' : 'تم تفعيل بوت التأكيد الآلي', 'info');
                       }}
                       className={`px-2.5 py-1 rounded-full text-[10px] font-black flex items-center gap-1 cursor-pointer transition-colors ${
-                        isWhatsAppBotEnabled ? 'bg-emerald-500/15 text-[#008060]' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                        isWhatsAppBotEnabled ? 'bg-emerald-500/15 text-[#00ab84]' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
                       }`}
                     >
-                      <span className={`w-2 h-2 rounded-full ${isWhatsAppBotEnabled ? 'bg-[#008060]' : 'bg-slate-400'}`} />
+                      <span className={`w-2 h-2 rounded-full ${isWhatsAppBotEnabled ? 'bg-[#00ab84]' : 'bg-zinc-400'}`} />
                       <span>{isWhatsAppBotEnabled ? 'مفعّل' : 'متوقف'}</span>
                     </button>
                   </div>
 
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                  <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed font-bold">
                     إرسال رسالة آلية للعميل عند إنشاء الشحنة لتأكيد المقاسات والعنوان وموعد وصول المندوب، مما يخفض نسبة المرتجعات لأقل من 8%.
                   </p>
 
                   <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/70 text-slate-600'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200/70 text-zinc-600'
                   }`}>
-                    <span className="text-[10px] text-slate-400 block mb-1">نموذج الرسالة المعتمد:</span>
-                    <p className="italic text-slate-700 dark:text-slate-300 font-mono text-[10.5px]">
+                    <span className="text-[10px] text-zinc-400 block mb-1">نموذج الرسالة المعتمد:</span>
+                    <p className="italic text-zinc-700 dark:text-zinc-300 font-mono text-[10.5px]">
                       "مرحباً بك! تم تأكيد شحنتك رقم #ORD-2026 بقيمة إجمالية مع الشحن، وسيتم التسليم خلال 48 ساعة."
                     </p>
                   </div>
@@ -8400,7 +8997,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         showToast('تم إرسال رسالة تجريبية ناجحة عبر بوابة WhatsApp Cloud API', 'success');
                       }, 800);
                     }}
-                    className="flex-1 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
+                    className="flex-1 py-2.5 rounded-2xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-100 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
                   >
                     {isTestingWhatsApp ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                     <span>إرسال رسالة واتساب تجريبية</span>
@@ -8410,7 +9007,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* APP 3: Stock Sync */}
               <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               }`}>
                 <div className="space-y-3">
                   <div className="flex items-start justify-between">
@@ -8419,30 +9016,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <Layers size={22} />
                       </div>
                       <div>
-                        <h4 className="font-black text-sm text-slate-900 dark:text-white">المزامنة اللحظية للمخزون</h4>
-                        <span className="text-[10px] text-slate-400 font-bold">Multi-Channel Inventory Deduction</span>
+                        <h4 className="font-black text-sm text-zinc-900 dark:text-white">المزامنة اللحظية للمخزون</h4>
+                        <span className="text-[10px] text-zinc-400 font-bold">Multi-Channel Inventory Deduction</span>
                       </div>
                     </div>
-                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#008060] text-[10px] font-black flex items-center gap-1">
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#00ab84] text-[10px] font-black flex items-center gap-1">
                       <CheckCircle2 size={12} />
                       <span>تحديث فوري</span>
                     </span>
                   </div>
 
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-bold">
+                  <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed font-bold">
                     خصم فوري لكميات البضاعة المحجوزة من مخزون المستودع عند تسجيل أي أوردر لمنع البيع الزائد (Overselling)، وإعادة الكميات تلقائياً في حال ألغيت الشحنة.
                   </p>
 
                   <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1.5 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200/70 text-slate-600'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200/70 text-zinc-600'
                   }`}>
                     <div className="flex items-center justify-between">
                       <span>إجمالي الأصناف المراقبة:</span>
-                      <span className="text-slate-900 dark:text-white font-mono font-black">{merchantProducts.length} صنف</span>
+                      <span className="text-zinc-900 dark:text-white font-mono font-black">{merchantProducts.length} صنف</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span>إجمالي القطع في المستودع:</span>
-                      <span className="text-[#008060] font-mono font-black">{totalStockUnits} قطعة</span>
+                      <span className="text-[#00ab84] font-mono font-black">{totalStockUnits} قطعة</span>
                     </div>
                   </div>
                 </div>
@@ -8454,7 +9051,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       fetchFreshData(true);
                       showToast('تمت مطابقة ومزامنة أرصدة المستودع مع الأوردرات بنجاح', 'success');
                     }}
-                    className="flex-1 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                    className="flex-1 py-2.5 rounded-2xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-100 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                   >
                     <RefreshCw size={14} />
                     <span>مزامنة جرد المخزون الآن</span>
@@ -8464,33 +9061,33 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* APP 4: API & Webhooks */}
               <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               }`}>
                 <div className="space-y-3">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center font-black">
+                      <div className="w-11 h-11 rounded-2xl bg-teal-500/10 text-teal-600 flex items-center justify-center font-black">
                         <Code2 size={22} />
                       </div>
                       <div>
-                        <h4 className="font-black text-sm text-slate-900 dark:text-white">مفاتيح المطورين والـ Webhook</h4>
-                        <span className="text-[10px] text-slate-400 font-bold">REST API & Webhooks Listener</span>
+                        <h4 className="font-black text-sm text-zinc-900 dark:text-white">مفاتيح المطورين والـ Webhook</h4>
+                        <span className="text-[10px] text-zinc-400 font-bold">REST API & Webhooks Listener</span>
                       </div>
                     </div>
-                    <span className="px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-600 text-[10px] font-black">
+                    <span className="px-2.5 py-1 rounded-full bg-teal-500/15 text-teal-600 text-[10px] font-black">
                       REST v1
                     </span>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] text-slate-400 font-black block">عنوان رابط الـ Webhook الخاص بك:</label>
+                    <label className="text-[10px] text-zinc-400 font-black block">عنوان رابط الـ Webhook الخاص بك:</label>
                     <div className="relative">
                       <input
                         type="text"
                         value={appsWebhookUrl}
                         onChange={e => setAppsWebhookUrl(e.target.value)}
                         className={`w-full p-2.5 pr-3 pl-20 rounded-xl text-xs font-mono border outline-none ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                         }`}
                       />
                       <button
@@ -8503,7 +9100,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             showToast('تم إرسال إشعار اختبار (Ping Webhook) بنجاح - كود الاستجابة 200 OK', 'success');
                           }, 650);
                         }}
-                        className="absolute left-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-[#008060] text-white text-[10px] font-black cursor-pointer hover:bg-[#0a664e] transition-all disabled:opacity-50"
+                        className="absolute left-1.5 top-1/2 -tranzinc-y-1/2 px-2.5 py-1 rounded-lg bg-[#00ab84] text-white text-[10px] font-black cursor-pointer hover:bg-[#0a664e] transition-all disabled:opacity-50"
                       >
                         {isTestingWebhook ? 'جارِ...' : 'اختبار Ping'}
                       </button>
@@ -8511,14 +9108,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] text-slate-400 font-black block">مفتاح المصادقة السري (Merchant Secret Key):</label>
+                    <label className="text-[10px] text-zinc-400 font-black block">مفتاح المصادقة السري (Merchant Secret Key):</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         readOnly
                         value={`mk_live_${(liveMerchant.id || 'partner').slice(0, 8)}_${effectiveStoreId.slice(0, 6)}`}
                         className={`w-full p-2 rounded-xl text-xs font-mono border outline-none ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-emerald-700'
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-emerald-700'
                         }`}
                       />
                       <button
@@ -8527,7 +9124,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           navigator.clipboard?.writeText(`mk_live_${(liveMerchant.id || 'partner').slice(0, 8)}_${effectiveStoreId.slice(0, 6)}`);
                           showToast('تم نسخ مفتاح API السري', 'success');
                         }}
-                        className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-[#008060] cursor-pointer"
+                        className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:text-[#00ab84] cursor-pointer"
                         title="نسخ المفتاح"
                       >
                         <Copy size={15} />
@@ -8536,7 +9133,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
                 </div>
 
-                <div className="pt-2 text-[10px] text-slate-400 font-bold text-center">
+                <div className="pt-2 text-[10px] text-zinc-400 font-bold text-center">
                   التكامل يدعم منصات Shopify و Salla و Zid ومتاجر WooCommerce
                 </div>
               </div>
@@ -8568,17 +9165,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           <div className="space-y-4">
             {/* Filter & Export Controls Card */}
             <div className={`rounded-3xl border p-5 space-y-4 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
               <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b pb-4 ${
-                isDark ? 'border-slate-800' : 'border-slate-100'
+                isDark ? 'border-zinc-800' : 'border-zinc-100'
               }`}>
                 <div>
-                  <h3 className={`text-base sm:text-lg font-black flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    <FileText className="text-[#008060]" size={20} />
+                  <h3 className={`text-base sm:text-lg font-black flex items-center gap-2 ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                    <FileText className="text-[#00ab84]" size={20} />
                     <span>كشف الحساب الرسمي والفواتير المعتمدة (PDF / Excel)</span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-zinc-400 mt-0.5">
                     حدد الفترة الزمنية وحمّل كشف حسابك بصيغة PDF رسمية للطباعة أو شيت Excel للمراجعة المحاسبية
                   </p>
                 </div>
@@ -8587,7 +9184,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => setShowPrintableStatementModal(true)}
-                    className="px-4 py-2.5 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs transition-all"
+                    className="px-4 py-2.5 bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs transition-all"
                   >
                     <Printer size={15} className="text-emerald-400" />
                     <span>معاينة وطباعة كشف الحساب (PDF)</span>
@@ -8595,7 +9192,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={handleExportStatementExcel}
-                    className="px-4 py-2.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs transition-all"
+                    className="px-4 py-2.5 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-xs transition-all"
                   >
                     <Download size={15} />
                     <span>تصدير شيت إكسيل (Excel)</span>
@@ -8606,34 +9203,34 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* Date Range & Type Filter */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end text-xs font-bold">
                 <div>
-                  <label className="block text-slate-400 mb-1">من تاريخ:</label>
+                  <label className="block text-zinc-400 mb-1">من تاريخ:</label>
                   <input
                     type="date"
                     value={statementStartDate}
                     onChange={e => setStatementStartDate(e.target.value)}
-                    className={`w-full p-2.5 border rounded-xl font-mono text-xs outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    className={`w-full p-2.5 border rounded-xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                     }`}
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">إلى تاريخ:</label>
+                  <label className="block text-zinc-400 mb-1">إلى تاريخ:</label>
                   <input
                     type="date"
                     value={statementEndDate}
                     onChange={e => setStatementEndDate(e.target.value)}
-                    className={`w-full p-2.5 border rounded-xl font-mono text-xs outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    className={`w-full p-2.5 border rounded-xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                     }`}
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">نوع العمليات:</label>
+                  <label className="block text-zinc-400 mb-1">نوع العمليات:</label>
                   <select
                     value={statementTypeFilter}
                     onChange={e => setStatementTypeFilter(e.target.value as any)}
-                    className={`w-full p-2.5 border rounded-xl text-xs font-bold outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    className={`w-full p-2.5 border rounded-xl text-xs font-bold outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                     }`}
                   >
                     <option value="all">جميع الحركات المالية ({liveMerchant?.transactions?.length || 0})</option>
@@ -8651,7 +9248,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       setStatementEndDate(now.toISOString().slice(0, 10));
                     }}
                     className={`flex-1 py-2.5 px-2 rounded-xl text-[11px] font-black cursor-pointer ${
-                      isDark ? 'bg-slate-800 text-slate-200 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      isDark ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                     }`}
                   >
                     هذا الشهر
@@ -8672,25 +9269,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* Period Summary Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/70 border-emerald-200'}`}>
-                  <span className="text-[10px] font-bold text-[#008060] block">إجمالي التسويات (+)</span>
-                  <span className="text-base font-black font-mono tabular-nums text-[#008060]">
+                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-emerald-50/70 border-emerald-200'}`}>
+                  <span className="text-[10px] font-bold text-[#00ab84] block">إجمالي التسويات (+)</span>
+                  <span className="text-base font-black font-mono tabular-nums text-[#00ab84]">
                     +{formatMoney(statementSummary.totalCredits)}
                   </span>
                 </div>
-                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-rose-50/70 border-rose-200'}`}>
+                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-rose-50/70 border-rose-200'}`}>
                   <span className="text-[10px] font-bold text-rose-500 block">إجمالي المسحوبات (-)</span>
                   <span className="text-base font-black font-mono tabular-nums text-rose-500">
                     -{formatMoney(statementSummary.totalDebits)}
                   </span>
                 </div>
-                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                  <span className="text-[10px] font-bold text-slate-400 block">صافي حركة الفترة</span>
-                  <span className={`text-base font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <div className={`p-3.5 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="text-[10px] font-bold text-zinc-400 block">صافي حركة الفترة</span>
+                  <span className={`text-base font-black font-mono tabular-nums ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                     {statementSummary.netPeriodChange >= 0 ? '+' : ''}{formatMoney(statementSummary.netPeriodChange)}
                   </span>
                 </div>
-                <div className="p-3.5 rounded-2xl bg-[#008060] text-white">
+                <div className="p-3.5 rounded-2xl bg-[#00ab84] text-white">
                   <span className="text-[10px] font-bold text-emerald-100 block">الرصيد الحالي بالمحفظة</span>
                   <span className="text-base font-black font-mono tabular-nums text-white">
                     {formatMoney(overviewStats.persistentBalance)}
@@ -8701,7 +9298,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* Sub-view Switcher: Ledger vs P&L vs Returns Reserve */}
             <div className={`p-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-3 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full sm:w-auto">
                 <button
@@ -8709,10 +9306,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   onClick={() => handleStatementSubViewChange('ledger')}
                   className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                     statementSubView === 'ledger'
-                      ? 'bg-[#008060] text-white shadow-xs'
+                      ? 'bg-[#00ab84] text-white shadow-xs'
                       : isDark
-                      ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                      : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
                   }`}
                 >
                   <FileText size={15} />
@@ -8723,10 +9320,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   onClick={() => handleStatementSubViewChange('pnl')}
                   className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                     statementSubView === 'pnl'
-                      ? 'bg-[#008060] text-white shadow-xs'
+                      ? 'bg-[#00ab84] text-white shadow-xs'
                       : isDark
-                      ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                      : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
                   }`}
                 >
                   <TrendingUp size={15} />
@@ -8737,10 +9334,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   onClick={() => handleStatementSubViewChange('reserves')}
                   className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap ${
                     statementSubView === 'reserves'
-                      ? 'bg-[#008060] text-white shadow-xs'
+                      ? 'bg-[#00ab84] text-white shadow-xs'
                       : isDark
-                      ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                      : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
                   }`}
                 >
                   <ShieldCheck size={15} />
@@ -8748,7 +9345,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </button>
               </div>
 
-              <div className="text-[11px] font-bold text-slate-400 hidden sm:block">
+              <div className="text-[11px] font-bold text-zinc-400 hidden sm:block">
                 {statementSubView === 'ledger' && `عدد العمليات: ${filteredStatementTransactions.length}`}
                 {statementSubView === 'pnl' && `هامش الربح الصافي: ${merchantPnL.netMarginPct.toFixed(1)}%`}
                 {statementSubView === 'reserves' && `الرصيد الآمن للسحب: ${formatMoney(returnsReserveAssessment.safeWithdrawalBalance)}`}
@@ -8761,8 +9358,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 {/* Mobile Transaction Cards (md:hidden) */}
                 <div className="md:hidden space-y-2.5">
                   {filteredStatementTransactions.length === 0 ? (
-                    <div className={`p-10 rounded-3xl border text-center text-xs font-bold text-slate-400 ${
-                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    <div className={`p-10 rounded-3xl border text-center text-xs font-bold text-zinc-400 ${
+                      isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
                     }`}>
                       لا توجد عمليات مسجلة في كشف الحساب للفترة المحددة
                     </div>
@@ -8777,40 +9374,40 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         <div
                           key={tx.id}
                           className={`p-4 rounded-3xl border space-y-2.5 ${
-                            isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                            isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                           }`}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                                isCredit ? 'bg-emerald-500/15 text-[#008060]' : 'bg-rose-500/15 text-rose-500'
+                                isCredit ? 'bg-emerald-500/15 text-[#00ab84]' : 'bg-rose-500/15 text-rose-500'
                               }`}>
                                 {isCredit ? <ArrowDownLeft size={16} /> : <ArrowUpRight size={16} />}
                               </div>
                               <div>
-                                <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                                   {tx.type === 'order_delivered' ? 'تسوية مبيعات' :
                                    tx.type === 'withdrawal' ? 'سحب مستحقات' :
                                    isCredit ? 'إضافة رصيد' : 'خصم / تعديل'}
                                 </div>
-                                <div className="text-[10px] font-mono text-slate-400">
+                                <div className="text-[10px] font-mono text-zinc-400">
                                   {new Date(tx.date).toLocaleDateString('ar-EG')}
                                 </div>
                               </div>
                             </div>
 
                             <div className="text-left">
-                              <div className={`font-mono tabular-nums font-black text-sm ${isCredit ? 'text-[#008060]' : 'text-rose-500'}`}>
+                              <div className={`font-mono tabular-nums font-black text-sm ${isCredit ? 'text-[#00ab84]' : 'text-rose-500'}`}>
                                 {isCredit ? '+' : ''}{formatMoney(tx.amount)}
                               </div>
-                              <div className="text-[10px] font-mono text-slate-400">
+                              <div className="text-[10px] font-mono text-zinc-400">
                                 الرصيد: {formatMoney(tx.balanceAfter)}
                               </div>
                             </div>
                           </div>
 
                           {tx.notes && (
-                            <div className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                            <div className={`text-xs ${isDark ? 'text-zinc-300' : 'text-zinc-600'}`}>
                               {tx.notes}
                             </div>
                           )}
@@ -8818,7 +9415,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           {(transferRef || receiptImg) && (
                             <div className="flex flex-wrap items-center gap-2 pt-1">
                               {transferRef && (
-                                <span className="text-[10px] font-mono font-bold text-[#008060] bg-emerald-500/10 px-2.5 py-1 rounded-lg">
+                                <span className="text-[10px] font-mono font-bold text-[#00ab84] bg-emerald-500/10 px-2.5 py-1 rounded-lg">
                                   مرجع: {transferRef}
                                 </span>
                               )}
@@ -8826,7 +9423,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 <button
                                   type="button"
                                   onClick={() => setPreviewReceiptImage(receiptImg)}
-                                  className="text-[10px] font-black bg-[#008060] text-white px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
+                                  className="text-[10px] font-black bg-[#00ab84] text-white px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer"
                                 >
                                   <Eye size={11} /> عرض الإيصال
                                 </button>
@@ -8841,11 +9438,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                 {/* Desktop Statement Table (hidden md:block) */}
                 <div className={`hidden md:block rounded-3xl border overflow-hidden ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                 }`}>
                   <div className="overflow-x-auto">
                     <table className="w-full text-right text-xs">
-                      <thead className={`${isDark ? 'bg-slate-950 text-slate-300' : 'bg-slate-900 text-white'} font-black`}>
+                      <thead className={`${isDark ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-900 text-white'} font-black`}>
                         <tr>
                           <th className="py-3.5 px-4">التاريخ</th>
                           <th className="py-3.5 px-4">نوع العملية</th>
@@ -8854,10 +9451,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           <th className="py-3.5 px-4 text-center">الرصيد بعد العملية</th>
                         </tr>
                       </thead>
-                      <tbody className={`divide-y font-medium ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-700'}`}>
+                      <tbody className={`divide-y font-medium ${isDark ? 'divide-zinc-800 text-zinc-300' : 'divide-zinc-100 text-zinc-700'}`}>
                         {filteredStatementTransactions.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">
+                            <td colSpan={5} className="py-12 text-center text-zinc-400 font-bold">
                               لا توجد عمليات مسجلة في كشف الحساب للفترة المحددة
                             </td>
                           </tr>
@@ -8868,7 +9465,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             const transferRef = tx.transferReference || linkedReq?.transferReference;
 
                             return (
-                              <tr key={tx.id} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
+                              <tr key={tx.id} className={isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/60'}>
                                 <td className="py-4 px-4 font-mono text-[11px] font-bold">
                                   {new Date(tx.date).toLocaleDateString('ar-EG')}
                                 </td>
@@ -8879,11 +9476,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                    tx.amount > 0 ? 'إضافة رصيد' : 'تعديل رصيد'}
                                 </td>
                                 <td className="py-4 px-4 max-w-md">
-                                  <div className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{tx.notes}</div>
+                                  <div className={`font-bold ${isDark ? 'text-white' : 'text-zinc-900'}`}>{tx.notes}</div>
                                   {(transferRef || receiptImg) && (
                                     <div className="flex flex-wrap items-center gap-2 mt-1.5">
                                       {transferRef && (
-                                        <span className="text-[10px] font-mono font-black bg-emerald-500/10 text-[#008060] px-2 py-0.5 rounded-md">
+                                        <span className="text-[10px] font-mono font-black bg-emerald-500/10 text-[#00ab84] px-2 py-0.5 rounded-md">
                                           مرجع التحويل: {transferRef}
                                         </span>
                                       )}
@@ -8891,7 +9488,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                         <button
                                           type="button"
                                           onClick={() => setPreviewReceiptImage(receiptImg)}
-                                          className="text-[10px] font-black bg-[#008060] text-white px-2.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer"
+                                          className="text-[10px] font-black bg-[#00ab84] text-white px-2.5 py-0.5 rounded-md flex items-center gap-1 cursor-pointer"
                                         >
                                           <Eye size={11} /> عرض إيصال التحويل
                                         </button>
@@ -8899,10 +9496,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                     </div>
                                   )}
                                 </td>
-                                <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${tx.amount >= 0 ? 'text-[#008060]' : 'text-rose-500'}`}>
+                                <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${tx.amount >= 0 ? 'text-[#00ab84]' : 'text-rose-500'}`}>
                                   {tx.amount >= 0 ? '+' : ''}{formatMoney(tx.amount)}
                                 </td>
-                                <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                <td className={`py-4 px-4 text-center font-black font-mono tabular-nums text-sm ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                                   {formatMoney(tx.balanceAfter)}
                                 </td>
                               </tr>
@@ -8921,28 +9518,28 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div className="space-y-6">
                 {/* Top P&L KPI Cards */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                    <span className="text-xs font-bold text-slate-400 block mb-1">إجمالي المبيعات المحصلة</span>
-                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-[#008060]">
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
+                    <span className="text-xs font-bold text-zinc-400 block mb-1">إجمالي المبيعات المحصلة</span>
+                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-[#00ab84]">
                       {formatMoney(merchantPnL.grossRevenue)}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-bold mt-1 block">
+                    <span className="text-[10px] text-zinc-400 font-bold mt-1 block">
                       من {merchantPnL.deliveredCount} أوردر مسلم
                     </span>
                   </div>
 
-                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                    <span className="text-xs font-bold text-slate-400 block mb-1">تكلفة البضاعة المباعة (COGS)</span>
-                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-slate-800 dark:text-slate-200">
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
+                    <span className="text-xs font-bold text-zinc-400 block mb-1">تكلفة البضاعة المباعة (COGS)</span>
+                    <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-zinc-800 dark:text-zinc-200">
                       {formatMoney(merchantPnL.cogs)}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-bold mt-1 block">
+                    <span className="text-[10px] text-zinc-400 font-bold mt-1 block">
                       رأس المال المسترد للبضاعة
                     </span>
                   </div>
 
-                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'}`}>
-                    <span className="text-xs font-bold text-slate-400 block mb-1">مجمل الربح التجاري</span>
+                  <div className={`p-5 rounded-3xl border ${isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'}`}>
+                    <span className="text-xs font-bold text-zinc-400 block mb-1">مجمل الربح التجاري</span>
                     <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
                       {formatMoney(merchantPnL.grossProfit)}
                     </div>
@@ -8951,7 +9548,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     </span>
                   </div>
 
-                  <div className="p-5 rounded-3xl bg-gradient-to-tr from-[#008060] to-emerald-600 text-white shadow-lg shadow-emerald-700/20">
+                  <div className="p-5 rounded-3xl bg-gradient-to-tr from-[#00ab84] to-emerald-600 text-white shadow-lg shadow-emerald-700/20">
                     <span className="text-xs font-bold text-emerald-100 block mb-1">صافي الربح الفعلي بعد المصروفات</span>
                     <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-white">
                       {formatMoney(merchantPnL.netProfit)}
@@ -8964,51 +9561,51 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                 {/* Waterfall Income Statement Breakdown */}
                 <div className={`rounded-3xl border overflow-hidden ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                 }`}>
                   <div className={`p-5 sm:p-6 border-b flex items-center justify-between ${
-                    isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-100 bg-slate-50/50'
+                    isDark ? 'border-zinc-800 bg-zinc-950/40' : 'border-zinc-100 bg-zinc-50/50'
                   }`}>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center font-black">
                         <TrendingUp size={20} />
                       </div>
                       <div>
-                        <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                           بيان الدخل المحاسبي المفصل (Income Statement Waterfall)
                         </h3>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs text-zinc-400">
                           تسلسل تدرج الأرباح من إجمالي المتحصلات النقدية حتى صافي المستحقات الخالصة
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs font-mono font-black text-[#008060] bg-emerald-500/10 px-3 py-1 rounded-full">
+                    <span className="text-xs font-mono font-black text-[#00ab84] bg-emerald-500/10 px-3 py-1 rounded-full">
                       صافي: {formatMoney(merchantPnL.netProfit)}
                     </span>
                   </div>
 
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs font-bold">
+                  <div className="divide-y divide-zinc-100 dark:divide-zinc-800 text-xs font-bold">
                     {/* Item 1: Gross Sales */}
-                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
                       <div className="space-y-0.5">
-                        <span className="text-slate-900 dark:text-white font-black text-sm block">1. إجمالي الإيرادات المحصلة (Gross Collected Revenue)</span>
-                        <span className="text-slate-400 text-[11px]">مجموع المبالغ النقدية المحصلة من العملاء عبر شركة الشحن</span>
+                        <span className="text-zinc-900 dark:text-white font-black text-sm block">1. إجمالي الإيرادات المحصلة (Gross Collected Revenue)</span>
+                        <span className="text-zinc-400 text-[11px]">مجموع المبالغ النقدية المحصلة من العملاء عبر شركة الشحن</span>
                       </div>
-                      <span className="font-mono font-black text-base text-[#008060]">+{formatMoney(merchantPnL.grossRevenue)}</span>
+                      <span className="font-mono font-black text-base text-[#00ab84]">+{formatMoney(merchantPnL.grossRevenue)}</span>
                     </div>
 
                     {/* Item 2: COGS */}
-                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
                       <div className="space-y-0.5">
-                        <span className="text-slate-900 dark:text-white font-black text-sm block">2. تكلفة البضاعة المباعة (Cost of Goods Sold - COGS)</span>
-                        <span className="text-slate-400 text-[11px]">تكلفة شراء/توريد الأصناف المسلمة (رأس المال المسترجع لك بالكامل)</span>
+                        <span className="text-zinc-900 dark:text-white font-black text-sm block">2. تكلفة البضاعة المباعة (Cost of Goods Sold - COGS)</span>
+                        <span className="text-zinc-400 text-[11px]">تكلفة شراء/توريد الأصناف المسلمة (رأس المال المسترجع لك بالكامل)</span>
                       </div>
-                      <span className="font-mono font-black text-base text-slate-700 dark:text-slate-300">-{formatMoney(merchantPnL.cogs)}</span>
+                      <span className="font-mono font-black text-base text-zinc-700 dark:text-zinc-300">-{formatMoney(merchantPnL.cogs)}</span>
                     </div>
 
                     {/* Subtotal: Gross Profit */}
                     <div className={`p-4 sm:p-5 flex items-center justify-between ${
-                      isDark ? 'bg-slate-950/60' : 'bg-emerald-50/50'
+                      isDark ? 'bg-zinc-950/60' : 'bg-emerald-50/50'
                     }`}>
                       <div className="space-y-0.5">
                         <span className="text-emerald-700 dark:text-emerald-400 font-black text-sm block">
@@ -9016,43 +9613,43 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         </span>
                         <span className="text-emerald-600/80 text-[11px]">الفارق بين سعر البيع وتكلفة البضاعة قبل خصم مصاريف التشغيل</span>
                       </div>
-                      <div className="text-left font-mono font-black text-base text-[#008060]">
+                      <div className="text-left font-mono font-black text-base text-[#00ab84]">
                         <div>{formatMoney(merchantPnL.grossProfit)}</div>
                         <div className="text-[10px] text-emerald-600 font-bold">هامش: {merchantPnL.grossMarginPct.toFixed(1)}%</div>
                       </div>
                     </div>
 
                     {/* Item 3: Shipping Deductions */}
-                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
                       <div className="space-y-0.5">
                         <span className="text-rose-600 dark:text-rose-400 font-black text-sm block">3. مصاريف الشحن والتوصيل الإجمالية</span>
-                        <span className="text-slate-400 text-[11px]">شحن بوسطة، رسوم الفتح، التأمين، ضريبة القيمة المضافة 14%، وشحن المرتجعات</span>
+                        <span className="text-zinc-400 text-[11px]">شحن بوسطة، رسوم الفتح، التأمين، ضريبة القيمة المضافة 14%، وشحن المرتجعات</span>
                       </div>
                       <span className="font-mono font-black text-base text-rose-500">-{formatMoney(merchantPnL.shippingExp)}</span>
                     </div>
 
                     {/* Item 4: Operating Service Fees */}
-                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                    <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
                       <div className="space-y-0.5">
                         <span className="text-amber-600 dark:text-amber-400 font-black text-sm block">4. رسوم تشغيل النظام وإدارة الطلبات</span>
-                        <span className="text-slate-400 text-[11px]">رسوم خدمة النظام لكل شحنة مسجلة</span>
+                        <span className="text-zinc-400 text-[11px]">رسوم خدمة النظام لكل شحنة مسجلة</span>
                       </div>
                       <span className="font-mono font-black text-base text-amber-600">-{formatMoney(merchantPnL.operatingExp)}</span>
                     </div>
 
                     {/* Item 5: Store Expenses & Withdrawal Fees */}
                     {merchantPnL.otherStoreExp > 0 && (
-                      <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <div className="p-4 sm:p-5 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
                         <div className="space-y-0.5">
-                          <span className="text-slate-700 dark:text-slate-300 font-black text-sm block">5. مصروفات إضافية ورسوم سحب الرصيد</span>
-                          <span className="text-slate-400 text-[11px]">تغليف، إعلانات، عمالة، أو رسوم تحويل سحب الأرباح المعتمدة</span>
+                          <span className="text-zinc-700 dark:text-zinc-300 font-black text-sm block">5. مصروفات إضافية ورسوم سحب الرصيد</span>
+                          <span className="text-zinc-400 text-[11px]">تغليف، إعلانات، عمالة، أو رسوم تحويل سحب الأرباح المعتمدة</span>
                         </div>
                         <span className="font-mono font-black text-base text-rose-500">-{formatMoney(merchantPnL.otherStoreExp)}</span>
                       </div>
                     )}
 
                     {/* Final Net Profit */}
-                    <div className="p-5 sm:p-6 flex items-center justify-between bg-[#008060] text-white">
+                    <div className="p-5 sm:p-6 flex items-center justify-between bg-[#00ab84] text-white">
                       <div className="space-y-0.5">
                         <span className="font-black text-base sm:text-lg block">
                           = صافي الربح المستحق النهائي (Net Income)
@@ -9071,22 +9668,22 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 {/* Commercial Efficiency KPIs */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className={`p-4 rounded-2xl border text-center ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
                   }`}>
-                    <span className="text-[11px] text-slate-400 font-bold block mb-1">متوسط قيمة الأوردر (AOV)</span>
-                    <span className="text-lg font-black font-mono text-[#008060]">{formatMoney(merchantPnL.aov)}</span>
+                    <span className="text-[11px] text-zinc-400 font-bold block mb-1">متوسط قيمة الأوردر (AOV)</span>
+                    <span className="text-lg font-black font-mono text-[#00ab84]">{formatMoney(merchantPnL.aov)}</span>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
                   }`}>
-                    <span className="text-[11px] text-slate-400 font-bold block mb-1">متوسط تكلفة خدمة الأوردر (CPO)</span>
+                    <span className="text-[11px] text-zinc-400 font-bold block mb-1">متوسط تكلفة خدمة الأوردر (CPO)</span>
                     <span className="text-lg font-black font-mono text-rose-500">{formatMoney(merchantPnL.cpo)}</span>
                   </div>
                   <div className={`p-4 rounded-2xl border text-center ${
-                    isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
                   }`}>
-                    <span className="text-[11px] text-slate-400 font-bold block mb-1">عدد الأوردرات الكلي المسجل</span>
-                    <span className="text-lg font-black font-mono text-slate-900 dark:text-white">{merchantPnL.totalOrders} أوردر</span>
+                    <span className="text-[11px] text-zinc-400 font-bold block mb-1">عدد الأوردرات الكلي المسجل</span>
+                    <span className="text-lg font-black font-mono text-zinc-900 dark:text-white">{merchantPnL.totalOrders} أوردر</span>
                   </div>
                 </div>
               </div>
@@ -9096,34 +9693,34 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {statementSubView === 'reserves' && (
               <div className="space-y-6">
                 <div className={`p-6 sm:p-7 rounded-[32px] border ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                  isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
                 }`}>
-                  <div className="flex items-center gap-3.5 border-b border-slate-100 dark:border-slate-800 pb-5">
+                  <div className="flex items-center gap-3.5 border-b border-zinc-100 dark:border-zinc-800 pb-5">
                     <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center font-black">
                       <ShieldCheck size={24} />
                     </div>
                     <div>
-                      <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                         مخصص أمان المرتجعات وحماية المحفظة
                       </h3>
-                      <p className="text-xs text-slate-400 mt-0.5">
+                      <p className="text-xs text-zinc-400 mt-0.5">
                         تقدير محاسبي ذكي لمصاريف الشحن المحتملة للشحنات الجاري توصيلها في الطريق لتفادي الأرصدة السالبة
                       </p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-6">
-                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                      <span className="text-[11px] font-bold text-slate-400 block mb-1">شحنات جارية في الطريق</span>
-                      <div className="text-2xl font-black font-mono text-sky-600">
-                        {returnsReserveAssessment.inTransitCount} <span className="text-xs font-bold text-slate-400">شحنة</span>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                      <span className="text-[11px] font-bold text-zinc-400 block mb-1">شحنات جارية في الطريق</span>
+                      <div className="text-2xl font-black font-mono text-cyan-600">
+                        {returnsReserveAssessment.inTransitCount} <span className="text-xs font-bold text-zinc-400">شحنة</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-bold block mt-1">
+                      <span className="text-[10px] text-zinc-400 font-bold block mt-1">
                         بقيمة تحصيل: {formatMoney(returnsReserveAssessment.inTransitGrossValue)}
                       </span>
                     </div>
 
-                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-rose-50/70 border-rose-200'}`}>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-rose-50/70 border-rose-200'}`}>
                       <span className="text-[11px] font-bold text-rose-500 block mb-1">مخاطر مصاريف شحن المرتجع</span>
                       <div className="text-2xl font-black font-mono text-rose-500">
                         {formatMoney(returnsReserveAssessment.estimatedShippingLossRisk)}
@@ -9133,7 +9730,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </span>
                     </div>
 
-                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-amber-50/70 border-amber-200'}`}>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-amber-50/70 border-amber-200'}`}>
                       <span className="text-[11px] font-bold text-amber-600 block mb-1">مخصص الحجز الموصى به (Holdback)</span>
                       <div className="text-2xl font-black font-mono text-amber-600">
                         {formatMoney(returnsReserveAssessment.recommendedHoldback)}
@@ -9143,7 +9740,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </span>
                     </div>
 
-                    <div className="p-4 rounded-2xl bg-[#008060] text-white">
+                    <div className="p-4 rounded-2xl bg-[#00ab84] text-white">
                       <span className="text-[11px] font-bold text-emerald-100 block mb-1">الرصيد الآمن للسحب الفوري (100%)</span>
                       <div className="text-2xl font-black font-mono text-white">
                         {formatMoney(returnsReserveAssessment.safeWithdrawalBalance)}
@@ -9156,14 +9753,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   {/* Actions & Explanatory Banner */}
                   <div className={`mt-6 p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-slate-300' : 'bg-emerald-50/60 border-emerald-200 text-slate-700'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-emerald-50/60 border-emerald-200 text-zinc-700'
                   }`}>
                     <div className="text-xs space-y-1">
-                      <div className="font-black text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <CheckCircle2 size={15} className="text-[#008060]" />
+                      <div className="font-black text-zinc-900 dark:text-white flex items-center gap-1.5">
+                        <CheckCircle2 size={15} className="text-[#00ab84]" />
                         <span>نصيحة محاسبية معتمدة لحماية متجرك:</span>
                       </div>
-                      <p className="text-slate-500 dark:text-slate-400">
+                      <p className="text-zinc-500 dark:text-zinc-400">
                         سحب المبلغ حتى الرصيد الآمن ({formatMoney(returnsReserveAssessment.safeWithdrawalBalance)}) يضمن بقاء محفظتك في المنطقة الإيجابية حتى لو رجعت أي شحنة في الطريق.
                       </p>
                     </div>
@@ -9175,7 +9772,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         setShowRequestModal(true);
                       }}
                       disabled={returnsReserveAssessment.safeWithdrawalBalance <= 0}
-                      className="px-5 py-2.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-sm transition-all whitespace-nowrap disabled:opacity-50"
+                      className="px-5 py-2.5 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer shadow-sm transition-all whitespace-nowrap disabled:opacity-50"
                     >
                       <Coins size={14} />
                       <span>طلب سحب بالمبلغ الآمن الآن</span>
@@ -9195,17 +9792,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             
             {/* Saved Payout Accounts Card */}
             <div className={`rounded-3xl p-5 sm:p-6 border space-y-5 ${
-              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
             }`}>
-              <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+              <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center font-black">
                   <CreditCard size={22} />
                 </div>
                 <div>
-                  <h3 className={`font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  <h3 className={`font-black text-base ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                     حسابات الدفع المفضلة للسحب السريع
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-zinc-400">
                     احفظ أرقام محافظك وحسابك البنكي لتظهر تلقائياً عند طلب السحب
                   </p>
                 </div>
@@ -9213,7 +9810,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               <form onSubmit={handleSavePayoutAccounts} className="space-y-4 text-xs font-bold">
                 <div>
-                  <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                     رقم محفظة الكاش (Vodafone / Etisalat / Orange / WE)
                   </label>
                   <input
@@ -9221,14 +9818,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     value={savedWalletPhone}
                     onChange={e => setSavedWalletPhone(e.target.value)}
                     placeholder="010XXXXXXXX"
-                    className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                     }`}
                   />
                 </div>
 
                 <div>
-                  <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                     عنوان انستا باي (InstaPay Handle / IPA أو الرقم)
                   </label>
                   <input
@@ -9236,41 +9833,41 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     value={savedInstaPay}
                     onChange={e => setSavedInstaPay(e.target.value)}
                     placeholder="username@instapay أو 010XXXXXXXX"
-                    className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                     }`}
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>اسم البنك</label>
+                    <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>اسم البنك</label>
                     <input
                       type="text"
                       value={savedBankName}
                       onChange={e => setSavedBankName(e.target.value)}
                       placeholder="مثال: البنك الأهلي / CIB"
-                      className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
                   <div>
-                    <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>اسم المستفيد الثلاثي</label>
+                    <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>اسم المستفيد الثلاثي</label>
                     <input
                       type="text"
                       value={savedBeneficiaryName}
                       onChange={e => setSavedBeneficiaryName(e.target.value)}
                       placeholder="الاسم كما يظهر بالبنك"
-                      className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                       }`}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                     رقم الحساب البنكي أو الآيبان (IBAN)
                   </label>
                   <input
@@ -9278,8 +9875,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     value={savedBankAccount}
                     onChange={e => setSavedBankAccount(e.target.value)}
                     placeholder="EG000000000000000000000000000"
-                    className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                     }`}
                   />
                 </div>
@@ -9287,7 +9884,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="submit"
                   disabled={isSavingPayoutAccounts}
-                  className="w-full py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="w-full py-3.5 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-md shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <CheckCircle2 size={16} />
                   <span>{isSavingPayoutAccounts ? 'جاري الحفظ...' : 'حفظ حسابات الدفع المفضلة'}</span>
@@ -9299,17 +9896,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             <div className="space-y-5">
               {/* Change Secret PIN Card */}
               <div className={`rounded-3xl p-5 sm:p-6 border space-y-4 ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               }`}>
-                <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center font-black">
+                <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                  <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center font-black">
                     <Lock size={20} />
                   </div>
                   <div>
-                    <h3 className={`font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <h3 className={`font-black text-base ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                       تغيير رمز الدخول السري (PIN)
                     </h3>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-zinc-400">
                       قم بتعيين رمز مرور سري خاص بك بدلاً من الرمز الافتراضي
                     </p>
                   </div>
@@ -9318,15 +9915,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <form onSubmit={handleChangeMerchantPin} className="space-y-3.5 text-xs font-bold">
                   {liveMerchant.passcode && liveMerchant.passcode !== '0000' && (
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>رمز PIN الحالي</label>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>رمز PIN الحالي</label>
                       <input
                         type="password"
                         required
                         value={currentPinInput}
                         onChange={e => setCurrentPinInput(e.target.value)}
                         placeholder="أدخل رمز PIN الحالي"
-                        className={`w-full p-3.5 border rounded-2xl font-mono text-center tracking-[4px] outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3.5 border rounded-2xl font-mono text-center tracking-[4px] outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
@@ -9334,7 +9931,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>رمز PIN الجديد</label>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>رمز PIN الجديد</label>
                       <input
                         type="password"
                         required
@@ -9342,13 +9939,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         onChange={e => setNewPinInput(e.target.value)}
                         placeholder="••••"
                         maxLength={10}
-                        className={`w-full p-3.5 border rounded-2xl font-mono text-center tracking-[4px] outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3.5 border rounded-2xl font-mono text-center tracking-[4px] outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
                     <div>
-                      <label className={`block mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>تأكيد رمز PIN الجديد</label>
+                      <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>تأكيد رمز PIN الجديد</label>
                       <input
                         type="password"
                         required
@@ -9356,8 +9953,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         onChange={e => setConfirmPinInput(e.target.value)}
                         placeholder="••••"
                         maxLength={10}
-                        className={`w-full p-3.5 border rounded-2xl font-mono text-center tracking-[4px] outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                        className={`w-full p-3.5 border rounded-2xl font-mono text-center tracking-[4px] outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
@@ -9366,7 +9963,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="submit"
                     disabled={isChangingPin || !newPinInput.trim()}
-                    className="w-full py-3.5 bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 text-white rounded-2xl font-black text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full py-3.5 bg-zinc-900 dark:bg-zinc-800 hover:bg-zinc-800 text-white rounded-2xl font-black text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <Key size={15} className="text-emerald-400" />
                     <span>{isChangingPin ? 'جاري التحديث...' : 'تحديث رمز الدخول السري (PIN)'}</span>
@@ -9376,18 +9973,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* Biometric FaceID / TouchID Setup Card */}
               <div className={`rounded-3xl p-5 sm:p-6 border space-y-4 ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200/80 shadow-xs'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
               }`}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                    <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center">
                       <Fingerprint size={22} />
                     </div>
                     <div>
-                      <h4 className={`font-black text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <h4 className={`font-black text-sm ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                         الدخول السريع ببصمة الهاتف / FaceID
                       </h4>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-zinc-400">
                         سجل دخولك بلمسة واحدة من هاتفك دون الحاجة لكتابة الكود في كل مرة
                       </p>
                     </div>
@@ -9400,12 +9997,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <div
                         key={b.id}
                         className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
-                          isDark ? 'bg-slate-950 border-slate-800' : 'bg-emerald-50/50 border-emerald-200'
+                          isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-emerald-50/50 border-emerald-200'
                         }`}
                       >
                         <div>
-                          <div className={`font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{b.name}</div>
-                          <div className="text-[10px] text-slate-400">
+                          <div className={`font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>{b.name}</div>
+                          <div className="text-[10px] text-zinc-400">
                             مفعل منذ {new Date(b.createdAt).toLocaleDateString('ar-EG')}
                           </div>
                         </div>
@@ -9429,7 +10026,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   type="button"
                   onClick={handleRegisterMerchantBiometric}
                   disabled={!biometricAvailable || isRegisteringBio}
-                  className="w-full py-3 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                  className="w-full py-3 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
                 >
                   <Fingerprint size={16} />
                   <span>
@@ -9444,7 +10041,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         )}
 
             {/* Bottom SaaS Footer matching reference screenshot */}
-            <footer className="pt-10 pb-6 text-center text-xs text-slate-400 font-bold border-t border-slate-200/50 dark:border-slate-800/50 mt-auto">
+            <footer className="pt-10 pb-6 text-center text-xs text-zinc-400 font-bold border-t border-zinc-200/50 dark:border-zinc-800/50 mt-auto">
               © 2026 صنع بواسطة عبده ميديا
             </footer>
 
@@ -9457,14 +10054,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           FLOATING PILL BOTTOM NAVIGATION DOCK (Shown ONLY on Mobile & Tablet: lg:hidden)
          ===================================================================== */}
       <div
-        className="lg:hidden fixed bottom-3 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[520px] z-40"
+        className="lg:hidden fixed bottom-3 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-tranzinc-x-1/2 sm:w-[520px] z-40"
         dir="rtl"
       >
         <div
           className={`rounded-[32px] px-3 py-2 shadow-2xl border backdrop-blur-xl flex items-center justify-between gap-1 transition-colors ${
             isDark
-              ? 'bg-slate-900/95 border-slate-800 shadow-black/60'
-              : 'bg-white/95 border-slate-200/90 shadow-slate-900/10'
+              ? 'bg-zinc-900/95 border-zinc-800 shadow-black/60'
+              : 'bg-white/95 border-zinc-200/90 shadow-zinc-900/10'
           }`}
         >
           {/* 1. Home Icon */}
@@ -9473,8 +10070,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             onClick={() => navigateToTab('overview')}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
               currentTab === 'overview' && !showFullMenuDrawer && !showProfileBottomSheet
-                ? 'text-[#008060] bg-emerald-500/10 font-black'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                ? 'text-[#00ab84] bg-emerald-500/10 font-black'
+                : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
             }`}
             title="الرئيسية"
           >
@@ -9491,14 +10088,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             }}
             className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
               showNotificationsSheet
-                ? 'text-[#008060] bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                ? 'text-[#00ab84] bg-emerald-500/10'
+                : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
             }`}
             title="الإشعارات والتنبيهات"
           >
             <Bell size={20} />
             {(unreadAlertsCount > 0 || merchantOrders.length > 0) && (
-              <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900" />
+              <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-zinc-900" />
             )}
           </button>
 
@@ -9508,8 +10105,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             onClick={() => navigateToTab('analytics')}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
               currentTab === 'analytics' && !showFullMenuDrawer
-                ? 'text-[#008060] bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                ? 'text-[#00ab84] bg-emerald-500/10'
+                : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
             }`}
             title="أداء الأصناف والمحافظات"
           >
@@ -9522,8 +10119,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             onClick={() => navigateToTab('wallet')}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
               currentTab === 'wallet' && !showFullMenuDrawer
-                ? 'text-[#008060] bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                ? 'text-[#00ab84] bg-emerald-500/10'
+                : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
             }`}
             title="المحفظة والدورة المالية"
           >
@@ -9536,8 +10133,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             onClick={() => navigateToTab('orders')}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
               currentTab === 'orders' && !showFullMenuDrawer
-                ? 'text-[#008060] bg-emerald-500/10'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                ? 'text-[#00ab84] bg-emerald-500/10'
+                : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200'
             }`}
             title="أوردراتي وشحناتي"
           >
@@ -9554,8 +10151,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             }}
             className={`w-11 h-11 rounded-full flex items-center justify-center text-white shadow-lg transition-transform active:scale-95 cursor-pointer ${
               showFullMenuDrawer
-                ? 'bg-slate-900 dark:bg-emerald-600 shadow-slate-900/30'
-                : 'bg-[#008060] hover:bg-[#0a664e] shadow-emerald-600/35'
+                ? 'bg-zinc-900 dark:bg-emerald-600 shadow-zinc-900/30'
+                : 'bg-[#00ab84] hover:bg-[#0a664e] shadow-emerald-600/35'
             }`}
             title="القائمة الكاملة"
           >
@@ -9575,7 +10172,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 cy="18"
                 r="15"
                 fill="none"
-                className={isDark ? 'stroke-slate-800' : 'stroke-slate-200'}
+                className={isDark ? 'stroke-zinc-800' : 'stroke-zinc-200'}
                 strokeWidth="3"
               />
               <circle
@@ -9583,13 +10180,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 cy="18"
                 r="15"
                 fill="none"
-                stroke="#008060"
+                stroke="#00ab84"
                 strokeWidth="3"
                 strokeDasharray={`${(accountReadiness.pct * 94.2) / 100} 94.2`}
                 strokeLinecap="round"
               />
             </svg>
-            <span className={`absolute text-[10px] font-mono font-black ${isDark ? 'text-emerald-400' : 'text-[#008060]'}`}>
+            <span className={`absolute text-[10px] font-mono font-black ${isDark ? 'text-emerald-400' : 'text-[#00ab84]'}`}>
               {accountReadiness.done}/{accountReadiness.total}
             </span>
           </button>
@@ -9604,10 +10201,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             }}
             className={`relative w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs transition-all cursor-pointer ${
               showProfileBottomSheet
-                ? 'bg-[#008060] text-white shadow-md'
+                ? 'bg-[#00ab84] text-white shadow-md'
                 : isDark
-                ? 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                : 'bg-slate-200/80 text-slate-700 hover:bg-slate-300/80'
+                ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+                : 'bg-zinc-200/80 text-zinc-700 hover:bg-zinc-300/80'
             }`}
             title="الملف الشخصي والمظهر والإعدادات السريعة"
           >
@@ -9625,7 +10222,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-30 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 pb-20 sm:p-6"
+            className="fixed inset-0 z-30 bg-zinc-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 pb-20 sm:p-6"
             dir="rtl"
             onClick={() => setShowFullMenuDrawer(false)}
           >
@@ -9637,37 +10234,37 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               onClick={e => e.stopPropagation()}
               className={`w-full max-w-md max-h-[82vh] overflow-y-auto rounded-[28px] p-6 shadow-2xl border ${
                 isDark
-                  ? 'bg-gradient-to-b from-slate-900 via-slate-900 to-emerald-950/40 border-slate-800 text-slate-100'
-                  : 'bg-gradient-to-b from-emerald-50/70 via-white to-teal-50/50 border-white text-slate-800'
+                  ? 'bg-gradient-to-b from-zinc-900 via-zinc-900 to-emerald-950/40 border-zinc-800 text-zinc-100'
+                  : 'bg-gradient-to-b from-emerald-50/70 via-white to-teal-50/50 border-white text-zinc-800'
               }`}
             >
               {/* Header: القائمة */}
               <div className={`flex items-center justify-between pb-4 mb-2 border-b ${
-                isDark ? 'border-slate-800' : 'border-slate-200/80'
+                isDark ? 'border-zinc-800' : 'border-zinc-200/80'
               }`}>
-                <h2 className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                <h2 className={`text-xl font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                   القائمة
                 </h2>
                 <button
                   type="button"
                   onClick={() => setShowFullMenuDrawer(false)}
-                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="p-2 rounded-xl text-zinc-400 hover:text-zinc-600 cursor-pointer"
                 >
                   <X size={18} />
                 </button>
               </div>
 
               {/* Menu Rows (Exact visual structure of Reference 1 with icons on right, chevrons on left) */}
-              <div className={`divide-y ${isDark ? 'divide-slate-800/80' : 'divide-slate-200/70'} text-sm font-bold`}>
+              <div className={`divide-y ${isDark ? 'divide-zinc-800/80' : 'divide-zinc-200/70'} text-sm font-bold`}>
                 
                 {/* Row 1: الرئيسية */}
                 <button
                   type="button"
                   onClick={() => navigateToTab('overview')}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <Home size={20} className="text-[#008060]" />
+                    <Home size={20} className="text-[#00ab84]" />
                     <span>الرئيسية والأرصدة</span>
                   </div>
                 </button>
@@ -9677,49 +10274,49 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => setExpandedMenuSection(expandedMenuSection === 'products_orders' ? null : 'products_orders')}
-                    className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                    className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                   >
                     <div className="flex items-center gap-3.5">
-                      <ShoppingBag size={20} className="text-[#008060]" />
+                      <ShoppingBag size={20} className="text-[#00ab84]" />
                       <span>المنتجات والطلبات</span>
                     </div>
                     <ChevronDown
                       size={18}
-                      className={`text-slate-400 transition-transform ${expandedMenuSection === 'products_orders' ? 'rotate-180 text-[#008060]' : ''}`}
+                      className={`text-zinc-400 transition-transform ${expandedMenuSection === 'products_orders' ? 'rotate-180 text-[#00ab84]' : ''}`}
                     />
                   </button>
                   {expandedMenuSection === 'products_orders' && (
-                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-zinc-500 dark:text-zinc-400">
                       <button
                         type="button"
                         onClick={() => navigateToTab('create_order')}
-                        className="w-full py-2 text-right text-[#008060] font-black flex items-center justify-between cursor-pointer"
+                        className="w-full py-2 text-right text-[#00ab84] font-black flex items-center justify-between cursor-pointer"
                       >
                         <span>+ إنشاء أوردر جديد وشحن فوري</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => navigateToTab('inventory')}
-                        className="w-full py-2 text-right hover:text-[#008060] flex items-center justify-between cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] flex items-center justify-between cursor-pointer"
                       >
                         <span>مخزون بضاعتي بالأمانة</span>
-                        <span className="font-mono text-[11px] text-[#008060]">{totalStockUnits} قطعة</span>
+                        <span className="font-mono text-[11px] text-[#00ab84]">{totalStockUnits} قطعة</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => navigateToTab('orders')}
-                        className="w-full py-2 text-right hover:text-[#008060] flex items-center justify-between cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] flex items-center justify-between cursor-pointer"
                       >
                         <span>الدورة المالية للأوردرات والشحنات</span>
-                        <span className="font-mono text-[11px] text-[#008060]">{merchantOrders.length}</span>
+                        <span className="font-mono text-[11px] text-[#00ab84]">{merchantOrders.length}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => navigateToTab('transparency')}
-                        className="w-full py-2 text-right hover:text-[#008060] flex items-center justify-between cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] flex items-center justify-between cursor-pointer"
                       >
                         <span>حركة البضاعة والمخزن (الشفافية)</span>
-                        <span className="font-mono text-[11px] text-[#008060]">{merchantProducts.length} صنف</span>
+                        <span className="font-mono text-[11px] text-[#00ab84]">{merchantProducts.length} صنف</span>
                       </button>
                     </div>
                   )}
@@ -9730,30 +10327,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => setExpandedMenuSection(expandedMenuSection === 'analytics_group' ? null : 'analytics_group')}
-                    className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                    className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                   >
                     <div className="flex items-center gap-3.5">
-                      <Radio size={20} className="text-[#008060]" />
+                      <Radio size={20} className="text-[#00ab84]" />
                       <span>المبيعات وتحليل المحافظات</span>
                     </div>
                     <ChevronDown
                       size={18}
-                      className={`text-slate-400 transition-transform ${expandedMenuSection === 'analytics_group' ? 'rotate-180 text-[#008060]' : ''}`}
+                      className={`text-zinc-400 transition-transform ${expandedMenuSection === 'analytics_group' ? 'rotate-180 text-[#00ab84]' : ''}`}
                     />
                   </button>
                   {expandedMenuSection === 'analytics_group' && (
-                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-zinc-500 dark:text-zinc-400">
                       <button
                         type="button"
                         onClick={() => navigateToTab('analytics')}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         ترتيب الأصناف الأكثر مبيعاً والأعلى ربحية
                       </button>
                       <button
                         type="button"
                         onClick={() => navigateToTab('analytics')}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         توزيع المحافظات ونسب التسليم والمرتجع
                       </button>
@@ -9768,13 +10365,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setShowFullMenuDrawer(false);
                     navigateToTab('customers');
                   }}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <Users size={20} className="text-[#008060]" />
+                    <Users size={20} className="text-[#00ab84]" />
                     <span>إدارة العملاء والمشترين</span>
                   </div>
-                  <span className="font-mono text-xs text-white bg-slate-800 dark:bg-slate-700 px-2 py-0.5 rounded-full">
+                  <span className="font-mono text-xs text-white bg-zinc-800 dark:bg-zinc-700 px-2 py-0.5 rounded-full">
                     {uniqueCustomersCount} عميل
                   </span>
                 </button>
@@ -9786,13 +10383,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setShowFullMenuDrawer(false);
                     setShowStoreModal(true);
                   }}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <ShoppingBag size={20} className="text-[#008060]" />
+                    <ShoppingBag size={20} className="text-[#00ab84]" />
                     <span>المتجر الإلكتروني ورابط المشاركة</span>
                   </div>
-                  <ExternalLink size={16} className="text-slate-400" />
+                  <ExternalLink size={16} className="text-zinc-400" />
                 </button>
 
                 {/* Row 3D: التطبيقات والربط الآلي */}
@@ -9802,13 +10399,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setShowFullMenuDrawer(false);
                     navigateToTab('apps');
                   }}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <LayoutGrid size={20} className="text-[#008060]" />
+                    <LayoutGrid size={20} className="text-[#00ab84]" />
                     <span>التطبيقات والربط الآلي (بوسطة وواتساب)</span>
                   </div>
-                  <span className="text-[10px] font-black text-[#008060] bg-emerald-500/15 px-2 py-0.5 rounded-full">
+                  <span className="text-[10px] font-black text-[#00ab84] bg-emerald-500/15 px-2 py-0.5 rounded-full">
                     4 تطبيقات
                   </span>
                 </button>
@@ -9820,14 +10417,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setShowFullMenuDrawer(false);
                     setShowNotificationsSheet(true);
                   }}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <Inbox size={20} className="text-[#008060]" />
+                    <Inbox size={20} className="text-[#00ab84]" />
                     <span>صندوق الإشعارات والتسويات</span>
                   </div>
                   {unreadAlertsCount > 0 && (
-                    <span className="font-mono text-xs text-white bg-[#008060] px-2 py-0.5 rounded-full">
+                    <span className="font-mono text-xs text-white bg-[#00ab84] px-2 py-0.5 rounded-full">
                       {unreadAlertsCount}
                     </span>
                   )}
@@ -9838,19 +10435,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => setExpandedMenuSection(expandedMenuSection === 'finance_group' ? null : 'finance_group')}
-                    className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                    className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                   >
                     <div className="flex items-center gap-3.5">
-                      <WalletIcon size={20} className="text-[#008060]" />
+                      <WalletIcon size={20} className="text-[#00ab84]" />
                       <span>المحفظة وطلبات السحب</span>
                     </div>
                     <ChevronDown
                       size={18}
-                      className={`text-slate-400 transition-transform ${expandedMenuSection === 'finance_group' ? 'rotate-180 text-[#008060]' : ''}`}
+                      className={`text-zinc-400 transition-transform ${expandedMenuSection === 'finance_group' ? 'rotate-180 text-[#00ab84]' : ''}`}
                     />
                   </button>
                   {expandedMenuSection === 'finance_group' && (
-                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-zinc-500 dark:text-zinc-400">
                       <button
                         type="button"
                         onClick={() => {
@@ -9858,7 +10455,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           setOrdersTopViewMode('current_balance');
                           navigateToTab('wallet');
                         }}
-                        className="w-full py-2 text-right text-[#008060] font-black block cursor-pointer"
+                        className="w-full py-2 text-right text-[#00ab84] font-black block cursor-pointer"
                       >
                         الرصيد الحالي ومعاملات المحفظة
                       </button>
@@ -9869,7 +10466,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           setOrdersTopViewMode('financial_cycle');
                           navigateToTab('wallet');
                         }}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         الدورة المالية للشحنات والمبالغ المحصلة
                       </button>
@@ -9879,14 +10476,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           setShowFullMenuDrawer(false);
                           setShowRequestModal(true);
                         }}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         + طلب سحب مستحقات فوري
                       </button>
                       <button
                         type="button"
                         onClick={() => navigateToTab('statement')}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         كشف الحساب الرسمي (PDF / Excel)
                       </button>
@@ -9899,30 +10496,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <button
                     type="button"
                     onClick={() => setExpandedMenuSection(expandedMenuSection === 'settings_group' ? null : 'settings_group')}
-                    className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                    className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                   >
                     <div className="flex items-center gap-3.5">
-                      <Settings size={20} className="text-[#008060]" />
+                      <Settings size={20} className="text-[#00ab84]" />
                       <span>الإعدادات والأمان</span>
                     </div>
                     <ChevronDown
                       size={18}
-                      className={`text-slate-400 transition-transform ${expandedMenuSection === 'settings_group' ? 'rotate-180 text-[#008060]' : ''}`}
+                      className={`text-zinc-400 transition-transform ${expandedMenuSection === 'settings_group' ? 'rotate-180 text-[#00ab84]' : ''}`}
                     />
                   </button>
                   {expandedMenuSection === 'settings_group' && (
-                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <div className="pr-8 pb-3 space-y-2 text-xs font-bold text-zinc-500 dark:text-zinc-400">
                       <button
                         type="button"
                         onClick={() => navigateToTab('account')}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         حفظ حسابات الدفع (Vodafone Cash / InstaPay / بنك)
                       </button>
                       <button
                         type="button"
                         onClick={() => navigateToTab('account')}
-                        className="w-full py-2 text-right hover:text-[#008060] block cursor-pointer"
+                        className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         تغيير رمز PIN وتفعيل بصمة الهاتف
                       </button>
@@ -9937,13 +10534,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setShowFullMenuDrawer(false);
                     setShowChangePlanModal(true);
                   }}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <Crown size={20} className="text-[#008060]" />
+                    <Crown size={20} className="text-[#00ab84]" />
                     <span>الباقات والمدير المخصص لأوردراتك</span>
                   </div>
-                  <span className="text-[11px] font-black text-white bg-[#008060] px-2.5 py-0.5 rounded-full">
+                  <span className="text-[11px] font-black text-white bg-[#00ab84] px-2.5 py-0.5 rounded-full">
                     {planUsage.badgeText}
                   </span>
                 </button>
@@ -9955,10 +10552,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setShowFullMenuDrawer(false);
                     setShowProfileBottomSheet(true);
                   }}
-                  className="w-full py-4 flex items-center justify-between hover:text-[#008060] transition-colors cursor-pointer"
+                  className="w-full py-4 flex items-center justify-between hover:text-[#00ab84] transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-3.5">
-                    <HeartHandshake size={20} className="text-[#008060]" />
+                    <HeartHandshake size={20} className="text-[#00ab84]" />
                     <span>الملف الشخصي والمظهر</span>
                   </div>
                 </button>
@@ -9978,7 +10575,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center"
+            className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center"
             dir="rtl"
             onClick={() => setShowProfileBottomSheet(false)}
           >
@@ -9990,27 +10587,27 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               onClick={e => e.stopPropagation()}
               className={`w-full max-w-md max-h-[88vh] overflow-y-auto rounded-t-[32px] sm:rounded-[32px] p-5 sm:p-6 shadow-2xl border ${
                 isDark
-                  ? 'bg-slate-900 border-slate-800 text-slate-100'
-                  : 'bg-white border-slate-200 text-slate-800'
+                  ? 'bg-zinc-900 border-zinc-800 text-zinc-100'
+                  : 'bg-white border-zinc-200 text-zinc-800'
               } space-y-5`}
             >
               {/* Top Drag Handle Bar */}
-              <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto -mt-1 mb-2" />
+              <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full mx-auto -mt-1 mb-2" />
 
               {/* 1. Merchant Identity Row */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="relative">
-                    <div className="w-13 h-13 rounded-full bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black text-lg shadow-md">
+                    <div className="w-13 h-13 rounded-full bg-gradient-to-tr from-[#00ab84] to-emerald-500 text-white flex items-center justify-center font-black text-lg shadow-md">
                       {getInitials(liveMerchant.name)}
                     </div>
-                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
+                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-white dark:border-zinc-900" />
                   </div>
                   <div>
-                    <div className={`font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <div className={`font-black text-base ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                       {liveMerchant.name}
                     </div>
-                    <div className="text-xs text-slate-400 font-medium">
+                    <div className="text-xs text-zinc-400 font-medium">
                       {liveMerchant.role || 'موكل معتمد / Owner'}
                     </div>
                   </div>
@@ -10018,7 +10615,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => setShowProfileBottomSheet(false)}
-                  className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-pointer"
+                  className="p-2 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-pointer"
                 >
                   <X size={16} />
                 </button>
@@ -10031,7 +10628,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   : 'bg-emerald-50/70 border-emerald-200/80'
               }`}>
                 <div className="space-y-1">
-                  <span className="text-[11px] text-slate-400 font-bold block">الباقة الحالية</span>
+                  <span className="text-[11px] text-zinc-400 font-bold block">الباقة الحالية</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -10039,7 +10636,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       setShowChangePlanModal(true);
                     }}
                     className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black shadow-2xs cursor-pointer ${
-                      isDark ? 'bg-slate-900 text-emerald-400' : 'bg-white text-[#008060]'
+                      isDark ? 'bg-zinc-900 text-emerald-400' : 'bg-white text-[#00ab84]'
                     }`}
                   >
                     <Crown size={13} />
@@ -10049,8 +10646,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </div>
 
                 <div className="text-left space-y-1">
-                  <span className="text-[11px] text-slate-400 font-bold block">الرصيد المتاح</span>
-                  <div className={`font-mono tabular-nums font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`} dir="ltr">
+                  <span className="text-[11px] text-zinc-400 font-bold block">الرصيد المتاح</span>
+                  <div className={`font-mono tabular-nums font-black text-base ${isDark ? 'text-white' : 'text-zinc-900'}`} dir="ltr">
                     EGP {hideBalances ? '•••••' : availableForWithdrawal.toLocaleString()}
                   </div>
                 </div>
@@ -10059,13 +10656,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* 3. Active Store Selector Card with Checkmark & Order Count Badge (Matching Reference 2) */}
               <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
                 isDark
-                  ? 'bg-slate-950/70 border-emerald-800/50'
+                  ? 'bg-zinc-950/70 border-emerald-800/50'
                   : 'bg-emerald-50/30 border-emerald-200'
               }`}>
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs ${
-                      isDark ? 'bg-slate-800 text-slate-200' : 'bg-slate-200/80 text-slate-700'
+                      isDark ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-200/80 text-zinc-700'
                     }`}>
                       {getInitials(storeName)}
                     </div>
@@ -10075,16 +10672,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </span>
                     )}
                   </div>
-                  <span className={`font-black text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  <span className={`font-black text-sm ${isDark ? 'text-white' : 'text-zinc-900'}`}>
                     {storeName}
                   </span>
                 </div>
 
-                <Check size={18} className="text-[#008060]" />
+                <Check size={18} className="text-[#00ab84]" />
               </div>
 
               {/* 4. Interactive Toggles (Activity, Notifications, Sound, Privacy) */}
-              <div className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'} text-xs font-bold`}>
+              <div className={`divide-y ${isDark ? 'divide-zinc-800' : 'divide-zinc-100'} text-xs font-bold`}>
                 <div className="py-3.5 flex items-center justify-between">
                   <span>حالة النشاط (استقبال التوريد)</span>
                   <button
@@ -10095,7 +10692,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       try { localStorage.setItem('merchant_portal_active', String(next)); } catch {}
                     }}
                     className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
-                      isActiveStatus ? 'bg-[#008060] justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'
+                      isActiveStatus ? 'bg-[#00ab84] justify-end' : 'bg-zinc-300 dark:bg-zinc-700 justify-start'
                     }`}
                   >
                     <span className="w-5.5 h-5.5 rounded-full bg-white shadow-sm block" />
@@ -10112,7 +10709,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       try { localStorage.setItem('merchant_portal_notifs', String(next)); } catch {}
                     }}
                     className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
-                      notificationsEnabled ? 'bg-[#008060] justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'
+                      notificationsEnabled ? 'bg-[#00ab84] justify-end' : 'bg-zinc-300 dark:bg-zinc-700 justify-start'
                     }`}
                   >
                     <span className="w-5.5 h-5.5 rounded-full bg-white shadow-sm block" />
@@ -10129,7 +10726,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       try { localStorage.setItem('merchant_portal_sound', String(next)); } catch {}
                     }}
                     className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
-                      soundAlertsEnabled ? 'bg-[#008060] justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'
+                      soundAlertsEnabled ? 'bg-[#00ab84] justify-end' : 'bg-zinc-300 dark:bg-zinc-700 justify-start'
                     }`}
                   >
                     <span className="w-5.5 h-5.5 rounded-full bg-white shadow-sm block" />
@@ -10146,7 +10743,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       try { localStorage.setItem('merchant_portal_hide_bal', String(next)); } catch {}
                     }}
                     className={`w-12 h-6.5 rounded-full p-0.5 transition-colors cursor-pointer flex items-center ${
-                      hideBalances ? 'bg-[#008060] justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'
+                      hideBalances ? 'bg-[#00ab84] justify-end' : 'bg-zinc-300 dark:bg-zinc-700 justify-start'
                     }`}
                   >
                     <span className="w-5.5 h-5.5 rounded-full bg-white shadow-sm block" />
@@ -10156,9 +10753,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* 5. Theme Switcher (المظهر: فاتح / النظام / داكن — Matching Reference 2 & 3) */}
               <div className="space-y-2 pt-1">
-                <span className="text-xs font-bold text-slate-400 block">المظهر</span>
+                <span className="text-xs font-bold text-zinc-400 block">المظهر</span>
                 <div className={`grid grid-cols-3 gap-1 p-1 rounded-2xl ${
-                  isDark ? 'bg-slate-950 border border-slate-800' : 'bg-slate-100'
+                  isDark ? 'bg-zinc-950 border border-zinc-800' : 'bg-zinc-100'
                 }`}>
                   {[
                     { id: 'light', label: 'فاتح', icon: Sun },
@@ -10175,9 +10772,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         className={`py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                           active
                             ? isDark
-                              ? 'bg-slate-800 text-emerald-400 shadow-xs'
-                              : 'bg-white text-[#008060] shadow-xs'
-                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                              ? 'bg-zinc-800 text-emerald-400 shadow-xs'
+                              : 'bg-white text-[#00ab84] shadow-xs'
+                            : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
                         }`}
                       >
                         <Icon size={14} />
@@ -10189,8 +10786,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               {/* 6. Bottom Quick Links (Matching Reference 3) */}
-              <div className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'} text-xs font-bold pt-2 border-t ${
-                isDark ? 'border-slate-800' : 'border-slate-100'
+              <div className={`divide-y ${isDark ? 'divide-zinc-800' : 'divide-zinc-100'} text-xs font-bold pt-2 border-t ${
+                isDark ? 'border-zinc-800' : 'border-zinc-100'
               }`}>
                 <button
                   type="button"
@@ -10206,37 +10803,37 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => navigateToTab('analytics')}
-                  className="w-full py-3.5 flex items-center justify-between hover:text-[#008060] cursor-pointer"
+                  className="w-full py-3.5 flex items-center justify-between hover:text-[#00ab84] cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
-                    <Users size={17} className="text-slate-400" />
+                    <Users size={17} className="text-zinc-400" />
                     <span>أداء الأصناف والمحافظات</span>
                   </div>
-                  <ChevronLeft size={15} className="text-slate-400" />
+                  <ChevronLeft size={15} className="text-zinc-400" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => navigateToTab('transparency')}
-                  className="w-full py-3.5 flex items-center justify-between hover:text-[#008060] cursor-pointer"
+                  className="w-full py-3.5 flex items-center justify-between hover:text-[#00ab84] cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
-                    <PackageIcon size={17} className="text-slate-400" />
+                    <PackageIcon size={17} className="text-zinc-400" />
                     <span>المنتجات وبضاعة الأمانة</span>
                   </div>
-                  <ChevronLeft size={15} className="text-slate-400" />
+                  <ChevronLeft size={15} className="text-zinc-400" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => navigateToTab('orders')}
-                  className="w-full py-3.5 flex items-center justify-between hover:text-[#008060] cursor-pointer"
+                  className="w-full py-3.5 flex items-center justify-between hover:text-[#00ab84] cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
-                    <Ticket size={17} className="text-slate-400" />
+                    <Ticket size={17} className="text-zinc-400" />
                     <span>إدارة الأوردرات والشحنات</span>
                   </div>
-                  <ChevronLeft size={15} className="text-slate-400" />
+                  <ChevronLeft size={15} className="text-zinc-400" />
                 </button>
 
                 <button
@@ -10246,25 +10843,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     setOrdersTopViewMode('current_balance');
                     navigateToTab('wallet');
                   }}
-                  className="w-full py-3.5 flex items-center justify-between hover:text-[#008060] cursor-pointer"
+                  className="w-full py-3.5 flex items-center justify-between hover:text-[#00ab84] cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
-                    <WalletIcon size={17} className="text-slate-400" />
+                    <WalletIcon size={17} className="text-zinc-400" />
                     <span>المحفظة والدورة المالية</span>
                   </div>
-                  <ChevronLeft size={15} className="text-slate-400" />
+                  <ChevronLeft size={15} className="text-zinc-400" />
                 </button>
 
                 <button
                   type="button"
                   onClick={() => navigateToTab('account')}
-                  className="w-full py-3.5 flex items-center justify-between hover:text-[#008060] cursor-pointer"
+                  className="w-full py-3.5 flex items-center justify-between hover:text-[#00ab84] cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
-                    <Settings size={17} className="text-slate-400" />
+                    <Settings size={17} className="text-zinc-400" />
                     <span>الإعدادات وحسابات الدفع ورمز PIN</span>
                   </div>
-                  <ChevronLeft size={15} className="text-slate-400" />
+                  <ChevronLeft size={15} className="text-zinc-400" />
                 </button>
               </div>
 
@@ -10282,7 +10879,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center"
+            className="fixed inset-0 z-50 bg-zinc-950/60 backdrop-blur-xs flex items-end sm:items-center justify-center"
             dir="rtl"
             onClick={() => setShowNotificationsSheet(false)}
           >
@@ -10293,19 +10890,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               transition={{ type: 'spring', damping: 28, stiffness: 300 }}
               onClick={e => e.stopPropagation()}
               className={`w-full max-w-md max-h-[80vh] overflow-y-auto rounded-t-[32px] sm:rounded-[32px] p-5 shadow-2xl border ${
-                isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-800'
               } space-y-4`}
             >
-              <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto -mt-1 mb-1" />
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="w-12 h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full mx-auto -mt-1 mb-1" />
+              <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-3">
                 <div className="flex items-center gap-2">
-                  <Bell size={18} className="text-[#008060]" />
+                  <Bell size={18} className="text-[#00ab84]" />
                   <h3 className="font-black text-sm">آخر التحديثات والإشعارات المالية</h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowNotificationsSheet(false)}
-                  className="p-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-pointer"
+                  className="p-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 cursor-pointer"
                 >
                   <X size={15} />
                 </button>
@@ -10321,18 +10918,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       navigateToTab('wallet');
                     }}
                     className={`p-3.5 rounded-2xl border cursor-pointer flex items-center justify-between gap-3 ${
-                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/70'
+                      isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200/70'
                     }`}
                   >
                     <div>
                       <div className="font-black">
                         {req.status === 'approved' ? 'تم اعتماد وتحويل طلب السحب' : req.status === 'pending' ? 'طلب سحب قيد المراجعة' : 'تحديث على طلب سحب'}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        المبلغ: <span className="font-mono font-bold text-[#008060]">{formatMoney(req.amount)}</span> · {new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')}
+                      <div className="text-[11px] text-zinc-400 mt-0.5">
+                        المبلغ: <span className="font-mono font-bold text-[#00ab84]">{formatMoney(req.amount)}</span> · {new Date(req.createdAt || req.date).toLocaleDateString('ar-EG')}
                       </div>
                     </div>
-                    <ChevronLeft size={16} className="text-slate-400 shrink-0" />
+                    <ChevronLeft size={16} className="text-zinc-400 shrink-0" />
                   </div>
                 ))}
 
@@ -10341,23 +10938,23 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     key={tx.id}
                     onClick={() => navigateToTab('statement')}
                     className={`p-3.5 rounded-2xl border cursor-pointer flex items-center justify-between gap-3 ${
-                      isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/70'
+                      isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200/70'
                     }`}
                   >
                     <div>
                       <div className="font-bold">{tx.notes || 'حركة مالية بكشف الحساب'}</div>
-                      <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                      <div className="text-[11px] text-zinc-400 font-mono mt-0.5">
                         {new Date(tx.date).toLocaleDateString('ar-EG')}
                       </div>
                     </div>
-                    <span className={`font-mono font-black shrink-0 ${tx.amount >= 0 ? 'text-[#008060]' : 'text-rose-500'}`}>
+                    <span className={`font-mono font-black shrink-0 ${tx.amount >= 0 ? 'text-[#00ab84]' : 'text-rose-500'}`}>
                       {tx.amount >= 0 ? '+' : ''}{formatMoney(tx.amount)}
                     </span>
                   </div>
                 ))}
 
                 {merchantFilteredRequests.length === 0 && (!liveMerchant.transactions || liveMerchant.transactions.length === 0) && (
-                  <div className="py-10 text-center text-slate-400 font-bold">
+                  <div className="py-10 text-center text-zinc-400 font-bold">
                     لا توجد إشعارات جديدة حالياً
                   </div>
                 )}
@@ -10369,35 +10966,35 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       {/* Payout Request Modal */}
       {showRequestModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" dir="rtl">
+        <div className="fixed inset-0 z-50 bg-zinc-950/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4" dir="rtl">
           <div className={`w-full max-w-md rounded-t-[32px] sm:rounded-3xl p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto border ${
-            isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-800'
           }`}>
-            <div className={`flex justify-between items-center border-b pb-3 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+            <div className={`flex justify-between items-center border-b pb-3 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
               <h3 className="font-black text-base">طلب سحب مستحقات البضائع</h3>
-              <button onClick={() => setShowRequestModal(false)} className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+              <button onClick={() => setShowRequestModal(false)} className="p-1.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer">
                 <X size={18} />
               </button>
             </div>
 
             <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 border rounded-2xl text-center ${
-              isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'
+              isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
             }`}>
               <div>
-                <div className="text-[10px] text-slate-400 font-bold">إجمالي المحفظة</div>
+                <div className="text-[10px] text-zinc-400 font-bold">إجمالي المحفظة</div>
                 <div className="text-xs font-black font-mono tabular-nums">{effectiveMerchantBalance.toLocaleString()} ج.م</div>
               </div>
               <div>
-                <div className="text-[10px] text-sky-500 font-bold">قيد التعليق ({weeklyPayoutOverview.holdingDaysSetting} أيام)</div>
-                <div className="text-xs font-black text-sky-500 font-mono tabular-nums">{weeklyPayoutOverview.holdingSettledBalance.toLocaleString()} ج.م</div>
+                <div className="text-[10px] text-cyan-500 font-bold">قيد التعليق ({weeklyPayoutOverview.holdingDaysSetting} أيام)</div>
+                <div className="text-xs font-black text-cyan-500 font-mono tabular-nums">{weeklyPayoutOverview.holdingSettledBalance.toLocaleString()} ج.م</div>
               </div>
               <div>
                 <div className="text-[10px] text-amber-500 font-bold">محجوز لطلب معلق</div>
                 <div className="text-xs font-black text-amber-500 font-mono tabular-nums">{pendingRequestsSum.toLocaleString()} ج.م</div>
               </div>
               <div>
-                <div className="text-[10px] text-[#008060] font-bold">الجاهز للسحب الآن</div>
-                <div className="text-xs font-black text-[#008060] font-mono tabular-nums">{weeklyPayoutOverview.maturedWalletBalance.toLocaleString()} ج.م</div>
+                <div className="text-[10px] text-[#00ab84] font-bold">الجاهز للسحب الآن</div>
+                <div className="text-xs font-black text-[#00ab84] font-mono tabular-nums">{weeklyPayoutOverview.maturedWalletBalance.toLocaleString()} ج.م</div>
               </div>
             </div>
 
@@ -10424,13 +11021,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             {/* Weekly Schedule & Store Manager Limits Info */}
             <div className={`p-3 rounded-2xl border space-y-2 text-[11px] font-bold ${
-              isDark ? 'bg-slate-950/70 border-slate-800 text-slate-300' : 'bg-emerald-50/50 border-emerald-200/80 text-slate-700'
+              isDark ? 'bg-zinc-950/70 border-zinc-800 text-zinc-300' : 'bg-emerald-50/50 border-emerald-200/80 text-zinc-700'
             }`}>
               <div className="flex items-center justify-between">
                 <span>موعد التحويل الأسبوعي القادم:</span>
-                <span className="font-mono font-black text-[#008060] dark:text-emerald-400">{weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}</span>
+                <span className="font-mono font-black text-[#00ab84] dark:text-emerald-400">{weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}</span>
               </div>
-              <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <div className="flex items-center justify-between text-[10px] text-zinc-400">
                 <span>حدود السحبة الأسبوعية: من {weeklyPayoutOverview.minWeeklyPayout.toLocaleString()} إلى {weeklyPayoutOverview.maxWeeklyPayout.toLocaleString()} ج.م</span>
                 <span>فترة تعليق الأوردر بعد التسوية: {weeklyPayoutOverview.holdingDaysSetting} أيام</span>
               </div>
@@ -10438,7 +11035,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
             <form onSubmit={handleSubmitRequest} className="space-y-4 text-xs font-bold">
               <div>
-                <label className="block text-slate-400 mb-1.5">المبلغ المطلوب سحبه (ج.م):</label>
+                <label className="block text-zinc-400 mb-1.5">المبلغ المطلوب سحبه (ج.م):</label>
                 <div className="relative">
                   <input
                     type="number"
@@ -10448,7 +11045,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     onChange={e => setRequestAmount(e.target.value)}
                     placeholder={`الحد الأقصى الجاهز للسحب: ${weeklyPayoutOverview.cappedNextPayoutAmount.toLocaleString()}`}
                     className={`w-full p-3.5 border rounded-2xl outline-none font-mono font-black ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                     }`}
                     required
                   />
@@ -10456,7 +11053,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <button
                       type="button"
                       onClick={() => setRequestAmount(String(weeklyPayoutOverview.cappedNextPayoutAmount))}
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-[#008060] text-white rounded-xl text-[10px] font-black cursor-pointer"
+                      className="absolute left-2.5 top-1/2 -tranzinc-y-1/2 px-3 py-1.5 bg-[#00ab84] text-white rounded-xl text-[10px] font-black cursor-pointer"
                     >
                       سحب المتاح
                     </button>
@@ -10466,11 +11063,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 {/* Live Transfer Commission & Net Payout Summary */}
                 {Number(requestAmount) > 0 && (
                   <div className={`mt-2.5 p-3 rounded-2xl border space-y-1.5 text-[11px] font-bold ${
-                    isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-emerald-50/40 border-emerald-200/70'
+                    isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-emerald-50/40 border-emerald-200/70'
                   }`}>
-                    <div className="flex items-center justify-between text-slate-500">
+                    <div className="flex items-center justify-between text-zinc-500">
                       <span>إجمالي المبلغ المطلوب سحبه:</span>
-                      <span className="font-mono font-black text-slate-800 dark:text-slate-200">{formatMoney(Number(requestAmount))}</span>
+                      <span className="font-mono font-black text-zinc-800 dark:text-zinc-200">{formatMoney(Number(requestAmount))}</span>
                     </div>
                     <div className="flex items-center justify-between text-rose-500">
                       <span>عمولة التحويل ({weeklyPayoutOverview.activeFeeLabelAr}):</span>
@@ -10478,7 +11075,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         -{formatMoney(weeklyPayoutOverview.calculateFeeForAmount(Number(requestAmount), weeklyPayoutOverview.payoutFrequency))}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-[#008060] dark:text-emerald-400 text-xs font-black">
+                    <div className="flex items-center justify-between pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800 text-[#00ab84] dark:text-emerald-400 text-xs font-black">
                       <span>صافي المبلغ الذي سيصلك:</span>
                       <span className="font-mono">
                         {formatMoney(Math.max(0, Number(requestAmount) - weeklyPayoutOverview.calculateFeeForAmount(Number(requestAmount), weeklyPayoutOverview.payoutFrequency)))}
@@ -10490,14 +11087,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-slate-400">طريقة التحويل المفضلة:</label>
+                  <label className="text-zinc-400">طريقة التحويل المفضلة:</label>
                   <button
                     type="button"
                     onClick={() => {
                       setShowRequestModal(false);
                       navigateToTab('account');
                     }}
-                    className="text-[10px] text-[#008060] hover:underline font-black cursor-pointer"
+                    className="text-[10px] text-[#00ab84] hover:underline font-black cursor-pointer"
                   >
                     تعديل حساباتي المحفوظة
                   </button>
@@ -10506,7 +11103,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   value={payoutMethod}
                   onChange={e => setPayoutMethod(e.target.value as any)}
                   className={`w-full p-3.5 border rounded-2xl outline-none font-bold ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                   }`}
                 >
                   <option value="wallet">محفظة فودافون كاش / اتصالات</option>
@@ -10522,7 +11119,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => { setPayoutMethod('wallet'); setPayoutAccount(savedWalletPhone); }}
                         className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-black border cursor-pointer transition-all ${
-                          payoutMethod === 'wallet' ? 'bg-emerald-500/15 border-[#008060] text-[#008060]' : 'border-slate-200 dark:border-slate-800 text-slate-400'
+                          payoutMethod === 'wallet' ? 'bg-emerald-500/15 border-[#00ab84] text-[#00ab84]' : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
                         }`}
                       >
                         محفظتي: {savedWalletPhone}
@@ -10533,7 +11130,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         type="button"
                         onClick={() => { setPayoutMethod('instapay'); setPayoutAccount(savedInstaPay); }}
                         className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-black border cursor-pointer transition-all ${
-                          payoutMethod === 'instapay' ? 'bg-emerald-500/15 border-[#008060] text-[#008060]' : 'border-slate-200 dark:border-slate-800 text-slate-400'
+                          payoutMethod === 'instapay' ? 'bg-emerald-500/15 border-[#00ab84] text-[#00ab84]' : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
                         }`}
                       >
                         إنستاباي: {savedInstaPay}
@@ -10547,7 +11144,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           setPayoutAccount([savedBankName, savedBankAccount, savedBeneficiaryName ? `باسم: ${savedBeneficiaryName}` : ''].filter(Boolean).join(' - '));
                         }}
                         className={`px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-black border cursor-pointer transition-all ${
-                          payoutMethod === 'bank' ? 'bg-emerald-500/15 border-[#008060] text-[#008060]' : 'border-slate-200 dark:border-slate-800 text-slate-400'
+                          payoutMethod === 'bank' ? 'bg-emerald-500/15 border-[#00ab84] text-[#00ab84]' : 'border-zinc-200 dark:border-zinc-800 text-zinc-400'
                         }`}
                       >
                         حسابي البنكي: {savedBankName || 'بنك'}
@@ -10558,27 +11155,27 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1.5">رقم المحفظة / الحساب للتحويل:</label>
+                <label className="block text-zinc-400 mb-1.5">رقم المحفظة / الحساب للتحويل:</label>
                 <input
                   type="text"
                   value={payoutAccount}
                   onChange={e => setPayoutAccount(e.target.value)}
                   placeholder="010XXXXXXXX أو عنوان إنستاباي أو رقم الحساب"
                   className={`w-full p-3.5 border rounded-2xl outline-none font-mono ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                   }`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1.5">ملاحظات إضافية للإدارة (اختياري):</label>
+                <label className="block text-zinc-400 mb-1.5">ملاحظات إضافية للإدارة (اختياري):</label>
                 <input
                   type="text"
                   value={requestNotes}
                   onChange={e => setRequestNotes(e.target.value)}
                   placeholder="أي تفاصيل إضافية حول طلب السحب..."
                   className={`w-full p-3.5 border rounded-2xl outline-none ${
-                    isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                   }`}
                 />
               </div>
@@ -10587,14 +11184,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => setShowRequestModal(false)}
-                  className={`px-4 py-3 rounded-2xl cursor-pointer ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
+                  className={`px-4 py-3 rounded-2xl cursor-pointer ${isDark ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-700'}`}
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingRequest}
-                  className="flex-1 py-3 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black cursor-pointer shadow-lg shadow-emerald-600/20"
+                  className="flex-1 py-3 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl font-black cursor-pointer shadow-lg shadow-emerald-600/20"
                 >
                   {isSubmittingRequest ? 'جاري الإرسال...' : 'تأكيد وإرسال الطلب الآن'}
                 </button>
@@ -10606,16 +11203,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       {/* Bosta-Style Change Payout Frequency Modal (تغيير تكرار السحب النقدي) */}
       {showPayoutFrequencyModal && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4" dir="rtl">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-zinc-950/75 backdrop-blur-sm p-4" dir="rtl">
           <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 ${
-            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
           }`}>
-            <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-4">
+            <div className="flex items-center justify-between border-b border-zinc-200/70 dark:border-zinc-800 pb-4">
               <h3 className="text-lg font-black">تغيير تكرار السحب النقدي</h3>
               <button
                 type="button"
                 onClick={() => setShowPayoutFrequencyModal(false)}
-                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+                className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -10627,17 +11224,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => setTempPayoutFrequency('weekly')}
                 className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${
                   tempPayoutFrequency === 'weekly'
-                    ? 'border-[#008060] bg-emerald-500/5'
+                    ? 'border-[#00ab84] bg-emerald-500/5'
                     : isDark
-                    ? 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
+                    ? 'border-zinc-800 bg-zinc-950/60 hover:border-zinc-700'
+                    : 'border-zinc-200 bg-white hover:border-zinc-300'
                 }`}
               >
                 <div className="flex items-start gap-3">
                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 shrink-0 ${
-                    tempPayoutFrequency === 'weekly' ? 'border-[#008060]' : 'border-slate-300 dark:border-slate-600'
+                    tempPayoutFrequency === 'weekly' ? 'border-[#00ab84]' : 'border-zinc-300 dark:border-zinc-600'
                   }`}>
-                    {tempPayoutFrequency === 'weekly' && <div className="w-2.5 h-2.5 rounded-full bg-[#008060]" />}
+                    {tempPayoutFrequency === 'weekly' && <div className="w-2.5 h-2.5 rounded-full bg-[#00ab84]" />}
                   </div>
 
                   <div className="flex-1 space-y-1.5">
@@ -10645,7 +11242,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <span className="text-sm font-black">أسبوعي</span>
                       <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black ${
                         weeklyPayoutOverview.weeklyFeeLabelAr === 'مجاناً'
-                          ? 'bg-emerald-500/15 text-[#008060]'
+                          ? 'bg-emerald-500/15 text-[#00ab84]'
                           : 'bg-amber-500/15 text-amber-600'
                       }`}>
                         {weeklyPayoutOverview.weeklyFeeLabelAr === 'مجاناً'
@@ -10653,13 +11250,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           : `تطبق رسوم (${weeklyPayoutOverview.weeklyFeeLabelAr}) على قيمة المعاملة`}
                       </span>
                     </div>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 leading-relaxed">
                       تحويل أسبوعي للأرصدة التي مر على تسويتها {weeklyPayoutOverview.holdingDaysSetting} أيام في اليوم الذي تختاره.
                     </p>
 
                     {tempPayoutFrequency === 'weekly' && (
-                      <div className="pt-3 mt-2 border-t border-slate-200/60 dark:border-slate-800" onClick={e => e.stopPropagation()}>
-                        <label className="block text-[11px] font-black text-slate-500 mb-2">اختر يوم التحويل الأسبوعي المفضل لديك:</label>
+                      <div className="pt-3 mt-2 border-t border-zinc-200/60 dark:border-zinc-800" onClick={e => e.stopPropagation()}>
+                        <label className="block text-[11px] font-black text-zinc-500 mb-2">اختر يوم التحويل الأسبوعي المفضل لديك:</label>
                         <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
                           {[
                             { day: 0, label: 'الأحد' },
@@ -10676,10 +11273,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               onClick={() => setTempWeeklyPayoutDay(d.day)}
                               className={`py-2 px-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer ${
                                 tempWeeklyPayoutDay === d.day
-                                  ? 'bg-[#008060] text-white border-[#008060] shadow-xs'
+                                  ? 'bg-[#00ab84] text-white border-[#00ab84] shadow-xs'
                                   : isDark
-                                  ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                                  ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800'
+                                  : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-zinc-100'
                               }`}
                             >
                               {d.label}
@@ -10697,17 +11294,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 onClick={() => setTempPayoutFrequency('daily')}
                 className={`p-4 rounded-2xl border-2 transition-all cursor-pointer ${
                   tempPayoutFrequency === 'daily'
-                    ? 'border-[#008060] bg-emerald-500/5'
+                    ? 'border-[#00ab84] bg-emerald-500/5'
                     : isDark
-                    ? 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
+                    ? 'border-zinc-800 bg-zinc-950/60 hover:border-zinc-700'
+                    : 'border-zinc-200 bg-white hover:border-zinc-300'
                 }`}
               >
                 <div className="flex items-start gap-3">
                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 shrink-0 ${
-                    tempPayoutFrequency === 'daily' ? 'border-[#008060]' : 'border-slate-300 dark:border-slate-600'
+                    tempPayoutFrequency === 'daily' ? 'border-[#00ab84]' : 'border-zinc-300 dark:border-zinc-600'
                   }`}>
-                    {tempPayoutFrequency === 'daily' && <div className="w-2.5 h-2.5 rounded-full bg-[#008060]" />}
+                    {tempPayoutFrequency === 'daily' && <div className="w-2.5 h-2.5 rounded-full bg-[#00ab84]" />}
                   </div>
 
                   <div className="flex-1 space-y-1.5">
@@ -10715,7 +11312,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       <span className="text-sm font-black">يومي</span>
                       <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black ${
                         weeklyPayoutOverview.dailyFeeLabelAr === 'مجاناً'
-                          ? 'bg-emerald-500/15 text-[#008060]'
+                          ? 'bg-emerald-500/15 text-[#00ab84]'
                           : 'bg-rose-500/15 text-rose-500'
                       }`}>
                         {weeklyPayoutOverview.dailyFeeLabelAr === 'مجاناً'
@@ -10723,7 +11320,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           : `تطبق رسوم ${weeklyPayoutOverview.dailyFeeLabelAr} على قيمة المعاملة`}
                       </span>
                     </div>
-                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                    <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 leading-relaxed">
                       تحويل يومي في أيام العمل الرسمية للأرصدة الجاهزة مع خصم عمولة التحويل المحددة من الإدارة تلقائياً.
                     </p>
                     <button
@@ -10732,7 +11329,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         e.stopPropagation();
                         setShowFinancialCycleModal(true);
                       }}
-                      className="text-xs font-black text-[#008060] hover:underline inline-flex items-center gap-1 pt-0.5 cursor-pointer"
+                      className="text-xs font-black text-[#00ab84] hover:underline inline-flex items-center gap-1 pt-0.5 cursor-pointer"
                     >
                       <span>اعرف أكثر عن الدورة المالية</span>
                     </button>
@@ -10741,12 +11338,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/70 dark:border-slate-800">
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200/70 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setShowPayoutFrequencyModal(false)}
                 className={`px-5 py-2.5 rounded-xl text-xs font-black border cursor-pointer ${
-                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  isDark ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50'
                 }`}
               >
                 إلغاء
@@ -10754,7 +11351,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <button
                 type="button"
                 onClick={() => handleSavePayoutFrequencyAndDay(tempPayoutFrequency, tempWeeklyPayoutDay)}
-                className="px-6 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
+                className="px-6 py-2.5 rounded-xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50"
               >
                 تأكيد
               </button>
@@ -10765,16 +11362,16 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       {/* Bosta-Style Financial Cycle Modal (الدورة المالية) */}
       {showFinancialCycleModal && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4" dir="rtl">
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-zinc-950/75 backdrop-blur-sm p-4" dir="rtl">
           <div className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 ${
-            isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+            isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
           }`}>
-            <div className="flex items-center justify-between border-b border-slate-200/70 dark:border-slate-800 pb-4">
+            <div className="flex items-center justify-between border-b border-zinc-200/70 dark:border-zinc-800 pb-4">
               <h3 className="text-lg font-black">الدورة المالية</h3>
               <button
                 type="button"
                 onClick={() => setShowFinancialCycleModal(false)}
-                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+                className="p-2 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -10783,12 +11380,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             <div className="relative pr-4 space-y-6 before:content-[''] before:absolute before:right-6 before:top-4 before:bottom-4 before:w-0.5 before:bg-emerald-500/30">
               {/* Step 1 */}
               <div className="relative flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-[#008060] text-white text-xs font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
+                <div className="w-6 h-6 rounded-full bg-[#00ab84] text-white text-xs font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
                   1
                 </div>
                 <div className="space-y-1">
                   <h4 className="text-sm font-black">1. التوصيل وتحصيل المبلغ</h4>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                  <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 leading-relaxed">
                     بمجرد تسليم الأوردر للعميل وتحصيل قيمة الشحنة، يتم مراجعة وتسوية الأوردر مالياً من قِبل الإدارة وإضافته إلى رصيد محفظتك.
                   </p>
                 </div>
@@ -10796,30 +11393,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* Step 2 */}
               <div className="relative flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-[#008060] text-white text-xs font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
+                <div className="w-6 h-6 rounded-full bg-[#00ab84] text-white text-xs font-black flex items-center justify-center shrink-0 z-10 shadow-sm">
                   2
                 </div>
                 <div className="space-y-2 flex-1">
                   <h4 className="text-sm font-black">2. التسوية المالية وموعد التحويل</h4>
-                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
-                    يصبح رصيد الأوردر جاهزاً للسحب بعد مرور <span className="text-[#008060] font-black">{weeklyPayoutOverview.holdingDaysSetting} أيام</span> من تاريخ التسوية المالية للأوردر.
+                  <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                    يصبح رصيد الأوردر جاهزاً للسحب بعد مرور <span className="text-[#00ab84] font-black">{weeklyPayoutOverview.holdingDaysSetting} أيام</span> من تاريخ التسوية المالية للأوردر.
                   </p>
                   <div className={`p-3 rounded-2xl border space-y-2 text-[11px] font-bold ${
-                    isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/80'
+                    isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200/80'
                   }`}>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500">نظام السحب الأسبوعي:</span>
-                      <span className="font-black text-[#008060]">
+                      <span className="text-zinc-500">نظام السحب الأسبوعي:</span>
+                      <span className="font-black text-[#00ab84]">
                         {weeklyPayoutOverview.weeklyFeeLabelAr === 'مجاناً' ? 'مجاناً بدون عمولة' : `عمولة ${weeklyPayoutOverview.weeklyFeeLabelAr}`}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-500">نظام السحب اليومي:</span>
+                      <span className="text-zinc-500">نظام السحب اليومي:</span>
                       <span className="font-black text-rose-500">
                         {weeklyPayoutOverview.dailyFeeLabelAr === 'مجاناً' ? 'مجاناً بدون عمولة' : `تطبق رسوم ${weeklyPayoutOverview.dailyFeeLabelAr}`}
                       </span>
                     </div>
-                    <div className="pt-1.5 border-t border-slate-200/60 dark:border-slate-800 text-slate-500">
+                    <div className="pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800 text-zinc-500">
                       طريقة الاستلام: تحويل بنكي / محفظة إلكترونية / إنستاباي
                     </div>
                   </div>
@@ -10827,11 +11424,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-200/70 dark:border-slate-800">
+            <div className="flex justify-end pt-2 border-t border-zinc-200/70 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setShowFinancialCycleModal(false)}
-                className="px-6 py-2.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black cursor-pointer shadow-md shadow-emerald-600/20"
+                className="px-6 py-2.5 rounded-xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black cursor-pointer shadow-md shadow-emerald-600/20"
               >
                 حسناً
               </button>
@@ -10844,32 +11441,32 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       {/* Bank Transfer Receipt Image Lightbox Modal */}
       {previewReceiptImage && (
         <div
-          className="fixed inset-0 z-[150] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[150] bg-zinc-950/85 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setPreviewReceiptImage(null)}
           dir="rtl"
         >
           <div
             className={`relative max-w-2xl w-full rounded-3xl p-5 shadow-2xl border space-y-4 ${
-              isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+              isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
             }`}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
               <h4 className="font-black text-sm flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-[#008060]" />
+                <CheckCircle2 size={18} className="text-[#00ab84]" />
                 <span>إيصال التحويل البنكي / المحفظة المعتمد من الإدارة</span>
               </h4>
               <div className="flex items-center gap-2">
                 <a
                   href={previewReceiptImage}
                   download={`إيصال_تحويل_${liveMerchant.name}_${Date.now()}.jpg`}
-                  className="px-3 py-1.5 rounded-xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5"
                 >
                   <Download size={13} /> تحميل الإيصال
                 </a>
                 <button
                   onClick={() => setPreviewReceiptImage(null)}
-                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 cursor-pointer"
+                  className="p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 cursor-pointer"
                 >
                   <X size={16} />
                 </button>
@@ -10879,7 +11476,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               src={previewReceiptImage}
               alt="إيصال التحويل"
               referrerPolicy="no-referrer"
-              className="max-h-[75vh] w-auto mx-auto rounded-2xl object-contain border border-slate-100 dark:border-slate-800"
+              className="max-h-[75vh] w-auto mx-auto rounded-2xl object-contain border border-zinc-100 dark:border-zinc-800"
             />
           </div>
         </div>
@@ -10888,15 +11485,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       {/* Official Printable PDF Statement Modal */}
       {showPrintableStatementModal && (
         <div
-          className="fixed inset-0 z-[140] bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          className="fixed inset-0 z-[140] bg-zinc-950/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
           dir="rtl"
           onClick={() => setShowPrintableStatementModal(false)}
         >
           <div
-            className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-8"
+            className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden my-8"
             onClick={e => e.stopPropagation()}
           >
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between print:hidden">
+            <div className="p-4 bg-zinc-900 text-white flex items-center justify-between print:hidden">
               <div className="flex items-center gap-2">
                 <Printer size={18} className="text-emerald-400" />
                 <span className="font-black text-sm">معاينة كشف الحساب الرسمي للطباعة أو الحفظ كـ PDF</span>
@@ -10921,13 +11518,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               <td style="text-align:center;font-family:monospace;font-weight:700;">${new Date(tx.date).toLocaleDateString('ar-EG')}</td>
                               <td style="text-align:center;font-weight:800;">${typeLabel}</td>
                               <td style="text-align:right;">
-                                <div style="font-weight:700;color:#0f172a;">${tx.notes || '—'}</div>
-                                ${transferRef ? `<div style="font-size:10px;font-family:monospace;color:#008060;margin-top:2px;">مرجع التحويل: ${transferRef}</div>` : ''}
+                                <div style="font-weight:700;color:#09090b;">${tx.notes || '—'}</div>
+                                ${transferRef ? `<div style="font-size:10px;font-family:monospace;color:#00ab84;margin-top:2px;">مرجع التحويل: ${transferRef}</div>` : ''}
                               </td>
-                              <td style="text-align:center;font-family:monospace;font-weight:800;direction:ltr;color:${tx.amount >= 0 ? '#008060' : '#b91c1c'};">
+                              <td style="text-align:center;font-family:monospace;font-weight:800;direction:ltr;color:${tx.amount >= 0 ? '#00ab84' : '#b91c1c'};">
                                 ${tx.amount >= 0 ? '+' : ''}${tx.amount.toLocaleString()} ج.م
                               </td>
-                              <td style="text-align:center;font-family:monospace;font-weight:900;direction:ltr;color:#0f172a;">
+                              <td style="text-align:center;font-family:monospace;font-weight:900;direction:ltr;color:#09090b;">
                                 ${tx.balanceAfter.toLocaleString()} ج.م
                               </td>
                             </tr>
@@ -10943,9 +11540,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
     @page { size: A4 portrait; margin: 12mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Cairo', sans-serif; color: #0f172a; background: #fff; direction: rtl; font-size: 12px; line-height: 1.5; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #008060; padding-bottom: 14px; margin-bottom: 16px; }
-    .title { font-size: 20px; font-weight: 900; color: #0f172a; }
+    body { font-family: 'Cairo', sans-serif; color: #09090b; background: #fff; direction: rtl; font-size: 12px; line-height: 1.5; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #00ab84; padding-bottom: 14px; margin-bottom: 16px; }
+    .title { font-size: 20px; font-weight: 900; color: #09090b; }
     .subtitle { font-size: 12px; font-weight: 700; color: #475569; margin-top: 4px; }
     .meta-box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; font-size: 11px; min-width: 210px; }
     .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
@@ -10954,7 +11551,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     .kpi-val { font-size: 15px; font-weight: 900; font-family: monospace; margin-top: 4px; direction: ltr; text-align: right; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #cbd5e1; }
     th, td { display: table-cell !important; border: 1px solid #cbd5e1; padding: 8px; font-size: 11px; vertical-align: middle; }
-    thead th { background: #0f172a !important; color: #fff !important; font-weight: 800; text-align: center; }
+    thead th { background: #09090b !important; color: #fff !important; font-weight: 800; text-align: center; }
     tbody tr:nth-child(even) { background: #f8fafc; }
     .footer { margin-top: 24px; padding-top: 12px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: #64748b; }
   </style>
@@ -10963,18 +11560,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   <div class="header">
     <div>
       <div class="title">${storeName} — كشف حساب موكل رسمي</div>
-      <div class="subtitle">اسم الموكل / صاحب البضاعة: <strong style="color:#0f172a;">${liveMerchant.name}</strong> (${liveMerchant.id})</div>
+      <div class="subtitle">اسم الموكل / صاحب البضاعة: <strong style="color:#09090b;">${liveMerchant.name}</strong> (${liveMerchant.id})</div>
       <div class="subtitle">الفترة: ${statementStartDate || 'من بداية التعامل'} إلى ${statementEndDate || new Date().toLocaleDateString('ar-EG')}</div>
     </div>
     <div class="meta-box">
       <div>تاريخ الإصدار: <strong>${new Date().toLocaleDateString('ar-EG')}</strong></div>
-      <div style="margin-top:4px;color:#008060;font-weight:900;font-size:13px;">الرصيد الحالي: ${overviewStats.persistentBalance.toLocaleString()} ج.م</div>
+      <div style="margin-top:4px;color:#00ab84;font-weight:900;font-size:13px;">الرصيد الحالي: ${overviewStats.persistentBalance.toLocaleString()} ج.م</div>
     </div>
   </div>
   <div class="kpi-grid">
     <div class="kpi-card">
       <div class="kpi-label">إجمالي التسويات والإضافات (+)</div>
-      <div class="kpi-val" style="color:#008060;">+${statementSummary.totalCredits.toLocaleString()} ج.م</div>
+      <div class="kpi-val" style="color:#00ab84;">+${statementSummary.totalCredits.toLocaleString()} ج.م</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">إجمالي المسحوبات والخصومات (-)</div>
@@ -10982,11 +11579,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     </div>
     <div class="kpi-card">
       <div class="kpi-label">إجمالي الأوردرات المسلمة</div>
-      <div class="kpi-val" style="color:#0f172a;">${overviewStats.deliveredCount} طلب</div>
+      <div class="kpi-val" style="color:#09090b;">${overviewStats.deliveredCount} طلب</div>
     </div>
     <div class="kpi-card" style="background:#ecfdf5;border-color:#6ee7b7;">
       <div class="kpi-label" style="color:#065f46;">الرصيد المتاح بالمحفظة</div>
-      <div class="kpi-val" style="color:#008060;">${overviewStats.persistentBalance.toLocaleString()} ج.م</div>
+      <div class="kpi-val" style="color:#00ab84;">${overviewStats.persistentBalance.toLocaleString()} ج.م</div>
     </div>
   </div>
   <table>
@@ -11038,7 +11635,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       }, 400);
                     }
                   }}
-                  className="px-4 py-2 bg-[#008060] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  className="px-4 py-2 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm"
                 >
                   <Printer size={14} /> طباعة / حفظ بصيغة PDF الآن
                 </button>
@@ -11052,58 +11649,58 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
             </div>
 
-            <div className="p-8 space-y-6 text-slate-900 bg-white max-h-[80vh] overflow-y-auto">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b-2 border-[#008060] pb-4">
+            <div className="p-8 space-y-6 text-zinc-900 bg-white max-h-[80vh] overflow-y-auto">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b-2 border-[#00ab84] pb-4">
                 <div>
-                  <h2 className="text-xl font-black text-slate-900">{storeName} — كشف حساب موكل رسمي</h2>
-                  <p className="text-xs text-slate-600 font-bold mt-1">
-                    اسم الموكل / صاحب البضاعة: <span className="font-black text-slate-900">{liveMerchant.name}</span> ({liveMerchant.id})
+                  <h2 className="text-xl font-black text-zinc-900">{storeName} — كشف حساب موكل رسمي</h2>
+                  <p className="text-xs text-zinc-600 font-bold mt-1">
+                    اسم الموكل / صاحب البضاعة: <span className="font-black text-zinc-900">{liveMerchant.name}</span> ({liveMerchant.id})
                   </p>
-                  <p className="text-xs text-slate-500 font-bold">
+                  <p className="text-xs text-zinc-500 font-bold">
                     الفترة: {statementStartDate || 'من بداية التعامل'} إلى {statementEndDate || new Date().toLocaleDateString('ar-EG')}
                   </p>
                 </div>
-                <div className="text-left font-mono text-xs bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                  <div className="font-bold text-slate-500">تاريخ الإصدار: {new Date().toLocaleDateString('ar-EG')}</div>
-                  <div className="font-black text-[#008060] text-sm mt-1">
+                <div className="text-left font-mono text-xs bg-zinc-50 p-3 rounded-2xl border border-zinc-200">
+                  <div className="font-bold text-zinc-500">تاريخ الإصدار: {new Date().toLocaleDateString('ar-EG')}</div>
+                  <div className="font-black text-[#00ab84] text-sm mt-1">
                     الرصيد الختامي: {overviewStats.persistentBalance.toLocaleString()} ج.م
                   </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <div className="text-slate-500 font-bold">إجمالي التسويات (+)</div>
-                  <div className="text-sm font-black font-mono text-[#008060] mt-1">+{statementSummary.totalCredits.toLocaleString()} ج.م</div>
+                <div className="p-3 rounded-xl border border-zinc-200 bg-zinc-50">
+                  <div className="text-zinc-500 font-bold">إجمالي التسويات (+)</div>
+                  <div className="text-sm font-black font-mono text-[#00ab84] mt-1">+{statementSummary.totalCredits.toLocaleString()} ج.م</div>
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <div className="text-slate-500 font-bold">إجمالي المسحوبات (-)</div>
+                <div className="p-3 rounded-xl border border-zinc-200 bg-zinc-50">
+                  <div className="text-zinc-500 font-bold">إجمالي المسحوبات (-)</div>
                   <div className="text-sm font-black font-mono text-rose-700 mt-1">-{statementSummary.totalDebits.toLocaleString()} ج.م</div>
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <div className="text-slate-500 font-bold">أوردرات مسلمة</div>
-                  <div className="text-sm font-black font-mono text-slate-900 mt-1">{overviewStats.deliveredCount} طلب</div>
+                <div className="p-3 rounded-xl border border-zinc-200 bg-zinc-50">
+                  <div className="text-zinc-500 font-bold">أوردرات مسلمة</div>
+                  <div className="text-sm font-black font-mono text-zinc-900 mt-1">{overviewStats.deliveredCount} طلب</div>
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <div className="text-slate-500 font-bold">قيمة مخزون الأمانة</div>
-                  <div className="text-sm font-black font-mono text-[#008060] mt-1">{overviewStats.inventoryValuation.toLocaleString()} ج.م</div>
+                <div className="p-3 rounded-xl border border-zinc-200 bg-zinc-50">
+                  <div className="text-zinc-500 font-bold">قيمة مخزون الأمانة</div>
+                  <div className="text-sm font-black font-mono text-[#00ab84] mt-1">{overviewStats.inventoryValuation.toLocaleString()} ج.م</div>
                 </div>
               </div>
 
-              <table className="w-full text-right text-xs border-collapse border border-slate-300">
+              <table className="w-full text-right text-xs border-collapse border border-zinc-300">
                 <thead>
-                  <tr className="bg-slate-900 text-white font-black">
-                    <th className="p-2.5 border border-slate-300">التاريخ</th>
-                    <th className="p-2.5 border border-slate-300">نوع العملية</th>
-                    <th className="p-2.5 border border-slate-300">البيان والمرجع البنكي</th>
-                    <th className="p-2.5 border border-slate-300 text-center">المبلغ (ج.م)</th>
-                    <th className="p-2.5 border border-slate-300 text-center">الرصيد بعد العملية</th>
+                  <tr className="bg-zinc-900 text-white font-black">
+                    <th className="p-2.5 border border-zinc-300">التاريخ</th>
+                    <th className="p-2.5 border border-zinc-300">نوع العملية</th>
+                    <th className="p-2.5 border border-zinc-300">البيان والمرجع البنكي</th>
+                    <th className="p-2.5 border border-zinc-300 text-center">المبلغ (ج.م)</th>
+                    <th className="p-2.5 border border-zinc-300 text-center">الرصيد بعد العملية</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 font-bold">
+                <tbody className="divide-y divide-zinc-200 font-bold">
                   {filteredStatementTransactions.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="p-6 text-center text-slate-400">لا توجد حركات مالية مسجلة في هذه الفترة</td>
+                      <td colSpan={5} className="p-6 text-center text-zinc-400">لا توجد حركات مالية مسجلة في هذه الفترة</td>
                     </tr>
                   ) : (
                     filteredStatementTransactions.map(tx => {
@@ -11111,20 +11708,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       const transferRef = tx.transferReference || linkedReq?.transferReference;
                       return (
                         <tr key={tx.id}>
-                          <td className="p-2.5 border border-slate-200 font-mono">{new Date(tx.date).toLocaleDateString('ar-EG')}</td>
-                          <td className="p-2.5 border border-slate-200">
+                          <td className="p-2.5 border border-zinc-200 font-mono">{new Date(tx.date).toLocaleDateString('ar-EG')}</td>
+                          <td className="p-2.5 border border-zinc-200">
                             {tx.type === 'order_delivered' ? 'تسوية مبيعات' :
                              tx.type === 'withdrawal' ? 'سحب مستحقات' :
                              tx.amount >= 0 ? 'إضافة رصيد' : 'خصم / تعديل'}
                           </td>
-                          <td className="p-2.5 border border-slate-200">
+                          <td className="p-2.5 border border-zinc-200">
                             <div>{tx.notes}</div>
-                            {transferRef && <div className="text-[10px] font-mono text-[#008060]">مرجع التحويل: {transferRef}</div>}
+                            {transferRef && <div className="text-[10px] font-mono text-[#00ab84]">مرجع التحويل: {transferRef}</div>}
                           </td>
-                          <td className={`p-2.5 border border-slate-200 text-center font-mono ${tx.amount >= 0 ? 'text-[#008060]' : 'text-rose-700'}`}>
+                          <td className={`p-2.5 border border-zinc-200 text-center font-mono ${tx.amount >= 0 ? 'text-[#00ab84]' : 'text-rose-700'}`}>
                             {tx.amount >= 0 ? '+' : ''}{tx.amount.toLocaleString()}
                           </td>
-                          <td className="p-2.5 border border-slate-200 text-center font-mono">{tx.balanceAfter.toLocaleString()}</td>
+                          <td className="p-2.5 border border-zinc-200 text-center font-mono">{tx.balanceAfter.toLocaleString()}</td>
                         </tr>
                       );
                     })
@@ -11132,7 +11729,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </tbody>
               </table>
 
-              <div className="pt-4 border-t border-slate-200 flex justify-between items-center text-[11px] text-slate-500 font-bold">
+              <div className="pt-4 border-t border-zinc-200 flex justify-between items-center text-[11px] text-zinc-500 font-bold">
                 <span>تم استخراج هذا الكشف إلكترونياً من بوابة الموكلين المعتمدة — {storeName}</span>
                 <span>توقيع / اعتماد الإدارة: ______________________</span>
               </div>
@@ -11146,24 +11743,24 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
          ========================================================= */}
       <AnimatePresence>
         {showSettlementDetailsId && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 bg-zinc-950/70 backdrop-blur-md animate-in fade-in duration-200">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className={`w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-[2.5rem] border shadow-2xl flex flex-col ${
-                isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
               }`}
             >
               {/* Header */}
-              <div className={`p-6 border-b flex items-center justify-between ${isDark ? 'border-slate-800 bg-slate-950/50' : 'border-slate-100 bg-slate-50/80'}`}>
+              <div className={`p-6 border-b flex items-center justify-between ${isDark ? 'border-zinc-800 bg-zinc-950/50' : 'border-zinc-100 bg-zinc-50/80'}`}>
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-[#008060]/10 text-[#008060] flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-2xl bg-[#00ab84]/10 text-[#00ab84] flex items-center justify-center">
                     <Calculator size={24} />
                   </div>
                   <div>
-                    <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>تفاصيل دورة المبالغ المجمعة</h3>
-                    <p className="text-xs text-slate-400 font-bold">عرض كافة الشحنات المرفقة بهذه التسوية المالية</p>
+                    <h3 className={`text-lg font-black ${isDark ? 'text-white' : 'text-zinc-900'}`}>تفاصيل دورة المبالغ المجمعة</h3>
+                    <p className="text-xs text-zinc-400 font-bold">عرض كافة الشحنات المرفقة بهذه التسوية المالية</p>
                   </div>
                 </div>
                 <button 
@@ -11178,34 +11775,34 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
                 {(() => {
                   const s = (settings.merchantSettlements || []).find((x: any) => x.id === showSettlementDetailsId);
-                  if (!s) return <div className="py-10 text-center text-slate-400 font-bold">عذراً، لم يتم العثور على بيانات التسوية.</div>;
+                  if (!s) return <div className="py-10 text-center text-zinc-400 font-bold">عذراً، لم يتم العثور على بيانات التسوية.</div>;
                   
                   return (
                     <div className="space-y-6">
                       {/* Summary Strip */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                          <span className="text-[10px] text-slate-400 font-bold block mb-1">رقم التسوية</span>
+                        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                          <span className="text-[10px] text-zinc-400 font-bold block mb-1">رقم التسوية</span>
                           <span className="font-mono font-black text-sm">{s.settlementNumber}</span>
                         </div>
-                        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                          <span className="text-[10px] text-slate-400 font-bold block mb-1">تاريخ الاعتماد</span>
+                        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                          <span className="text-[10px] text-zinc-400 font-bold block mb-1">تاريخ الاعتماد</span>
                           <span className="font-black text-xs">{new Date(s.date).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
                         </div>
                         <div className={`p-4 rounded-2xl border ${isDark ? 'bg-emerald-950/20 border-emerald-800/40' : 'bg-emerald-50 border-emerald-200'}`}>
-                          <span className="text-[10px] text-[#008060] font-bold block mb-1">صافي المستحق</span>
-                          <span className="font-mono font-black text-lg text-[#008060]">{formatMoney(s.netPayoutToMerchant)}</span>
+                          <span className="text-[10px] text-[#00ab84] font-bold block mb-1">صافي المستحق</span>
+                          <span className="font-mono font-black text-lg text-[#00ab84]">{formatMoney(s.netPayoutToMerchant)}</span>
                         </div>
-                        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                          <span className="text-[10px] text-slate-400 font-bold block mb-1">عدد الأوردرات</span>
+                        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                          <span className="text-[10px] text-zinc-400 font-bold block mb-1">عدد الأوردرات</span>
                           <span className="font-black text-sm">{s.ordersCount} أوردر</span>
                         </div>
                       </div>
 
                       {/* Orders Table */}
-                      <div className={`rounded-2xl border overflow-hidden ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                      <div className={`rounded-2xl border overflow-hidden ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
                         <table className="w-full text-right text-[11px]">
-                          <thead className={`${isDark ? 'bg-slate-950 text-slate-400' : 'bg-slate-50 text-slate-500'} font-bold border-b border-slate-100 dark:border-slate-800`}>
+                          <thead className={`${isDark ? 'bg-zinc-950 text-zinc-400' : 'bg-zinc-50 text-zinc-500'} font-bold border-b border-zinc-100 dark:border-zinc-800`}>
                             <tr>
                               <th className="py-3 px-4">رقم الأوردر</th>
                               <th className="py-3 px-4 text-center">الحالة</th>
@@ -11215,9 +11812,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               <th className="py-3 px-4 text-center font-black">الصافي</th>
                             </tr>
                           </thead>
-                          <tbody className={`divide-y ${isDark ? 'divide-slate-800 text-slate-300' : 'divide-slate-100 text-slate-600'}`}>
+                          <tbody className={`divide-y ${isDark ? 'divide-zinc-800 text-zinc-300' : 'divide-zinc-100 text-zinc-600'}`}>
                             {(s.orderSnapshots || []).map((snap: any, idx: number) => (
-                              <tr key={idx} className={isDark ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50/60'}>
+                              <tr key={idx} className={isDark ? 'hover:bg-zinc-800/40' : 'hover:bg-zinc-50/60'}>
                                 <td className="py-3 px-4 font-mono font-black">#{snap.orderNumber || snap.orderId.slice(-6)}</td>
                                 <td className="py-3 px-4 text-center">
                                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-black ${
@@ -11229,7 +11826,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 <td className="py-3 px-4 font-bold">{snap.customerName}</td>
                                 <td className="py-3 px-4 text-center font-mono tabular-nums">{formatMoney(snap.collectedRevenue || snap.collectedAmount || 0)}</td>
                                 <td className="py-3 px-4 text-center font-mono tabular-nums text-rose-500">-{formatMoney(snap.totalShippingAndCarrierFees || 0)}</td>
-                                <td className="py-3 px-4 text-center font-mono tabular-nums font-black text-[#008060]">{formatMoney(snap.netPayoutToMerchant || snap.netMerchantAmount || 0)}</td>
+                                <td className="py-3 px-4 text-center font-mono tabular-nums font-black text-[#00ab84]">{formatMoney(snap.netPayoutToMerchant || snap.netMerchantAmount || 0)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -11237,7 +11834,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </div>
 
                       {s.notes && (
-                        <div className={`p-4 rounded-2xl text-[11px] font-bold ${isDark ? 'bg-slate-950 text-slate-400' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>
+                        <div className={`p-4 rounded-2xl text-[11px] font-bold ${isDark ? 'bg-zinc-950 text-zinc-400' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>
                           ملاحظات التسوية: {s.notes}
                         </div>
                       )}
@@ -11247,11 +11844,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               {/* Footer */}
-              <div className={`p-6 border-t flex justify-end gap-3 ${isDark ? 'border-slate-800 bg-slate-950/50' : 'border-slate-100 bg-slate-50/80'}`}>
+              <div className={`p-6 border-t flex justify-end gap-3 ${isDark ? 'border-zinc-800 bg-zinc-950/50' : 'border-zinc-100 bg-zinc-50/80'}`}>
                 <button 
                   onClick={() => setShowSettlementDetailsId(null)}
                   className={`px-8 py-2.5 rounded-xl font-black text-xs cursor-pointer ${
-                    isDark ? 'bg-slate-800 text-white hover:bg-slate-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    isDark ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300'
                   }`}
                 >
                   إغلاق النافذة
@@ -11265,30 +11862,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       {/* Online Store Launcher Modal */}
       <AnimatePresence>
         {showStoreModal && (
-          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl" onClick={() => setShowStoreModal(false)}>
+          <div className="fixed inset-0 z-50 bg-zinc-950/70 backdrop-blur-xs flex items-center justify-center p-4" dir="rtl" onClick={() => setShowStoreModal(false)}>
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={e => e.stopPropagation()}
               className={`w-full max-w-lg rounded-3xl p-6 shadow-2xl border space-y-5 ${
-                isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-800'
               }`}
             >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#008060] flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center">
                     <ShoppingBag size={20} />
                   </div>
                   <div>
-                    <h3 className="font-black text-sm text-slate-900 dark:text-white">المتجر الإلكتروني ورابط المشاركة</h3>
-                    <p className="text-[11px] text-slate-400 font-bold">شارك رابط متجرك مع العملاء لاستقبال الطلبات مباشرة</p>
+                    <h3 className="font-black text-sm text-zinc-900 dark:text-white">المتجر الإلكتروني ورابط المشاركة</h3>
+                    <p className="text-[11px] text-zinc-400 font-bold">شارك رابط متجرك مع العملاء لاستقبال الطلبات مباشرة</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowStoreModal(false)}
-                  className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="p-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-400 hover:text-zinc-600 cursor-pointer"
                 >
                   <X size={16} />
                 </button>
@@ -11296,14 +11893,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* Store Link Input with Copy */}
               <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-500 dark:text-slate-400">رابط المتجر المباشر:</label>
+                <label className="text-xs font-black text-zinc-500 dark:text-zinc-400">رابط المتجر المباشر:</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     readOnly
                     value={`${window.location.origin}/store/${effectiveStoreId}`}
                     className={`w-full p-3 rounded-2xl text-xs font-mono font-bold border outline-none ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
                     }`}
                   />
                   <button
@@ -11313,7 +11910,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       navigator.clipboard?.writeText(url);
                       showToast('تم نسخ رابط المتجر بنجاح', 'success');
                     }}
-                    className="px-4 py-3 rounded-2xl bg-[#008060] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-all"
+                    className="px-4 py-3 rounded-2xl bg-[#00ab84] hover:bg-[#0a664e] text-white text-xs font-black flex items-center gap-1.5 shrink-0 shadow-xs cursor-pointer transition-all"
                   >
                     <Copy size={14} />
                     <span>نسخ</span>
@@ -11329,9 +11926,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     const url = `${window.location.origin}/store/${effectiveStoreId}`;
                     window.open(url, '_blank');
                   }}
-                  className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="py-3 px-4 rounded-2xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-900 dark:text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
-                  <ExternalLink size={15} className="text-[#008060]" />
+                  <ExternalLink size={15} className="text-[#00ab84]" />
                   <span>معاينة المتجر الآن</span>
                 </button>
 
@@ -11342,7 +11939,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     const text = encodeURIComponent(`مرحباً بكم في متجرنا! تفضلوا بزيارة الرابط لتصفح المنتجات:\n${url}`);
                     window.open(`https://wa.me/?text=${text}`, '_blank');
                   }}
-                  className="py-3 px-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 text-[#008060] text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
+                  className="py-3 px-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 text-[#00ab84] text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all"
                 >
                   <Share2 size={15} />
                   <span>مشاركة عبر واتساب</span>
@@ -11351,12 +11948,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
               {/* Visual QR Code Card */}
               <div className={`p-4 rounded-2xl border text-center space-y-2 ${
-                isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200/80'
+                isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200/80'
               }`}>
-                <div className="w-28 h-28 mx-auto bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center">
-                  <QrCode size={90} className="text-slate-900" />
+                <div className="w-28 h-28 mx-auto bg-white p-2 rounded-2xl shadow-sm border border-zinc-200 flex items-center justify-center">
+                  <QrCode size={90} className="text-zinc-900" />
                 </div>
-                <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                <div className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400">
                   امسح الرمز بكاميرا الهاتف للوصول السريع للمتجر
                 </div>
               </div>
@@ -11395,6 +11992,174 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       )}
 
       {/* =========================================================
+          MERCHANT DEDICATED CUSTOM PRICING MODAL (تحديد تسعيرة ورصيد الوكيل)
+         ========================================================= */}
+      <AnimatePresence>
+        {pricingModalProduct && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[160] bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setPricingModalProduct(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-lg rounded-[32px] border p-6 sm:p-7 space-y-5 shadow-2xl my-8 ${
+                isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+              }`}
+              dir="rtl"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-black shadow-lg shadow-emerald-600/20">
+                    <Coins size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black">
+                      تحديد التسعيرة والرصيد للوكيل: {liveMerchant?.name}
+                    </h3>
+                    <p className="text-xs text-zinc-400 font-bold mt-0.5">
+                      {pricingModalProduct.name || pricingModalProduct.title}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPricingModalProduct(null)}
+                  className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Form Body */}
+              <form onSubmit={handleSaveCustomPricing} className="space-y-4">
+                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-zinc-100 dark:bg-zinc-800 shrink-0 overflow-hidden border border-zinc-200 dark:border-zinc-700">
+                    {pricingModalProduct.thumbnail || pricingModalProduct.imageUrl || pricingModalProduct.image ? (
+                      <img src={pricingModalProduct.thumbnail || pricingModalProduct.imageUrl || pricingModalProduct.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <PackageIcon size={24} className="m-auto text-zinc-400" />
+                    )}
+                  </div>
+                  <div className="text-xs">
+                    <div className="font-black">{pricingModalProduct.name || pricingModalProduct.title}</div>
+                    <div className="text-[10px] font-mono text-zinc-400 mt-0.5">SKU: {pricingModalProduct.sku || pricingModalProduct.id}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block text-zinc-700 dark:text-zinc-300">
+                      سعر التكلفة الخاص بك للقطعة (ج.م) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      step="0.5"
+                      value={customCostPrice}
+                      onChange={(e) => setCustomCostPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="مثال: 1500"
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block text-zinc-700 dark:text-zinc-300">
+                      سعر البيع المقترح لزبائنك (ج.م) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      step="0.5"
+                      value={customSellingPrice}
+                      onChange={(e) => setCustomSellingPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                      placeholder="مثال: 1780"
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-[#00ab84]'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black block text-zinc-700 dark:text-zinc-300">
+                      رصيد الأمانة المخصص لك بالمستودع (عدد القطع) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      value={customAllocatedStock}
+                      onChange={(e) => setCustomAllocatedStock(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                      placeholder="مثال: 10"
+                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Live Profit & Capital Summary */}
+                {Boolean(customSellingPrice) && (
+                  <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2 text-xs">
+                    <div className="flex items-center justify-between font-bold text-emerald-800 dark:text-emerald-200">
+                      <span>ربحك المباشر في القطعة الواحدة:</span>
+                      <span className="font-mono font-black text-sm text-[#00ab84]">
+                        +{formatMoney(Math.max(0, (Number(customSellingPrice) || 0) - (Number(customCostPrice) || 0)))}
+                      </span>
+                    </div>
+                    {Boolean(customCostPrice) && Number(customCostPrice) > 0 && (
+                      <div className="flex items-center justify-between font-bold text-zinc-500 text-[11px]">
+                        <span>هامش الربح على التكلفة:</span>
+                        <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                          {(((Number(customSellingPrice) - Number(customCostPrice)) / Number(customCostPrice)) * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                    {Boolean(customAllocatedStock) && Number(customAllocatedStock) > 0 && Boolean(customCostPrice) && (
+                      <div className="flex items-center justify-between font-bold text-zinc-600 dark:text-zinc-300 pt-1 border-t border-emerald-200/60 dark:border-emerald-800/60">
+                        <span>إجمالي رأس المال بالمخزن ({customAllocatedStock} قطعة):</span>
+                        <span className="font-mono font-black text-zinc-900 dark:text-white">
+                          {formatMoney((Number(customAllocatedStock) || 0) * (Number(customCostPrice) || 0))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPricingModalProduct(null)}
+                    className="px-5 py-3.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-2xl text-xs font-black cursor-pointer hover:bg-zinc-200 transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingCustomPricing || !customSellingPrice}
+                    className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl text-xs font-black shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 active:scale-[0.98]"
+                  >
+                    {isSavingCustomPricing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                    <span>اعتماد وحفظ التسعيرة والرصيد</span>
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================
           ADD / EDIT MERCHANT PRODUCT MODAL (إضافة / تعديل صنف أمانة)
          ========================================================= */}
       <AnimatePresence>
@@ -11403,7 +12168,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[150] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+            className="fixed inset-0 z-[150] bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
             onClick={() => setShowAddEditProductModal(false)}
           >
             <motion.div
@@ -11412,21 +12177,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
               className={`w-full max-w-xl rounded-[32px] border p-6 sm:p-8 space-y-6 shadow-2xl my-8 ${
-                isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
               }`}
               dir="rtl"
             >
               {/* Modal Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#008060] to-emerald-500 text-white flex items-center justify-center font-black">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#00ab84] to-emerald-500 text-white flex items-center justify-center font-black">
                     <PackageIcon size={20} />
                   </div>
                   <div>
                     <h3 className="text-lg font-black">
                       {editingProduct ? 'تعديل بيانات الصنف بالمخزن' : 'إضافة صنف جديد لمخزون الوكيل'}
                     </h3>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-zinc-400">
                       حدد اسم الصنف وسعر التكلفة ونسبة الربح لمتابعة مستحقاتك بدقة
                     </p>
                   </div>
@@ -11434,194 +12199,311 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <button
                   type="button"
                   onClick={() => setShowAddEditProductModal(false)}
-                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
+                  className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-white rounded-xl transition-colors cursor-pointer"
                 >
                   <X size={20} />
                 </button>
               </div>
 
+              {/* Form Navigation Tabs */}
+              <div className="flex border-b border-zinc-200 dark:border-zinc-800 pb-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProdModalTab('general')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                    prodModalTab === 'general'
+                      ? 'bg-[#00ab84] text-white shadow-sm'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  <PackageIcon size={14} />
+                  <span>البيانات الأساسية</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProdModalTab('custom_pricing')}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                    prodModalTab === 'custom_pricing'
+                      ? 'bg-[#00ab84] text-white shadow-sm'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  <DollarSign size={14} />
+                  <span>التسعير الخاص بالوكيل</span>
+                </button>
+              </div>
+
               {/* Form */}
               <form onSubmit={handleSaveProductSubmit} className="space-y-4">
-                {/* 1. Name & SKU */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="sm:col-span-2 space-y-1.5">
-                    <label className="text-xs font-black block">اسم المنتج / الصنف *</label>
-                    <input
-                      type="text"
-                      required
-                      value={prodFormName}
-                      onChange={(e) => setProdFormName(e.target.value)}
-                      placeholder="مثال: حذاء كاجوال جلد طبيعي"
-                      className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black block">كود SKU</label>
-                    <input
-                      type="text"
-                      value={prodFormSku}
-                      onChange={(e) => setProdFormSku(e.target.value)}
-                      placeholder="SKU-101"
-                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* 2. Selling Price, Cost Price, & Stock */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black block">سعر البيع للمستهلك (ج.م) *</label>
-                    <input
-                      type="number"
-                      required
-                      min={1}
-                      step="0.5"
-                      value={prodFormPrice}
-                      onChange={(e) => setProdFormPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder="500"
-                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-emerald-400' : 'bg-slate-50 border-slate-200 text-[#008060]'
-                      }`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black block">سعر التكلفة بالجملة (ج.م)</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.5"
-                      value={prodFormCostPrice}
-                      onChange={(e) => setProdFormCostPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
-                      placeholder="300"
-                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-bold outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-black block">الكمية المتوفرة بمخزنك *</label>
-                    <input
-                      type="number"
-                      required
-                      min={0}
-                      value={prodFormStock}
-                      onChange={(e) => setProdFormStock(parseInt(e.target.value) || 0)}
-                      className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#008060] ${
-                        isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* 3. Profit Mode & Commission % */}
-                <div className="p-4 rounded-2xl border bg-slate-50/50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 space-y-3">
-                  <label className="text-xs font-black text-slate-800 dark:text-slate-200 block">
-                    طريقة احتساب ربح الوكيل من هذا المنتج
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setProdFormProfitMode('commission')}
-                      className={`p-3 rounded-xl border text-xs font-black transition-all cursor-pointer text-center ${
-                        prodFormProfitMode === 'commission'
-                          ? 'bg-[#008060] text-white border-[#008060] shadow-sm'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      نسبة مئوية (%) من المبيعات
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setProdFormProfitMode('margin')}
-                      className={`p-3 rounded-xl border text-xs font-black transition-all cursor-pointer text-center ${
-                        prodFormProfitMode === 'margin'
-                          ? 'bg-[#008060] text-white border-[#008060] shadow-sm'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      فرق السعر والتكلفة (هامش ثابت)
-                    </button>
-                  </div>
-
-                  {prodFormProfitMode === 'commission' && (
-                    <div className="space-y-1.5 pt-2">
-                      <div className="flex justify-between text-xs font-black">
-                        <span>نسبة عمولة/ربح الموكل (%)</span>
-                        <span className="font-mono text-[#008060]">{prodFormCommissionPct}%</span>
+                {prodModalTab === 'general' ? (
+                  <>
+                    {/* 1. Name & SKU */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-2 space-y-1.5">
+                        <label className="text-xs font-black block">اسم المنتج / الصنف *</label>
+                        <input
+                          type="text"
+                          required
+                          value={prodFormName}
+                          onChange={(e) => setProdFormName(e.target.value)}
+                          placeholder="مثال: حذاء كاجوال جلد طبيعي"
+                          className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                          }`}
+                        />
                       </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">كود SKU</label>
+                        <input
+                          type="text"
+                          value={prodFormSku}
+                          onChange={(e) => setProdFormSku(e.target.value)}
+                          placeholder="SKU-101"
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 2. Selling Price, Cost Price, & Stock */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">سعر البيع للمستهلك (ج.م) *</label>
+                        <input
+                          type="number"
+                          required
+                          min={1}
+                          step="0.5"
+                          value={prodFormPrice}
+                          onChange={(e) => setProdFormPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          placeholder="500"
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-[#00ab84]'
+                          }`}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">سعر التكلفة بالجملة (ج.م)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          value={prodFormCostPrice}
+                          onChange={(e) => setProdFormCostPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          placeholder="300"
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-bold outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                          }`}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">الكمية المتوفرة بمخزنك *</label>
+                        <input
+                          type="number"
+                          required
+                          min={0}
+                          value={prodFormStock}
+                          onChange={(e) => setProdFormStock(parseInt(e.target.value) || 0)}
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* 3. Profit Mode & Commission % */}
+                    <div className="p-4 rounded-2xl border bg-zinc-50/50 dark:bg-zinc-950/50 border-zinc-200 dark:border-zinc-800 space-y-3">
+                      <label className="text-xs font-black text-zinc-800 dark:text-zinc-200 block">
+                        طريقة احتساب ربح الوكيل من هذا المنتج
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setProdFormProfitMode('commission')}
+                          className={`p-3 rounded-xl border text-xs font-black transition-all cursor-pointer text-center ${
+                            prodFormProfitMode === 'commission'
+                              ? 'bg-[#00ab84] text-white border-[#00ab84] shadow-sm'
+                              : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+                          }`}
+                        >
+                          نسبة مئوية (%) من المبيعات
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setProdFormProfitMode('margin')}
+                          className={`p-3 rounded-xl border text-xs font-black transition-all cursor-pointer text-center ${
+                            prodFormProfitMode === 'margin'
+                              ? 'bg-[#00ab84] text-white border-[#00ab84] shadow-sm'
+                              : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+                          }`}
+                        >
+                          فرق السعر والتكلفة (هامش ثابت)
+                        </button>
+                      </div>
+
+                      {prodFormProfitMode === 'commission' && (
+                        <div className="space-y-1.5 pt-2">
+                          <div className="flex justify-between text-xs font-black">
+                            <span>نسبة عمولة/ربح الموكل (%)</span>
+                            <span className="font-mono text-[#00ab84]">{prodFormCommissionPct}%</span>
+                          </div>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={prodFormCommissionPct}
+                            onChange={(e) => setProdFormCommissionPct(parseFloat(e.target.value) || 0)}
+                            className={`w-full p-3 border rounded-xl font-mono text-xs font-bold outline-none focus:border-[#00ab84] ${
+                              isDark ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+                            }`}
+                          />
+                        </div>
+                      )}
+
+                      {/* Live Calculation Preview */}
+                      {Boolean(prodFormPrice) && (
+                        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs space-y-1 font-bold">
+                          <div className="flex justify-between text-emerald-800 dark:text-emerald-200">
+                            <span>ربح الوكيل المتوقع للقطعة:</span>
+                            <span className="font-mono font-black text-sm text-[#00ab84]">
+                              {prodFormProfitMode === 'commission'
+                                ? Math.round((Number(prodFormPrice) || 0) * (prodFormCommissionPct / 100))
+                                : Math.max(0, (Number(prodFormPrice) || 0) - (Number(prodFormCostPrice) || 0))} ج.م
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 4. Image URL */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-black block">رابط صورة المنتج (اختياري)</label>
                       <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={prodFormCommissionPct}
-                        onChange={(e) => setProdFormCommissionPct(parseFloat(e.target.value) || 0)}
-                        className={`w-full p-3 border rounded-xl font-mono text-xs font-bold outline-none focus:border-[#008060] ${
-                          isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+                        type="url"
+                        value={prodFormThumbnail}
+                        onChange={(e) => setProdFormThumbnail(e.target.value)}
+                        placeholder="https://example.com/product.jpg"
+                        className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                         }`}
                       />
                     </div>
-                  )}
 
-                  {/* Live Calculation Preview */}
-                  {Boolean(prodFormPrice) && (
-                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs space-y-1 font-bold">
-                      <div className="flex justify-between text-emerald-800 dark:text-emerald-200">
-                        <span>ربح الوكيل المتوقع للقطعة:</span>
-                        <span className="font-mono font-black text-sm text-[#008060]">
-                          {prodFormProfitMode === 'commission'
-                            ? Math.round((Number(prodFormPrice) || 0) * (prodFormCommissionPct / 100))
-                            : Math.max(0, (Number(prodFormPrice) || 0) - (Number(prodFormCostPrice) || 0))} ج.م
-                        </span>
+                    {/* 5. Description */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-black block">وصف أو ملاحظات الصنف (اختياري)</label>
+                      <textarea
+                        rows={2}
+                        value={prodFormDescription}
+                        onChange={(e) => setProdFormDescription(e.target.value)}
+                        placeholder="تفاصيل المادة، المقاسات، الملاحظات..."
+                        className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#00ab84] ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                        }`}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  /* Custom Pricing Tab Content */
+                  <div className="space-y-4 py-1">
+                    <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs space-y-1.5 font-bold">
+                      <div className="flex items-center gap-2 text-amber-900 dark:text-amber-100 font-black text-sm">
+                        <Sparkles size={18} className="text-amber-500 shrink-0" />
+                        <span>تسعير ورصيد خاص بك كوكيل / موكل مشترك</span>
+                      </div>
+                      <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed font-normal">
+                        تحديد السعر الخاص بك هنا يتيح لك بيع هذا المنتج بسعر مخصص يناسب عملاءك دون التعديل على السعر الرئيسي للموكل الأساسي صاحب البضاعة.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">سعر البيع الخاص بك (ج.م) *</label>
+                        <input
+                          type="number"
+                          min={1}
+                          step="0.5"
+                          value={merchantCustomSellingPrice}
+                          onChange={(e) => setMerchantCustomSellingPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          placeholder={String(prodFormPrice || 0)}
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-[#00ab84]'
+                          }`}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">سعر التكلفة الخاصة بك (ج.م)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.5"
+                          value={merchantCustomCostPrice}
+                          onChange={(e) => setMerchantCustomCostPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
+                          placeholder={String(prodFormCostPrice || 0)}
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-bold outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                          }`}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-black block">الرصيد المخصص بمخزنك</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={merchantCustomStock}
+                          onChange={(e) => setMerchantCustomStock(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
+                          placeholder={String(prodFormStock || 0)}
+                          className={`w-full p-3.5 border rounded-2xl font-mono text-xs font-black outline-none focus:border-[#00ab84] ${
+                            isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                          }`}
+                        />
                       </div>
                     </div>
-                  )}
-                </div>
 
-                {/* 4. Image URL */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-black block">رابط صورة المنتج (اختياري)</label>
-                  <input
-                    type="url"
-                    value={prodFormThumbnail}
-                    onChange={(e) => setProdFormThumbnail(e.target.value)}
-                    placeholder="https://example.com/product.jpg"
-                    className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                    }`}
-                  />
-                </div>
-
-                {/* 5. Description */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-black block">وصف أو ملاحظات الصنف (اختياري)</label>
-                  <textarea
-                    rows={2}
-                    value={prodFormDescription}
-                    onChange={(e) => setProdFormDescription(e.target.value)}
-                    placeholder="تفاصيل المادة، المقاسات، الملاحظات..."
-                    className={`w-full p-3.5 border rounded-2xl text-xs font-bold outline-none focus:border-[#008060] ${
-                      isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
-                    }`}
-                  />
-                </div>
+                    {/* Live Profit & Capital Calculation Summary */}
+                    {Boolean(merchantCustomSellingPrice) && (
+                      <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2 text-xs">
+                        <div className="flex items-center justify-between font-bold text-emerald-800 dark:text-emerald-200">
+                          <span>ربحك المباشر في القطعة الواحدة:</span>
+                          <span className="font-mono font-black text-sm text-[#00ab84]">
+                            +{formatMoney(Math.max(0, (Number(merchantCustomSellingPrice) || 0) - (Number(merchantCustomCostPrice) || 0)))}
+                          </span>
+                        </div>
+                        {Boolean(merchantCustomCostPrice) && Number(merchantCustomCostPrice) > 0 && (
+                          <div className="flex items-center justify-between font-bold text-zinc-500 text-[11px]">
+                            <span>هامش الربح على التكلفة:</span>
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                              {(((Number(merchantCustomSellingPrice) - Number(merchantCustomCostPrice)) / Number(merchantCustomCostPrice)) * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                        {Boolean(merchantCustomStock) && Number(merchantCustomStock) > 0 && Boolean(merchantCustomCostPrice) && (
+                          <div className="flex items-center justify-between font-bold text-zinc-600 dark:text-zinc-300 pt-1 border-t border-emerald-200/60 dark:border-emerald-800/60">
+                            <span>إجمالي رأس المال بالرصيد الخاص ({merchantCustomStock} قطعة):</span>
+                            <span className="font-mono font-black text-zinc-900 dark:text-white">
+                              {formatMoney((Number(merchantCustomStock) || 0) * (Number(merchantCustomCostPrice) || 0))}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Submit buttons */}
                 <div className="pt-3 flex gap-3">
                   <button
                     type="button"
                     onClick={() => setShowAddEditProductModal(false)}
-                    className="px-5 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl text-xs font-black cursor-pointer hover:bg-slate-200 transition-colors"
+                    className="px-5 py-3.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-2xl text-xs font-black cursor-pointer hover:bg-zinc-200 transition-colors"
                   >
                     إلغاء
                   </button>
                   <button
                     type="submit"
-                    disabled={isSavingProduct || !prodFormName.trim() || !prodFormPrice}
-                    className="flex-1 py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl text-xs font-black shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 active:scale-[0.98]"
+                    disabled={isSavingProduct || !prodFormName.trim() || (!prodFormPrice && !merchantCustomSellingPrice)}
+                    className="flex-1 py-3.5 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl text-xs font-black shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 active:scale-[0.98]"
                   >
                     {isSavingProduct ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
                     <span>{editingProduct ? 'تعديل وحفظ البيانات' : 'حفظ وإضافة الصنف للمخزون'}</span>

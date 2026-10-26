@@ -463,9 +463,28 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return;
       }
 
+      // Calculate configured transfer fee (weekly / daily)
+      const isDaily = supplier.payoutFrequency === 'daily';
+      const feeRate = isDaily
+        ? (typeof supplier.dailyTransferFee === 'number' ? supplier.dailyTransferFee : (settings.dailyTransferFee ?? 1))
+        : (typeof supplier.weeklyTransferFee === 'number' ? supplier.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
+      const feeType = isDaily
+        ? (supplier.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
+        : (supplier.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
+
+      let transferFee = 0;
+      if (!isCreditToWallet && req.type !== 'plan_change_request' && feeRate > 0) {
+        if (feeType === 'percentage') {
+          transferFee = Math.round((amount * (feeRate / 100)) * 100) / 100;
+        } else {
+          transferFee = Math.min(amount, Number(feeRate) || 0);
+        }
+      }
+      const netDisbursed = Math.max(0, Number((amount - transferFee).toFixed(2)));
+
       const selectedAcc = (treasury?.accounts || []).find(a => a.id === treasuryAccountId);
-      if (selectedAcc && selectedAcc.balance < amount) {
-        inAppToast(`رصيد حساب الخزينة (${selectedAcc.name}) غير كافٍ لصرف هذا الطلب (${selectedAcc.balance.toLocaleString()} ج.م)`, 'error');
+      if (selectedAcc && selectedAcc.balance < netDisbursed) {
+        inAppToast(`رصيد حساب الخزينة (${selectedAcc.name}) غير كافٍ لصرف هذا الطلب (${selectedAcc.balance.toLocaleString()} ج.م - المطلوب: ${netDisbursed.toLocaleString()} ج.م)`, 'error');
         return;
       }
 
@@ -487,14 +506,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         ...(cleanRef ? { transferReference: cleanRef } : {})
       } : r));
 
-      // Deduct from central Treasury if selected
-      if (selectedAcc && setTreasury && treasury) {
+      // Deduct net cash disbursed from central Treasury if selected
+      if (selectedAcc && setTreasury && treasury && netDisbursed > 0) {
         const treasuryTx = {
           id: `tx-${Date.now()}`,
           date: new Date().toISOString(),
-          amount,
+          amount: netDisbursed,
           type: 'withdrawal' as const,
-          description: `صرف طلب سحب مستحقات الموكل: ${req.partnerName} (طلب #${req.id.slice(-6)})${cleanRef ? ` - مرجع: ${cleanRef}` : ''}`,
+          description: `صرف طلب سحب مستحقات الموكل: ${req.partnerName} (طلب #${req.id.slice(-6)})${transferFee > 0 ? ` [المطلوب: ${amount} ج.م - رسوم التحويل: ${transferFee} ج.م - صافي المنصرف: ${netDisbursed} ج.م]` : ''}${cleanRef ? ` - مرجع: ${cleanRef}` : ''}`,
           fromAccountId: selectedAcc.id,
           operatorName: currentUser?.fullName || 'الإدارة',
           reference: cleanRef || req.id
@@ -503,13 +522,13 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         setTreasury(current => current ? ({
           ...current,
           accounts: current.accounts.map(acc => acc.id === selectedAcc.id
-            ? { ...acc, balance: acc.balance - amount }
+            ? { ...acc, balance: acc.balance - netDisbursed }
             : acc),
           transactions: [treasuryTx, ...(current.transactions || [])]
         }) : current);
       }
 
-      // Update Merchant Balance and record Withdrawal Transaction
+      // Update Merchant Balance and record Withdrawal Transaction (mirror to partners as well)
       updateSettings(currentSettings => {
         const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
           if (s.id === req.partnerId) {
@@ -522,7 +541,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               type: 'withdrawal',
               amount: -amount,
               balanceAfter: currentBalance - amount,
-              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
+              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${transferFee > 0 ? ` [إجمالي السحب: ${amount} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netDisbursed} ج.م]` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
               referenceId: req.id,
               receiptImage: cleanImg,
               transferReference: cleanRef,
@@ -536,26 +555,58 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           }
           return s;
         });
+
+        const updatedPartners = (currentSettings.partners || []).map(p => {
+          if (p.id === req.partnerId || (req.partnerName && p.name === req.partnerName)) {
+            return {
+              ...p,
+              balance: (p.balance || 0) - amount
+            };
+          }
+          return p;
+        });
+
         const addedTx = updatedSuppliers.find(s => s.id === req.partnerId)?.transactions?.[0];
+        if (activeStoreId) {
+          db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+        }
         return {
           ...currentSettings,
           suppliers: updatedSuppliers,
+          partners: updatedPartners,
           ...(addedTx ? { merchantTransactions: [addedTx, ...(currentSettings.merchantTransactions || [])] } : {})
         };
       });
 
-      // Mark settled orders for this merchant as paid out when withdrawal is approved
+      // Mark settled orders for this merchant as paid out proportionally up to the withdrawn amount (FIFO)
       if (!isCreditToWallet && req.type !== 'plan_change_request') {
         const paidNowIso = new Date().toISOString();
+        let remainingToCover = amount;
         setOrders(currentOrders => currentOrders.map(o => {
           const isForThisMerchant = o.merchantId === req.partnerId || (req.partnerName && o.merchantName === req.partnerName);
           if (isForThisMerchant && o.settlementStatus === 'settled' && o.payoutStatus !== 'paid') {
-            return {
-              ...o,
-              payoutStatus: 'paid' as const,
-              paidOutAt: paidNowIso,
-              payoutReferenceId: cleanRef || req.id
-            };
+            if (remainingToCover > 0) {
+              let orderNet = 0;
+              if (o.settlementId) {
+                const st = (settings.merchantSettlements || []).find(x => x.id === o.settlementId);
+                const snap = st?.orderSnapshots?.find(sn => sn.orderId === o.id);
+                if (snap) orderNet = Math.max(0, snap.netMerchantAmount);
+              }
+              if (orderNet <= 0) {
+                orderNet = Number(o.merchantItemCost || o.totalPrice || 0);
+              }
+
+              // Proportional FIFO: If remaining amount is sufficient to cover this order, mark paid
+              if (remainingToCover >= orderNet || remainingToCover >= amount * 0.95) {
+                remainingToCover -= orderNet;
+                return {
+                  ...o,
+                  payoutStatus: 'paid' as const,
+                  paidOutAt: paidNowIso,
+                  payoutReferenceId: cleanRef || req.id
+                };
+              }
+            }
           }
           return o;
         }));
@@ -565,7 +616,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       setApprovalTreasuryAccountId('');
       setApprovalTransferRef('');
       setApprovalReceiptImage('');
-      inAppToast(`تم اعتماد وصرف طلب السحب للموكل ${req.partnerName} بمبلغ ${amount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+      inAppToast(`تم اعتماد وصرف طلب السحب للموكل ${req.partnerName} بمبلغ ${amount.toLocaleString()} ج.م${transferFee > 0 ? ` (صافي بعد عمولة التحويل: ${netDisbursed.toLocaleString()} ج.م)` : ''} بنجاح ✅`, 'success');
     } catch (err: any) {
       inAppToast('حدث خطأ أثناء اعتماد الطلب: ' + (err.message || ''), 'error');
     }
@@ -650,12 +701,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return item;
       };
       const updatedSuppliers = (prev.suppliers || []).map(patchFn);
+      const updatedPartners = (prev.partners || []).map(patchFn);
       if (activeStoreId) {
-        db.updatePartnerSettings(activeStoreId, prev.partners || [], updatedSuppliers).catch(() => {});
+        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
       }
       return {
         ...prev,
         suppliers: updatedSuppliers,
+        partners: updatedPartners
       };
     });
 
@@ -713,11 +766,30 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       return;
     }
 
+    // Calculate configured transfer fee (weekly / daily)
+    const isDaily = supplier.payoutFrequency === 'daily';
+    const feeRate = isDaily
+      ? (typeof supplier.dailyTransferFee === 'number' ? supplier.dailyTransferFee : (settings.dailyTransferFee ?? 1))
+      : (typeof supplier.weeklyTransferFee === 'number' ? supplier.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
+    const feeType = isDaily
+      ? (supplier.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
+      : (supplier.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
+
+    let transferFee = 0;
+    if (feeRate > 0) {
+      if (feeType === 'percentage') {
+        transferFee = Math.round((payoutAmount * (feeRate / 100)) * 100) / 100;
+      } else {
+        transferFee = Math.min(payoutAmount, Number(feeRate) || 0);
+      }
+    }
+    const netPayoutDisbursed = Math.max(0, Number((payoutAmount - transferFee).toFixed(2)));
+
     const confirmed = await inAppConfirm(
-      `هل ترغب في اعتماد وصرف التحويل الأسبوعي للموكل "${supplier.name}" بمبلغ (${payoutAmount.toLocaleString()} ج.م) وتحديث حالة الأوردرات المستحقة إلى (مدفوع ✅)؟`,
+      `هل ترغب في اعتماد وصرف التحويل ${isDaily ? 'اليومي' : 'الأسبوعي'} للموكل "${supplier.name}" بمبلغ إجمالي (${payoutAmount.toLocaleString()} ج.م)${transferFee > 0 ? ` (عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netPayoutDisbursed.toLocaleString()} ج.م)` : ''} وتحديث حالة الأوردرات المستحقة إلى (مدفوع ✅)؟`,
       {
-        title: 'تأكيد صرف الدفعة الأسبوعية للموكل',
-        confirmText: 'نعم، تأكيد وصرف التحويل الأسبوعي',
+        title: `تأكيد صرف الدفعة ${isDaily ? 'اليومية' : 'الأسبوعية'} للموكل`,
+        confirmText: `نعم، تأكيد وصرف التحويل ${isDaily ? 'اليومي' : 'الأسبوعي'}`,
         cancelText: 'تراجع',
         type: 'info'
       }
@@ -740,7 +812,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             type: 'withdrawal',
             amount: -payoutAmount,
             balanceAfter: nextBalance,
-            notes: `صرف التحويل الأسبوعي المجدول (مرجع #${refId}) بعد إتمام فترة تعليق التسوية`,
+            notes: `صرف التحويل ${isDaily ? 'اليومي' : 'الأسبوعي'} المجدول (مرجع #${refId}) بعد إتمام فترة تعليق التسوية${transferFee > 0 ? ` [إجمالي المستحق: ${payoutAmount} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netPayoutDisbursed} ج.م]` : ''}`,
             referenceId: refId,
             performedBy: currentUser?.fullName || 'الإدارة'
           };
@@ -752,13 +824,25 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         }
         return s;
       });
+
+      const updatedPartners = (currentSettings.partners || []).map(p => {
+        if (p.id === supplier.id || (supplier.name && p.name === supplier.name)) {
+          return {
+            ...p,
+            balance: Number(((p.balance || 0) - payoutAmount).toFixed(2))
+          };
+        }
+        return p;
+      });
+
       const addedTx = updatedSuppliers.find(s => s.id === supplier.id)?.transactions?.[0];
       if (activeStoreId) {
-        db.updatePartnerSettings(activeStoreId, currentSettings.partners || [], updatedSuppliers).catch(() => {});
+        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
       }
       return {
         ...currentSettings,
         suppliers: updatedSuppliers,
+        partners: updatedPartners,
         ...(addedTx ? { merchantTransactions: [addedTx, ...(currentSettings.merchantTransactions || [])] } : {})
       };
     });
@@ -779,7 +863,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       })
     );
 
-    inAppToast(`تم صرف التحويل الأسبوعي للموكل "${supplier.name}" بمبلغ ${payoutAmount.toLocaleString()} ج.م بنجاح ✅`, 'success');
+    inAppToast(`تم صرف التحويل ${isDaily ? 'اليومي' : 'الأسبوعي'} للموكل "${supplier.name}" بمبلغ ${payoutAmount.toLocaleString()} ج.م${transferFee > 0 ? ` (صافي بعد العمولة: ${netPayoutDisbursed.toLocaleString()} ج.م)` : ''} بنجاح ✅`, 'success');
   };
   
   // History Filters

@@ -223,6 +223,18 @@ export interface Product {
   commissionPercentage?: number;
   stockThreshold?: number;
   merchantId?: string;
+  merchantName?: string;
+  merchantIds?: string[]; // معرّفات الموكلين المشتركين في الصنف دون الحاجة لتكرار المنتج
+  merchantAllocations?: MerchantStockAllocation[]; // رصيد وتكلفة خاصة لكل موكل مشترك في نفس الصنف (الخيار ب)
+}
+
+export interface MerchantStockAllocation {
+  merchantId: string;
+  merchantName?: string;
+  stock: number;         // رصيد بضاعة الأمانة الخاص بهذا الموكل (عدد القطع)
+  costPrice?: number;    // سعر التكلفة الخاص بهذا الموكل (ج.م)
+  sellingPrice?: number; // سعر البيع المقترح
+  notes?: string;
 }
 
 export type TransactionCategory = 'shipping' | 'insurance' | 'inspection' | 'collection' | 'cod' | 'return' | 'manual_deposit' | 'manual_withdrawal' | 'expense_ads' | 'expense_salary' | 'expense_hr' | 'expense_rent' | 'expense_packaging' | 'expense_shipping_fees' | 'expense_other' | 'inventory_purchase' | 'capital_addition' | 'profit_withdrawal' | 'loan' | 'repayment' | 'wallet_charge' | 'wallet_withdrawal' | 'withdrawal_fee' | 'partner_supply' | 'supplier_payment' | 'supply_purchase' | 'supply_deposit' | 'supply_funding' | 'supply_expense_shipping' | 'supply_expense_other' | 'pos_digital' | 'pos_cash' | 'vat' | 'treasury_sync' | 'shipping_compensation' | 'compensation' | 'charge';
@@ -1653,6 +1665,9 @@ export interface OrderItem {
   discountValue?: number;
   discountType?: 'amount' | 'percentage';
   discount?: number;
+  merchantId?: string;
+  merchantName?: string;
+  merchantPhone?: string;
 }
 
 export interface ConfirmationLog {
@@ -1977,13 +1992,15 @@ export interface Order {
   marketingFeePerOrder?: number;   // مصاريف الإعلانات المخصصة للأوردر
   merchantSettlementMode?: 'fixed_fee' | 'profit_share' | 'wholesale'; // نظام المحاسبة (عمولة ثابتة أو نسبة من الربح أو سعر الجملة)
   merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
-  settlementStatus?: 'pending' | 'settled' | 'unsettled'; // حالة التسوية المالية مع صاحب البضاعة
+  settlementStatus?: 'pending' | 'settled' | 'unsettled' | 'returned_after_settlement'; // حالة التسوية المالية مع صاحب البضاعة
   settlementId?: string;           // رقم كشف التسوية المرتبط
   settledAt?: string;              // تاريخ تسوية الأوردر مالياً من الإدارة (يبدأ منه عدّاد الـ 7 أيام)
   customHoldingDays?: number;      // مدة تعليق مخصصة لهذا الأوردر يحددها مدير المتجر (افتراضي 7 أيام، أو 0 للصرف الفوري)
   payoutStatus?: 'unsettled' | 'holding' | 'ready' | 'paid'; // حالة السداد للموكل (بانتظار التسوية / قيد التعليق / جاهز للتحويل الأسبوعي / مدفوع)
   paidOutAt?: string;              // تاريخ تحويل مستحقات الأوردر للموكل فعلياً
   payoutReferenceId?: string;      // رقم مرجع التحويل الأسبوعي المرتبط
+  merchantLateReturnDebited?: boolean; // هل تم خصم قيمة البضاعة ومصاريف الشحن تلقائياً عند تحول الأوردر لمرتجع بعد التسوية
+  lateReturnDebitAmount?: number;     // قيمة الخصم العكسي المسجل في محفظة الموكل عند الارتجاع المتأخر
   managerFeeDeducted?: boolean;    // هل تم خصم رسوم المدير المخصص لهذا الأوردر من محفظة الموكل
   managerFeeAmount?: number;       // قيمة رسوم المدير المخصص المخصومة على هذا الأوردر (مثلاً 20 ج.م أو السعر المخصص)
   planCycleId?: string;            // معرّف دورة الباقة وقت إنشاء الأوردر (لتثبيت الحسابات ومنع التداخل)

@@ -56,6 +56,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [selectedProductForSalesLog, setSelectedProductForSalesLog] = useState<Product | null>(null);
   const [filterWarehouseId, setFilterWarehouseId] = useState<string>('');
+  const [filterMerchantId, setFilterMerchantId] = useState<string>('');
 
   // Audio synthezier alarm / notify system
   const playAlarmSound = (type: 'success' | 'warning' | 'error' | 'info') => {
@@ -759,11 +760,20 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
     if (filterWarehouseId) {
       if (p.hasVariants && p.variants) {
-        return p.variants.some(v => (v.warehouseStock?.[filterWarehouseId] ?? 0) > 0);
+        if (!p.variants.some(v => (v.warehouseStock?.[filterWarehouseId] ?? 0) > 0)) return false;
       } else {
-        return (p.warehouseStock?.[filterWarehouseId] ?? 0) > 0;
+        if ((p.warehouseStock?.[filterWarehouseId] ?? 0) <= 0) return false;
       }
     }
+
+    if (filterMerchantId) {
+      if (filterMerchantId === '__store_direct__') {
+        if (p.merchantId) return false;
+      } else {
+        if (p.merchantId !== filterMerchantId) return false;
+      }
+    }
+
     return true;
   });
 
@@ -778,7 +788,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   // Reset page to 1 when search or warehouse filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterWarehouseId]);
+  }, [searchTerm, filterWarehouseId, filterMerchantId]);
 
   const inventoryFinancials = useMemo(() => {
     let totalStock = 0;
@@ -887,6 +897,14 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         profitPercentage: productData.profitPercentage || 0,
         basePrice: productData.basePrice || 0,
         commissionPercentage: productData.commissionPercentage || 0,
+        merchantId: productData.merchantId || undefined,
+        merchantName: (settings.suppliers || []).find(s => s.id === productData.merchantId)?.name || (settings.partners || []).find(p => p.id === productData.merchantId)?.name || productData.merchantName || undefined,
+        merchantIds: Array.from(new Set([
+          ...(productData.merchantId ? [productData.merchantId] : []),
+          ...(Array.isArray(productData.merchantAllocations) ? productData.merchantAllocations.map(a => a.merchantId).filter(Boolean) : []),
+          ...(Array.isArray(productData.merchantIds) ? productData.merchantIds.filter(Boolean) : [])
+        ])).filter(Boolean),
+        merchantAllocations: productData.merchantAllocations || undefined,
         // Legacy support
         useProfitPercentage: productData.profitMode === 'margin',
     };
@@ -1407,7 +1425,28 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   };
 
   const openAddModal = () => {
-    setNewProduct({ sku: '', name: '', price: 0, weight: 1, costPrice: 0, stockQuantity: 10, collectionId: '', description: '', images: [], thumbnail: '', hasVariants: false, options: [], variants: [], profitMode: 'manual', profitPercentage: 0, basePrice: 0, commissionPercentage: 0 });
+    setNewProduct({
+      sku: '',
+      name: '',
+      price: 0,
+      weight: 1,
+      costPrice: 0,
+      stockQuantity: 10,
+      collectionId: '',
+      description: '',
+      images: [],
+      thumbnail: '',
+      hasVariants: false,
+      options: [],
+      variants: [],
+      profitMode: 'manual',
+      profitPercentage: 0,
+      basePrice: 0,
+      commissionPercentage: 0,
+      merchantId: (filterMerchantId && filterMerchantId !== '__store_direct__') ? filterMerchantId : undefined,
+      merchantIds: [],
+      merchantAllocations: []
+    });
     setIsAdding(true);
   };
 
@@ -1421,7 +1460,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         profitMode: product.profitMode || (product.useProfitPercentage ? 'margin' : 'manual'),
         profitPercentage: product.profitPercentage ?? 0,
         basePrice: product.basePrice ?? 0,
-        commissionPercentage: product.commissionPercentage ?? 0
+        commissionPercentage: product.commissionPercentage ?? 0,
+        merchantId: product.merchantId || undefined,
+        merchantIds: product.merchantIds || [],
+        merchantAllocations: Array.isArray(product.merchantAllocations) ? product.merchantAllocations : []
     };
     setEditingProduct(productToEdit);
   };
@@ -1681,21 +1723,40 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
             />
           </div>
 
-          {(settings.warehouses || []).length > 0 && (
-            <div className="w-full sm:w-auto flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">تصفية حسب المخزن:</span>
-              <select
-                value={filterWarehouseId}
-                onChange={(e) => setFilterWarehouseId(e.target.value)}
-                className="w-full sm:w-48 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 font-bold text-xs text-slate-700 dark:text-slate-200 select-none cursor-pointer"
-              >
-                <option value="">عرض مخازن الكل 🏢</option>
-                {(settings.warehouses || []).map(wh => (
-                  <option key={wh.id} value={wh.id}>{wh.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            {(settings.warehouses || []).length > 0 && (
+              <div className="w-full sm:w-auto flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">المخزن:</span>
+                <select
+                  value={filterWarehouseId}
+                  onChange={(e) => setFilterWarehouseId(e.target.value)}
+                  className="w-full sm:w-44 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 font-bold text-xs text-slate-700 dark:text-slate-200 select-none cursor-pointer"
+                >
+                  <option value="">عرض كل المخازن 🏢</option>
+                  {(settings.warehouses || []).map(wh => (
+                    <option key={wh.id} value={wh.id}>{wh.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {((settings.suppliers || []).length > 0 || (settings.partners || []).length > 0) && (
+              <div className="w-full sm:w-auto flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">صاحب البضاعة:</span>
+                <select
+                  value={filterMerchantId}
+                  onChange={(e) => setFilterMerchantId(e.target.value)}
+                  className="w-full sm:w-48 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:focus:ring-emerald-400 font-bold text-xs text-slate-700 dark:text-slate-200 select-none cursor-pointer"
+                >
+                  <option value="">كافة الأصناف (الكل) 📦</option>
+                  <option value="__store_direct__">بضاعة المتجر فقط (بدون موكل) 🏬</option>
+                  {(settings.suppliers || []).map(s => (
+                    <option key={s.id} value={s.id}>موكل: {s.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Table for desktop */}
@@ -1810,6 +1871,16 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                               ويلت
                             </span>
                           )}
+                          {product.merchantId && (() => {
+                            const merchant = (settings.suppliers || []).find(s => s.id === product.merchantId) || (settings.partners || []).find(p => p.id === product.merchantId);
+                            const mName = merchant?.name || product.merchantId;
+                            return (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300 rounded-md font-bold flex items-center gap-1">
+                                <HandCoins size={10} />
+                                موكل: {mName}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                           {product.hasVariants && <span className="text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 px-1.5 py-0.5 rounded font-bold">{product.variants.length} متغيرات</span>}
@@ -2106,8 +2177,17 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
                               مكرر
                             </span>
                           )}
-                          {collection && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-md truncate">{collection.name}</span>}
                           <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 truncate bg-slate-50 dark:bg-slate-800 px-1 rounded">#{product.sku}</span>
+                          {product.merchantId && (() => {
+                            const merchant = (settings.suppliers || []).find(s => s.id === product.merchantId) || (settings.partners || []).find(p => p.id === product.merchantId);
+                            const mName = merchant?.name || product.merchantId;
+                            return (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300 rounded-md font-bold flex items-center gap-1">
+                                <HandCoins size={10} />
+                                {mName}
+                              </span>
+                            );
+                          })()}
                        </div>
                     </div>
                   </div>
@@ -3084,6 +3164,32 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                         <option value="">بدون قسم (عام)</option>
                                         {settings.collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </FormInput>
+                                    <FormInput 
+                                        label="صاحب البضاعة الأساسي (الموكل الرئيسي)" 
+                                        icon={<HandCoins size={16} className="text-emerald-500" />} 
+                                        value={productData.merchantId || ''} 
+                                        onChange={e => {
+                                            const val = e.target.value || undefined;
+                                            const found = (settings.suppliers || []).find(s => s.id === val) || (settings.partners || []).find(p => p.id === val);
+                                            updateField('merchantId', val);
+                                            updateField('merchantName', found?.name || undefined);
+                                        }} 
+                                        as="select"
+                                    >
+                                        <option value="">بضاعة المتجر الخاصة (بدون موكل حصري)</option>
+                                        {(() => {
+                                            const combined = [...(settings.suppliers || [])];
+                                            (settings.partners || []).forEach(p => {
+                                                if (!combined.some(s => s.id === p.id || s.name === p.name)) {
+                                                    combined.push(p as any);
+                                                }
+                                            });
+                                            return combined.map(s => (
+                                                <option key={s.id} value={s.id}>موكل رئيسي: {s.name}</option>
+                                            ));
+                                        })()}
+                                    </FormInput>
+
                                     {activeTrack !== 'digital' && (
                                         <FormInput 
                                             label="الوزن التقريبي للشحن (كجم)" 
@@ -3095,6 +3201,203 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                             placeholder="0.5"
                                         />
                                     )}
+
+                                    {/* Option B: Multi-merchant linkage with custom stock & cost per merchant */}
+                                    {(() => {
+                                        const norm = (s) => (s || "").trim().replace(/\s+/g, " ").replace(/عبد\s+/g, "عبد").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
+                                        const combinedMerchants = [];
+                                        (settings.suppliers || []).forEach(s => {
+                                            if (s?.id && !combinedMerchants.some(c => c.id === s.id || norm(c.name) === norm(s.name))) {
+                                                combinedMerchants.push(s);
+                                            }
+                                        });
+                                        (settings.partners || []).forEach(p => {
+                                            if (p?.id && !combinedMerchants.some(c => c.id === p.id || norm(c.name) === norm(p.name))) {
+                                                combinedMerchants.push(p);
+                                            }
+                                        });
+
+                                        if (combinedMerchants.length === 0) return null;
+
+                                        const currentAllocations = Array.isArray(productData.merchantAllocations) ? [...productData.merchantAllocations] : [];
+
+                                        return (
+                                            <div className="col-span-full p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-4">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 border-b border-slate-200/80 dark:border-slate-700/80 pb-3">
+                                                    <div>
+                                                        <div className="text-xs font-black text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                                            <HandCoins size={16} className="text-indigo-500" />
+                                                            <span>الموكلون المشتركون في نفس الصنف (الخيار ب: رصيد وتكلفة خاصة لكل موكل)</span>
+                                                        </div>
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-0.5">
+                                                            تعدد الموردين دون تكرار المنتج — يظهر الصنف في بوابات الموكلين برصيد أمانة وتكلفة مستقلة لكل وكيل.
+                                                        </p>
+                                                    </div>
+                                                    <span className="px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-black border border-indigo-500/20 shrink-0">
+                                                        {currentAllocations.length} موكل مشترك
+                                                    </span>
+                                                </div>
+
+                                                {/* Merchant Toggle Selector Pills */}
+                                                <div>
+                                                    <label className="block text-[10px] font-black text-slate-500 mb-1.5">
+                                                        اختر الوكلاء المشتركين لإضافتهم لهذا الصنف:
+                                                    </label>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {combinedMerchants.map(m => {
+                                                            const isPrimary = productData.merchantId === m.id || (productData.merchantName && norm(productData.merchantName) === norm(m.name));
+                                                            const existingAllocIndex = currentAllocations.findIndex(a => a.merchantId === m.id || norm(a.merchantName || "") === norm(m.name));
+                                                            const isLinked = existingAllocIndex >= 0;
+
+                                                            if (isPrimary) {
+                                                                return (
+                                                                    <span key={m.id} className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                                                                        <span>👑</span>
+                                                                        <span>{m.name} (الموكل الرئيسي)</span>
+                                                                    </span>
+                                                                );
+                                                            }
+
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    key={m.id}
+                                                                    onClick={() => {
+                                                                        let updatedAlloc = [...currentAllocations];
+                                                                        if (isLinked) {
+                                                                            updatedAlloc = updatedAlloc.filter((_, idx) => idx !== existingAllocIndex);
+                                                                        } else {
+                                                                            updatedAlloc.push({
+                                                                                merchantId: m.id,
+                                                                                merchantName: m.name,
+                                                                                stock: 10,
+                                                                                costPrice: Number(productData.costPrice) || 0,
+                                                                                sellingPrice: Number(productData.price) || 0
+                                                                            });
+                                                                        }
+                                                                        updateField("merchantAllocations", updatedAlloc);
+                                                                        updateField("merchantIds", updatedAlloc.map(a => a.merchantId));
+                                                                    }}
+                                                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 cursor-pointer ${
+                                                                        isLinked
+                                                                            ? "bg-indigo-600 text-white border-indigo-600 shadow-xs ring-2 ring-indigo-500/20"
+                                                                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-indigo-400"
+                                                                    }`}
+                                                                >
+                                                                    <span>{isLinked ? "✓ مشترك مع" : "+ إضافة مشترك:"}</span>
+                                                                    <span>{m.name}</span>
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+
+                                                {/* Option B: Individual Stock & Cost Cards */}
+                                                {currentAllocations.length > 0 && (
+                                                    <div className="space-y-2.5 pt-1">
+                                                        <div className="text-[11px] font-black text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                                            <span>📦</span>
+                                                            <span>تفاصيل رصيد بضاعة الأمانة وسعر التكلفة لكل وكيل مشترك:</span>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 gap-2.5">
+                                                            {currentAllocations.map((alloc, idx) => (
+                                                                <div 
+                                                                    key={alloc.merchantId || idx}
+                                                                    className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-950/60 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3"
+                                                                >
+                                                                    <div className="flex items-center gap-2 min-w-[160px]">
+                                                                        <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs shrink-0">
+                                                                            {idx + 1}
+                                                                        </div>
+                                                                        <div>
+                                                                            <div className="text-xs font-black text-slate-800 dark:text-slate-100">
+                                                                                {alloc.merchantName}
+                                                                            </div>
+                                                                            <span className="text-[10px] text-slate-400 font-bold">وكيل أمانة مشترك</span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-3 gap-2 flex-1">
+                                                                        <div>
+                                                                            <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                                                                                رصيد الأمانة (قطع)
+                                                                            </label>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                value={alloc.stock ?? 0}
+                                                                                onChange={e => {
+                                                                                    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                                                                    const updated = [...currentAllocations];
+                                                                                    updated[idx] = { ...updated[idx], stock: val };
+                                                                                    updateField("merchantAllocations", updated);
+                                                                                }}
+                                                                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black"
+                                                                                placeholder="0"
+                                                                            />
+                                                                        </div>
+
+                                                                        <div>
+                                                                            <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                                                                                سعر التكلفة (ج.م)
+                                                                            </label>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                step="0.5"
+                                                                                value={alloc.costPrice ?? ""}
+                                                                                onChange={e => {
+                                                                                    const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                                                                    const updated = [...currentAllocations];
+                                                                                    updated[idx] = { ...updated[idx], costPrice: val };
+                                                                                    updateField("merchantAllocations", updated);
+                                                                                }}
+                                                                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black"
+                                                                                placeholder={String(productData.costPrice || 0)}
+                                                                            />
+                                                                        </div>
+
+                                                                        <div>
+                                                                            <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                                                                                سعر البيع المقترح (ج.م)
+                                                                            </label>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                step="0.5"
+                                                                                value={alloc.sellingPrice ?? ""}
+                                                                                onChange={e => {
+                                                                                    const val = Math.max(0, parseFloat(e.target.value) || 0);
+                                                                                    const updated = [...currentAllocations];
+                                                                                    updated[idx] = { ...updated[idx], sellingPrice: val };
+                                                                                    updateField("merchantAllocations", updated);
+                                                                                }}
+                                                                                className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black"
+                                                                                placeholder={String(productData.price || 0)}
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            const updated = currentAllocations.filter((_, i) => i !== idx);
+                                                                            updateField("merchantAllocations", updated);
+                                                                            updateField("merchantIds", updated.map(a => a.merchantId));
+                                                                        }}
+                                                                        className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg text-xs font-bold transition-all cursor-pointer self-end md:self-center"
+                                                                        title="إلغاء اشتراك هذا الموكل"
+                                                                    >
+                                                                        ✕ إزالة
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         </div>
@@ -3170,6 +3473,27 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                     </div>
                                 )}
                             </div>
+
+                            {productData.merchantId && (() => {
+                                const merchant = (settings.suppliers || []).find(s => s.id === productData.merchantId);
+                                return (
+                                    <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 flex items-center justify-between gap-3 text-xs">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
+                                                <HandCoins size={18} />
+                                            </div>
+                                            <div>
+                                                <p className="font-black text-emerald-900 dark:text-emerald-200">
+                                                    منتج تابع للموكل: {merchant?.name || productData.merchantId}
+                                                </p>
+                                                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">
+                                                    سعر التكلفة هو المبلغ الذي سيتم اعتماده كمستحق للموكل عند تسوية الأوردر بعد خصم العمولة ومصاريف الشحن.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Pricing Strategy Selector */}
                             <div className="bg-slate-50 dark:bg-slate-900/60 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4">

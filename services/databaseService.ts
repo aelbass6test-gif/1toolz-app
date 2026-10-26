@@ -3605,3 +3605,176 @@ export const syncIncrementalStoreData = async (
     return { updatedOrders, updatedPartnerRequests, timestamp: currentIso };
 };
 
+
+/**
+ * Fetches all stores settings (lightweight) to allow cross-store aggregation for merchants.
+ */
+export const getAllStoresSettings = async (): Promise<Record<string, any>> => {
+    const results: Record<string, any> = {};
+
+    // 1. Try Supabase first for efficiency if available
+    const supabase = getSupabaseClient();
+    if (supabase) {
+        try {
+            const { data, error } = await supabase.from('stores_data').select('id, settings');
+            if (!error && data) {
+                data.forEach(row => {
+                    if (row.settings) results[row.id] = row.settings;
+                });
+            }
+        } catch (err) {
+            console.warn('[DB] Supabase error in getAllStoresSettings:', err);
+        }
+    }
+
+    // 2. Fallback to Firestore
+    if (firebaseDb) {
+        try {
+            const snap = await getDocs(collection(firebaseDb, 'stores_data'));
+            snap.forEach(doc => {
+                const data = doc.data();
+                if (data?.settings && !results[doc.id]) {
+                    results[doc.id] = data.settings;
+                }
+            });
+        } catch (err) {
+            console.warn('[DB] Error fetching all stores settings from Firestore:', err);
+        }
+    }
+
+    // 3. Fallback to local Dexie IndexedDB
+    try {
+        if (localDb && localDb.settings) {
+            const allLocal = await localDb.settings.toArray();
+            allLocal.forEach((item: any) => {
+                if (item?.id && item.id !== 'global' && item?.data && !results[item.id]) {
+                    results[item.id] = item.data;
+                }
+            });
+        }
+    } catch (err) {
+        console.warn('[DB] Error reading local Dexie settings in getAllStoresSettings:', err);
+    }
+
+    // 4. Fallback to localStorage backups
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (key.startsWith('emergency_store_backup_') || key.startsWith('store_data_'))) {
+                    const raw = localStorage.getItem(key);
+                    if (raw) {
+                        try {
+                            const parsed = JSON.parse(raw);
+                            const sId = key.replace('emergency_store_backup_', '').replace('store_data_', '');
+                            if (parsed?.settings && !results[sId]) {
+                                results[sId] = parsed.settings;
+                            }
+                        } catch (_) {}
+                    }
+                }
+            }
+        }
+    } catch (_) {}
+
+    return results;
+};
+
+/**
+ * Specifically finds all products across all stores that belong to or are shared with a merchant.
+ */
+export const getMerchantAllocatedProducts = async (merchantId: string, merchantName?: string): Promise<Product[]> => {
+    const prodsMap = new Map<string, Product>();
+
+    const robustNormalize = (name: string): string => {
+        if (!name) return '';
+        let normalized = name.trim().replace(/\s+/g, ' ');
+        normalized = normalized.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)/gi, '');
+        normalized = normalized.replace(/عبد\s+/g, 'عبد');
+        normalized = normalized.replace(/ابو\s+/g, 'ابو');
+        normalized = normalized.replace(/بن\s+/g, 'بن');
+        return normalized
+            .replace(/[أإآ]/g, 'ا')
+            .replace(/ة/g, 'ه')
+            .replace(/ى/g, 'ي')
+            .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
+            .replace(/ـ+/g, '') // remove tatweel
+            .toLowerCase()
+            .trim();
+    };
+
+    const mName = merchantName ? robustNormalize(merchantName) : '';
+    const mId = merchantId ? String(merchantId).trim().toLowerCase() : '';
+    const candidateIds = new Set<string>();
+    if (mId) candidateIds.add(mId);
+
+    // 1. Efficient query via Firestore "products" collection if using merchantIds array
+    if (firebaseDb && mId) {
+        try {
+            // Search by primary merchantId
+            const q1 = query(collection(firebaseDb, 'products'), where('merchantId', '==', mId));
+            const snap1 = await getDocs(q1);
+            snap1.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
+
+            // Search by shared merchantIds array
+            const q2 = query(collection(firebaseDb, 'products'), where('merchantIds', 'array-contains', mId));
+            const snap2 = await getDocs(q2);
+            snap2.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
+        } catch (err) {
+            console.warn('[DB] Firestore products collection query failed:', err);
+        }
+    }
+
+    // 2. Efficient query via Supabase if active
+    const supabase = getSupabaseClient();
+    if (supabase && mId) {
+        try {
+            const { data, error } = await supabase.from('products').select('*').or(`merchant_id.eq.${mId},merchantId.eq.${mId}`);
+            if (!error && data) {
+                data.forEach(p => prodsMap.set(p.id, p as Product));
+            }
+        } catch (err) {
+             console.warn('[DB] Supabase products query failed:', err);
+        }
+    }
+
+    // 3. Fallback: Full scan of all store settings (local + cloud)
+    const allSettings = await getAllStoresSettings();
+
+    // First, harvest all candidate IDs matching merchant name across all store partners & suppliers
+    Object.values(allSettings).forEach(st => {
+        const sups = Array.isArray(st?.suppliers) ? st.suppliers : [];
+        const parts = Array.isArray(st?.partners) ? st.partners : [];
+        [...sups, ...parts].forEach((e: any) => {
+            const eName = robustNormalize(e?.name || '');
+            if (mName && eName && (eName === mName || eName.includes(mName) || mName.includes(eName))) {
+                if (e?.id) candidateIds.add(String(e.id).trim().toLowerCase());
+            }
+        });
+    });
+
+    Object.values(allSettings).forEach(settings => {
+        const productsList = Array.isArray(settings?.products) ? settings.products : [];
+        productsList.forEach((p: any) => {
+            if (prodsMap.has(p.id)) return;
+
+            const pMId = String(p.merchantId || p.supplierId || '').trim().toLowerCase();
+            const pMName = robustNormalize(p.merchantName || p.supplierName || '');
+            const hasInIds = Array.isArray(p.merchantIds) && p.merchantIds.some((id: any) => candidateIds.has(String(id).trim().toLowerCase()));
+            const hasInAllocations = Array.isArray(p.merchantAllocations) && p.merchantAllocations.some((a: any) => {
+                const aId = String(a.merchantId || '').trim().toLowerCase();
+                const aName = robustNormalize(a.merchantName || '');
+                return (aId && candidateIds.has(aId)) || (mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
+            });
+
+            const matchPrimaryId = Boolean(pMId && candidateIds.has(pMId));
+            const matchPrimaryName = Boolean(mName && pMName && (pMName === mName || pMName.includes(mName) || mName.includes(pMName)));
+
+            if (matchPrimaryId || matchPrimaryName || hasInIds || hasInAllocations) {
+                prodsMap.set(p.id, p);
+            }
+        });
+    });
+
+    return Array.from(prodsMap.values());
+};

@@ -49,20 +49,20 @@ service cloud.firestore {
 
     // --- Stores Configuration and Data ---
     match /stores_data/{storeId} {
-      allow read: if isValidId(storeId);
+      allow read: if isValidId(storeId) || isSignedIn();
       allow create: if isSignedIn() && isValidId(storeId);
       allow update: if isValidId(storeId) && isMemberOfStore(storeId);
       allow delete: if isAdmin();
       
       match /{allChildren=**} {
-        allow read: if isValidId(storeId);
+        allow read: if isValidId(storeId) || isSignedIn();
         allow write: if isMemberOfStore(storeId);
       }
     }
 
     // --- Products (Storefront Catalog & Admin) ---
     match /products/{productId} {
-      allow read: if isValidId(productId);
+      allow read: if isValidId(productId) || isSignedIn();
       allow create: if isSignedIn() && isValidId(productId) && hasValidStoreIdOnWrite();
       allow update: if isSignedIn() && isValidId(productId) && hasValidStoreIdOnWrite();
       allow delete: if isSignedIn() && isValidId(productId) && (resource == null || isMemberOfStore(resource.data.store_id));

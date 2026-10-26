@@ -19,6 +19,16 @@ export const TRANSPARENCY_RETURN_STATUSES = [
   'تم_الاستبدال'
 ];
 
+const normalizeStr = (s: string) => 
+  (s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^(sup_|m_|part_)/, '')
+    .replace(/أ|إ|آ/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, '');
+
 export interface ProductMovementItem {
   productId: string;
   sku: string;
@@ -210,16 +220,6 @@ export function isOrderForMerchant(
   // If 'all' is selected, include all merchant/supplier/agency orders
   if (!merchantIdOrName || merchantIdOrName === 'all') return true;
 
-  const normalizeStr = (s: string) => 
-    (s || '')
-      .trim()
-      .toLowerCase()
-      .replace(/^(sup_|m_|part_)/, '')
-      .replace(/أ|إ|آ/g, 'ا')
-      .replace(/ة/g, 'ه')
-      .replace(/ى/g, 'ي')
-      .replace(/\s+/g, '');
-
   const target = normalizeStr(merchantIdOrName);
   const oMId = normalizeStr(order.merchantId || '');
   const oMName = normalizeStr(order.merchantName || '');
@@ -236,7 +236,24 @@ export function isOrderForMerchant(
     if (objId && oMName && (oMName === objId || oMName.includes(objId) || objId.includes(oMName))) return true;
   }
 
-  return false;
+  // NEW: Check individual items for joint merchant association (Option B)
+  const hasItemMatch = (order.items || []).some(item => {
+    const iMId = normalizeStr(item.merchantId || '');
+    const iMName = normalizeStr(item.merchantName || '');
+    
+    if (target && iMId && (iMId === target || iMId.includes(target) || target.includes(iMId))) return true;
+    if (target && iMName && (iMName === target || iMName.includes(target) || target.includes(iMName))) return true;
+
+    if (merchantObj) {
+      const objId = normalizeStr(merchantObj.id);
+      const objName = normalizeStr(merchantObj.name);
+      if (objId && iMId && (iMId === objId || iMId.includes(objId) || objId.includes(iMId))) return true;
+      if (objName && iMName && (objName === iMName || objName.includes(iMName) || objName.includes(objName))) return true;
+    }
+    return false;
+  });
+
+  return hasItemMatch;
 }
 
 /**
@@ -332,62 +349,85 @@ export function calculateMerchantTransparencyAnalytics(
 
     const carrierCalc = computeOrderCarrierBreakdown(o, settings);
 
-    // Revenue / Collection
-    const collected = isDelivered 
+    // Filter relevant items for this specific merchant view
+    const allItems = o.items || [];
+    const relevantItems = allItems.filter(item => {
+      const iMId = normalizeStr(item.merchantId || '');
+      const iMName = normalizeStr(item.merchantName || '');
+      const target = normalizeStr(merchantIdOrName);
+      if (target && iMId && (iMId === target || iMId.includes(target) || target.includes(iMId))) return true;
+      if (target && iMName && (iMName === target || iMName.includes(target) || target.includes(iMName))) return true;
+      if (merchantObj) {
+        const objId = normalizeStr(merchantObj.id);
+        const objName = normalizeStr(merchantObj.name);
+        if (objId && iMId && (iMId === objId || iMId.includes(objId) || objId.includes(iMId))) return true;
+        if (objName && iMName && (objName === iMName || objName.includes(iMName) || objName.includes(objName))) return true;
+      }
+      return false;
+    });
+
+    // If no relevant items (should not happen due to 'filtered' check, but for safety), treat whole order as relevant if it's their order
+    const useWholeOrder = relevantItems.length === 0;
+    const merchantItems = useWholeOrder ? allItems : relevantItems;
+
+    // Calculate proportionality ratio
+    const totalOrderQty = allItems.reduce((s, i) => s + (i.quantity || 1), 0) || 1;
+    const merchantQty = merchantItems.reduce((s, i) => s + (i.quantity || 1), 0);
+    const ratio = merchantQty / totalOrderQty;
+
+    // Revenue / Collection share
+    const fullCollected = isDelivered 
       ? (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && Number(o.totalAmountOverride) > 0
           ? Number(o.totalAmountOverride)
           : (Number(o.totalPrice) || 0))
       : 0;
+    const collected = fullCollected * ratio;
 
-    // Goods Cost
-    const defaultGoodsCost = o.merchantItemCost !== undefined && o.merchantItemCost > 0
-      ? o.merchantItemCost
-      : (o.items || []).reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
+    // Goods Cost (specific to merchant items)
+    const goodsCost = merchantItems.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
 
-    // Marketing & Service
-    const marketingFee = Number(o.marketingFeePerOrder) || 0;
+    // Marketing & Service (proportional)
+    const marketingFee = (Number(o.marketingFeePerOrder) || 0) * ratio;
     const defaultService = (settings as any).defaultMerchantServiceFee ?? 0;
-    const serviceFee = isDelivered ? (o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : defaultService) : 0;
+    const serviceFee = isDelivered ? ((o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : defaultService) * ratio) : 0;
 
-    // Return loss
-    const returnLoss = isReturn ? (carrierCalc.totalShippingAndCarrier + marketingFee) : 0;
+    // Return loss (proportional)
+    const returnLoss = isReturn ? ((carrierCalc.totalShippingAndCarrier + (Number(o.marketingFeePerOrder) || 0)) * ratio) : 0;
 
     // Net for merchant from order
     let netMerchantAmount = 0;
     let merchantProfitOrLoss = 0;
 
     if (o.merchantSettlementMode === 'profit_share') {
-      const ratio = (o.merchantProfitSharePercent || 50) / 100;
-      const expenses = carrierCalc.totalShippingAndCarrier + marketingFee;
-      const netMargin = collected - (isDelivered ? defaultGoodsCost : 0) - expenses;
-      const merchantShare = netMargin * ratio;
-      netMerchantAmount = (isDelivered ? defaultGoodsCost : 0) + merchantShare;
+      const sharePct = (o.merchantProfitSharePercent || 50) / 100;
+      const expenses = (carrierCalc.totalShippingAndCarrier + (Number(o.marketingFeePerOrder) || 0)) * ratio;
+      const netMargin = collected - (isDelivered ? goodsCost : 0) - expenses;
+      const merchantShare = netMargin * sharePct;
+      netMerchantAmount = (isDelivered ? goodsCost : 0) + merchantShare;
       merchantProfitOrLoss = isDelivered ? merchantShare : (-returnLoss);
     } else if (o.merchantSettlementMode === 'wholesale') {
-      // Wholesale Mode: Merchant gets their goods cost only, minus deductions
-      const deductions = serviceFee + carrierCalc.totalShippingAndCarrier + marketingFee;
-      netMerchantAmount = isDelivered ? (defaultGoodsCost - deductions) : (-deductions);
-      merchantProfitOrLoss = isDelivered ? (netMerchantAmount - defaultGoodsCost) : (-returnLoss);
+      const deductions = serviceFee + (carrierCalc.totalShippingAndCarrier * ratio) + marketingFee;
+      netMerchantAmount = isDelivered ? (goodsCost - deductions) : (-deductions);
+      merchantProfitOrLoss = isDelivered ? (netMerchantAmount - goodsCost) : (-returnLoss);
     } else {
-      // Fixed fee / Standard Commission / Dropshipping
-      const deductions = serviceFee + carrierCalc.totalShippingAndCarrier + marketingFee;
+      const deductions = serviceFee + (carrierCalc.totalShippingAndCarrier * ratio) + marketingFee;
       netMerchantAmount = isDelivered ? (collected - deductions) : (-deductions);
-      merchantProfitOrLoss = isDelivered ? (netMerchantAmount - defaultGoodsCost) : (-returnLoss);
+      merchantProfitOrLoss = isDelivered ? (netMerchantAmount - goodsCost) : (-returnLoss);
     }
 
     // Accumulate aggregates
     totalCollected += collected;
     if (isDelivered) {
-      totalGoodsCostRecovered += defaultGoodsCost;
+      totalGoodsCostRecovered += goodsCost;
       totalServiceFees += serviceFee;
     }
-    totalBaseShipping += carrierCalc.baseShippingFee;
-    totalInsurance += carrierCalc.insuranceFee;
-    totalInspection += carrierCalc.inspectionFee;
-    totalVat += carrierCalc.vatFee;
-    totalCodFees += carrierCalc.codFee;
-    totalCarrierAdditionalFees += carrierCalc.carrierAdditionalFees;
-    totalShippingAndCarrier += carrierCalc.totalShippingAndCarrier;
+    totalBaseShipping += carrierCalc.baseShippingFee * ratio;
+    totalInsurance += carrierCalc.insuranceFee * ratio;
+    totalInspection += carrierCalc.inspectionFee * ratio;
+    totalVat += carrierCalc.vatFee * ratio;
+    totalCodFees += carrierCalc.codFee * ratio;
+    totalCarrierAdditionalFees += carrierCalc.carrierAdditionalFees * ratio;
+    totalShippingAndCarrier += carrierCalc.totalShippingAndCarrier * ratio;
     totalMarketingCosts += marketingFee;
     if (isReturn) {
       totalReturnLosses += returnLoss;
@@ -395,7 +435,7 @@ export function calculateMerchantTransparencyAnalytics(
     netPayoutToMerchant += netMerchantAmount;
 
     // Items Summary
-    const itemsSummary = (o.items || []).map(i => `${i.name || i.productName || 'منتج'} (x${i.quantity || 1})`).join('، ');
+    const itemsSummary = merchantItems.map(i => `${i.name || i.productName || 'منتج'} (x${i.quantity || 1})`).join('، ');
 
     orderRows.push({
       orderId: o.id,
@@ -409,17 +449,17 @@ export function calculateMerchantTransparencyAnalytics(
       isDelivered,
       isReturn,
       itemsSummary,
-      itemsCount: (o.items || []).reduce((s, i) => s + (i.quantity || 1), 0),
-      rawItems: o.items || [],
+      itemsCount: merchantQty,
+      rawItems: merchantItems,
       collectedAmount: Math.round(collected * 100) / 100,
-      merchantGoodsCost: Math.round(defaultGoodsCost * 100) / 100,
-      baseShippingFee: Math.round(carrierCalc.baseShippingFee * 100) / 100,
-      insuranceFee: Math.round(carrierCalc.insuranceFee * 100) / 100,
-      inspectionFee: Math.round(carrierCalc.inspectionFee * 100) / 100,
-      vatFee: Math.round(carrierCalc.vatFee * 100) / 100,
-      codFee: Math.round(carrierCalc.codFee * 100) / 100,
-      carrierAdditionalFees: Math.round(carrierCalc.carrierAdditionalFees * 100) / 100,
-      totalShippingAndCarrier: Math.round(carrierCalc.totalShippingAndCarrier * 100) / 100,
+      merchantGoodsCost: Math.round(goodsCost * 100) / 100,
+      baseShippingFee: Math.round((carrierCalc.baseShippingFee * ratio) * 100) / 100,
+      insuranceFee: Math.round((carrierCalc.insuranceFee * ratio) * 100) / 100,
+      inspectionFee: Math.round((carrierCalc.inspectionFee * ratio) * 100) / 100,
+      vatFee: Math.round((carrierCalc.vatFee * ratio) * 100) / 100,
+      codFee: Math.round((carrierCalc.codFee * ratio) * 100) / 100,
+      carrierAdditionalFees: Math.round((carrierCalc.carrierAdditionalFees * ratio) * 100) / 100,
+      totalShippingAndCarrier: Math.round((carrierCalc.totalShippingAndCarrier * ratio) * 100) / 100,
       serviceFee: Math.round(serviceFee * 100) / 100,
       marketingFee: Math.round(marketingFee * 100) / 100,
       returnLoss: Math.round(returnLoss * 100) / 100,
@@ -440,7 +480,7 @@ export function calculateMerchantTransparencyAnalytics(
       weight: o.weight || 0
     }];
 
-    const totalOrderQty = orderItems.reduce((acc, it) => acc + (it.quantity || 1), 0) || 1;
+    const totalItemsInOrder = orderItems.reduce((acc, it) => acc + (it.quantity || 1), 0) || 1;
 
     orderItems.forEach(item => {
       const key = item.productId || item.name || 'unknown';
@@ -468,7 +508,7 @@ export function calculateMerchantTransparencyAnalytics(
       const itemQty = item.quantity || 1;
       const itemPrice = item.price || 0;
       const itemCost = item.cost || 0;
-      const proportion = itemQty / totalOrderQty;
+      const proportion = itemQty / totalItemsInOrder;
 
       existing.totalQuantityOrdered += itemQty;
 

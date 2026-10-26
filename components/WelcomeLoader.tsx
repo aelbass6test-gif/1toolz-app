@@ -57,7 +57,7 @@ const WelcomeLoader: React.FC<WelcomeLoaderProps> = ({
     };
   }, []);
 
-  const displayName = userName?.trim() ? userName.split(' ')[0] : 'عزيزنا الشريك';
+  const displayName = userName?.trim() || 'عزيزنا الشريك';
 
   return (
     <div dir="rtl" className="bg-gradient-to-br from-emerald-50/80 via-slate-50 to-teal-50/70 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 min-h-screen flex items-center justify-center relative overflow-hidden font-cairo select-none text-slate-900 dark:text-slate-100 p-4 transition-colors duration-300">

@@ -3,12 +3,12 @@
 @variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-primary: #008060; /* Shopify-inspired evergreen */
-  --color-primary-dark: #006e52;
-  --color-accent: #95bf47; /* commerce accent */
-  --color-secondary: #2c6ecb;
+  --color-primary: #062d24; /* Brand forest green */
+  --color-primary-dark: #041d18;
+  --color-accent: #00ab84; /* Brand emerald */
+  --color-secondary: #008060;
   
-  --color-success: #10b981; /* Emerald-500 */
+  --color-success: #00ab84; /* Emerald */
   --color-pending: #f59e0b; /* Amber-500 */
   --color-error: #f43f5e; /* Rose-500 */
   --color-inactive: #64748b; /* Slate-500 */
@@ -100,10 +100,10 @@
 
 @layer base {
   body {
-    @apply bg-[#F9FAFB] text-slate-900 font-sans antialiased selection:bg-emerald-500/20 selection:text-emerald-700 transition-colors duration-300;
+    @apply bg-[#f8faf9] text-zinc-900 font-sans antialiased selection:bg-emerald-500/20 selection:text-emerald-700 transition-colors duration-300;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.03) 0px, transparent 40%),
-      radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.03) 0px, transparent 40%);
+      radial-gradient(at 0% 0%, rgba(0, 171, 132, 0.02) 0px, transparent 40%),
+      radial-gradient(at 100% 0%, rgba(6, 45, 36, 0.02) 0px, transparent 40%);
     background-attachment: fixed;
   }
 

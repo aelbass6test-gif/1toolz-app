@@ -69,7 +69,8 @@ import {
   Unlock,
   Store,
   PieChart,
-  Megaphone
+  Megaphone,
+  Settings2
 } from "lucide-react";
 import {
   Order,
@@ -483,6 +484,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(
     isEditing || Boolean(orderData.discount) || Boolean(orderData.advancePayment) || Boolean(orderData.shippingNotes) || Boolean(orderData.notes)
   );
+  const [showMerchantCustomOverrides, setShowMerchantCustomOverrides] = useState(
+    Boolean(orderData.merchantItemCost) || Boolean(orderData.marketingFeePerOrder) || (orderData.merchantSettlementMode === 'profit_share')
+  );
   const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
 
   // Bosta Estimator states
@@ -497,6 +501,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [productFilterTab, setProductFilterTab] = useState<"all" | "in_stock" | "variants" | "low_stock">("all");
   const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
+  const [showAllProductsWithMerchant, setShowAllProductsWithMerchant] = useState(false);
 
   // Shipping Company Category Filter
 
@@ -1145,6 +1150,25 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     handleFieldChange("items", newItems);
   };
 
+  // Auto-detect and suggest merchant if an added product is linked to a merchant
+  const autoDetectMerchantFromProduct = (product: Product) => {
+    if (product.merchantId && !orderData.merchantId) {
+      const matchedMerchant = merchantsList.find(m => m.id === product.merchantId) || settings.suppliers?.find(s => s.id === product.merchantId);
+      if (matchedMerchant) {
+        handleFieldChange("merchantId", matchedMerchant.id);
+        handleFieldChange("merchantName", matchedMerchant.name);
+        if (!orderData.merchantBrandName) {
+          handleFieldChange("merchantBrandName", matchedMerchant.name);
+        }
+        const activeMgr = (matchedMerchant as any).managerPlan;
+        const defaultFee = activeMgr ? (activeMgr.orderFee || activeMgr.customOrderFee || 20) : 10;
+        if (orderData.serviceFeePerOrder === undefined) {
+          handleFieldChange("serviceFeePerOrder", defaultFee);
+        }
+      }
+    }
+  };
+
   // Smart Add Item from Selector Bar
   const handleAddSelectedProduct = () => {
     const productsList = getArray(settings.products);
@@ -1153,6 +1177,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
     const product = productsList.find(p => p.id === targetId);
     if (!product) return;
+
+    autoDetectMerchantFromProduct(product);
 
     const variant = product.variants?.find(v => v.id === selectedVariantIdToAdd);
     const currentItems = getArray(orderData.items);
@@ -1189,6 +1215,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   };
 
   const handleQuickAddProduct = (product: Product, variant?: any) => {
+    autoDetectMerchantFromProduct(product);
+
     const currentItems = getArray(orderData.items);
     const targetVariantId = variant ? variant.id : "";
     const existingIdx = currentItems.findIndex(
@@ -2481,7 +2509,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const selectedMerchantObj = selectedMerchantId ? merchantsList.find(m => m.id === selectedMerchantId) : null;
     const selectedMerchantName = selectedMerchantObj?.name || orderData.merchantName || "";
 
-    const productsList = selectedMerchantId
+    const productsList = (selectedMerchantId && !showAllProductsWithMerchant)
       ? rawProductsList.filter((p) => {
           const pMId = String(p.merchantId || (p as any).supplierId || "").trim().toLowerCase();
           const pMName = String((p as any).merchantName || (p as any).supplierName || "").trim().toLowerCase();
@@ -2579,158 +2607,147 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               </div>
 
               {(() => {
+                if (!orderData.merchantId || orderData.merchantId === "pending") return null;
+
                 const selectedSupplier = settings.suppliers?.find(s => s.id === orderData.merchantId);
                 const activeMgr = selectedSupplier?.managerPlan;
                 const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none';
-                
+                const currentFee = orderData.serviceFeePerOrder ?? (activeMgr ? (activeMgr.orderFee || activeMgr.customOrderFee || 20) : 10);
+                const modeLabel = orderData.merchantSettlementMode === 'profit_share' 
+                  ? `مشاركة أرباح (${orderData.merchantProfitSharePercent || 50}%)` 
+                  : `عمولة ثابتة (${currentFee} ج.م / أوردر)`;
+
                 return (
-                  <>
-                    {hasActivePlan && (
-                      <div className="col-span-full animate-in fade-in slide-in-from-right-2 duration-500">
-                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
-                            <ShieldCheck size={16} />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-[11px] font-black text-emerald-700 dark:text-emerald-400">تسعير الإدارة مفعل (Management Pricing)</p>
-                            <p className="text-[10px] font-bold text-emerald-600/80">يتم تطبيق رسوم وخصومات باقة {activeMgr.planNameAr || activeMgr.planId} المسجلة لهذا الموكل تلقائياً.</p>
-                          </div>
-                        </div>
+                  <div className="col-span-full space-y-3 pt-2">
+                    {/* Compact Smart Summary Card */}
+                    <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/20 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800">
+                          <CheckCircle size={13} />
+                          <span>{modeLabel}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">
+                          <Package size={13} className="text-indigo-500" />
+                          <span>تكلفة البضاعة: تلقائية من المخزن</span>
+                        </span>
+                        {selectedSupplier?.defaultMarketingFeePerOrder ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 font-bold border border-amber-200 dark:border-amber-800">
+                            <Megaphone size={13} />
+                            <span>إعلانات: {selectedSupplier.defaultMarketingFeePerOrder} ج.م</span>
+                          </span>
+                        ) : null}
                       </div>
-                    )}
 
-                    {!hasActivePlan && (
-                      <div className="col-span-full space-y-3 py-2">
-                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">نظام المحاسبة مع الموكل</label>
-                        <div className="flex flex-wrap gap-4 opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleFieldChange("merchantSettlementMode", "fixed_fee");
-                              if (orderData.serviceFeePerOrder === 0) {
-                                handleFieldChange("serviceFeePerOrder", 10);
-                              }
-                            }}
-                            className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
-                              (orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee'
-                                ? "bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-500/20"
-                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
-                            }`}
-                          >
-                            <CheckCircle size={14} />
-                            <span>عمولة ثابتة (Fixed Fee)</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleFieldChange("merchantSettlementMode", "profit_share");
-                              if (!orderData.merchantProfitSharePercent) {
-                                handleFieldChange("merchantProfitSharePercent", 50);
-                              }
-                              handleFieldChange("serviceFeePerOrder", 0);
-                            }}
-                            className={`flex-1 p-3.5 rounded-2xl border-2 transition-all flex items-center justify-center gap-2 font-black text-xs cursor-pointer ${
-                              orderData.merchantSettlementMode === 'profit_share'
-                                ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20"
-                                : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
-                            }`}
-                          >
-                            <PieChart size={14} />
-                            <span>مشاركة أرباح (Profit Share)</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {(orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee' ? (
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">عمولة الوكالة (إنشاء بوليصة + تأكيد) ج.م</label>
-                        <div className="relative">
-                          {hasActivePlan && <Lock size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" />}
-                          <DollarSign size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500" />
-                          <input
-                            type="number"
-                            disabled={hasActivePlan}
-                            value={orderData.serviceFeePerOrder !== undefined ? orderData.serviceFeePerOrder : 10}
-                            onChange={(e) => handleFieldChange("serviceFeePerOrder", parseFloat(e.target.value) || 0)}
-                            className={`w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-emerald-200 dark:border-emerald-800 rounded-2xl text-sm font-black font-mono text-emerald-600 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all text-center ${
-                              hasActivePlan ? "opacity-60 bg-slate-50 cursor-not-allowed" : ""
-                            }`}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-700 dark:text-slate-300">نسبة الموكل من صافي الربح (%)</label>
-                        <div className="relative">
-                          <Percent size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
-                          <input
-                            type="number"
-                            value={orderData.merchantProfitSharePercent || 50}
-                            onChange={(e) => handleFieldChange("merchantProfitSharePercent", parseFloat(e.target.value) || 0)}
-                            className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-800 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
-                          />
-                        </div>
-                        <p className="text-[10px] text-slate-500 font-bold px-1">سيتم تقسيم الربح (السعر - التكلفة - المصاريف) بالنسبة المحددة.</p>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">
-                        {orderData.merchantSettlementMode === 'profit_share' 
-                          ? "تكلفة البضاعة للموكل (سعر التكلفة) ج.م" 
-                          : "إجمالي مستحقات البضاعة للموكل (ج.م)"}
-                      </label>
-                      <div className="relative">
-                        <Package size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-500" />
-                        <input
-                          type="number"
-                          value={orderData.merchantItemCost || ''}
-                          onChange={(e) => handleFieldChange("merchantItemCost", parseFloat(e.target.value) || 0)}
-                          placeholder={orderData.merchantSettlementMode === 'profit_share' ? "ادخل سعر التكلفة ليتم خصمه من الربح" : "سيتم استخدام تكلفة الأصناف تلقائياً"}
-                          className="w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-indigo-100 dark:border-indigo-900/50 rounded-2xl text-sm font-black font-mono text-indigo-600 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center"
-                        />
-                      </div>
-                      <p className="text-[10px] text-slate-500 font-bold px-1">
-                        {orderData.merchantSettlementMode === 'profit_share' 
-                          ? "في نظام مشاركة الأرباح، يتم وضع 'سعر التكلفة' هنا ليقوم النظام بخصمه من الإيراد قبل تقسيم الربح."
-                          : "هذا هو المبلغ الذي سيستلمه الموكل عن هذا الأوردر. (يتم السحب تلقائياً من تكلفة الأصناف في المخزن إذا تُرِكت فارغة)."}
-                      </p>
+                      {/* Expand/Collapse Button for Advanced Overrides */}
+                      <button
+                        type="button"
+                        onClick={() => setShowMerchantCustomOverrides(prev => !prev)}
+                        className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 font-bold transition-all flex items-center gap-1.5 cursor-pointer text-[11px]"
+                      >
+                        <Settings2 size={13} className="text-emerald-500" />
+                        <span>{showMerchantCustomOverrides ? 'إخفاء الخيارات المتقدمة' : 'خيارات متقدمة للأوردر (اختياري)'}</span>
+                      </button>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-700 dark:text-slate-300">مصاريف الإعلانات المخصصة للأوردر (ج.م)</label>
-                      <div className="relative">
-                        {hasActivePlan && <Lock size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10" />}
-                        <Megaphone size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-orange-500" />
-                        <input
-                          type="number"
-                          disabled={hasActivePlan}
-                          value={orderData.marketingFeePerOrder || ''}
-                          onChange={(e) => handleFieldChange("marketingFeePerOrder", parseFloat(e.target.value) || 0)}
-                          placeholder="مثلاً 30 ج.م"
-                          className={`w-full pl-10 pr-4 py-3.5 bg-white dark:bg-slate-900 border-2 border-orange-100 dark:border-orange-900/50 rounded-2xl text-sm font-black font-mono text-orange-600 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all text-center ${
-                            hasActivePlan ? "opacity-60 bg-slate-50 cursor-not-allowed" : ""
-                          }`}
-                        />
-                      </div>
-                    </div>
+                    {/* Expandable Advanced Overrides (Only shown if toggled) */}
+                    {showMerchantCustomOverrides && (
+                      <div className="p-4 sm:p-5 rounded-2xl border-2 border-dashed border-emerald-500/30 bg-emerald-50/20 dark:bg-slate-900/40 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="flex items-center justify-between pb-2 border-b border-emerald-500/10">
+                          <span className="font-black text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                            <Settings2 size={14} className="text-emerald-600" />
+                            <span>تعديل يدوي استثنائي لعمولة وتكلفة هذا الأوردر</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-bold">اتركها فارغة للاعتماد على قيم الموكل الافتراضية</span>
+                        </div>
 
-                    {orderData.merchantSettlementMode === 'profit_share' && (
-                      <div className="col-span-full bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800/30">
-                         <div className="flex gap-3">
-                           <ShieldCheck size={18} className="text-indigo-600 shrink-0 mt-0.5" />
-                           <div className="space-y-1">
-                             <p className="text-xs font-black text-indigo-900 dark:text-indigo-100">ملاحظة حول نظام مشاركة الأرباح:</p>
-                             <p className="text-[10px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-bold">
-                         سيتم خصم (مصاريف الشحن، التأمين، الضريبة، المعاينة، الـ COD، والإعلانات) من إجمالي تحصيل الأوردر.
-                         الصافي المتبقي بعد خصم "تكلفة البضاعة" سيتم تقسيمه بالنسبة المحددة. في حالة المرتجع، يتم تقاسم الخسارة (المصاريف) بنفس النسبة.
-                             </p>
-                           </div>
-                         </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* 1. Accounting Mode */}
+                          {!hasActivePlan && (
+                            <div className="col-span-full space-y-2">
+                              <label className="text-xs font-black text-slate-700 dark:text-slate-300">نظام المحاسبة الاستثنائي</label>
+                              <div className="flex gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleFieldChange("merchantSettlementMode", "fixed_fee")}
+                                  className={`flex-1 py-2 px-3 rounded-xl border font-bold text-xs cursor-pointer ${
+                                    (orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee'
+                                      ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                                      : "bg-white dark:bg-slate-800 text-slate-600 border-slate-200 dark:border-slate-700"
+                                  }`}
+                                >
+                                  عمولة ثابتة
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFieldChange("merchantSettlementMode", "profit_share")}
+                                  className={`flex-1 py-2 px-3 rounded-xl border font-bold text-xs cursor-pointer ${
+                                    orderData.merchantSettlementMode === 'profit_share'
+                                      ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                                      : "bg-white dark:bg-slate-800 text-slate-600 border-slate-200 dark:border-slate-700"
+                                  }`}
+                                >
+                                  مشاركة أرباح
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 2. Fee / Share */}
+                          {(orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee' ? (
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">عمولة الأوردر (ج.م)</label>
+                              <input
+                                type="number"
+                                disabled={hasActivePlan}
+                                value={orderData.serviceFeePerOrder !== undefined ? orderData.serviceFeePerOrder : currentFee}
+                                onChange={(e) => handleFieldChange("serviceFeePerOrder", parseFloat(e.target.value) || 0)}
+                                className={`w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-center ${
+                                  hasActivePlan ? 'opacity-60 bg-slate-50 cursor-not-allowed' : ''
+                                }`}
+                              />
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">نسبة الموكل من الربح (%)</label>
+                              <input
+                                type="number"
+                                value={orderData.merchantProfitSharePercent || 50}
+                                onChange={(e) => handleFieldChange("merchantProfitSharePercent", parseFloat(e.target.value) || 0)}
+                                className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-center"
+                              />
+                            </div>
+                          )}
+
+                          {/* 3. Manual Goods Cost Override */}
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">تعديل تكلفة البضاعة يدوياً (اختياري)</label>
+                            <input
+                              type="number"
+                              value={orderData.merchantItemCost || ''}
+                              onChange={(e) => handleFieldChange("merchantItemCost", parseFloat(e.target.value) || 0)}
+                              placeholder="تلقائي من أصناف السلة"
+                              className="w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-center"
+                            />
+                          </div>
+
+                          {/* 4. Marketing Fee Override */}
+                          <div className="space-y-1.5 col-span-full">
+                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">مصاريف إعلانات خاصة بهذا الأوردر (ج.م)</label>
+                            <input
+                              type="number"
+                              disabled={hasActivePlan}
+                              value={orderData.marketingFeePerOrder || ''}
+                              onChange={(e) => handleFieldChange("marketingFeePerOrder", parseFloat(e.target.value) || 0)}
+                              placeholder="0 ج.م"
+                              className={`w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-center ${
+                                hasActivePlan ? 'opacity-60 bg-slate-50 cursor-not-allowed' : ''
+                              }`}
+                            />
+                          </div>
+                        </div>
                       </div>
                     )}
-                  </>
+                  </div>
                 );
               })()}
             </div>
@@ -2868,6 +2885,26 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               )}
             </div>
           </div>
+
+          {selectedMerchantId && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 sm:px-4 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs font-bold text-emerald-900 dark:text-emerald-200">
+              <div className="flex items-center gap-2">
+                <Package size={15} className="text-emerald-600 shrink-0" />
+                <span>
+                  {showAllProductsWithMerchant
+                    ? `عرض كافة منتجات المستودع (${rawProductsList.length} صنف) — الموكل المختار: ${selectedMerchantName}`
+                    : `عرض بضاعة الموكل: ${selectedMerchantName} (${productsList.length} صنف مسجل)`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAllProductsWithMerchant(prev => !prev)}
+                className="text-[11px] underline hover:text-emerald-700 dark:hover:text-emerald-300 font-black cursor-pointer self-start sm:self-auto"
+              >
+                {showAllProductsWithMerchant ? "تصفية لأصناف هذا الموكل فقط ↩️" : "عرض كل أصناف المخزن 🌐"}
+              </button>
+            </div>
+          )}
 
           {/* Quick Filter Tabs */}
           <div className="flex flex-wrap items-center justify-between gap-3">

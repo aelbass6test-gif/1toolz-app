@@ -179,28 +179,51 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     if (!selectedRequestForApproval || !activeStoreId) return;
     const req = selectedRequestForApproval;
     const amt = Number(req.amount || 0);
+    const merchantId = req.partnerId;
+    const normName = (req.partnerName || '').trim();
 
     try {
       setIsApproving(true);
+
+      // Find supplier and calculate transfer fee
+      const supplier = suppliersList.find(s => s.id === merchantId || (normName && s.name.trim() === normName));
+      const isDaily = supplier?.payoutFrequency === 'daily';
+      const feeRate = isDaily
+        ? (typeof supplier?.dailyTransferFee === 'number' ? supplier.dailyTransferFee : (settings.dailyTransferFee ?? 1))
+        : (typeof supplier?.weeklyTransferFee === 'number' ? supplier.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
+      const feeType = isDaily
+        ? (supplier?.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
+        : (supplier?.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
+
+      let transferFee = 0;
+      if (feeRate > 0) {
+        if (feeType === 'percentage') {
+          transferFee = Math.round((amt * (feeRate / 100)) * 100) / 100;
+        } else {
+          transferFee = Math.min(amt, Number(feeRate) || 0);
+        }
+      }
+      const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
+
       // 1. Update request status in database
       await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
         approvedBy: currentUser?.name || 'المدير المالي',
         approvedAt: new Date().toISOString()
       });
 
-      // 2. Deduct from treasury if account selected
-      if (selectedTreasuryAccountId && treasury && setTreasury) {
+      // 2. Deduct net disbursed from treasury if account selected
+      if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
         const acc = (treasury.accounts || []).find(a => a.id === selectedTreasuryAccountId);
         if (acc) {
           const updatedAccounts = (treasury.accounts || []).map(a => 
-            a.id === selectedTreasuryAccountId ? { ...a, balance: (a.balance || 0) - amt } : a
+            a.id === selectedTreasuryAccountId ? { ...a, balance: (a.balance || 0) - netDisbursed } : a
           );
           const newTx = {
             id: `tx-payout-${Date.now()}`,
             date: new Date().toISOString(),
             type: 'withdrawal' as const,
-            amount: amt,
-            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})`,
+            amount: netDisbursed,
+            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المطلوب: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المنصرف: ${netDisbursed} ج.م]` : ''}`,
             fromAccountId: selectedTreasuryAccountId,
             reference: req.id,
             orderId: req.id
@@ -214,9 +237,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         }
       }
 
-      // 3. Deduct from merchant balance in settings.suppliers
-      const merchantId = req.partnerId;
-      const normName = (req.partnerName || '').trim();
+      // 3. Deduct from merchant balance in settings.suppliers & settings.partners
       const updatedSuppliers = suppliersList.map(s => {
         if (s.id === merchantId || (normName && s.name.trim() === normName)) {
           const currentBal = Number(s.balance || 0);
@@ -228,7 +249,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
             type: 'payout',
             amount: -amt,
             date: new Date().toISOString(),
-            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'}`,
+            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'}${transferFee > 0 ? ` (المبلغ الإجمالي: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netDisbursed} ج.م)` : ''}`,
             balanceAfter: newBal,
             referenceId: req.id
           };
@@ -241,12 +262,27 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         return s;
       });
 
+      const updatedPartners = (settings.partners || []).map(p => {
+        if (p.id === merchantId || (normName && p.name.trim() === normName)) {
+          return {
+            ...p,
+            balance: Math.max(0, (Number(p.balance) || 0) - amt)
+          };
+        }
+        return p;
+      });
+
+      if (activeStoreId) {
+        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+      }
+
       updateSettings(prev => ({
         ...prev,
-        suppliers: updatedSuppliers
+        suppliers: updatedSuppliers,
+        partners: updatedPartners
       }));
 
-      inAppToast(`تم صرف مبلغ ${amt.toLocaleString()} ج.م للموكل ${req.partnerName} واعتماد الطلب بنجاح ✅`, 'success');
+      inAppToast(`تم صرف مبلغ ${amt.toLocaleString()} ج.م للموكل ${req.partnerName}${transferFee > 0 ? ` (صافي التحويل: ${netDisbursed.toLocaleString()} ج.م)` : ''} واعتماد الطلب بنجاح ✅`, 'success');
       setSelectedRequestForApproval(null);
       loadRequests();
     } catch (err: any) {

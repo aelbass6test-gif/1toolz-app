@@ -215,16 +215,54 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       ? [...settings.partners]
       : (Object.values(settings.partners || {}) as any[]);
 
-    const updatedSuppliers = supplierList.map(m =>
-      (m.id === targetMerchantId || (normTarget && normalizeName(m.name || '') === normTarget))
-        ? updater(m)
-        : m
-    );
-    const updatedPartners = partnerList.map(p =>
-      (p.id === targetMerchantId || (normTarget && normalizeName(p.name || '') === normTarget))
-        ? updater(p)
-        : p
-    );
+    let foundInSuppliers = false;
+    const updatedSuppliers = supplierList.map(m => {
+      if (m.id === targetMerchantId || (normTarget && normalizeName(m.name || '') === normTarget)) {
+        foundInSuppliers = true;
+        return updater(m);
+      }
+      return m;
+    });
+
+    let foundInPartners = false;
+    const updatedPartners = partnerList.map(p => {
+      if (p.id === targetMerchantId || (normTarget && normalizeName(p.name || '') === normTarget)) {
+        foundInPartners = true;
+        return updater(p);
+      }
+      return p;
+    });
+
+    // Bidirectional sync: If found in partners but not in suppliers, create/mirror in suppliers
+    if (!foundInSuppliers) {
+      const partnerObj = partnerList.find(p => p.id === targetMerchantId || (normTarget && normalizeName(p.name || '') === normTarget));
+      if (partnerObj) {
+        const mirroredSupplier = updater({
+          ...partnerObj,
+          id: targetMerchantId || partnerObj.id,
+          name: targetMerchantName || partnerObj.name,
+          phone: partnerObj.phone || '',
+          balance: partnerObj.balance || 0
+        });
+        updatedSuppliers.push(mirroredSupplier);
+      }
+    }
+
+    // Bidirectional sync: If found in suppliers but not in partners, create/mirror in partners
+    if (!foundInPartners) {
+      const supplierObj = supplierList.find(s => s.id === targetMerchantId || (normTarget && normalizeName(s.name || '') === normTarget));
+      if (supplierObj) {
+        const mirroredPartner = updater({
+          ...supplierObj,
+          id: targetMerchantId || supplierObj.id,
+          name: targetMerchantName || supplierObj.name,
+          role: 'موكل / مورد',
+          isMerchant: true,
+          balance: supplierObj.balance || 0
+        });
+        updatedPartners.push(mirroredPartner);
+      }
+    }
 
     const updatedSettings = {
       ...settings,
@@ -389,7 +427,14 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       baseReqMeta?.requestedPrepaidQuota ??
         (baseReqMeta?.requestedCustomBillingPreference === 'prepaid_quota')
     );
-    const upfrontCharge = isPrepaid ? Number((quotedFee * targetOrders).toFixed(2)) : 0;
+    const isQuotaIncrease = Boolean(
+      supplier.managerPlan?.enabled &&
+      supplier.managerPlan?.status === 'active' &&
+      supplier.managerPlan?.planId === 'custom_manager'
+    );
+    const oldQuota = Number(supplier.managerPlan?.customOrderQuota || supplier.managerPlan?.customOrdersTarget || 0);
+    const incrementalOrders = isQuotaIncrease ? Math.max(0, targetOrders - oldQuota) : targetOrders;
+    const upfrontCharge = isPrepaid ? Number((quotedFee * incrementalOrders).toFixed(2)) : 0;
     const currentBal = Number(supplier.balance || 0);
 
     if (isPrepaid && upfrontCharge > currentBal) {
@@ -402,14 +447,14 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
 
     const nowIso = new Date().toISOString();
     const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
-    const newCycleId = `CYC-MGR-CUSTOM-${Date.now()}`;
+    const activeCycleId = (isQuotaIncrease && supplier.managerPlan?.cycleId) ? supplier.managerPlan.cycleId : `CYC-MGR-CUSTOM-${Date.now()}`;
     const nextBalance = Number((currentBal - upfrontCharge).toFixed(2));
 
     const nextSubscriptionPlan: MerchantSubscriptionConfig = {
       planId: 'free',
       planName: 'None',
       planNameAr: 'موقوفة (يعمل بنظام المدير المخصص)',
-      cycleId: newCycleId,
+      cycleId: activeCycleId,
       billingCycle: 'monthly',
       monthlyPrice: 0,
       totalPaidAmount: 0,
@@ -420,17 +465,18 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       unlimitedOrders: false,
       startDate: nowIso,
       endDate: expIso,
-      activatedAt: nowIso,
+      activatedAt: (isQuotaIncrease && supplier.managerPlan?.activatedAt) ? supplier.managerPlan.activatedAt : nowIso,
       expiresAt: expIso,
       status: 'cancelled'
     };
 
     const nextManagerPlan: MerchantManagerConfig = {
+      ...(isQuotaIncrease && supplier.managerPlan ? supplier.managerPlan : {}),
       enabled: true,
       planId: 'custom_manager',
       planName: `باقة المدير المخصصة (${quotedFee} ج.م / أوردر)`,
       planNameAr: `باقة المدير المخصصة (${quotedFee} ج.م / أوردر)`,
-      cycleId: newCycleId,
+      cycleId: activeCycleId,
       billingCycle: 'monthly',
       orderFee: quotedFee,
       customOrderFee: quotedFee,
@@ -438,15 +484,17 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       customOrderQuota: targetOrders,
       customPrepaidQuota: isPrepaid,
       monthlyFee: isPrepaid ? upfrontCharge : 0,
-      totalPaidAmount: upfrontCharge,
-      totalPrepaidAmount: upfrontCharge,
-      usedOrdersInCycle: 0,
-      startDate: nowIso,
+      totalPaidAmount: ((supplier.managerPlan?.totalPaidAmount || 0) + upfrontCharge),
+      totalPrepaidAmount: ((supplier.managerPlan?.totalPrepaidAmount || 0) + upfrontCharge),
+      usedOrdersInCycle: isQuotaIncrease ? (supplier.managerPlan?.usedOrdersInCycle || 0) : 0,
+      startDate: (isQuotaIncrease && supplier.managerPlan?.startDate) ? supplier.managerPlan.startDate : nowIso,
       endDate: expIso,
-      activatedAt: nowIso,
+      activatedAt: (isQuotaIncrease && supplier.managerPlan?.activatedAt) ? supplier.managerPlan.activatedAt : nowIso,
       expiresAt: expIso,
       status: 'active',
-      notes: `تم تفعيل التسعير المخصص (${quotedFee} ج.م لكل أوردر — ${isPrepaid ? 'دفع مسبق' : 'خصم تلقائي مع كل أوردر'})`
+      notes: isQuotaIncrease
+        ? `تمت زيادة كوتة الأوردرات من (${oldQuota}) إلى (${targetOrders}) أوردر مع الحفاظ على الأوردرات المنفذة سابقاً`
+        : `تم تفعيل التسعير المخصص (${quotedFee} ج.م لكل أوردر — ${isPrepaid ? 'دفع مسبق' : 'خصم تلقائي مع كل أوردر'})`
     };
 
     const newTx: MerchantTransaction | undefined = upfrontCharge > 0 ? {
@@ -456,7 +504,9 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       type: 'subscription_charge',
       amount: -upfrontCharge,
       date: nowIso,
-      notes: `تفعيل باقة المدير المخصصة (${quotedFee} ج.م/أوردر - ${targetOrders} أوردر)`,
+      notes: isQuotaIncrease
+        ? `ترقية وزيادة كوتة باقة المدير المخصص (+${incrementalOrders} أوردر إضافي بسعر ${quotedFee} ج.م/أوردر)`
+        : `تفعيل باقة المدير المخصصة (${quotedFee} ج.م/أوردر - ${targetOrders} أوردر)`,
       balanceAfter: nextBalance
     } : undefined;
 
@@ -468,18 +518,18 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         subscriptionPlan: nextSubscriptionPlan,
         managerPlan: nextManagerPlan,
         pendingPlanRequest: null,
-        planCyclesHistory: archiveCurrentPlanCycle(m, 'switched_mode'),
+        planCyclesHistory: isQuotaIncrease ? (m.planCyclesHistory || []) : archiveCurrentPlanCycle(m, 'switched_mode'),
         ...(upfrontCharge > 0 ? { balance: nextBalance } : {}),
         ...(newTx ? { transactions: [newTx, ...(m.transactions || [])] } : {})
       }),
       newTx,
       {
-        action: 'تفعيل باقة مدير مخصصة بتسعير لكل أوردر',
-        details: `${supplier.name}: ${quotedFee} ج.م لكل أوردر (${isPrepaid ? 'دفع مسبق' : 'خصم مع كل أوردر'})`
+        action: isQuotaIncrease ? 'ترقية وزيادة كوتة باقة المدير المخصص' : 'تفعيل باقة مدير مخصصة بتسعير لكل أوردر',
+        details: `${supplier.name}: ${quotedFee} ج.م لكل أوردر (${targetOrders} أوردر إجمالي)`
       }
     );
 
-    showToast(`تم تفعيل الباقة المخصصة للموكل ${supplier.name} بسعر (${quotedFee} ج.م / أوردر) بنجاح ✅`);
+    showToast(`تم ${isQuotaIncrease ? 'زيادة كوتة' : 'تفعيل'} الباقة المخصصة للموكل ${supplier.name} (${targetOrders} أوردر) بنجاح ✅`);
   };
 
   // Approve Standard Governed Plan Change Request
@@ -862,8 +912,16 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       ? Math.max(0, adminCustomOrderFee * adminCustomOrderQuota)
       : 0;
 
+    const isQuotaIncrease = Boolean(
+      isManagerMode &&
+      effectiveMgrPlanId === 'custom_manager' &&
+      planModalMerchant.managerPlan?.planId === 'custom_manager' &&
+      planModalMerchant.managerPlan?.status === 'active'
+    );
+
     const nextManagerPlan: MerchantManagerConfig = isManagerMode
       ? {
+          ...(isQuotaIncrease && planModalMerchant.managerPlan ? planModalMerchant.managerPlan : {}),
           planId: effectiveMgrPlanId,
           planName: mgrDef?.nameAr || 'باقة المدير المخصص',
           billingCycle: adminBillingCycle,
@@ -880,12 +938,14 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
               : 0,
           includedOrdersQuota: (effectiveMgrPlanId === 'monthly_1000' || effectiveMgrPlanId === 'monthly_700') ? 50 : undefined,
           extraOrderFee: (effectiveMgrPlanId === 'monthly_1000' || effectiveMgrPlanId === 'monthly_700') ? 20 : undefined,
-          totalPaidAmount: mgrPaidAmount,
+          totalPaidAmount: isQuotaIncrease ? ((planModalMerchant.managerPlan?.totalPaidAmount || 0) + mgrPaidAmount) : mgrPaidAmount,
           customOrdersTarget: effectiveMgrPlanId === 'custom_manager' ? adminCustomOrderQuota : undefined,
           customOrderQuota: effectiveMgrPlanId === 'custom_manager' ? adminCustomOrderQuota : undefined,
           customPrepaidQuota: effectiveMgrPlanId === 'custom_manager' ? adminCustomPrepaid : undefined,
-          startDate: nowIso,
+          usedOrdersInCycle: isQuotaIncrease ? (planModalMerchant.managerPlan?.usedOrdersInCycle || 0) : 0,
+          startDate: (isQuotaIncrease && planModalMerchant.managerPlan?.startDate) ? planModalMerchant.managerPlan.startDate : nowIso,
           endDate: endIso,
+          activatedAt: (isQuotaIncrease && planModalMerchant.managerPlan?.activatedAt) ? planModalMerchant.managerPlan.activatedAt : nowIso,
           status: 'active'
         }
       : {
@@ -926,7 +986,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       balanceAfter: nextBalance
     } : undefined;
 
-    const newCycleId = `CYC-ADM-${Date.now()}`;
+    const newCycleId = (isQuotaIncrease && planModalMerchant.managerPlan?.cycleId) ? planModalMerchant.managerPlan.cycleId : `CYC-ADM-${Date.now()}`;
     nextSubscriptionPlan.cycleId = newCycleId;
     nextManagerPlan.cycleId = newCycleId;
     nextManagerPlan.enabled = isManagerMode;
@@ -939,7 +999,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         subscriptionPlan: nextSubscriptionPlan,
         managerPlan: nextManagerPlan,
         pendingPlanRequest: null,
-        planCyclesHistory: archiveCurrentPlanCycle(m, 'switched_mode'),
+        planCyclesHistory: isQuotaIncrease ? (m.planCyclesHistory || []) : archiveCurrentPlanCycle(m, 'switched_mode'),
         holdingDaysAfterSettlement: Math.max(0, Number(adminHoldingDays)),
         minWeeklyPayout: Math.max(0, Number(adminMinWeeklyPayout)),
         maxWeeklyPayout: Math.max(0, Number(adminMaxWeeklyPayout)),
