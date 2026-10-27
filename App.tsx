@@ -14,6 +14,7 @@ import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
 import { verifyPasswordSecure } from './utils/syncIntegrity';
 import { oneToolzProducts } from './data/one-toolz-products';
+import { migrateLegacyProductMerchantLinks } from './utils/merchantProducts';
 
 import { triggerWebhooks } from './utils/webhook';
 import { audioSynth } from './utils/audioSynth';
@@ -756,6 +757,15 @@ function sanitizeData(storeData: StoreData): StoreData {
 
     let sanitizedSettings = storeData.settings;
     if (sanitizedSettings?.products) {
+        const migrated = migrateLegacyProductMerchantLinks(
+            sanitizedSettings.products,
+            sanitizedSettings.suppliers,
+            sanitizedSettings.partners
+        );
+        if (migrated.changed) {
+            hasChanges = true;
+            sanitizedSettings = { ...sanitizedSettings, products: migrated.products };
+        }
         const healedProducts = autoHealProducts(sanitizedSettings.products, sanitizedSettings.warehouses || []);
         let mediaNormalized = false;
         const normalizedProducts = healedProducts.map(p => {
@@ -3731,6 +3741,14 @@ export const AppComponent = () => {
                     if (currentSettings === newSettings) return p;
 
                     if (newSettings.products && newSettings.products !== currentSettings.products) {
+                        const migrated = migrateLegacyProductMerchantLinks(
+                            newSettings.products,
+                            newSettings.suppliers,
+                            newSettings.partners
+                        );
+                        if (migrated.changed) {
+                            newSettings = { ...newSettings, products: migrated.products };
+                        }
                         const healed = autoHealProducts(newSettings.products, newSettings.warehouses || []);
                         if (healed !== newSettings.products) {
                             newSettings = { ...newSettings, products: healed };

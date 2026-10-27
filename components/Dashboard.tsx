@@ -9,6 +9,7 @@ import { generateDashboardSuggestions } from '../services/geminiService';
 import { calculateOrderProfitLoss, getOrderProductCost, getLatestProductCost, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getVirtualOrderHandovers } from '../utils/financials';
 import { DashboardManager, DashboardWidget, WidgetWrapper } from './dashboard/DashboardWidgets';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
+import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { DailySalesProfitChart } from './dashboard/DailySalesProfitChart';
 
 const containerVariants = {
@@ -145,7 +146,9 @@ const SmartSuggestions = ({ orders, settings }: { orders: Order[], settings: Set
 };
 
 
-const Dashboard = ({ orders, settings, wallet, treasury, currentUser, activeStore }: { orders: Order[], settings: Settings, wallet: Wallet, treasury: Treasury | undefined, currentUser: User | null, activeStore: Store | undefined }) => {
+const Dashboard = ({ orders: allOrders, settings, wallet, treasury, currentUser, activeStore }: { orders: Order[], settings: Settings, wallet: Wallet, treasury: Treasury | undefined, currentUser: User | null, activeStore: Store | undefined }) => {
+  // Dashboard KPIs are store-owned only; merchant settlements live in the merchant account.
+  const orders = useMemo(() => getStoreOwnedOrders(allOrders), [allOrders]);
   const { showInventoryValue, toggleInventoryValue } = useInventoryVisibility();
   const [showVideoBanner, setShowVideoBanner] = useState(true);
   const [financialFilter, setFinancialFilter] = useState<'all' | 'with' | 'dep'>('all');

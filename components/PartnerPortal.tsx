@@ -35,6 +35,7 @@ import { getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
 import { PartnerProfileTab } from './PartnerProfileTab';
 import { PartnerReportsView } from './PartnerReportsView';
+import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { PartnerAuthView } from './PartnerAuthView';
 
 const normalizeName = (name: string): string => {
@@ -696,7 +697,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
     const allHandovers = [
       ...rawCashHandovers,
-      ...getVirtualOrderHandovers(rawOrders, settings, rawTreasury)
+      ...getVirtualOrderHandovers(getStoreOwnedOrders(rawOrders), settings, rawTreasury)
     ];
 
     const matchedHandovers = allHandovers
@@ -1922,7 +1923,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         {currentTab === 'transparency' && portalPerms.canViewTransparencyTab !== false && (
           <div className="space-y-6">
             <MerchantTransparencyTab
-              orders={rawOrders}
+              orders={modeFromPath === 'merchant' ? rawOrders : getStoreOwnedOrders(rawOrders)}
               settings={settings}
               customers={activeStoreData?.customers || []}
               initialMerchantIdOrName={livePartner.id || livePartner.name}
@@ -2403,7 +2404,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         {currentTab === 'reports' && portalPerms.canViewReportsTab && livePartner && (
           <PartnerReportsView
             partner={livePartner}
-            orders={rawOrders}
+            orders={getStoreOwnedOrders(rawOrders)}
             products={settings.products || []}
             settings={settings}
             allowedReports={portalPerms.allowedReports}

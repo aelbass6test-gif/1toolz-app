@@ -16,6 +16,7 @@ import { printHTMLDirectly } from '../utils/printHelper';
 import { exportHTMLToPDF } from '../utils/pdfHelper';
 import { exportComprehensiveFinancialReportExcel } from '../utils/excelExport';
 import { useLocalStorage } from '../src/hooks/useLocalStorage';
+import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { shareReport } from '../services/reportShareService';
 
 const normalizeName = (name: string): string => {
@@ -5752,6 +5753,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
     const [customStartDate, setCustomStartDate] = useState<string>('');
     const [customEndDate, setCustomEndDate] = useState<string>('');
     const [isClosingModalOpen, setIsClosingModalOpen] = useState<boolean>(false);
+    // Store reports must exclude orders owned by merchant/consignment accounts.
+    const storeOrders = useMemo(() => getStoreOwnedOrders(orders), [orders]);
 
     const filteredData = useMemo(() => {
         const parseSafeDate = (dateVal: any): Date | null => {
@@ -5806,7 +5809,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
         };
 
         if (dateRangeType === 'all') {
-            return { orders, wallet, supplyOrders: settings?.supplyOrders || [], settings };
+            return { orders: storeOrders, wallet, supplyOrders: settings?.supplyOrders || [], settings };
         }
 
         let minDate: Date | null = null;
@@ -5860,7 +5863,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
             return true;
         };
 
-        const filteredOrders = orders.filter(o => isItemInRange(o.date));
+        const filteredOrders = storeOrders.filter(o => isItemInRange(o.date));
         const filteredTransactions = (wallet?.transactions || []).filter(t => isItemInRange(t.date));
         const filteredSupplyOrders = (settings?.supplyOrders || []).filter(o => isItemInRange(o.date));
         const filteredPosSales = (settings?.posSales || []).filter(s => isItemInRange(s.date));
@@ -5881,7 +5884,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ orders, settings, wallet, tre
         } : settings;
 
         return { orders: filteredOrders, wallet: filteredWallet, supplyOrders: filteredSupplyOrders, settings: filteredSettings };
-    }, [orders, wallet, settings, dateRangeType, customStartDate, customEndDate]);
+    }, [storeOrders, wallet, settings, dateRangeType, customStartDate, customEndDate]);
 
     const dateRangeText = useMemo(() => {
         if (dateRangeType === 'activePeriod' && settings?.activePeriodStartDate) {

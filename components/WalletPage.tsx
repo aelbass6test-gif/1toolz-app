@@ -12,6 +12,7 @@ import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequ
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConfirmationModal } from './ConfirmationModal';
 import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getAdvancePaymentCustodyName } from '../utils/financials';
+import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { CustodyLedger } from './AccountingReports';
 import { triggerCelebration } from '../utils/celebration';
 
@@ -42,8 +43,10 @@ interface WalletPageProps {
   setTreasury?: (updater: any) => void;
 }
 
-const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders, settings, treasury, setTreasury }) => {
+const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders: allOrders, settings, treasury, setTreasury }) => {
   const navigate = useNavigate();
+  // Merchant orders settle in the merchant account, never in the store wallet.
+  const orders = useMemo(() => getStoreOwnedOrders(allOrders), [allOrders]);
   const { storeId: activeStoreId } = useParams();
   const [modalMode, setModalMode] = useState<'none' | 'charge' | 'withdraw' | 'settings' | 'history' | 'bank' | 'cod_history' | 'withdraw_confirm' | 'error' | 'transfer_supply'>('none');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>('');

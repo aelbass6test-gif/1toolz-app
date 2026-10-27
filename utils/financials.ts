@@ -1,6 +1,7 @@
 import { Order, Settings, Wallet, Treasury, SupplyOrder } from '../types';
 import { EGYPT_GOVERNORATES, generateTurboShippingOptions, DEFAULT_INSURANCE_PACKAGES } from '../constants';
 import { getVirtualCustodyEntryId, hasMatchingCustodySource } from './custodyLedger';
+import { isMerchantOrder } from './merchantProducts';
 
 export const isBosta = (companyName: string): boolean => {
     if (!companyName) return false;
@@ -1292,6 +1293,9 @@ export const getVirtualOrderHandovers = (orders: any[] = [], settings?: any, tre
   };
 
   orders.forEach((o: any) => {
+    // Merchant-owned sales settle in the merchant account and cannot create
+    // partner/store custody entries.
+    if (isMerchantOrder(o)) return;
     const advance = Number(o.advancePayment) || 0;
     const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || (typeof o.shippingCompany === 'string' && o.shippingCompany.includes('كاشير'));
     const isCollectedPos = isPosOrder && ['تم_التحصيل', 'مدفوعة', 'تم_توصيلها', 'تم_التوصيل'].includes(o.status);

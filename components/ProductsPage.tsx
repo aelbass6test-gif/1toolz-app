@@ -14,6 +14,7 @@ import { generateSlug, getProductUrl } from '../utils/slugUtils';
 import { ProductImage } from './ProductImage';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { Images } from 'lucide-react';
+import { getProductsNeedingMerchantReview } from '../utils/merchantProducts';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -752,6 +753,11 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
   const [isParsingCsv, setIsParsingCsv] = useState(false);
 
   const isPlatformConnected = settings.integration?.platform !== 'none' || Object.values(settings.platformConfigs || {}).some((c: any) => c.isActive);
+
+  const productsNeedingMerchantReview = useMemo(
+    () => getProductsNeedingMerchantReview(settings.products, settings.suppliers, settings.partners),
+    [settings.products, settings.suppliers, settings.partners]
+  );
 
   const filteredProducts = settings.products.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -1578,6 +1584,30 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         <motion.div variants={itemVariants} className={`p-4 rounded-lg flex items-center gap-3 ${syncStatus.type === 'success' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'}`}>
           {syncStatus.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
           <span className="font-bold text-sm">{syncStatus.message}</span>
+        </motion.div>
+      )}
+
+      {productsNeedingMerchantReview.length > 0 && (
+        <motion.div variants={itemVariants} className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="font-black text-sm">يوجد {productsNeedingMerchantReview.length} منتج يحتاج مراجعة صاحب البضاعة</p>
+              <p className="text-xs font-bold mt-1 text-amber-800/80 dark:text-amber-300/80">
+                يوجد أكثر من وكيل بنفس الاسم؛ لم يتم الربط تلقائيًا لتجنب خلط المخزون والحسابات. افتح المنتج واختر الوكيل الصحيح يدويًا.
+              </p>
+              <p className="text-[11px] mt-1 text-amber-700/70 dark:text-amber-300/70 truncate max-w-xl">
+                {productsNeedingMerchantReview.slice(0, 3).map(product => product.name).join('، ')}{productsNeedingMerchantReview.length > 3 ? '، ...' : ''}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSearchTerm(productsNeedingMerchantReview[0]?.name || '')}
+            className="shrink-0 px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-black transition-colors"
+          >
+            عرض أول منتج للمراجعة
+          </button>
         </motion.div>
       )}
 

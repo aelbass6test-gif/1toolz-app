@@ -22,6 +22,7 @@ import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlan
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
+import { getProductsForMerchant } from '../utils/merchantProducts';
 import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
@@ -1739,167 +1740,27 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     });
   }, [rawOrders, liveMerchant]);
 
-  // Consignment Products & Stock Valuation (Option B Support)
+  // Consignment Products & Stock Valuation
+  // Product ownership is resolved centrally by merchant ID. Cross-store and
+  // localStorage scans are intentionally not used for runtime visibility.
   const merchantProducts = useMemo(() => {
     if (!liveMerchant) return [];
-    const mName = normalizeName(liveMerchant.name || '');
-    const mId = String(liveMerchant.id || '').trim().toLowerCase();
-    const mPhone = String(liveMerchant.phone || '').trim().replace(/[^\d]/g, '');
 
-    const candidateMerchantIds = new Set<string>();
-    if (mId) candidateMerchantIds.add(mId);
+    const productSources: any[][] = [
+      Array.isArray(activeStoreData?.settings?.products) ? activeStoreData.settings.products : [],
+      Array.isArray((activeStoreData as any)?.products) ? (activeStoreData as any).products : [],
+      Array.isArray(settings?.products) ? settings.products : []
+    ];
 
-    // Look up in settings.suppliers and settings.partners across current store and all stores
-    const allSuppliers: any[] = [...(settings?.suppliers || [])];
-    const allPartners: any[] = [...(settings?.partners || [])];
-    if (allStoresData) {
-      Object.values(allStoresData).forEach((st: any) => {
-        if (Array.isArray(st?.settings?.suppliers)) allSuppliers.push(...st.settings.suppliers);
-        if (Array.isArray(st?.settings?.partners)) allPartners.push(...st.settings.partners);
-        if (Array.isArray(st?.suppliers)) allSuppliers.push(...st.suppliers);
-        if (Array.isArray(st?.partners)) allPartners.push(...st.partners);
-      });
-    }
-
-    allSuppliers.forEach((s: any) => {
-      const sName = normalizeName(s.name || '');
-      const sPhone = String(s.phone || '').trim().replace(/[^\d]/g, '');
-      if ((mName && sName && (sName === mName || sName.includes(mName) || mName.includes(sName))) || (mPhone && sPhone && sPhone === mPhone)) {
-        if (s.id) candidateMerchantIds.add(String(s.id).trim().toLowerCase());
+    const productsById = new Map<string, any>();
+    productSources.flat().forEach((product: any) => {
+      if (product?.id && !productsById.has(String(product.id))) {
+        productsById.set(String(product.id), product);
       }
     });
 
-    allPartners.forEach((pt: any) => {
-      const ptName = normalizeName(pt.name || '');
-      const ptPhone = String(pt.phone || '').trim().replace(/[^\d]/g, '');
-      if ((mName && ptName && (ptName === mName || ptName.includes(mName) || mName.includes(ptName))) || (mPhone && ptPhone && ptPhone === mPhone)) {
-        if (pt.id) candidateMerchantIds.add(String(pt.id).trim().toLowerCase());
-      }
-    });
-
-    // Gather all products across current store, crossStoreProducts, activeStoreData, and allStoresData without duplicates
-    const prodsMap = new Map<string, any>();
-    if (Array.isArray(crossStoreProducts)) {
-      crossStoreProducts.forEach((p: any) => {
-        if (p?.id) prodsMap.set(String(p.id), p);
-      });
-    }
-    if (Array.isArray(activeStoreData?.settings?.products)) {
-      activeStoreData.settings.products.forEach((p: any) => {
-        if (p?.id) prodsMap.set(String(p.id), p);
-      });
-    }
-    if (Array.isArray((activeStoreData as any)?.products)) {
-      (activeStoreData as any).products.forEach((p: any) => {
-        if (p?.id && !prodsMap.has(String(p.id))) prodsMap.set(String(p.id), p);
-      });
-    }
-    if (Array.isArray(settings?.products)) {
-      settings.products.forEach((p: any) => {
-        if (p?.id && !prodsMap.has(String(p.id))) prodsMap.set(String(p.id), p);
-      });
-    }
-    if (allStoresData) {
-      Object.values(allStoresData).forEach((st: any) => {
-        const stProds = Array.isArray(st?.settings?.products) 
-          ? st.settings.products 
-          : (Array.isArray(st?.products) ? st.products : []);
-        stProds.forEach((p: any) => {
-          if (p?.id && !prodsMap.has(String(p.id))) {
-            prodsMap.set(String(p.id), p);
-          }
-        });
-      });
-    }
-
-    // Emergency scan of localStorage backup stores if prodsMap is empty
-    if (prodsMap.size === 0 && typeof window !== 'undefined' && window.localStorage) {
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && (k.startsWith('emergency_store_backup_') || k.startsWith('store_data_'))) {
-            const raw = localStorage.getItem(k);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              const pList = parsed?.settings?.products || parsed?.products || [];
-              if (Array.isArray(pList)) {
-                pList.forEach((p: any) => {
-                  if (p?.id && !prodsMap.has(String(p.id))) prodsMap.set(String(p.id), p);
-                });
-              }
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    const allProds = Array.from(prodsMap.values());
-
-    // Harvest any merchant IDs from product allocations matching our merchant name
-    allProds.forEach((p: any) => {
-      if (Array.isArray(p.merchantAllocations)) {
-        p.merchantAllocations.forEach((alloc: any) => {
-          const aName = normalizeName(alloc.merchantName || '');
-          if (mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName))) {
-            if (alloc.merchantId) candidateMerchantIds.add(String(alloc.merchantId).trim().toLowerCase());
-          }
-        });
-      }
-    });
-
-    return allProds.filter(p => {
-      const pMId = String(p.merchantId || p.supplierId || '').trim().toLowerCase();
-      const pMName = normalizeName(String(p.merchantName || p.supplierName || ''));
-      const pMPhone = String(p.merchantPhone || p.supplierPhone || '').trim().replace(/[^\d]/g, '');
-      
-      const hasInMerchantIds = Array.isArray(p.merchantIds) && p.merchantIds.some((id: any) => candidateMerchantIds.has(String(id).trim().toLowerCase()));
-
-      const hasInAllocations = Array.isArray(p.merchantAllocations) && p.merchantAllocations.some((alloc: any) => {
-        const aId = String(alloc.merchantId || '').trim().toLowerCase();
-        const aName = normalizeName(alloc.merchantName || '');
-        const idMatches = Boolean(aId && candidateMerchantIds.has(aId));
-        const nameMatches = Boolean(mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
-        return idMatches || nameMatches;
-      });
-
-      const matchId = Boolean(pMId && candidateMerchantIds.has(pMId));
-      const matchName = Boolean(mName && pMName && (pMName === mName || pMName.includes(mName) || mName.includes(pMName)));
-      const matchPhone = Boolean(mPhone && mPhone.length > 5 && pMPhone === mPhone);
-
-      return matchId || hasInMerchantIds || hasInAllocations || matchName || matchPhone;
-    }).map(p => {
-      // Option B: Attach merchant-specific allocation stock & cost
-      const alloc = Array.isArray(p.merchantAllocations)
-        ? p.merchantAllocations.find((a: any) => {
-            const aId = String(a.merchantId || '').trim().toLowerCase();
-            const aName = normalizeName(a.merchantName || '');
-            const idMatches = Boolean(aId && candidateMerchantIds.has(aId));
-            const nameMatches = Boolean(mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
-            return idMatches || nameMatches;
-          })
-        : null;
-
-      if (alloc) {
-        return {
-          ...p,
-          stock: Number(alloc.stock ?? 0),
-          stockQuantity: Number(alloc.stock ?? 0),
-          quantity: Number(alloc.stock ?? 0),
-          costPrice: Number(alloc.costPrice ?? p.costPrice ?? 0),
-          price: Number(alloc.sellingPrice ?? p.price ?? 0),
-          isAllocatedConsignment: true,
-          merchantAllocation: alloc
-        };
-      }
-
-      return {
-        ...p,
-        stock: Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0),
-        stockQuantity: Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0),
-        costPrice: Number(p.costPrice ?? p.cost ?? p.wholesalePrice ?? 0)
-      };
-    });
-  }, [activeStoreData, settings, liveMerchant, allStoresData, crossStoreProducts]);
+    return getProductsForMerchant(Array.from(productsById.values()), liveMerchant.id);
+  }, [activeStoreData, settings?.products, liveMerchant]);
 
   // Orders Counts by Status for Filter Pills
   const orderStatusCounts = useMemo(() => {

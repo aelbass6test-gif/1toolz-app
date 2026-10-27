@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { getProductsForMerchant } from '../utils/merchantProducts';
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -2510,14 +2511,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const selectedMerchantName = selectedMerchantObj?.name || orderData.merchantName || "";
 
     const productsList = (selectedMerchantId && !showAllProductsWithMerchant)
-      ? rawProductsList.filter((p) => {
-          const pMId = String(p.merchantId || (p as any).supplierId || "").trim().toLowerCase();
-          const pMName = String((p as any).merchantName || (p as any).supplierName || "").trim().toLowerCase();
-          const targetId = String(selectedMerchantId).trim().toLowerCase();
-          const targetName = String(selectedMerchantName).trim().toLowerCase();
-
-          return (pMId && pMId === targetId) || (targetName && pMName && pMName.includes(targetName));
-        })
+      ? getProductsForMerchant(rawProductsList, selectedMerchantId)
       : rawProductsList;
 
     const selectedProductForBar = productsList.find(p => p.id === selectedProductIdToAdd) || productsList[0];
