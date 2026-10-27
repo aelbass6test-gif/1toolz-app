@@ -13,6 +13,7 @@ import { inAppToast, inAppConfirm } from '../utils/inAppAlert';
 import MerchantsPage from './MerchantsPage';
 import { MerchantSettlementPage } from './MerchantSettlementPage';
 import MerchantPortal from './MerchantPortal';
+import MerchantProductReview from './MerchantProductReview';
 
 interface AgencyHubPageProps {
   storeId?: string;
@@ -29,7 +30,7 @@ interface AgencyHubPageProps {
   allStoresData?: Record<string, any>;
 }
 
-type AgencyTab = 'merchants' | 'settlements' | 'requests' | 'policies' | 'portal';
+type AgencyTab = 'merchants' | 'settlements' | 'requests' | 'policies' | 'portal' | 'product-review';
 
 export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
   storeId,
@@ -48,7 +49,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
   // Normalize 'overview' or any unmapped tab to 'merchants'
-  const currentTab: AgencyTab = (rawTab === 'settlements' || rawTab === 'requests' || rawTab === 'policies' || rawTab === 'portal') 
+  const currentTab: AgencyTab = (rawTab === 'settlements' || rawTab === 'requests' || rawTab === 'policies' || rawTab === 'portal' || rawTab === 'product-review')
     ? rawTab 
     : 'merchants';
     
@@ -525,6 +526,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
           <Globe size={16} />
           <span>بوابة الموكل الإلكترونية</span>
         </button>
+        <button onClick={() => setTab('product-review')} className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-colors flex items-center gap-2 ${currentTab === 'product-review' ? 'bg-amber-500 text-slate-950' : 'text-slate-600 dark:text-slate-400'}`}>
+          <AlertTriangle size={16} />مراجعة ملكية المنتجات ({settings.products.filter(p => !p.ownerType && (p.merchantName || (p as any).supplierName)).length})
+        </button>
       </div>
 
       {/* ======================================================== */}
@@ -560,6 +564,8 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
           embedded={true}
         />
       )}
+
+      {currentTab === 'product-review' && <MerchantProductReview settings={settings} updateSettings={updateSettings} />}
 
       {/* TAB 3: PAYOUT REQUESTS & DISBURSEMENTS */}
       {currentTab === 'requests' && (

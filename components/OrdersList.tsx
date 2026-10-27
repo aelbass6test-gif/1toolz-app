@@ -76,7 +76,7 @@ import {
   Wallet as WalletIcon,
   Store as StoreIcon,
 } from "lucide-react";
-import { deleteStoreItem, getSupabaseClient, updatePartnerSettings } from "../services/databaseService";
+import { deleteStoreItem, getSupabaseClient } from "../services/databaseService";
 import {
   Order,
   Settings,
@@ -106,6 +106,7 @@ import { CustomerDeliveryRateBadge } from "./CustomerDeliveryRateBadge";
 import { generateInvoiceHTML } from "../utils/invoiceGenerator";
 import { generateShippingLabelHTML } from "../utils/shippingLabelGenerator";
 import { generateShippingNote } from "../services/geminiService";
+import { cancelUnpaidOrderSettlements, getMerchantOrderGroups } from "../utils/merchantAccounting";
 import {
   calculateCodFee,
   getLatestProductCost,
@@ -3216,12 +3217,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       newStatus,
       settings.products,
     );
+    const isReturnStatus = ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مرتجع_بعد_الاستلام", "ملغي"].includes(newStatus);
     setSettings((prev) => {
       let nextSettings = prev;
       if (stockDeducted !== orderToUpdate.stockDeducted) {
         nextSettings = { ...nextSettings, products: updatedProducts };
       }
       nextSettings = processEmployeeCommission(orderToUpdate, orderToUpdate.status, newStatus, nextSettings);
+      if (isReturnStatus) {
+        nextSettings = { ...nextSettings, merchantSettlements: cancelUnpaidOrderSettlements(nextSettings.merchantSettlements || [], orderToUpdate.id) };
+      }
       return nextSettings;
     });
 
@@ -3230,84 +3235,60 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       processFinancialsForStatusChange(orderWithFlexShip, newStatus);
     const updatedOrderData = { ...financialUpdatedOrder, stockDeducted };
 
-    // 2.1 Late Return / Post-Settlement Merchant Debit Handling
-    const isReturnStatus = ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مرتجع_بعد_الاستلام"].includes(newStatus);
+    // 2.1 Return handling: cancel unpaid rows, then reverse each explicitly identified merchant separately.
     const wasDeliveredOrSettled = ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "تم_الاستبدال", "مدفوعة"].includes(orderToUpdate.status) || orderToUpdate.settlementStatus === 'settled';
+    const merchantGroupsForReturn = getMerchantOrderGroups(orderToUpdate);
+    if (isReturnStatus && wasDeliveredOrSettled && merchantGroupsForReturn.size > 0 && !orderToUpdate.merchantLateReturnDebited) {
+      const refs = orderToUpdate.merchantSettlementRefs || [];
+      const returnShareDenominator = [...merchantGroupsForReturn.values()].flat().reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+      const returnCharges = [...merchantGroupsForReturn.entries()].map(([merchantId, lines], index) => {
+        const lineRevenue = lines.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+        const share = returnShareDenominator > 0 ? lineRevenue / returnShareDenominator : 1 / merchantGroupsForReturn.size;
+        const refId = refs.find(ref => ref.merchantId === merchantId)?.settlementId;
+        const settlement = (settings.merchantSettlements || []).find(row => row.id === refId)
+          || (settings.merchantSettlements || []).find(row => row.orderId === orderToUpdate.id && row.merchantId === merchantId);
+        if (settlement && settlement.status !== 'approved' && settlement.status !== 'paid') return null;
+        if (!settlement && orderToUpdate.settlementStatus !== 'settled') return null;
+        const snapshot = settlement?.orderSnapshots?.find(row => row.orderId === orderToUpdate.id);
+        const lineCost = lines.reduce((sum, item) => sum + (Number(item.cost) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+        const creditedGoods = Math.max(0, Number(snapshot?.netMerchantAmount ?? snapshot?.merchantGoodsCost ?? settlement?.netPayoutToMerchant ?? lineCost) || 0);
+        const returnShippingCharge = Number(((settings.returnShippingFee ?? 35) * share).toFixed(2));
+        return { merchantId, creditedGoods, returnShippingCharge, totalDebit: Number((creditedGoods + returnShippingCharge).toFixed(2)), reverseApprovedCredit: settlement?.status === 'approved', index };
+      }).filter((row): row is NonNullable<typeof row> => Boolean(row && row.totalDebit > 0));
 
-    if (isReturnStatus && wasDeliveredOrSettled && orderToUpdate.merchantId && orderToUpdate.merchantId !== 'pending' && !orderToUpdate.merchantLateReturnDebited) {
-      const merchantId = orderToUpdate.merchantId;
-      const merchantName = (orderToUpdate.merchantName || '').trim();
-
-      // Calculate credited goods cost / payout that was originally allocated to merchant
-      let creditedAmountToRevert = 0;
-      if (orderToUpdate.settlementId) {
-        const st = (settings.merchantSettlements || []).find(s => s.id === orderToUpdate.settlementId);
-        const snap = st?.orderSnapshots?.find(sn => sn.orderId === orderToUpdate.id);
-        if (snap && (snap.netMerchantAmount || 0) > 0) {
-          creditedAmountToRevert = snap.netMerchantAmount;
-        }
-      }
-      if (creditedAmountToRevert <= 0) {
-        const goodsCost = orderToUpdate.merchantItemCost || (orderToUpdate.items || []).reduce((sum, item) => sum + (item.cost || 0) * (item.quantity || 1), 0);
-        creditedAmountToRevert = goodsCost;
-      }
-
-      const returnShippingCharge = settings.returnShippingFee ?? 35;
-      const totalDebit = Number((creditedAmountToRevert + returnShippingCharge).toFixed(2));
-
-      if (totalDebit > 0) {
+      if (returnCharges.length > 0) {
+        const returnedAt = new Date().toISOString();
         setSettings(prevSettings => {
-          const updatedSuppliers = (prevSettings.suppliers || []).map(s => {
-            const isMatch = s.id === merchantId;
-            if (isMatch) {
-              const curBal = Number(s.balance || 0);
-              const nextBal = Number((curBal - totalDebit).toFixed(2));
-              const revTx: MerchantTransaction = {
-                id: `mtx-rev-${Date.now()}`,
-                merchantId: s.id,
-                merchantName: s.name,
-                date: new Date().toISOString(),
-                type: 'order_returned',
-                amount: -totalDebit,
-                balanceAfter: nextBal,
-                notes: `خصم عكسي لمرتجع متأخر بعد التسوية (أوردر #${orderToUpdate.orderNumber}) - استرداد أرباح/بضاعة: ${creditedAmountToRevert} ج.م + شحن مرتجع: ${returnShippingCharge} ج.م`,
-                referenceId: orderToUpdate.id,
-                performedBy: currentUser?.fullName || 'النظام التلقائي'
-              };
-              return {
-                ...s,
-                balance: nextBal,
-                transactions: [revTx, ...(s.transactions || [])]
-              };
-            }
-            return s;
+          const reversalTransactions: MerchantTransaction[] = [];
+          const updatedSuppliers = (prevSettings.suppliers || []).map(supplier => {
+            const charge = returnCharges.find(row => row.merchantId === supplier.id);
+            if (!charge) return supplier;
+            const curBal = Number(supplier.balance || 0);
+            const nextBal = Number((curBal - charge.totalDebit).toFixed(2));
+            const revTx: MerchantTransaction = {
+              id: `mtx-rev-${orderToUpdate.id}-${charge.merchantId}`,
+              merchantId: supplier.id,
+              merchantName: supplier.name,
+              date: returnedAt,
+              type: 'order_returned',
+              amount: -(charge.reverseApprovedCredit ? charge.returnShippingCharge : charge.totalDebit),
+              balanceAfter: nextBal,
+              notes: `قيد مرتجع للوكيل بمعرّف ${supplier.id} (طلب #${orderToUpdate.orderNumber}) — عكس مستحق ${charge.creditedGoods} ج.م + شحن ${charge.returnShippingCharge} ج.م`,
+              referenceId: `${orderToUpdate.id}:${supplier.id}`,
+              performedBy: currentUser?.fullName || 'النظام التلقائي'
+            };
+            reversalTransactions.push(revTx);
+            return { ...supplier, balance: nextBal, transactions: [revTx, ...(supplier.transactions || [])] };
           });
-
-          // Merchant returns must never mutate settings.partners or partner wallets.
-          const updatedPartners = prevSettings.partners || [];
-
-          if (activeStore?.id) {
-            updatePartnerSettings(activeStore.id, updatedPartners, updatedSuppliers).catch(() => {});
-          }
-
-          return {
-            ...prevSettings,
-            suppliers: updatedSuppliers,
-            partners: updatedPartners
-          };
+          return { ...prevSettings, suppliers: updatedSuppliers, merchantTransactions: [...reversalTransactions, ...(prevSettings.merchantTransactions || [])] };
         });
 
+        const totalDebit = returnCharges.reduce((sum, row) => sum + row.totalDebit, 0);
         updatedOrderData.merchantLateReturnDebited = true;
         updatedOrderData.settlementStatus = 'returned_after_settlement';
         updatedOrderData.lateReturnDebitAmount = totalDebit;
-
-        addAuditLog(
-          id,
-          "خصم مرتجع متأخر للموكل",
-          `تم قيد تسوية عكسية وخصم ${totalDebit} ج.م من محفظة الموكل (${merchantName || merchantId}) نظير تحول الأوردر إلى مرتجع بعد التسوية (استرداد بضاعة: ${creditedAmountToRevert} ج.م + شحن: ${returnShippingCharge} ج.م)`
-        );
-
-        inAppToast(`تم تسجيل تسوية عكسية وخصم ${totalDebit} ج.م من محفظة الموكل (${merchantName || 'الموكل'}) نظير ارتجاع الأوردر بعد التسوية ↩️`, 'info');
+        addAuditLog(id, "عكس تسويات الوكلاء للمرتجع", `تم تسجيل قيود عكس مستقلة بمعرّف كل وكيل بإجمالي ${totalDebit} ج.م؛ لم تتم مطابقة أي حساب بالاسم.`);
+        inAppToast(`تم حفظ قيود المرتجع المستقلة للوكلاء بإجمالي ${totalDebit.toLocaleString()} ج.م.`, 'info');
       }
     }
 

@@ -1080,6 +1080,17 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     }
   }, [orderData.customerPhone, customers, isEditing]);
 
+  const getProductOwnership = (product: Product): Partial<OrderItem> => {
+    const allocations = Array.isArray(product.merchantAllocations) ? product.merchantAllocations : [];
+    const selectedAllocation = allocations.find(a => a.merchantId === orderData.merchantId) || (allocations.length === 1 ? allocations[0] : undefined);
+    const ownerType = product.ownerType || (allocations.length ? 'shared' : product.merchantId ? 'merchant' : 'store');
+    const merchantId = product.merchantId || selectedAllocation?.merchantId;
+    if (ownerType === 'store') return { ownerType: 'store' };
+    if (!merchantId) return { ownerType };
+    const merchantName = selectedAllocation?.merchantName || product.merchantName || settings.suppliers?.find(m => m.id === merchantId)?.name || settings.partners?.find(m => m.id === merchantId)?.name;
+    return { ownerType, merchantId, merchantName };
+  };
+
   const handleItemChange = (
     index: number,
     field: keyof OrderItem,
@@ -1113,6 +1124,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           cost: getLatestProductCost(value, settings),
           weight: product.weight || 0,
           thumbnail: product.thumbnail || "",
+          ...getProductOwnership(product),
           variantId: undefined,
           variantDescription: undefined,
         };
@@ -1153,8 +1165,10 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
   // Auto-detect and suggest merchant if an added product is linked to a merchant
   const autoDetectMerchantFromProduct = (product: Product) => {
-    if (product.merchantId && !orderData.merchantId) {
-      const matchedMerchant = merchantsList.find(m => m.id === product.merchantId) || settings.suppliers?.find(s => s.id === product.merchantId);
+    const allocations = Array.isArray(product.merchantAllocations) ? product.merchantAllocations : [];
+    const explicitMerchantId = product.merchantId || (allocations.length === 1 ? allocations[0].merchantId : undefined);
+    if (explicitMerchantId && !orderData.merchantId) {
+      const matchedMerchant = merchantsList.find(m => m.id === explicitMerchantId) || settings.suppliers?.find(s => s.id === explicitMerchantId) || settings.partners?.find(s => s.id === explicitMerchantId);
       if (matchedMerchant) {
         handleFieldChange("merchantId", matchedMerchant.id);
         handleFieldChange("merchantName", matchedMerchant.name);
@@ -1185,8 +1199,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     const currentItems = getArray(orderData.items);
 
     // Check if item already exists
+    const ownership = getProductOwnership(product);
     const existingIdx = currentItems.findIndex(
-      it => it.productId === targetId && (it.variantId || "") === (selectedVariantIdToAdd || "")
+      it => it.productId === targetId && (it.variantId || "") === (selectedVariantIdToAdd || "") && (it.merchantId || '') === (ownership.merchantId || '')
     );
 
     if (existingIdx !== -1) {
@@ -1208,7 +1223,8 @@ export const OrderForm: React.FC<OrderFormProps> = ({
         discountValue: 0,
         discountType: "amount",
         variantId: variant ? variant.id : undefined,
-        variantDescription: variant ? Object.entries(variant.options || {}).map(([k, v]) => `${k}: ${v}`).join(", ") : undefined
+        variantDescription: variant ? Object.entries(variant.options || {}).map(([k, v]) => `${k}: ${v}`).join(", ") : undefined,
+        ...ownership
       };
       handleFieldChange("items", [...currentItems, newItem]);
     }
@@ -1220,8 +1236,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
     const currentItems = getArray(orderData.items);
     const targetVariantId = variant ? variant.id : "";
+    const ownership = getProductOwnership(product);
     const existingIdx = currentItems.findIndex(
-      (it) => it.productId === product.id && (it.variantId || "") === targetVariantId
+      (it) => it.productId === product.id && (it.variantId || "") === targetVariantId && (it.merchantId || '') === (ownership.merchantId || '')
     );
 
     if (existingIdx !== -1) {
@@ -1248,6 +1265,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               .map(([k, v]) => `${k}: ${v}`)
               .join(", ")
           : undefined,
+        ...ownership,
       };
       handleFieldChange("items", [...currentItems, newItem]);
     }

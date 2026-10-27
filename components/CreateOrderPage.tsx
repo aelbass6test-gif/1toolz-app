@@ -14,6 +14,7 @@ import { normalizePhone } from '../utils/phoneUtils';
 import { getSupabaseClient } from '../services/databaseService';
 import { showOrderWebNotification, isPendingOrderStatus } from '../utils/webNotification';
 import { buildOrderPlanSnapshot } from '../utils/merchantSubscriptions';
+import { ensureOrderMerchantSettlements } from '../utils/merchantAccounting';
 
 interface CreateOrderPageProps {
     orders: Order[];
@@ -620,6 +621,16 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
         } else {
             setOrders(prev => [orderWithId, ...prev]);
         }
+
+        // Independent, deterministic per-order/per-merchant settlement rows make retries idempotent.
+        setSettings(prev => ({
+            ...prev,
+            merchantSettlements: ensureOrderMerchantSettlements(
+                prev.merchantSettlements || [],
+                String(activeStore?.id || localStorage.getItem('activeStoreId') || 'default'),
+                orderWithId
+            )
+        }));
 
         // --- 1. Intelligent Stock Allocation & Deduction ---
         // طلبات الموكل/المورد والدروبشيب يتم تنفيذها لحساب طرف خارجي؛

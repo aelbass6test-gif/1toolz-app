@@ -903,6 +903,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
         profitPercentage: productData.profitPercentage || 0,
         basePrice: productData.basePrice || 0,
         commissionPercentage: productData.commissionPercentage || 0,
+        ownerType: productData.ownerType || (productData.merchantAllocations?.length ? 'shared' : productData.merchantId ? 'merchant' : 'store'),
         merchantId: productData.merchantId || undefined,
         merchantName: (settings.suppliers || []).find(s => s.id === productData.merchantId)?.name || (settings.partners || []).find(p => p.id === productData.merchantId)?.name || productData.merchantName || undefined,
         merchantIds: Array.from(new Set([
@@ -1449,6 +1450,7 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
       profitPercentage: 0,
       basePrice: 0,
       commissionPercentage: 0,
+      ownerType: (filterMerchantId && filterMerchantId !== '__store_direct__') ? 'merchant' : 'store',
       merchantId: (filterMerchantId && filterMerchantId !== '__store_direct__') ? filterMerchantId : undefined,
       merchantIds: [],
       merchantAllocations: []
@@ -3237,12 +3239,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                         const norm = (s) => (s || "").trim().replace(/\s+/g, " ").replace(/عبد\s+/g, "عبد").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
                                         const combinedMerchants = [];
                                         (settings.suppliers || []).forEach(s => {
-                                            if (s?.id && !combinedMerchants.some(c => c.id === s.id || norm(c.name) === norm(s.name))) {
+                                            if (s?.id && !combinedMerchants.some(c => c.id === s.id)) {
                                                 combinedMerchants.push(s);
                                             }
                                         });
                                         (settings.partners || []).forEach(p => {
-                                            if (p?.id && !combinedMerchants.some(c => c.id === p.id || norm(c.name) === norm(p.name))) {
+                                            if (p?.id && !combinedMerchants.some(c => c.id === p.id)) {
                                                 combinedMerchants.push(p);
                                             }
                                         });
@@ -3275,8 +3277,8 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                                     </label>
                                                     <div className="flex flex-wrap gap-2">
                                                         {combinedMerchants.map(m => {
-                                                            const isPrimary = productData.merchantId === m.id || (productData.merchantName && norm(productData.merchantName) === norm(m.name));
-                                                            const existingAllocIndex = currentAllocations.findIndex(a => a.merchantId === m.id || norm(a.merchantName || "") === norm(m.name));
+                                                            const isPrimary = productData.merchantId === m.id;
+                                                            const existingAllocIndex = currentAllocations.findIndex(a => a.merchantId === m.id);
                                                             const isLinked = existingAllocIndex >= 0;
 
                                                             if (isPrimary) {

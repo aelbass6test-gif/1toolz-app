@@ -3259,18 +3259,14 @@ export const resetMerchantAccountData = async (
         const det = (o.details && typeof o.details === 'object') ? o.details : {};
         const oId = String(o.merchantId || o.merchant_id || det.merchantId || '').trim().toLowerCase();
         const oName = String(o.merchantName || o.merchant_name || det.merchantName || '').trim().toLowerCase();
-        if (cleanMId && oId === cleanMId) return true;
-        if (cleanMName && oName && (oName === cleanMName || oName.includes(cleanMName) || cleanMName.includes(oName))) return true;
-        return false;
+        return Boolean(cleanMId && oId === cleanMId);
     };
 
     const isMerchantEntity = (e: any): boolean => {
         if (!e) return false;
         const eId = String(e.id || '').trim().toLowerCase();
         const eName = String(e.name || '').trim().toLowerCase();
-        if (cleanMId && eId === cleanMId) return true;
-        if (cleanMName && eName && (eName === cleanMName || eName.includes(cleanMName) || cleanMName.includes(eName))) return true;
-        return false;
+        return Boolean(cleanMId && eId === cleanMId);
     };
 
     let remainingOrders: Order[] = [];
@@ -3282,18 +3278,10 @@ export const resetMerchantAccountData = async (
         const localData = await getLocal(storeId);
         if (localData) {
             const oldOrders: Order[] = Array.isArray(localData.orders) ? localData.orders : [];
-            const removedOrders = oldOrders.filter(isMerchantOrder);
-            remainingOrders = oldOrders.filter(o => !isMerchantOrder(o));
+            // Preserve historical orders and financial ledgers; reset is not a deletion/migration mechanism.
+            remainingOrders = oldOrders;
 
-            for (const ro of removedOrders) {
-                if (ro?.id) {
-                    await deleteStoreItem(storeId, 'orders', ro.id).catch(() => {});
-                }
-            }
-
-            updatedSuppliers = (localData.settings?.suppliers || []).map((s: any) =>
-                isMerchantEntity(s) ? { ...s, balance: 0, transactions: [] } : s
-            );
+            updatedSuppliers = localData.settings?.suppliers || [];
             // Partner records and their ledger are a separate domain; preserve them verbatim.
             updatedPartners = localData.settings?.partners || [];
             const updatedPartnerTxs = localData.settings?.partnerTransactions || [];
@@ -3350,17 +3338,9 @@ export const resetMerchantAccountData = async (
             }
         }
 
-        // 4. Clean Supabase orders & suppliers/partners
+        // 4. Preserve Supabase orders and financial ledgers for auditability.
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                const { data: sbOrders } = await supabase.from('orders').select('*').eq('store_id', storeId);
-                const toDeleteIds = (sbOrders || []).filter(isMerchantOrder).map((o: any) => o.id);
-                if (toDeleteIds.length > 0) {
-                    await supabase.from('orders').delete().in('id', toDeleteIds);
-                }
-            } catch (_) {}
-        }
+        void supabase;
 
         return { success: true, remainingOrders, updatedSuppliers, updatedPartners };
     } catch (e) {
