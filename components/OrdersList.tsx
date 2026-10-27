@@ -3234,7 +3234,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     const isReturnStatus = ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مرتجع_بعد_الاستلام"].includes(newStatus);
     const wasDeliveredOrSettled = ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "تم_الاستبدال", "مدفوعة"].includes(orderToUpdate.status) || orderToUpdate.settlementStatus === 'settled';
 
-    if (isReturnStatus && wasDeliveredOrSettled && (orderToUpdate.merchantId || orderToUpdate.merchantName) && !orderToUpdate.merchantLateReturnDebited) {
+    if (isReturnStatus && wasDeliveredOrSettled && orderToUpdate.merchantId && orderToUpdate.merchantId !== 'pending' && !orderToUpdate.merchantLateReturnDebited) {
       const merchantId = orderToUpdate.merchantId;
       const merchantName = (orderToUpdate.merchantName || '').trim();
 
@@ -3258,7 +3258,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       if (totalDebit > 0) {
         setSettings(prevSettings => {
           const updatedSuppliers = (prevSettings.suppliers || []).map(s => {
-            const isMatch = s.id === merchantId || (merchantName && s.name.trim() === merchantName);
+            const isMatch = s.id === merchantId;
             if (isMatch) {
               const curBal = Number(s.balance || 0);
               const nextBal = Number((curBal - totalDebit).toFixed(2));
@@ -3283,16 +3283,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             return s;
           });
 
-          const updatedPartners = (prevSettings.partners || []).map(p => {
-            const isMatch = p.id === merchantId || (merchantName && p.name.trim() === merchantName);
-            if (isMatch) {
-              return {
-                ...p,
-                balance: Number(((p.balance || 0) - totalDebit).toFixed(2))
-              };
-            }
-            return p;
-          });
+          // Merchant returns must never mutate settings.partners or partner wallets.
+          const updatedPartners = prevSettings.partners || [];
 
           if (activeStore?.id) {
             updatePartnerSettings(activeStore.id, updatedPartners, updatedSuppliers).catch(() => {});

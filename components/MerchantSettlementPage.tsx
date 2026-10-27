@@ -869,7 +869,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   // History Filters
   const [historyMerchantFilter, setHistoryMerchantFilter] = useState<string>('');
   const [historyDateFilter, setHistoryDateFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'paid' | 'draft'>('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'draft' | 'pending' | 'approved' | 'paid' | 'cancelled'>('all');
 
   // New Settlement Form States
   const [flatServiceFee, setFlatServiceFee] = useState<number>(10); // عمولة الأوردر الافتراضية
@@ -953,10 +953,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       const isTaggedMerchant =
         c.customerSegment === 'merchant' ||
         (Array.isArray(c.tags) && c.tags.some(t => ['موكل', 'صاحب بضاعة', 'تاجر', 'مورد', 'merchant', 'supplier'].includes(String(t).trim().toLowerCase())));
-      if (isTaggedMerchant && c.phone && c.name && !seen.has(c.phone) && !seen.has(c.name.trim())) {
-        seen.add(c.phone);
-        seen.add(c.name.trim());
-        list.push({ id: c.phone, name: c.name.trim(), phone: c.phone, email: c.email, sourceLabel: 'موكل مسجل' });
+      // A customer tag/name is descriptive only; it is never a merchant identity.
+      const explicitMerchantId = String((c as any).merchantId || '').trim();
+      if (isTaggedMerchant && explicitMerchantId && c.name && !seen.has(explicitMerchantId)) {
+        seen.add(explicitMerchantId);
+        list.push({ id: explicitMerchantId, name: c.name.trim(), phone: c.phone, email: c.email, sourceLabel: 'موكل مسجل' });
       }
     });
 
@@ -964,10 +965,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     orders.forEach(o => {
       const mName = (o.merchantName || '').trim();
       const mId = (o.merchantId || '').trim();
-      if (mName && mId !== 'pending' && !seen.has(mName) && (!mId || !seen.has(mId))) {
+      if (mId && mId !== 'pending' && !seen.has(mId)) {
         seen.add(mName);
         if (mId) seen.add(mId);
-        list.push({ id: mId || mName, name: mName, phone: o.merchantBrandPhone, sourceLabel: 'موكل أوردرات' });
+        list.push({ id: mId, name: mName, phone: o.merchantBrandPhone, sourceLabel: 'موكل أوردرات' });
       }
     });
 
@@ -975,10 +976,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     (settings.merchantSettlements || []).forEach(st => {
       const mName = (st.merchantName || '').trim();
       const mId = (st.merchantId || '').trim();
-      if (mName && !seen.has(mName) && (!mId || !seen.has(mId))) {
+      if (mId && !seen.has(mId)) {
         seen.add(mName);
         if (mId) seen.add(mId);
-        list.push({ id: mId || mName, name: mName, sourceLabel: 'كشوف سابقة' });
+        list.push({ id: mId, name: mName, sourceLabel: 'كشوف سابقة' });
       }
     });
 
@@ -987,13 +988,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   // Helper to check if an order belongs to a merchant (never matching buyer customerPhone/customerName)
   const doesOrderBelongToMerchant = (o: Order, merchantIdOrName: string, merchantObj?: { id: string; name: string }) => {
-    if (!o.merchantId && !o.merchantName) return false;
-    if (o.merchantId === 'pending') return false;
-    if (o.merchantId === merchantIdOrName || o.merchantName === merchantIdOrName) return true;
-    if (merchantObj && (o.merchantId === merchantObj.id || o.merchantName === merchantObj.name || o.merchantName === merchantObj.id)) {
-      return true;
-    }
-    return false;
+    const target = merchantObj?.id || merchantIdOrName;
+    if (!target || target === 'pending') return false;
+    if (o.merchantId === target) return true;
+    return (o.items || []).some(item => item.merchantId === target);
   };
 
   // Handle adding a new Partner / Goods Owner directly into settings.suppliers
@@ -1175,7 +1173,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return sum + (DELIVERED_STATUSES.includes(o.status) ? gc : 0);
       }, 0);
 
-      const mSettlements = (settings.merchantSettlements || []).filter(st => st.status === 'paid' && !st.reversedAt && (st.merchantId === m.id || st.merchantName === m.name));
+      const mSettlements = (settings.merchantSettlements || []).filter(st => st.status === 'paid' && !st.reversedAt && st.merchantId === m.id);
       const totalPaidOut = mSettlements.reduce((sum, st) => sum + (st.netPayoutToMerchant || 0), 0);
       const totalAgencyEarned = mSettlements.reduce((sum, st) => sum + (st.totalOperatorEarnings ?? st.totalServiceFees ?? 0), 0);
 
@@ -1318,17 +1316,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     if (!selectedMerchantId) return [];
     if (selectedMerchantId === 'all') {
       return orders.filter(o => {
-        const isUnsettled = o.settlementStatus !== 'settled';
+        const hasExplicitMerchant = (o.merchantId && o.merchantId !== 'pending') || (o.items || []).some(i => i.merchantId && i.merchantId !== 'pending');
+        const isUnsettled = o.settlementStatus !== 'settled' || Object.keys(o.merchantSettlementRefs || {}).length < new Set([o.merchantId, ...(o.items || []).map(i => i.merchantId)].filter(Boolean)).size;
         const isEligibleStatus = SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status);
-        const hasMerchant = Boolean((o.merchantId && o.merchantId !== 'pending') || o.merchantName);
-        return isUnsettled && isEligibleStatus && hasMerchant;
+        return isUnsettled && isEligibleStatus && hasExplicitMerchant;
       });
     }
     const selectedPartner = merchantsList.find(m => m.id === selectedMerchantId);
 
     return orders.filter(o => {
       const isMatch = doesOrderBelongToMerchant(o, selectedMerchantId, selectedPartner);
-      const isUnsettled = o.settlementStatus !== 'settled';
+      const isUnsettled = o.settlementStatus !== 'settled' || !o.merchantSettlementRefs?.[selectedMerchantId];
       const isEligibleStatus = SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status);
       return isMatch && isUnsettled && isEligibleStatus;
     });
@@ -1402,10 +1400,20 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   };
 
   // Helper to compute single order financial breakdown with overrides & batch settings
-  const computeOrderFinancials = (o: Order) => {
+  const computeOrderFinancials = (o: Order, merchantScopeId?: string) => {
     const ov = orderOverrides[o.id] || {};
     const isDelivered = DELIVERED_STATUSES.includes(o.status);
     const isReturn = RETURN_STATUSES.includes(o.status);
+    const scopedMerchantId = merchantScopeId || (selectedMerchantId && selectedMerchantId !== 'all' ? selectedMerchantId : '');
+    const allItems = o.items || [];
+    const scopedItems = scopedMerchantId && allItems.some(i => i.merchantId)
+      ? allItems.filter(i => i.merchantId === scopedMerchantId)
+      : allItems;
+    const itemValue = (item: any) => Math.max(0, Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1);
+    const totalItemValue = allItems.reduce((sum, item) => sum + itemValue(item), 0);
+    const scopedItemValue = scopedItems.reduce((sum, item) => sum + itemValue(item), 0);
+    const itemScopeRatio = scopedItems.length > 0 && totalItemValue > 0 ? scopedItemValue / totalItemValue : 1;
+    const scaleScoped = (value: number) => Math.round(value * itemScopeRatio * 100) / 100;
 
     // Accounting Mode resolution: Per-Order Override -> Batch Override -> Order Default
     const effectiveMode: 'fixed_fee' | 'profit_share' | 'wholesale' = ov.mode
@@ -1425,38 +1433,41 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       : (o.merchantProfitSharePercent || 50);
 
     // 1. Goods Cost
-    const defaultGoodsCost = o.merchantItemCost || (o.items || []).reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
+    const defaultGoodsCost = o.merchantItemCost || scopedItems.reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0);
     const goodsCost = ov.goodsCost !== undefined ? ov.goodsCost : defaultGoodsCost;
 
     // 2. Shipping & Carrier Fees Breakdown
     const shippingBreakdown = calculateMerchantShippingBreakdown(o, settings, ov);
-    const shippingAndFees = shippingBreakdown.total;
+    const scopedShippingBreakdown = itemScopeRatio < 1
+      ? Object.fromEntries(Object.entries(shippingBreakdown).map(([key, value]) => [key, typeof value === 'number' ? scaleScoped(value) : value])) as typeof shippingBreakdown
+      : shippingBreakdown;
+    const shippingAndFees = scopedShippingBreakdown.total;
 
     // 3. Collection Fees (COD fees)
-    const codFee = isDelivered ? shippingBreakdown.codFee : 0;
+    const codFee = isDelivered ? scopedShippingBreakdown.codFee : 0;
 
     // 4. Marketing Cost
     const defaultMarketing = o.marketingFeePerOrder !== undefined && o.marketingFeePerOrder > 0 ? o.marketingFeePerOrder : batchMarketingFee;
-    const marketingCost = ov.marketingFee !== undefined ? ov.marketingFee : defaultMarketing;
+    const marketingCost = ov.marketingFee !== undefined ? ov.marketingFee : scaleScoped(defaultMarketing);
 
     // 5. Service Fee
     const defaultServiceFee = o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : flatServiceFee;
     const serviceFee = ((isDelivered || chargeServiceFeeOnReturns) && effectiveMode !== 'profit_share')
-      ? (ov.serviceFee !== undefined ? ov.serviceFee : defaultServiceFee)
+      ? (ov.serviceFee !== undefined ? ov.serviceFee : scaleScoped(defaultServiceFee))
       : 0;
 
     // 6. Return Fee
     // Use the component-level state if enabled, otherwise 0.
     // If there's an override on the order, use that.
     const returnFee = isReturn && deductReturnsFee 
-      ? (ov.returnFee !== undefined ? ov.returnFee : returnShippingFeeAmount) 
+      ? (ov.returnFee !== undefined ? ov.returnFee : scaleScoped(returnShippingFeeAmount))
       : 0;
 
     // 7. Collected Cash Revenue from Customer
     const orderRevenue = isDelivered 
       ? (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null && Number(o.totalAmountOverride) > 0
           ? Number(o.totalAmountOverride)
-          : (Number(o.totalPrice) || 0))
+          : scaleScoped(Number(o.totalPrice) || 0))
       : 0;
 
     let orderPayout = 0;
@@ -1493,7 +1504,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       effectiveSharePercent,
       goodsCost,
       defaultGoodsCost,
-      shippingBreakdown,
+      shippingBreakdown: scopedShippingBreakdown,
       shippingAndFees,
       codFee,
       marketingCost,
@@ -1697,6 +1708,67 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     };
   };
 
+  const handleCreatePendingSettlement = async () => {
+    if (!selectedMerchantId || selectedMerchantId === 'all') {
+      await inAppAlert('اختر وكيلاً واحداً بالـ merchantId لإنشاء تسوية مستقلة.', { title: 'اختيار الوكيل مطلوب', type: 'warning' });
+      return;
+    }
+    if (!selectedOrderIds.length || !settlementCalculation.ordersCount) {
+      await inAppAlert('حدد أوردرًا واحدًا على الأقل قبل إنشاء التسوية.', { title: 'لا توجد أوردرات', type: 'warning' });
+      return;
+    }
+    const orderIds = eligibleOrders.filter(o => selectedOrderIds.includes(o.id)).map(o => o.id).sort();
+    const idempotencyKey = `${activeStoreId}::${selectedMerchantId}::${orderIds.join(',')}`;
+    if ((settings.merchantSettlements || []).some(s => s.idempotencyKey === idempotencyKey && s.status !== 'cancelled')) {
+      inAppToast('هذه التسوية موجودة بالفعل لهذا الوكيل والأوردرات المحددة.', 'warning');
+      return;
+    }
+    const draft = buildDraftSettlement('draft');
+    const pendingSettlement: MerchantSettlement = { ...draft, id: `SETT-P-${Date.now()}`, settlementNumber: `ST-${String((settings.merchantSettlements || []).length + 1).padStart(5, '0')}`, status: 'pending', calculationComplete: true, idempotencyKey, storeId: activeStoreId, orderId: orderIds.length === 1 ? orderIds[0] : undefined, batchId: `BATCH-${Date.now()}`, payoutMethod: payoutChannel === 'ledger_only' ? 'ledger_only' : undefined, transferReference: transferReference.trim() || undefined };
+    updateSettings(prev => ({ ...prev, merchantSettlements: [pendingSettlement, ...(prev.merchantSettlements || [])] }));
+    setOrders(current => current.map(o => selectedOrderIds.includes(o.id) ? { ...o, settlementStatus: 'pending' as const, settlementId: o.settlementId || pendingSettlement.id, merchantSettlementRefs: { ...(o.merchantSettlementRefs || {}), [selectedMerchantId]: pendingSettlement.id } } : o));
+    setSelectedOrderIds([]);
+    setActiveTab('settlements');
+    inAppToast(`تم إنشاء التسوية ${pendingSettlement.settlementNumber} بانتظار الاعتماد دون أي حركة مالية.`, 'success');
+  };
+
+  const handleApproveSettlement = async (settlement: MerchantSettlement) => {
+    if (!['draft', 'pending'].includes(settlement.status) || settlement.calculationComplete === false) {
+      inAppToast('لا يمكن اعتماد هذه التسوية قبل اكتمال حسابها أو بعد دفعها/إلغائها.', 'warning');
+      return;
+    }
+    updateSettings(prev => {
+      const alreadyCredited = (prev.merchantTransactions || []).some(tx => tx.referenceId === settlement.id && tx.type === 'order_delivered');
+      const supplier = (prev.suppliers || []).find(s => s.id === settlement.merchantId);
+      if (!supplier) return prev;
+      const credit = Number(settlement.netPayoutToMerchant || 0);
+      const nextBalance = Number(((supplier.balance || 0) + (alreadyCredited ? 0 : credit)).toFixed(2));
+      const tx: MerchantTransaction | null = alreadyCredited ? null : { id: `mtx-settlement-${settlement.id}`, merchantId: settlement.merchantId, merchantName: supplier.name, date: new Date().toISOString(), type: 'order_delivered', amount: credit, balanceAfter: nextBalance, notes: `اعتماد مستحق التسوية ${settlement.settlementNumber}`, referenceId: settlement.id, performedBy: currentUser?.fullName || currentUser?.email || 'الإدارة' };
+      return { ...prev, suppliers: prev.suppliers?.map(s => s.id === supplier.id ? { ...s, balance: nextBalance, transactions: tx ? [tx, ...(s.transactions || [])] : s.transactions } : s), merchantTransactions: tx ? [tx, ...(prev.merchantTransactions || [])] : prev.merchantTransactions, merchantSettlements: prev.merchantSettlements?.map(s => s.id === settlement.id ? { ...s, status: 'approved' as const, approvedAt: new Date().toISOString() } : s) };
+    });
+    inAppToast(`تم اعتماد التسوية ${settlement.settlementNumber} وإضافة المستحق مرة واحدة.`, 'success');
+  };
+
+  const handlePaySettlement = async (settlement: MerchantSettlement) => {
+    const amount = Number(settlement.netPayoutToMerchant || 0);
+    if (settlement.status !== 'approved' || amount <= 0) { inAppToast('لا يمكن صرف التسوية إلا إذا كانت معتمدة وصافيها موجبًا.', 'warning'); return; }
+    if (!selectedTreasuryAccountId || payoutChannel === 'ledger_only' || !transferReference.trim()) { inAppToast('اختر حساب خزينة وطريقة صرف فعلية وأدخل مرجع التحويل قبل الصرف.', 'warning'); return; }
+    const account = treasury?.accounts.find(a => a.id === selectedTreasuryAccountId);
+    if (!account || account.balance < amount) { inAppToast('حساب الخزينة غير موجود أو رصيده غير كافٍ.', 'error'); return; }
+    const reference = transferReference.trim();
+    if ((treasury?.transactions || []).some(tx => tx.reference === settlement.id || tx.reference === settlement.settlementNumber)) { inAppToast('تم تسجيل حركة الخزينة لهذه التسوية مسبقًا.', 'warning'); return; }
+    const now = new Date().toISOString();
+    const treasuryTx = { id: `treasury-settlement-${settlement.id}`, date: now, amount, type: 'withdrawal' as const, description: `صرف تسوية الوكيل ${settlement.settlementNumber}`, fromAccountId: account.id, reference: settlement.id, operatorName: currentUser?.fullName || 'الإدارة', attachments: settlementAttachments };
+    setTreasury?.(current => current ? { ...current, accounts: current.accounts.map(a => a.id === account.id ? { ...a, balance: Number((a.balance - amount).toFixed(2)) } : a), transactions: [treasuryTx, ...(current.transactions || [])] } : current);
+    updateSettings(prev => {
+      const alreadyWithdrawn = (prev.merchantTransactions || []).some(tx => tx.referenceId === settlement.id && tx.type === 'withdrawal');
+      const supplier = (prev.suppliers || []).find(s => s.id === settlement.merchantId);
+      const tx: any = supplier && !alreadyWithdrawn ? { id: `mtx-withdrawal-${settlement.id}`, merchantId: settlement.merchantId, merchantName: supplier.name, date: now, type: 'withdrawal', amount: -amount, balanceAfter: Number(((supplier.balance || 0) - amount).toFixed(2)), notes: `صرف التسوية ${settlement.settlementNumber} - مرجع ${reference}`, referenceId: settlement.id, transferReference: reference, performedBy: currentUser?.fullName || 'الإدارة' } : null;
+      return { ...prev, suppliers: tx ? prev.suppliers?.map(s => s.id === supplier?.id ? { ...s, balance: tx.balanceAfter, transactions: [tx, ...(s.transactions || [])] } : s) : prev.suppliers, merchantTransactions: tx ? [tx, ...(prev.merchantTransactions || [])] : prev.merchantTransactions, merchantSettlements: prev.merchantSettlements?.map(s => s.id === settlement.id ? { ...s, status: 'paid' as const, paidAt: now, paidFromTreasuryAccountId: account.id, paidFromTreasuryAccountName: account.name, transferReference: reference } : s) };
+    });
+    inAppToast(`تم صرف التسوية ${settlement.settlementNumber} من خزينة ${account.name}.`, 'success');
+  };
+
   // Execute Settlement
   const handleExecuteSettlement = async (saveAsStatus: 'paid' | 'draft' = 'paid') => {
     if (!selectedMerchantId) {
@@ -1714,12 +1786,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       const merchantGroups = new Map<string, { merchantId: string; merchantName: string; orders: Order[] }>();
 
       ordersToProcess.forEach(o => {
-        const mId = o.merchantId || o.merchantName || 'general';
-        const mName = o.merchantName || 'موكل عام';
-        if (!merchantGroups.has(mId)) {
-          merchantGroups.set(mId, { merchantId: mId, merchantName: mName, orders: [] });
-        }
-        merchantGroups.get(mId)!.orders.push(o);
+        const merchantIds = new Set<string>();
+        if (o.merchantId && o.merchantId !== 'pending') merchantIds.add(o.merchantId);
+        (o.items || []).forEach(item => { if (item.merchantId && item.merchantId !== 'pending') merchantIds.add(item.merchantId); });
+        merchantIds.forEach(mId => {
+          const mName = (settings.suppliers || []).find(s => s.id === mId)?.name || o.merchantName || mId;
+          if (!merchantGroups.has(mId)) merchantGroups.set(mId, { merchantId: mId, merchantName: mName, orders: [] });
+          merchantGroups.get(mId)!.orders.push(o);
+        });
       });
 
       const confirmed = await inAppConfirm(
@@ -1735,7 +1809,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
       const now = new Date().toISOString();
       const generatedSettlements: MerchantSettlement[] = [];
-      const updatedOrderIdsMap = new Map<string, string>();
+      const updatedOrderRefsMap = new Map<string, Record<string, string>>();
       const supplierBalanceAdditions = new Map<string, number>();
       const newLedgerTxs: MerchantTransaction[] = [];
 
@@ -1752,14 +1826,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         let netPayout = 0;
 
         const snapshots: MerchantSettlementOrderSnapshot[] = group.orders.map(o => {
-          const calc = computeOrderFinancials(o);
+          const calc = computeOrderFinancials(o, group.merchantId);
           totalCollected += calc.orderRevenue;
           totalGoodsCost += calc.goodsCost;
           totalServiceFees += calc.serviceFee;
           totalShippingCosts += calc.shippingAndFees;
           netPayout += calc.orderPayout;
 
-          updatedOrderIdsMap.set(o.id, sId);
+          updatedOrderRefsMap.set(o.id, { ...(updatedOrderRefsMap.get(o.id) || {}), [group.merchantId]: sId });
 
           return {
             orderId: o.id,
@@ -1842,14 +1916,17 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       if (saveAsStatus === 'paid') {
         const settledNowIso = new Date().toISOString();
         setOrders(currentOrders => currentOrders.map(o => {
-          const matchedSettleId = updatedOrderIdsMap.get(o.id);
-          if (!matchedSettleId) return o;
+          const settlementRefs = updatedOrderRefsMap.get(o.id);
+          if (!settlementRefs) return o;
+          const allMerchantIds = new Set([...(o.merchantId ? [o.merchantId] : []), ...(o.items || []).map(item => item.merchantId).filter(Boolean)]);
+          const fullySettled = [...allMerchantIds].every(id => settlementRefs[id] || o.merchantSettlementRefs?.[id]);
           const ov = orderOverrides[o.id];
           const holdDays = ov?.customHoldingDays !== undefined ? ov.customHoldingDays : o.customHoldingDays;
           return {
             ...o,
-            settlementStatus: 'settled' as const,
-            settlementId: matchedSettleId,
+            settlementStatus: fullySettled ? 'settled' as const : 'pending' as const,
+            settlementId: o.settlementId || Object.values(settlementRefs)[0],
+            merchantSettlementRefs: { ...(o.merchantSettlementRefs || {}), ...settlementRefs },
             settledAt: o.settledAt || settledNowIso,
             payoutStatus: (holdDays === 0 ? 'ready' : 'holding') as 'ready' | 'holding',
             ...(ov?.customHoldingDays !== undefined ? { customHoldingDays: ov.customHoldingDays } : {}),
@@ -1966,10 +2043,14 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         const ov = orderOverrides[o.id];
         const holdDays = ov?.customHoldingDays !== undefined ? ov.customHoldingDays : o.customHoldingDays;
         const isImmediatePaid = payoutChannel !== 'ledger_only' && Boolean(selectedTreasuryAccountId) && settlementCalculation.netPayoutToMerchant > 0;
+        const merchantSettlementRefs = { ...(o.merchantSettlementRefs || {}), [selectedMerchantId]: newSettlement.id };
+        const allMerchantIds = new Set([...(o.merchantId ? [o.merchantId] : []), ...(o.items || []).map(item => item.merchantId).filter(Boolean)]);
+        const fullySettled = [...allMerchantIds].every(id => merchantSettlementRefs[id]);
         return {
           ...o,
-          settlementStatus: 'settled' as const,
-          settlementId: newSettlement.id,
+          settlementStatus: fullySettled ? 'settled' as const : 'pending' as const,
+          settlementId: o.settlementId || newSettlement.id,
+          merchantSettlementRefs,
           settledAt: o.settledAt || settledNowIso,
           payoutStatus: (isImmediatePaid ? 'paid' : holdDays === 0 ? 'ready' : 'holding') as 'paid' | 'ready' | 'holding',
           ...(isImmediatePaid ? { paidOutAt: settledNowIso, payoutReferenceId: newSettlement.settlementNumber } : {}),
@@ -2126,7 +2207,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   // Share via WhatsApp
   const handleShareWhatsApp = (settlement: MerchantSettlement) => {
-    const partner = merchantsList.find(m => m.id === settlement.merchantId || m.name === settlement.merchantName);
+    const partner = merchantsList.find(m => m.id === settlement.merchantId);
     const partnerNetProfitOrLoss = Math.round((settlement.netPayoutToMerchant - settlement.totalMerchantGoodsCost) * 100) / 100;
     const roiPercent = settlement.totalMerchantGoodsCost > 0
       ? Math.round((partnerNetProfitOrLoss / settlement.totalMerchantGoodsCost) * 1000) / 10
@@ -2409,7 +2490,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         st.settlementNumber.toLowerCase().includes(q) ||
         st.merchantName.toLowerCase().includes(q) ||
         (st.notes || '').toLowerCase().includes(q);
-      const matchMerchant = !historyMerchantFilter || st.merchantId === historyMerchantFilter || st.merchantName === historyMerchantFilter;
+      const matchMerchant = !historyMerchantFilter || st.merchantId === historyMerchantFilter;
       const matchStatus = historyStatusFilter === 'all' || (!st.reversedAt && st.status === historyStatusFilter);
 
       let matchDate = true;
@@ -2847,11 +2928,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                         </span>
                         <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
                         <span className={`text-xs font-black ${
-                          st.reversedAt ? 'text-rose-600 dark:text-rose-400' : st.status === 'draft'
+                          st.reversedAt ? 'text-rose-600 dark:text-rose-400' : ['draft', 'pending'].includes(st.status)
                             ? 'text-amber-600 dark:text-amber-400'
                             : 'text-emerald-600 dark:text-emerald-400'
                         }`}>
-                          {st.reversedAt ? 'تم عكس الكشف' : st.status === 'draft' ? 'مسودة قيد المراجعة' : 'معتمد ومسوّى'}
+                          {st.reversedAt ? 'تم عكس الكشف' : st.status === 'draft' ? 'مسودة قيد المراجعة' : st.status === 'pending' ? 'بانتظار الاعتماد' : st.status === 'approved' ? 'معتمد بانتظار الصرف' : st.status === 'paid' ? 'مدفوع فعلياً' : 'ملغي محفوظ'}
                         </span>
                       </div>
 
@@ -2885,6 +2966,24 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                         </div>
                         <div className="text-[10px] text-slate-500 font-bold">الصافي المستحق للموكل</div>
                       </div>
+
+                      <button
+                        onClick={() => handleApproveSettlement(st)}
+                        disabled={!['draft', 'pending'].includes(st.status) || !!st.reversedAt}
+                        className="px-3 py-2 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-500 hover:text-white rounded-xl text-amber-700 dark:text-amber-300 text-[11px] font-black disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="اعتماد المستحق دون صرف خزينة"
+                      >
+                        اعتماد
+                      </button>
+
+                      <button
+                        onClick={() => handlePaySettlement(st)}
+                        disabled={st.status !== 'approved' || !!st.reversedAt}
+                        className="px-3 py-2 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-600 hover:text-white rounded-xl text-emerald-700 dark:text-emerald-300 text-[11px] font-black disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="صرف فعلي من الخزينة"
+                      >
+                        صرف
+                      </button>
 
                       <button
                         onClick={() => {
@@ -2984,7 +3083,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                     <span className={`font-mono text-[11px] px-1.5 py-0.5 rounded-md ${
                       selectedMerchantId === 'all' ? 'bg-white/20 text-white' : 'bg-emerald-200 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-200'
                     }`}>
-                      {orders.filter(o => o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status) && (o.merchantId || o.merchantName)).length} أوردر
+                      {orders.filter(o => o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status) && ((o.merchantId && o.merchantId !== 'pending') || (o.items || []).some(i => i.merchantId && i.merchantId !== 'pending'))).length} أوردر
                     </span>
                   </button>
                   {partnersSummary.filter(p => p.unsettledCount > 0).map(p => {
@@ -3026,7 +3125,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 >
                   <option value="">-- اختر صاحب البضاعة من القائمة --</option>
                   <option value="all" className="font-black text-emerald-700 bg-emerald-50 dark:bg-emerald-950/60">
-                    🌟 تسوية مجمعة لكافة الموكلين ({orders.filter(o => o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status) && (o.merchantId || o.merchantName)).length} أوردر متاح)
+                      🌟 تسوية مجمعة لكافة الموكلين ({orders.filter(o => o.settlementStatus !== 'settled' && SETTLEMENT_ELIGIBLE_STATUSES.includes(o.status) && ((o.merchantId && o.merchantId !== 'pending') || (o.items || []).some(i => i.merchantId && i.merchantId !== 'pending'))).length} أوردر متاح)
                   </option>
                   {partnersSummary.map(m => (
                     <option key={m.id} value={m.id}>
@@ -3955,11 +4054,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => handleExecuteSettlement('paid')}
+                  onClick={handleCreatePendingSettlement}
                   className="px-8 py-3.5 bg-[#008060] hover:bg-emerald-500 text-white font-black rounded-xl text-sm shadow-xl shadow-emerald-950/60 transition-all cursor-pointer flex items-center gap-2"
                 >
                   <CheckCircle2 size={18} />
-                  <span>اعتماد وتأكيد كشف التسوية وصرف الصافي ({settlementCalculation.netPayoutToMerchant.toLocaleString()} ج.م)</span>
+                  <span>إنشاء تسوية بانتظار الاعتماد ({settlementCalculation.netPayoutToMerchant.toLocaleString()} ج.م)</span>
                 </button>
               </div>
             </div>
@@ -5186,7 +5285,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                     {(viewingSettlement.orderSnapshots || []).map(snapshot => {
                       const liveOrder = orders.find(o => o.id === snapshot.orderId);
                       const matchedSupplier = (settings.suppliers || []).find(
-                        s => s.id === viewingSettlement.merchantId || s.name === viewingSettlement.merchantName
+                        s => s.id === viewingSettlement.merchantId
                       );
                       const defaultHoldDays = typeof matchedSupplier?.holdingDaysAfterSettlement === 'number'
                         ? matchedSupplier.holdingDaysAfterSettlement

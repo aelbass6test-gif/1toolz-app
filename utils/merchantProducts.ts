@@ -49,10 +49,8 @@ export const isMerchantOrder = (order: any): boolean => {
   if (!order || typeof order !== 'object') return false;
   const orderMerchantId = normalizeMerchantId(order.merchantId);
   if (orderMerchantId && orderMerchantId !== 'pending') return true;
-  if (String(order.merchantName || order.merchantBrandName || '').trim()) return true;
-
   return Array.isArray(order.items) && order.items.some((item: any) =>
-    Boolean(normalizeMerchantId(item?.merchantId)) || Boolean(String(item?.merchantName || '').trim())
+    Boolean(normalizeMerchantId(item?.merchantId)) && normalizeMerchantId(item?.merchantId) !== 'pending'
   );
 };
 
@@ -60,8 +58,8 @@ export const getStoreOwnedOrders = <T extends any>(orders: T[] | undefined): T[]
   (Array.isArray(orders) ? orders : []).filter(order => !isMerchantOrder(order));
 
 /**
- * Migrates legacy name-only product links when exactly one supplier/partner
- * has that normalized name. Ambiguous names are intentionally left unchanged.
+ * Safe migration: only preserves explicit IDs and derives ownerType from explicit
+ * IDs/allocations. Name-only records are never assigned to an entity.
  */
 export const migrateLegacyProductMerchantLinks = (
   products: any[] | undefined,
@@ -98,16 +96,7 @@ export const migrateLegacyProductMerchantLinks = (
     };
 
     const primaryName = normalizeMerchantLabel(product.merchantName || product.supplierName);
-    if (!normalizeMerchantId(product.merchantId) && !normalizeMerchantId(product.supplierId) && primaryName) {
-      const matches = idsByName.get(primaryName) || [];
-      if (matches.length === 1) {
-        nextProduct = { ...nextProduct, merchantId: matches[0] };
-        productChanged = true;
-        migratedCount += 1;
-      } else if (matches.length > 1) {
-        ambiguousCount += 1;
-      }
-    }
+    if (!normalizeMerchantId(product.merchantId) && !normalizeMerchantId(product.supplierId) && primaryName) ambiguousCount += 1;
 
     const nextAllocations = Array.isArray(product.merchantAllocations)
       ? product.merchantAllocations.map((allocation: any) => {
@@ -115,15 +104,7 @@ export const migrateLegacyProductMerchantLinks = (
             addMerchantId(String(allocation.merchantId));
             return allocation;
           }
-          const allocationName = normalizeMerchantLabel(allocation?.merchantName);
-          const matches = idsByName.get(allocationName) || [];
-          if (matches.length === 1) {
-            addMerchantId(matches[0]);
-            productChanged = true;
-            migratedCount += 1;
-            return { ...allocation, merchantId: matches[0] };
-          }
-          if (matches.length > 1) ambiguousCount += 1;
+          if (normalizeMerchantLabel(allocation?.merchantName)) ambiguousCount += 1;
           return allocation;
         })
       : product.merchantAllocations;
@@ -212,7 +193,8 @@ export const getProductsForMerchant = <T extends Partial<Product> | any>(
       const sourceProduct = product as any;
       const allocation = getMerchantAllocation(product, targetId);
       if (!allocation) {
-        const stock = getNumericStock(product);
+        const isShared = sourceProduct.ownerType === 'shared' || (Array.isArray(sourceProduct.merchantIds) && sourceProduct.merchantIds.length > 1);
+        const stock = isShared ? 0 : getNumericStock(product);
         return {
           ...sourceProduct,
           stock,

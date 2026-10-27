@@ -221,6 +221,7 @@ export interface Product {
   profitMode?: 'manual' | 'margin' | 'commission';
   basePrice?: number;
   commissionPercentage?: number;
+  ownerType?: 'store' | 'merchant' | 'shared';
   stockThreshold?: number;
   merchantId?: string;
   merchantName?: string;
@@ -1668,6 +1669,7 @@ export interface OrderItem {
   merchantId?: string;
   merchantName?: string;
   merchantPhone?: string;
+  ownerType?: 'store' | 'merchant' | 'shared';
 }
 
 export interface ConfirmationLog {
@@ -1994,6 +1996,7 @@ export interface Order {
   merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
   settlementStatus?: 'pending' | 'settled' | 'unsettled' | 'returned_after_settlement'; // حالة التسوية المالية مع صاحب البضاعة
   settlementId?: string;           // رقم كشف التسوية المرتبط
+  merchantSettlementRefs?: Record<string, string>; // merchantId -> settlementId for mixed orders
   settledAt?: string;              // تاريخ تسوية الأوردر مالياً من الإدارة (يبدأ منه عدّاد الـ 7 أيام)
   customHoldingDays?: number;      // مدة تعليق مخصصة لهذا الأوردر يحددها مدير المتجر (افتراضي 7 أيام، أو 0 للصرف الفوري)
   payoutStatus?: 'unsettled' | 'holding' | 'ready' | 'paid'; // حالة السداد للموكل (بانتظار التسوية / قيد التعليق / جاهز للتحويل الأسبوعي / مدفوع)
@@ -2032,7 +2035,6 @@ export interface MerchantSettlement {
   totalReturnFees: number;         // مصاريف شحن المرتجعات المخصومة
   totalCollectionFees: number;     // عمولات التحصيل النقدية (COD Fees)
   netPayoutToMerchant: number;      // الصافي المستحق للتحويل لصاحب البضاعة
-  status: 'draft' | 'paid';         // حالة التسوية (مسودة / تم تحويل المبالغ)
   reversedAt?: string;
   reversedBy?: string;
   reversalNote?: string;
@@ -2046,6 +2048,19 @@ export interface MerchantSettlement {
   totalReturnLosses?: number;        // إجمالي تكلفة الطلبات المرتجعة والفاشلة
   totalOperatorEarnings?: number;    // عمولة مقدم الخدمة/التشغيل
   orderSnapshots?: MerchantSettlementOrderSnapshot[]; // لقطة ثابتة تحفظ التقرير تاريخياً
+  storeId?: string;
+  orderId?: string;
+  batchId?: string;
+  idempotencyKey?: string;
+  calculationComplete?: boolean;
+  status: 'draft' | 'pending' | 'approved' | 'paid' | 'cancelled';
+  approvedAt?: string;
+  paidAt?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
+  reversalTransactionId?: string;
+  payoutMethod?: 'bank' | 'wallet' | 'instapay' | 'cash' | 'treasury' | 'ledger_only';
+  transferReference?: string;
 }
 
 export interface MerchantSettlementOrderSnapshot {

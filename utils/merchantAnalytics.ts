@@ -207,53 +207,16 @@ export function isOrderForMerchant(
   merchantIdOrName: string, 
   merchantObj?: { id: string; name: string }
 ): boolean {
-  // Check if order has any valid merchant/supplier association
-  const hasMerchant = Boolean(
-    (order.merchantId && order.merchantId !== 'pending') || 
-    (order.merchantName && order.merchantName.trim() !== '' && order.merchantName !== 'pending') ||
-    (order as any).isAgencyOrder
-  );
-
-  // If no merchant/supplier association at all, it is a standard store retail order -> EXCLUDE from merchant transparency report
-  if (!hasMerchant) return false;
-
-  // If 'all' is selected, include all merchant/supplier/agency orders
-  if (!merchantIdOrName || merchantIdOrName === 'all') return true;
-
   const target = normalizeStr(merchantIdOrName);
-  const oMId = normalizeStr(order.merchantId || '');
-  const oMName = normalizeStr(order.merchantName || '');
-
-  if (target && oMId && (oMId === target || oMId.includes(target) || target.includes(oMId))) return true;
-  if (target && oMName && (oMName === target || oMName.includes(target) || target.includes(oMName))) return true;
-
-  if (merchantObj) {
-    const objId = normalizeStr(merchantObj.id);
-    const objName = normalizeStr(merchantObj.name);
-    if (objId && oMId && (oMId === objId || oMId.includes(objId) || objId.includes(oMId))) return true;
-    if (objName && oMName && (oMName === objName || oMName.includes(objName) || objName.includes(oMName))) return true;
-    if (objName && oMId && (oMId === objName || oMId.includes(objName) || objName.includes(oMId))) return true;
-    if (objId && oMName && (oMName === objId || oMName.includes(objId) || objId.includes(oMName))) return true;
-  }
-
-  // NEW: Check individual items for joint merchant association (Option B)
-  const hasItemMatch = (order.items || []).some(item => {
-    const iMId = normalizeStr(item.merchantId || '');
-    const iMName = normalizeStr(item.merchantName || '');
-    
-    if (target && iMId && (iMId === target || iMId.includes(target) || target.includes(iMId))) return true;
-    if (target && iMName && (iMName === target || iMName.includes(target) || target.includes(iMName))) return true;
-
-    if (merchantObj) {
-      const objId = normalizeStr(merchantObj.id);
-      const objName = normalizeStr(merchantObj.name);
-      if (objId && iMId && (iMId === objId || iMId.includes(objId) || objId.includes(iMId))) return true;
-      if (objName && iMName && (objName === iMName || objName.includes(iMName) || objName.includes(objName))) return true;
-    }
-    return false;
+  if (!target) return false;
+  const ids = new Set<string>();
+  const headerId = normalizeStr(order.merchantId || '');
+  if (headerId && headerId !== 'pending') ids.add(headerId);
+  (order.items || []).forEach(item => {
+    const itemId = normalizeStr(item.merchantId || '');
+    if (itemId && itemId !== 'pending') ids.add(itemId);
   });
-
-  return hasItemMatch;
+  return target === 'all' ? ids.size > 0 : ids.has(target);
 }
 
 /**
@@ -353,17 +316,8 @@ export function calculateMerchantTransparencyAnalytics(
     const allItems = o.items || [];
     const relevantItems = allItems.filter(item => {
       const iMId = normalizeStr(item.merchantId || '');
-      const iMName = normalizeStr(item.merchantName || '');
       const target = normalizeStr(merchantIdOrName);
-      if (target && iMId && (iMId === target || iMId.includes(target) || target.includes(iMId))) return true;
-      if (target && iMName && (iMName === target || iMName.includes(target) || target.includes(iMName))) return true;
-      if (merchantObj) {
-        const objId = normalizeStr(merchantObj.id);
-        const objName = normalizeStr(merchantObj.name);
-        if (objId && iMId && (iMId === objId || iMId.includes(objId) || objId.includes(iMId))) return true;
-        if (objName && iMName && (objName === iMName || objName.includes(iMName) || objName.includes(objName))) return true;
-      }
-      return false;
+      return Boolean(target && iMId === target);
     });
 
     // If no relevant items (should not happen due to 'filtered' check, but for safety), treat whole order as relevant if it's their order
