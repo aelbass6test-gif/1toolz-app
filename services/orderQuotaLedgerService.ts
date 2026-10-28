@@ -262,6 +262,9 @@ export async function confirmOrderWithQuotaAndFee(params: {
         const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
           ? storeData.settings.suppliers
           : Object.values(storeData.settings?.suppliers || {});
+        const partners: any[] = Array.isArray(storeData.settings?.partners)
+          ? storeData.settings.partners
+          : Object.values(storeData.settings?.partners || {});
 
         const targetMerchantId = String(targetOrder.merchantId || '').trim().toLowerCase();
         const targetMerchantName = String(targetOrder.merchantName || '').trim().toLowerCase();
@@ -270,7 +273,15 @@ export async function confirmOrderWithQuotaAndFee(params: {
           s => (targetMerchantId && String(s.id || '').toLowerCase() === targetMerchantId) ||
                (targetMerchantName && String(s.name || '').trim().toLowerCase() === targetMerchantName)
         );
+        let isSupplier = true;
 
+        if (!matchedMerchant) {
+          matchedMerchant = partners.find(
+            p => (targetMerchantId && String(p.id || '').toLowerCase() === targetMerchantId) ||
+                 (targetMerchantName && String(p.name || '').trim().toLowerCase() === targetMerchantName)
+          );
+          isSupplier = false;
+        }
 
         const nowIso = safeIsoDate(nowMs);
         let feeDeducted = 0;
@@ -297,8 +308,14 @@ export async function confirmOrderWithQuotaAndFee(params: {
             cycleOrderNumber = cycleOrders.length + 1;
 
             if (effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700') {
-              feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.extraOrderFee ?? activeMgr.orderFee ?? 20);
-              quotaIncluded = false;
+              const includedQuota = activeMgr.includedOrdersQuota ?? 50;
+              if (isCycleActive && cycleOrders.length < includedQuota) {
+                feeDeducted = 0;
+                quotaIncluded = true;
+              } else {
+                feeDeducted = activeMgr.extraOrderFee ?? 20;
+                quotaIncluded = false;
+              }
             } else if (effectivePlanId === 'per_order_20') {
               feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.orderFee ?? 20);
               quotaIncluded = false;
@@ -347,7 +364,11 @@ export async function confirmOrderWithQuotaAndFee(params: {
             matchedMerchant.balance = nextWalletBalance;
             matchedMerchant.transactions = [feeTx, ...existingTxs];
 
-            storeData.settings.suppliers = suppliers.map(s => s.id === matchedMerchant!.id ? matchedMerchant : s);
+            if (isSupplier) {
+              storeData.settings.suppliers = suppliers.map(s => s.id === matchedMerchant!.id ? matchedMerchant : s);
+            } else {
+              storeData.settings.partners = partners.map(p => p.id === matchedMerchant!.id ? matchedMerchant : p);
+            }
           }
         }
 
@@ -456,6 +477,9 @@ export async function confirmOrderWithQuotaAndFee(params: {
     const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
       ? storeData.settings.suppliers
       : Object.values(storeData.settings?.suppliers || {});
+    const partners: any[] = Array.isArray(storeData.settings?.partners)
+      ? storeData.settings.partners
+      : Object.values(storeData.settings?.partners || {});
 
     const targetMerchantId = String(targetOrder.merchantId || '').trim().toLowerCase();
     const targetMerchantName = String(targetOrder.merchantName || '').trim().toLowerCase();
@@ -464,7 +488,15 @@ export async function confirmOrderWithQuotaAndFee(params: {
       s => (targetMerchantId && String(s.id || '').toLowerCase() === targetMerchantId) ||
            (targetMerchantName && String(s.name || '').trim().toLowerCase() === targetMerchantName)
     );
+    let isSupplier = true;
 
+    if (!matchedMerchant) {
+      matchedMerchant = partners.find(
+        p => (targetMerchantId && String(p.id || '').toLowerCase() === targetMerchantId) ||
+             (targetMerchantName && String(p.name || '').trim().toLowerCase() === targetMerchantName)
+      );
+      isSupplier = false;
+    }
 
     const nowIso = safeIsoDate(nowMs);
     let feeDeducted = 0;
@@ -494,8 +526,15 @@ export async function confirmOrderWithQuotaAndFee(params: {
         cycleOrderNumber = cycleOrders.length + 1;
 
         if (effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700') {
-          feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.extraOrderFee ?? activeMgr.orderFee ?? 20);
-          quotaIncluded = false;
+          const includedQuota = activeMgr.includedOrdersQuota ?? 50;
+          // Audit Fix #6 & #11: Free quota ONLY applies if the paid cycle is currently active and not expired!
+          if (isCycleActive && cycleOrders.length < includedQuota) {
+            feeDeducted = 0;
+            quotaIncluded = true;
+          } else {
+            feeDeducted = activeMgr.extraOrderFee ?? 20;
+            quotaIncluded = false;
+          }
         } else if (effectivePlanId === 'per_order_20') {
           feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.orderFee ?? 20);
           quotaIncluded = false;
@@ -549,7 +588,11 @@ export async function confirmOrderWithQuotaAndFee(params: {
           matchedMerchant.balance = nextWalletBalance;
           matchedMerchant.transactions = [feeTx, ...existingTxs];
 
-          storeData.settings.suppliers = suppliers.map(s => s.id === matchedMerchant!.id ? matchedMerchant : s);
+          if (isSupplier) {
+            storeData.settings.suppliers = suppliers.map(s => s.id === matchedMerchant!.id ? matchedMerchant : s);
+          } else {
+            storeData.settings.partners = partners.map(p => p.id === matchedMerchant!.id ? matchedMerchant : p);
+          }
         }
       }
     }
@@ -745,10 +788,15 @@ export async function createOrderAtomic(
         const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
           ? storeData.settings.suppliers
           : Object.values(storeData.settings?.suppliers || {});
+        const partners: any[] = Array.isArray(storeData.settings?.partners)
+          ? storeData.settings.partners
+          : Object.values(storeData.settings?.partners || {});
 
         let matchedMerchant: any = null;
         if (effectiveOrderInput.merchantId) {
-          matchedMerchant = suppliers.find(s => s.id === effectiveOrderInput.merchantId);
+          matchedMerchant =
+            suppliers.find(s => s.id === effectiveOrderInput.merchantId) ||
+            partners.find(p => p.id === effectiveOrderInput.merchantId);
         }
 
         if (normalizedRole === 'merchant' && matchedMerchant && isPlanCycleCurrentlyActive(matchedMerchant.managerPlan, nowMs)) {
@@ -764,46 +812,47 @@ export async function createOrderAtomic(
           ? (storeData.settings as any).products
           : [];
         const requestedItems = Array.isArray(effectiveOrderInput.items) ? effectiveOrderInput.items : [];
-        const requestedQuantityByProduct = new Map<string, number>();
-        for (const reqItem of requestedItems) {
-          const pid = String(reqItem.productId || reqItem.id || '').trim();
-          if (!pid) continue;
-          const reqQty = Math.max(1, Number(reqItem.quantity || 1));
-          requestedQuantityByProduct.set(pid, (requestedQuantityByProduct.get(pid) || 0) + reqQty);
-        }
 
         if (enforceStockAvailability) {
-          for (const [pid, reqQty] of requestedQuantityByProduct) {
-            const prod = products.find(p => p.id === pid);
-            if (prod) {
-              const available = Number(prod.stockQuantity ?? prod.stock ?? prod.quantity ?? 0);
-              if (reqQty > available) {
-                return {
-                  success: false,
-                  code: 'InsufficientStock',
-                  message: `INSUFFICIENT_STOCK: الكمية المطلوبة إجمالاً (${reqQty}) للمنتج [${prod.name || pid}] تتجاوز المخزون المتاح (${available})`
-                };
+          for (const reqItem of requestedItems) {
+            const pid = reqItem.productId || reqItem.id;
+            const reqQty = Math.max(1, Number(reqItem.quantity || 1));
+            if (pid) {
+              const prod = products.find(p => p.id === pid);
+              if (prod) {
+                const available = Number(prod.stockQuantity ?? prod.stock ?? prod.quantity ?? 0);
+                if (reqQty > available) {
+                  return {
+                    success: false,
+                    code: 'InsufficientStock',
+                    message: `INSUFFICIENT_STOCK: الكمية المطلوبة (${reqQty}) للمنتج [${prod.name || pid}] تتجاوز المخزون المتاح (${available})`
+                  };
+                }
               }
             }
           }
         }
 
-        // Deduct each product's aggregated quantity atomically exactly once.
+        // Deduct stock atomically
         const nowIso = safeIsoDate(nowMs);
-        for (const [pid, reqQty] of requestedQuantityByProduct) {
-          const prodIdx = products.findIndex(p => p.id === pid);
-          if (prodIdx >= 0) {
-            const prod = products[prodIdx];
-            const available = Number(prod.stockQuantity ?? prod.stock ?? prod.quantity ?? 0);
-            const nextStock = Math.max(0, available - reqQty);
-            products[prodIdx] = {
-              ...prod,
-              stock: nextStock,
-              stockQuantity: nextStock,
-              quantity: nextStock,
-              updatedAt: nowIso,
-              version: Number(prod.version || 0) + 1
-            };
+        for (const reqItem of requestedItems) {
+          const pid = reqItem.productId || reqItem.id;
+          const reqQty = Math.max(1, Number(reqItem.quantity || 1));
+          if (pid) {
+            const prodIdx = products.findIndex(p => p.id === pid);
+            if (prodIdx >= 0) {
+              const prod = products[prodIdx];
+              const available = Number(prod.stockQuantity ?? prod.stock ?? prod.quantity ?? 0);
+              const nextStock = Math.max(0, available - reqQty);
+              products[prodIdx] = {
+                ...prod,
+                stock: nextStock,
+                stockQuantity: nextStock,
+                quantity: nextStock,
+                updatedAt: nowIso,
+                version: Number(prod.version || 0) + 1
+              };
+            }
           }
         }
         if (storeData.settings) {
@@ -909,10 +958,15 @@ export async function createOrderAtomic(
     const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
       ? storeData.settings.suppliers
       : Object.values(storeData.settings?.suppliers || {});
+    const partners: any[] = Array.isArray(storeData.settings?.partners)
+      ? storeData.settings.partners
+      : Object.values(storeData.settings?.partners || {});
 
     let matchedMerchant: any = null;
     if (effectiveOrderInput.merchantId) {
-      matchedMerchant = suppliers.find(s => s.id === effectiveOrderInput.merchantId);
+      matchedMerchant =
+        suppliers.find(s => s.id === effectiveOrderInput.merchantId) ||
+        partners.find(p => p.id === effectiveOrderInput.merchantId);
     }
 
     // Audit Fix #7: Block merchant self-creation if subscribed to an active Dedicated Manager plan
@@ -1103,8 +1157,14 @@ export async function processMerchantWithdrawalAtomic(
         const storeData = snap.data() as StoreData;
 
         const suppliers: any[] = Array.isArray(storeData.settings?.suppliers) ? storeData.settings.suppliers : [];
+        const partners: any[] = Array.isArray(storeData.settings?.partners) ? storeData.settings.partners : [];
 
         let merchant = suppliers.find(s => s.id === merchantId);
+        let isSupplier = true;
+        if (!merchant) {
+          merchant = partners.find(p => p.id === merchantId);
+          isSupplier = false;
+        }
         if (!merchant) {
           return { success: false, code: 'MerchantNotFound', message: `الموكل غير موجود: [${merchantId}]` };
         }
@@ -1140,7 +1200,11 @@ export async function processMerchantWithdrawalAtomic(
         merchant.balance = nextBal;
         merchant.transactions = [txRecord, ...(merchant.transactions || [])];
 
-        storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
+        if (isSupplier) {
+          storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
+        } else {
+          storeData.settings.partners = partners.map(p => p.id === merchant.id ? merchant : p);
+        }
 
         tx.set(storeRef, { settings: storeData.settings }, { merge: true });
 
@@ -1181,8 +1245,14 @@ export async function processMerchantWithdrawalAtomic(
     }
 
     const suppliers: any[] = Array.isArray(storeData.settings?.suppliers) ? storeData.settings.suppliers : [];
+    const partners: any[] = Array.isArray(storeData.settings?.partners) ? storeData.settings.partners : [];
 
     let merchant = suppliers.find(s => s.id === merchantId);
+    let isSupplier = true;
+    if (!merchant) {
+      merchant = partners.find(p => p.id === merchantId);
+      isSupplier = false;
+    }
     if (!merchant) {
       return { success: false, code: 'MerchantNotFound', message: `الموكل غير موجود: [${merchantId}]` };
     }
@@ -1218,7 +1288,11 @@ export async function processMerchantWithdrawalAtomic(
     merchant.balance = nextBal;
     merchant.transactions = [tx, ...(merchant.transactions || [])];
 
-    storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
+    if (isSupplier) {
+      storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
+    } else {
+      storeData.settings.partners = partners.map(p => p.id === merchant.id ? merchant : p);
+    }
 
     if (adapter) {
       await adapter.saveStoreData(storeId, storeData);
@@ -1358,34 +1432,6 @@ export async function processCarrierEventOrSettlementAtomic(
       order.settlementStatus = 'settled';
     }
 
-    // Deduct return shipping fee loss directly from merchant wallet if order is returned
-    if (
-      (effectiveStatus === 'مرتجع' || effectiveStatus === 'فشل_التوصيل') &&
-      merchant &&
-      !order.returnFeeProcessed
-    ) {
-      const returnFee = Number((storeData.settings as any)?.returnShippingFee || 35);
-      if (returnFee > 0) {
-        const curPiasters = toPiasters(newBalance);
-        const subPiasters = toPiasters(returnFee);
-        newBalance = fromPiasters(curPiasters - subPiasters);
-        const retTx: MerchantTransaction = {
-          id: `RET-${merchant.id}-${order.id}`,
-          merchantId: merchant.id,
-          merchantName: merchant.name,
-          date: nowIso,
-          type: 'carrier_fee',
-          amount: -returnFee,
-          balanceAfter: newBalance,
-          referenceId: order.id,
-          notes: `خصم رسوم الشحن المرتجع للأوردر #${order.orderNumber}`
-        };
-        merchant.balance = newBalance;
-        merchant.transactions = [retTx, ...(merchant.transactions || [])];
-        order.returnFeeProcessed = true;
-      }
-    }
-
     if ((effectiveStatus === 'مرتجع' || effectiveStatus === 'فشل_التوصيل') && restockOnReturn && order.stockDeducted) {
       const products: any[] = Array.isArray((storeData.settings as any)?.products)
         ? (storeData.settings as any).products
@@ -1496,8 +1542,16 @@ export async function activateMerchantManagerPlan(params: {
     const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
       ? storeData.settings.suppliers
       : Object.values(storeData.settings?.suppliers || {});
+    const partners: any[] = Array.isArray(storeData.settings?.partners)
+      ? storeData.settings.partners
+      : Object.values(storeData.settings?.partners || {});
 
     let merchant = suppliers.find(s => s.id === merchantId);
+    let isSupplier = true;
+    if (!merchant) {
+      merchant = partners.find(p => p.id === merchantId);
+      isSupplier = false;
+    }
 
     if (!merchant) {
       throw new Error(`الموكل غير موجود: [${merchantId}]`);
@@ -1557,7 +1611,11 @@ export async function activateMerchantManagerPlan(params: {
     merchant.pendingPlanRequest = null;
     merchant.transactions = [newTx, ...(merchant.transactions || [])];
 
-    storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
+    if (isSupplier) {
+      storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
+    } else {
+      storeData.settings.partners = partners.map(p => p.id === merchant.id ? merchant : p);
+    }
 
     if (storeRef) {
       await setDoc(storeRef, { settings: storeData.settings }, { merge: true });

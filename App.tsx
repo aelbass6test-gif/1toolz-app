@@ -2012,6 +2012,26 @@ export const AppComponent = () => {
                     } catch (sessionErr) {
                         console.warn('Could not restore user session:', sessionErr);
                     }
+                } else {
+                    // Preload store data for merchant portal or direct sessions without main user phone
+                    const fallbackStoreId = savedStoreId || (() => {
+                        try {
+                            const raw = localStorage.getItem('authenticated_merchant');
+                            return raw ? JSON.parse(raw)?._storeId : null;
+                        } catch { return null; }
+                    })();
+                    if (fallbackStoreId) {
+                        try {
+                            const storeData = await db.getStoreData(fallbackStoreId, false) as StoreData | null;
+                            if (storeData) {
+                                const sanitizedStoreData = sanitizeData(storeData);
+                                setAllStoresData(prev => ({ ...prev, [fallbackStoreId]: sanitizedStoreData }));
+                                setActiveStoreId(fallbackStoreId);
+                            }
+                        } catch (e) {
+                            console.warn('Could not preload store data for fallbackStoreId:', e);
+                        }
+                    }
                 }
             }
         } catch (error) {

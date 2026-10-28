@@ -22,7 +22,7 @@ import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlan
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
-import { getProductsForMerchant } from '../utils/merchantProducts';
+import { getProductsForMerchant, normalizeMerchantLabel } from '../utils/merchantProducts';
 import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
@@ -37,23 +37,7 @@ import {
   removeStoredBiometric
 } from '../utils/webAuthnService';
 
-const normalizeName = (name: string): string => {
-  if (!name) return '';
-  let normalized = name.trim().replace(/\s+/g, ' ');
-  normalized = normalized.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)/gi, '');
-  // Normalize compound Arabic names so "عبد الرحمن" matches "عبدالرحمن", "ابو بكر" -> "ابوبكر"
-  normalized = normalized.replace(/عبد\s+/g, 'عبد');
-  normalized = normalized.replace(/ابو\s+/g, 'ابو');
-  normalized = normalized.replace(/بن\s+/g, 'بن');
-  return normalized
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
-    .replace(/ـ+/g, '') // remove tatweel
-    .toLowerCase()
-    .trim();
-};
+const normalizeName = (name: string): string => normalizeMerchantLabel(name);
 
 const maskEmail = (email?: string) => {
   if (!email || !email.includes('@')) return email || '';
@@ -137,7 +121,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   const [directStoreId, setDirectStoreId] = useState<string>('');
   const [directStoreData, setDirectStoreData] = useState<StoreData | null>(null);
-  const [crossStoreProducts, setCrossStoreProducts] = useState<Product[]>([]);
+  const [crossStoreProducts, setCrossStoreProducts] = useState<Product[]>(() => {
+    try {
+      const savedMerchant = localStorage.getItem('authenticated_merchant');
+      if (savedMerchant) {
+        const parsed = JSON.parse(savedMerchant);
+        if (parsed?.id) {
+          const cached = localStorage.getItem(`merchant_cached_prods_${parsed.id}`);
+          if (cached) return JSON.parse(cached);
+        }
+      }
+    } catch {}
+    return [];
+  });
   const [isFetchingCrossStore, setIsFetchingCrossStore] = useState(false);
   const [isLoadingStore, setIsLoadingStore] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -303,6 +299,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       const activeId = localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || localStorage.getItem('last_active_store_id');
       if (activeId && allStoresData[activeId]) return activeId;
       if (activeId) return activeId;
+    } catch {}
+    try {
+      const savedM = localStorage.getItem('authenticated_merchant');
+      if (savedM) {
+        const parsedM = JSON.parse(savedM);
+        if (parsedM?._storeId) return parsedM._storeId;
+      }
     } catch {}
     const keys = Object.keys(allStoresData);
     if (keys.length > 0) return keys[0];
@@ -570,7 +573,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   // Fetch fresh store data on mount
   const fetchFreshData = useCallback(async (isManualRefresh = false) => {
-    const targetStoreId = directStoreId || storeId || effectiveStoreId;
+    const targetStoreId = directStoreId || storeId || effectiveStoreId || (authenticatedMerchant as any)?._storeId;
     if (!targetStoreId) return;
 
     if (isManualRefresh) {
@@ -589,11 +592,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       }
       await loadRequests();
 
-      // NEW: Fetch products for this merchant from ALL stores to ensure cross-store allocations are visible
-      if (liveMerchant?.id) {
+      // Fetch products for this merchant from ALL stores to ensure cross-store allocations are visible
+      const targetId = String(liveMerchant?.id || authenticatedMerchant?.id || '').trim();
+      const targetName = String(liveMerchant?.name || authenticatedMerchant?.name || '').trim();
+      if (targetId) {
         setIsFetchingCrossStore(true);
-        const allocated = await db.getMerchantAllocatedProducts(liveMerchant.id, liveMerchant.name);
+        const allocated = await db.getMerchantAllocatedProducts(targetId, targetName);
         setCrossStoreProducts(allocated);
+        if (targetId || targetName) {
+          const cacheKey = targetId ? `merchant_cached_prods_${targetId}` : `merchant_cached_prods_name_${normalizeName(targetName)}`;
+          localStorage.setItem(cacheKey, JSON.stringify(allocated));
+        }
         setIsFetchingCrossStore(false);
       }
     } catch (err) {
@@ -603,7 +612,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       setIsRefreshing(false);
       setIsFetchingCrossStore(false);
     }
-  }, [directStoreId, storeId, effectiveStoreId, loadRequests, liveMerchant]);
+  }, [directStoreId, storeId, effectiveStoreId, loadRequests, liveMerchant, authenticatedMerchant]);
+
+  // Trigger fetchFreshData on mount or when effectiveStoreId is resolved
+  useEffect(() => {
+    const targetStoreId = directStoreId || storeId || effectiveStoreId || (authenticatedMerchant as any)?._storeId;
+    if (targetStoreId) {
+      fetchFreshData(false);
+    }
+  }, [directStoreId, storeId, effectiveStoreId, (authenticatedMerchant as any)?._storeId]);
 
   useEffect(() => {
     const fetchAllocated = async () => {
@@ -616,6 +633,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           const allocated = await db.getMerchantAllocatedProducts(targetId, targetName);
           console.log('[MerchantPortal] Found cross-store products:', allocated.length);
           setCrossStoreProducts(allocated);
+          if (targetId || targetName) {
+            try {
+              const cacheKey = targetId ? `merchant_cached_prods_${targetId}` : `merchant_cached_prods_name_${normalizeName(targetName)}`;
+              localStorage.setItem(cacheKey, JSON.stringify(allocated));
+            } catch {}
+          }
         } catch (err) {
           console.error('[MerchantPortal] Error fetching cross-store products:', err);
         } finally {
@@ -1746,10 +1769,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const merchantProducts = useMemo(() => {
     if (!liveMerchant) return [];
 
+    console.log('[MerchantPortal] Scanning products for merchant:', {
+      name: liveMerchant.name,
+      id: liveMerchant.id,
+      storeId: (liveMerchant as any)._storeId
+    });
+
     const productSources: any[][] = [
       Array.isArray(activeStoreData?.settings?.products) ? activeStoreData.settings.products : [],
       Array.isArray((activeStoreData as any)?.products) ? (activeStoreData as any).products : [],
-      Array.isArray(settings?.products) ? settings.products : []
+      Array.isArray(settings?.products) ? settings.products : [],
+      Array.isArray(crossStoreProducts) ? crossStoreProducts : []
     ];
 
     const productsById = new Map<string, any>();
@@ -1759,8 +1789,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       }
     });
 
-    return getProductsForMerchant(Array.from(productsById.values()), liveMerchant.id);
-  }, [activeStoreData, settings?.products, liveMerchant]);
+    console.log(`[MerchantPortal] Total unique candidate products found: ${productsById.size}`);
+
+    const list = getProductsForMerchant(Array.from(productsById.values()), liveMerchant.id, liveMerchant.name);
+    
+    console.log(`[MerchantPortal] Products after filtering for merchant: ${list.length}`);
+
+    if (list.length === 0 && (liveMerchant.id || liveMerchant.name)) {
+      try {
+        const cacheKey = liveMerchant.id ? `merchant_cached_prods_${liveMerchant.id}` : `merchant_cached_prods_name_${normalizeName(liveMerchant.name)}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            console.log(`[MerchantPortal] Found ${parsed.length} products in localStorage cache`);
+            return getProductsForMerchant(parsed, liveMerchant.id, liveMerchant.name);
+          }
+        }
+      } catch (err) {
+        console.error('[MerchantPortal] Cache error:', err);
+      }
+    }
+
+    return list;
+  }, [activeStoreData, settings?.products, crossStoreProducts, liveMerchant]);
 
   // Orders Counts by Status for Filter Pills
   const orderStatusCounts = useMemo(() => {

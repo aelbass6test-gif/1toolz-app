@@ -14,7 +14,7 @@ import { generateSlug, getProductUrl } from '../utils/slugUtils';
 import { ProductImage } from './ProductImage';
 import { MediaLibraryModal } from './MediaLibraryModal';
 import { Images } from 'lucide-react';
-import { getProductsNeedingMerchantReview } from '../utils/merchantProducts';
+import { getProductsNeedingMerchantReview, productBelongsToMerchant } from '../utils/merchantProducts';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -774,9 +774,10 @@ const ProductsPage: React.FC<ProductsPageProps> = React.memo(({ settings, setSet
 
     if (filterMerchantId) {
       if (filterMerchantId === '__store_direct__') {
-        if (p.merchantId) return false;
+        if (p.merchantId || (Array.isArray(p.merchantIds) && p.merchantIds.length > 0)) return false;
       } else {
-        if (p.merchantId !== filterMerchantId) return false;
+        const merchantObj = (settings.suppliers || []).find(s => s.id === filterMerchantId) || (settings.partners || []).find(p => p.id === filterMerchantId);
+        if (!productBelongsToMerchant(p, filterMerchantId, merchantObj?.name)) return false;
       }
     }
 

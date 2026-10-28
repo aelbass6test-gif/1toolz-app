@@ -13,6 +13,7 @@ import * as db from '../services/databaseService';
 import { calculateMerchantTransparencyAnalytics } from '../utils/merchantAnalytics';
 import { inAppToast, inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 import { BulkOrderSettlementModal } from './BulkOrderSettlementModal';
+import { productBelongsToMerchant } from '../utils/merchantProducts';
 
 interface MerchantProfilePageProps {
   settings: Settings;
@@ -1002,7 +1003,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                      </div>
                      <div className="space-y-1">
                         <span className="text-[10px] font-bold text-slate-400">عدد المنتجات المسجلة:</span>
-                        <div className="text-lg font-black font-mono">{settings.products?.filter(p => p.merchantId === merchant.id).length || 0} <span className="text-[10px]">صنف</span></div>
+                        <div className="text-lg font-black font-mono">{settings.products?.filter(p => productBelongsToMerchant(p, merchant.id, merchant.name)).length || 0} <span className="text-[10px]">صنف</span></div>
                      </div>
                   </div>
                   <button 

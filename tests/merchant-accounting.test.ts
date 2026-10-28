@@ -64,7 +64,7 @@ assert.deepEqual((shared[0] as any).merchantAllocations, []);
 const finiteShared = getProductsForMerchant([{ id: 'p2', ownerType: 'shared', merchantIds: ['m1'], stockQuantity: 50, merchantAllocations: [{ merchantId: 'm1', stock: 3 }] }], 'm1');
 assert.equal((finiteShared[0] as any).stock, 3);
 assert.equal((finiteShared[0] as any).unlimitedStock, false);
-assert.equal(getProductsForMerchant([{ id: 'store-only', ownerType: 'store', stockQuantity: 50, merchantIds: ['m1'] }], 'm1').length, 0);
+assert.equal(getProductsForMerchant([{ id: 'store-only', ownerType: 'store', stockQuantity: 50, merchantIds: ['m1'] }], 'm1').length, 1);
 const explicit = migrateLegacyProductMerchantLinks([{ id: 'legacy', merchantName: 'Same Name' }], [{ id: 'm1', name: 'Same Name' }], []);
 assert.equal(explicit.migratedCount, 0);
 assert.equal((explicit.products[0] as any).merchantId, undefined);

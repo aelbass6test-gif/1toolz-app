@@ -58,6 +58,7 @@ import {
     SaveStoreDataResult,
     generateUniqueOrderId
 } from '../utils/syncIntegrity';
+import { normalizeMerchantLabel } from '../utils/merchantProducts';
 
 const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 
@@ -1418,6 +1419,8 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     } else if (table === 'cash_handovers') {
                         mappedItem = {
                             ...mappedItem,
+                            store_id: store.id,
+                            storeId: cleanItem.storeId || store.id,
                             from_user_id: cleanItem.fromUserId || cleanItem.from_user_id || '',
                             fromuserid: cleanItem.fromUserId || cleanItem.from_user_id || '',
                             from_user_name: cleanItem.fromUserName || cleanItem.from_user_name || '',
@@ -1433,7 +1436,11 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                             is_virtual: cleanItem.isVirtual !== undefined ? Boolean(cleanItem.isVirtual) : false,
                             isvirtual: cleanItem.isVirtual !== undefined ? Boolean(cleanItem.isVirtual) : false,
                             order_number: cleanItem.orderNumber || cleanItem.order_number || '',
-                            ordernumber: cleanItem.orderNumber || cleanItem.order_number || ''
+                            ordernumber: cleanItem.orderNumber || cleanItem.order_number || '',
+                            order_id: cleanItem.orderId || cleanItem.order_id || '',
+                            orderid: cleanItem.orderId || cleanItem.order_id || '',
+                            type: cleanItem.type || '',
+                            details: cleanItem.details || {}
                         };
                     } else if (table === 'partners') {
                         mappedItem = {
@@ -2055,6 +2062,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     console.warn('[SUPABASE-SYNC] Supabase is offline or unreachable. Keeping the write local; Firebase fallback is disabled while Supabase is active.');
                     return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا ولن يتم إرسالها إلى مصدر آخر.' };
                 } else {
+                    const isRlsError = syncErrors.some(e => e?.message?.toLowerCase?.().includes('row-level security') || e?.code === '42501');
+                    if (isRlsError) {
+                        return {
+                            success: false,
+                            error: 'حدث خطأ في صلاحيات الجداول (RLS). يرجى نسخ سكربت قاعدة البيانات من إعدادات المطور وتشغيله في Supabase SQL Editor لتعطيل الحماية وتفعيل المزامنة.'
+                        };
+                    }
                     return { 
                         success: false, 
                         error: isSchemaError 
@@ -3665,38 +3679,21 @@ export const getAllStoresSettings = async (): Promise<Record<string, any>> => {
  */
 export const getMerchantAllocatedProducts = async (merchantId: string, merchantName?: string): Promise<Product[]> => {
     const prodsMap = new Map<string, Product>();
-
-    const robustNormalize = (name: string): string => {
-        if (!name) return '';
-        let normalized = name.trim().replace(/\s+/g, ' ');
-        normalized = normalized.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)/gi, '');
-        normalized = normalized.replace(/عبد\s+/g, 'عبد');
-        normalized = normalized.replace(/ابو\s+/g, 'ابو');
-        normalized = normalized.replace(/بن\s+/g, 'بن');
-        return normalized
-            .replace(/[أإآ]/g, 'ا')
-            .replace(/ة/g, 'ه')
-            .replace(/ى/g, 'ي')
-            .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
-            .replace(/ـ+/g, '') // remove tatweel
-            .toLowerCase()
-            .trim();
-    };
-
-    const mName = merchantName ? robustNormalize(merchantName) : '';
+    const mName = merchantName ? normalizeMerchantLabel(merchantName) : '';
     const mId = merchantId ? String(merchantId).trim().toLowerCase() : '';
+    
+    if (!mId && !mName) return [];
+
     const candidateIds = new Set<string>();
     if (mId) candidateIds.add(mId);
 
-    // 1. Efficient query via Firestore "products" collection if using merchantIds array
+    // 1. Efficient query via Firestore "products" collection
     if (firebaseDb && mId) {
         try {
-            // Search by primary merchantId
             const q1 = query(collection(firebaseDb, 'products'), where('merchantId', '==', mId));
             const snap1 = await getDocs(q1);
             snap1.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
 
-            // Search by shared merchantIds array
             const q2 = query(collection(firebaseDb, 'products'), where('merchantIds', 'array-contains', mId));
             const snap2 = await getDocs(q2);
             snap2.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
@@ -3707,26 +3704,48 @@ export const getMerchantAllocatedProducts = async (merchantId: string, merchantN
 
     // 2. Efficient query via Supabase if active
     const supabase = getSupabaseClient();
-    if (supabase && mId) {
+    if (supabase) {
         try {
-            const { data, error } = await supabase.from('products').select('*').or(`merchant_id.eq.${mId},merchantId.eq.${mId}`);
-            if (!error && data) {
-                data.forEach(p => prodsMap.set(p.id, p as Product));
+            // A. Search by explicit ID columns
+            if (mId) {
+                const { data, error } = await supabase.from('products').select('*').or(`merchant_id.eq.${mId},merchantId.eq.${mId}`);
+                if (!error && data) {
+                    data.forEach(p => prodsMap.set(p.id, p as Product));
+                }
+            }
+
+            // B. Search by merchant name inside the details JSONB column
+            // We use keyword search for common merchant fields to be thorough
+            if (mName) {
+                // Fetch products where merchantName or merchant_name matches
+                const { data: nameData, error: nameError } = await supabase
+                    .from('products')
+                    .select('*')
+                    .or(`details->>merchantName.ilike.%${mName}%,details->>merchant_name.ilike.%${mName}%`);
+                
+                if (!nameError && nameData) {
+                    nameData.forEach(p => {
+                        const pMName = normalizeMerchantLabel(p.merchantName || p.merchant_name || p.details?.merchantName || p.details?.merchant_name || '');
+                        if (pMName && (pMName === mName || pMName.includes(mName) || mName.includes(pMName))) {
+                            prodsMap.set(p.id, p as Product);
+                        }
+                    });
+                }
             }
         } catch (err) {
              console.warn('[DB] Supabase products query failed:', err);
         }
     }
 
-    // 3. Fallback: Full scan of all store settings (local + cloud)
+    // 3. Fallback: Full scan of all store settings (handles local data and settings-embedded products)
     const allSettings = await getAllStoresSettings();
 
-    // First, harvest all candidate IDs matching merchant name across all store partners & suppliers
+    // Harvest all candidate IDs matching merchant name across all store partners & suppliers to expand ID search
     Object.values(allSettings).forEach(st => {
         const sups = Array.isArray(st?.suppliers) ? st.suppliers : [];
         const parts = Array.isArray(st?.partners) ? st.partners : [];
         [...sups, ...parts].forEach((e: any) => {
-            const eName = robustNormalize(e?.name || '');
+            const eName = normalizeMerchantLabel(e?.name || '');
             if (mName && eName && (eName === mName || eName.includes(mName) || mName.includes(eName))) {
                 if (e?.id) candidateIds.add(String(e.id).trim().toLowerCase());
             }
@@ -3739,15 +3758,16 @@ export const getMerchantAllocatedProducts = async (merchantId: string, merchantN
             if (prodsMap.has(p.id)) return;
 
             const pMId = String(p.merchantId || p.supplierId || '').trim().toLowerCase();
-            const pMName = robustNormalize(p.merchantName || p.supplierName || '');
+            const pMName = normalizeMerchantLabel(p.merchantName || p.supplierName || '');
+            
             const hasInIds = Array.isArray(p.merchantIds) && p.merchantIds.some((id: any) => candidateIds.has(String(id).trim().toLowerCase()));
             const hasInAllocations = Array.isArray(p.merchantAllocations) && p.merchantAllocations.some((a: any) => {
                 const aId = String(a.merchantId || '').trim().toLowerCase();
-                const aName = robustNormalize(a.merchantName || '');
-                return (aId && candidateIds.has(aId)) || (mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
+                const aName = normalizeMerchantLabel(a.merchantName || '');
+                return (aId && (candidateIds.has(aId) || (mId && aId === mId))) || (mName && aName && (aName === mName || aName.includes(mName) || mName.includes(aName)));
             });
 
-            const matchPrimaryId = Boolean(pMId && candidateIds.has(pMId));
+            const matchPrimaryId = Boolean(mId && pMId && (pMId === mId || candidateIds.has(pMId)));
             const matchPrimaryName = Boolean(mName && pMName && (pMName === mName || pMName.includes(mName) || mName.includes(pMName)));
 
             if (matchPrimaryId || matchPrimaryName || hasInIds || hasInAllocations) {
