@@ -2379,15 +2379,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       });
     }
     if (inventoryStockFilter === 'available') {
-      list = list.filter(p => Boolean((p as any).unlimitedStock) || Number(p.stock || p.quantity || 0) > 0);
+      list = list.filter(p => {
+        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+        const isUnlimited = Boolean((p as any).unlimitedStock) || (Boolean((p as any).isSharedProduct || p.isAllocatedConsignment) && isStockEmpty);
+        return isUnlimited || Number(p.stock || p.quantity || 0) > 0;
+      });
     } else if (inventoryStockFilter === 'low') {
       list = list.filter(p => {
-        if ((p as any).unlimitedStock) return false;
+        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+        const isUnlimited = Boolean((p as any).unlimitedStock) || (Boolean((p as any).isSharedProduct || p.isAllocatedConsignment) && isStockEmpty);
+        if (isUnlimited) return false;
         const s = Number(p.stock || p.quantity || 0);
         return s > 0 && s <= 5;
       });
     } else if (inventoryStockFilter === 'out') {
-      list = list.filter(p => !(p as any).unlimitedStock && Number(p.stock || p.quantity || 0) <= 0);
+      list = list.filter(p => {
+        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+        const isUnlimited = Boolean((p as any).unlimitedStock) || (Boolean((p as any).isSharedProduct || p.isAllocatedConsignment) && isStockEmpty);
+        return !isUnlimited && Number(p.stock || p.quantity || 0) <= 0;
+      });
     }
     return list;
   }, [merchantProducts, inventorySearch, inventoryStockFilter]);
@@ -8194,6 +8204,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const stock = Number(p.stock || p.quantity || 0);
                         const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
                         const sharedReadOnly = Boolean((p as any).isSharedProduct);
+                        // A product is unlimited if explicitly flagged OR if it is shared/allocated AND the stock field is left empty
                         const unlimited = Boolean((p as any).unlimitedStock) || (sharedReadOnly && isStockEmpty) || (p.isAllocatedConsignment && isStockEmpty);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
                         const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));

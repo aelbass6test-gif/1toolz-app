@@ -18,6 +18,7 @@ import {
   TransparencyOrderRow,
   TransparencyFilterOptions
 } from '../utils/merchantAnalytics';
+import { printModernMerchantTransparencyReport } from '../utils/modernMerchantAnalytics';
 import { inAppToast } from '../utils/inAppAlert';
 
 interface MerchantTransparencyTabProps {
@@ -152,7 +153,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
   // Action: Print Report
   const handlePrint = () => {
     try {
-      printMerchantTransparencyReport(analytics, settings.storeName || 'متجري');
+      printModernMerchantTransparencyReport(analytics, settings.storeName || 'متجري');
     } catch (e: any) {
       inAppToast('حدث خطأ أثناء تجهيز الطباعة: ' + (e?.message || ''), 'error');
     }
