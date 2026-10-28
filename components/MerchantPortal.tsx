@@ -2043,6 +2043,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     return merchantProducts.reduce((sum, p) => sum + Number(p.stock || p.quantity || p.inventory || 0), 0);
   }, [merchantProducts]);
 
+  const unlimitedProductCount = useMemo(() =>
+    merchantProducts.filter(product => Boolean((product as any).unlimitedStock)).length,
+  [merchantProducts]);
+
   // Memoized Customers List derived from merchant orders
   const customersList = useMemo(() => {
     const map = new Map<string, {
@@ -2323,14 +2327,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       });
     }
     if (inventoryStockFilter === 'available') {
-      list = list.filter(p => Number(p.stock || p.quantity || 0) > 0);
+      list = list.filter(p => Boolean((p as any).unlimitedStock) || Number(p.stock || p.quantity || 0) > 0);
     } else if (inventoryStockFilter === 'low') {
       list = list.filter(p => {
+        if ((p as any).unlimitedStock) return false;
         const s = Number(p.stock || p.quantity || 0);
         return s > 0 && s <= 5;
       });
     } else if (inventoryStockFilter === 'out') {
-      list = list.filter(p => Number(p.stock || p.quantity || 0) <= 0);
+      list = list.filter(p => !(p as any).unlimitedStock && Number(p.stock || p.quantity || 0) <= 0);
     }
     return list;
   }, [merchantProducts, inventorySearch, inventoryStockFilter]);
@@ -2373,12 +2378,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
 
     const qty = Math.max(1, Number(orderQuantity) || 1);
-    const availableStock = Number(
+    const unlimitedStock = Boolean((selectedProd as any).unlimitedStock);
+    const availableStock = unlimitedStock ? Number.POSITIVE_INFINITY : Number(
       (selectedProd as any).stockQuantity ?? (selectedProd as any).stock ?? (selectedProd as any).quantity ?? 0
     );
 
-    // Audit Fix #9: Reject order when requested quantity exceeds available stock instead of silently clamping to 0
-    if (qty > availableStock) {
+    // Blank shared allocation means unlimited; a numeric allocation remains strictly enforced.
+    if (!unlimitedStock && qty > availableStock) {
       showToast(
         `الكمية المطلوبة (${qty}) أكبر من الرصيد المتاح في المخزون (${availableStock} قطعة). لا يمكن إنشاء الطلب بكمية تتجاوز المتاح.`,
         'error'
@@ -2449,7 +2455,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             price: unitPrice,
             costPrice: unitCost,
             merchantId: liveMerchant.id,
-            merchantName: liveMerchant.name
+            merchantName: liveMerchant.name,
+            ownerType: selectedProd.ownerType || 'merchant'
           }
         ]
       };
@@ -2464,6 +2471,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       // Deduct validated inventory
       const updatedProducts = (activeStoreData?.settings?.products || []).map((p: any) => {
+        if (p.id === selectedProd.id && unlimitedStock) return p;
+        if (p.id === selectedProd.id && p.ownerType === 'shared') {
+          const merchantAllocations = (Array.isArray(p.merchantAllocations) ? p.merchantAllocations : []).map((allocation: any) =>
+            allocation.merchantId === liveMerchant.id && allocation.stock !== null && allocation.stock !== undefined
+              ? { ...allocation, stock: Math.max(0, Number(allocation.stock) - qty) }
+              : allocation
+          );
+          return { ...p, merchantAllocations, updatedAt: nowIso, version: Number(p.version || 0) + 1 };
+        }
         if (p.id === selectedProd.id) {
           const currentStock = Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0);
           const nextStock = currentStock - qty;
@@ -4171,7 +4187,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     wallet: { title: 'المحفظة والدورة المالية', subtitle: 'الرصيد الحالي، قائمة المعاملات، والدورة المالية للشحنات' },
     orders: { title: 'الأوردرات المنشأة', subtitle: `متابعة جميع الأوردرات المنشأة لحسابك (${merchantOrders.length} أوردر)` },
     create_order: { title: 'إنشاء أوردر جديد', subtitle: 'استوديو تسجيل وشحن أوردرات الوكيل' },
-    inventory: { title: 'مخزون بضاعتي', subtitle: `متابعة ${merchantProducts.length} صنف و ${totalStockUnits} قطعة بالمستودع` },
+    inventory: { title: 'مخزون بضاعتي', subtitle: `متابعة ${merchantProducts.length} صنف · ${totalStockUnits} قطعة محددة · ${unlimitedProductCount} متاح دائمًا` },
     analytics: { title: 'تحليل الأصناف والمحافظات', subtitle: 'ترتيب المنتجات الأكثر ربحية ونسب التسليم' },
     customers: { title: 'إدارة العملاء والمشترين', subtitle: `سجل العملاء، بيانات الاتصال، وإحصائيات لـ ${uniqueCustomersCount} عميل` },
     apps: { title: 'التطبيقات والربط الآلي', subtitle: 'ربط شركات الشحن (بوسطة)، إشعارات الواتساب، وتكامل المخزون والـ Webhooks' },
@@ -5351,7 +5367,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         بضاعة الأمانة بالمخزن ({merchantProducts.length})
                       </h4>
                       <p className="text-xs text-zinc-400">
-                        إجمالي {overviewStats.totalStockUnits} قطعة متوفرة حالياً
+                        إجمالي {overviewStats.totalStockUnits} قطعة محددة · {unlimitedProductCount} صنف متاح دائمًا
                       </p>
                     </div>
                     <button
@@ -5371,6 +5387,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   ) : (
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800 max-h-60 overflow-y-auto pr-1">
                       {merchantProducts.map((p, idx) => {
+                        const unlimited = Boolean((p as any).unlimitedStock);
                         const stock = Number(p.stock || p.quantity || p.inventory || 0);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || p.supplierPrice || 0);
                         return (
@@ -5380,15 +5397,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 {p.name || p.title || 'منتج أمانة'}
                               </div>
                               <div className="text-[11px] text-zinc-400 font-mono">
-                                تكلفة القطعة: {formatMoney(cost)}
+                                {(p as any).isSharedProduct && cost <= 0 ? 'منتج مشترك — عرض فقط' : `تكلفة القطعة: ${formatMoney(cost)}`}
                               </div>
                             </div>
                             <div className="text-left shrink-0">
                               <div className="font-mono tabular-nums font-black text-[#00ab84]">
-                                {stock} قطعة
+                                {unlimited ? 'متاح دائمًا' : `${stock} قطعة`}
                               </div>
                               <div className="text-[10px] font-mono text-zinc-400">
-                                {formatMoney(stock * cost)}
+                                {unlimited || cost <= 0 ? '—' : formatMoney(stock * cost)}
                               </div>
                             </div>
                           </div>
@@ -7545,7 +7562,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               <div className="text-[11px] font-bold text-zinc-400">
-                أصناف بضاعتك بالمستودع: <span className="font-black text-[#00ab84]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة متاحة)
+                أصناف بضاعتك بالمستودع: <span className="font-black text-[#00ab84]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة محددة · {unlimitedProductCount} متاح دائمًا)
               </div>
             </div>
 
@@ -7695,7 +7712,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           اختيار الصنف والتسعير
                         </h3>
                         <p className="text-xs text-zinc-400">
-                          اختر الصنف المتوفر ببضاعتك في المستودع
+                          اختر الصنف المخصص لك أو المتاح دائمًا
                         </p>
                       </div>
                     </div>
@@ -7720,10 +7737,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           >
                             <option value="">-- اختر المنتج من مخزونك --</option>
                             {merchantProducts.map(p => {
+                              const unlimited = Boolean((p as any).unlimitedStock);
                               const stock = Number(p.stock || p.quantity || 0);
                               return (
-                                <option key={p.id} value={p.id} disabled={stock <= 0}>
-                                  {p.name || p.title} (المتبقي: {stock} قطعة) {stock <= 0 ? '❌ نفد' : ''}
+                                <option key={p.id} value={p.id} disabled={!unlimited && stock <= 0}>
+                                  {p.name || p.title} {unlimited ? '(متاح دائمًا)' : `(المتبقي: ${stock} قطعة)`} {!unlimited && stock <= 0 ? '❌ نفد' : ''}
                                 </option>
                               );
                             })}
@@ -7738,7 +7756,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             <input
                               type="number"
                               min={1}
-                              max={orderProductId ? Number(merchantProducts.find(p => p.id === orderProductId)?.stock || 10) : 100}
+                              max={orderProductId && !(merchantProducts.find(p => p.id === orderProductId) as any)?.unlimitedStock
+                                ? Number(merchantProducts.find(p => p.id === orderProductId)?.stock || 0) || undefined
+                                : undefined}
                               value={orderQuantity}
                               onChange={e => setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
                               className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
@@ -7757,6 +7777,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               value={orderSellingPrice}
                               onChange={e => setOrderSellingPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
                               placeholder="سعر البيع"
+                              disabled={(merchantProducts.find(p => p.id === orderProductId) as any)?.isSharedProduct}
                               className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
                                 isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                               }`}
@@ -7985,7 +8006,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       مخزون بضاعة الأمانة بالمستودع ({merchantProducts.length} صنف)
                     </h3>
                     <p className="text-xs text-zinc-400 mt-0.5">
-                      متابعة حية لكميات الأصناف المودعة، والقطع المحجوزة في أوردرات الطريق، وتقييم رأس المال بسعر التكلفة
+                      متابعة المنتجات المخصصة والمشتركة؛ الخانة الفارغة تعني متاحًا دائمًا، ولا تعرض مخزون المتجر العام
                     </p>
                   </div>
                 </div>
@@ -8013,7 +8034,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* 4 Financial & Unit Inventory Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 pt-5">
                 <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
-                  <span className="text-[11px] font-bold text-zinc-400 block mb-1">إجمالي القطع بالمخزن</span>
+                  <span className="text-[11px] font-bold text-zinc-400 block mb-1">إجمالي القطع ذات الكمية المحددة</span>
                   <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-zinc-900 dark:text-white">
                     {totalStockUnits} <span className="text-xs font-bold text-zinc-400">قطعة</span>
                   </div>
@@ -8036,7 +8057,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-amber-50/70 border-amber-200'}`}>
                   <span className="text-[11px] font-bold text-amber-600 block mb-1">أصناف قاربت على النفاد (&le; 5)</span>
                   <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-amber-600">
-                    {merchantProducts.filter(p => Number(p.stock || p.quantity || 0) <= 5).length} <span className="text-xs font-bold text-amber-500">صنف</span>
+                    {merchantProducts.filter(p => !(p as any).unlimitedStock && Number(p.stock || p.quantity || 0) <= 5).length} <span className="text-xs font-bold text-amber-500">صنف</span>
                   </div>
                 </div>
               </div>
@@ -8118,6 +8139,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </tr>
                     ) : (
                       filteredConsignmentProducts.map(p => {
+                        const unlimited = Boolean((p as any).unlimitedStock);
+                        const sharedReadOnly = Boolean((p as any).isSharedProduct);
                         const stock = Number(p.stock || p.quantity || 0);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
                         const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));
@@ -8148,7 +8171,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                         📦 رصيد أمانة مخصص لك: {stock} قطعة (تكلفة: {formatMoney(cost)})
                                       </span>
                                     )}
-                                    {!p.isAllocatedConsignment && (
+                                    {sharedReadOnly && (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                        منتج مشترك · عرض فقط
+                                      </span>
+                                    )}
+                                    {!p.isAllocatedConsignment && !sharedReadOnly && (
                                       <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                         👑 الموكل الرئيسي
                                       </span>
@@ -8174,13 +8202,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               </div>
                             </td>
                             <td className="py-4 px-4 text-center">
-                              <span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-zinc-400">قطعة</span>
+                              {unlimited ? <span className="text-xs font-black text-emerald-600">— <span className="text-[10px] text-zinc-400">بلا حد</span></span> : <><span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-zinc-400">قطعة</span></>}
                             </td>
                             <td className="py-4 px-4 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300">
-                              {formatMoney(val)}
+                              {unlimited || (sharedReadOnly && cost <= 0) ? '—' : formatMoney(val)}
                             </td>
                             <td className="py-4 px-4 text-center">
-                              {stock <= 0 ? (
+                              {unlimited ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-[#00ab84]">
+                                  متاح دائمًا · مشترك
+                                </span>
+                              ) : stock <= 0 ? (
                                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-500/10 text-rose-500">
                                   نفد من المخزن
                                 </span>
@@ -8196,6 +8228,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             </td>
                             <td className="py-4 px-4 text-center">
                               <div className="flex items-center justify-center gap-1.5">
+                                {sharedReadOnly ? <span className="text-[10px] font-bold text-zinc-400">قراءة فقط</span> : <>
                                 <button
                                   type="button"
                                   onClick={() => handleOpenPricingModal(p)}
@@ -8212,6 +8245,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 >
                                   تعديل
                                 </button>
+                                </>}
                               </div>
                             </td>
                           </tr>

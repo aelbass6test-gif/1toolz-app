@@ -3302,7 +3302,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                                                             updatedAlloc.push({
                                                                                 merchantId: m.id,
                                                                                 merchantName: m.name,
-                                                                                stock: 10,
+                                                                                stock: null,
                                                                                 costPrice: Number(productData.costPrice) || 0,
                                                                                 sellingPrice: Number(productData.price) || 0
                                                                             });
@@ -3331,6 +3331,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                                             <span>📦</span>
                                                             <span>تفاصيل رصيد بضاعة الأمانة وسعر التكلفة لكل وكيل مشترك:</span>
                                                         </div>
+                                                        <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">اترك رصيد الأمانة فارغًا ليظهر المنتج للوكيل كمتاح دائمًا. الرقم المحدد يضع حدًا لكمية الوكيل ولا يكشف مخزون المتجر.</p>
                                                         <div className="grid grid-cols-1 gap-2.5">
                                                             {currentAllocations.map((alloc, idx) => (
                                                                 <div 
@@ -3357,15 +3358,15 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                                                                             <input
                                                                                 type="number"
                                                                                 min="0"
-                                                                                value={alloc.stock ?? 0}
+                                                                                value={alloc.stock ?? ''}
                                                                                 onChange={e => {
-                                                                                    const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                                                                    const val = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0);
                                                                                     const updated = [...currentAllocations];
                                                                                     updated[idx] = { ...updated[idx], stock: val };
                                                                                     updateField("merchantAllocations", updated);
                                                                                 }}
                                                                                 className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-black"
-                                                                                placeholder="0"
+                                                                                placeholder="فارغ = متاح دائمًا"
                                                                             />
                                                                         </div>
 

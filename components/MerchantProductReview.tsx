@@ -37,7 +37,7 @@ export default function MerchantProductReview({ settings, updateSettings }: Prop
           ? (allocations.some(allocation => allocation.merchantId === choice.merchantId) ? allocations : [...allocations, {
               merchantId: choice.merchantId,
               merchantName: merchant?.name,
-              stock: 0,
+              stock: null,
               costPrice: Number(product.costPrice) || 0,
               sellingPrice: Number(product.price) || 0
             }])

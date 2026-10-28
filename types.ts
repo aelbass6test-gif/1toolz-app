@@ -202,7 +202,7 @@ export interface Product {
   thumbnail?: string;
   images?: string[];
   inStock?: boolean;
-  stock?: number;
+  stock?: number | null;
   stockQuantity: number | null;
   warehouseStock?: Record<string, number>; // New field for multi-warehouse stock
   collectionId?: string; 
@@ -233,7 +233,7 @@ export interface Product {
 export interface MerchantStockAllocation {
   merchantId: string;
   merchantName?: string;
-  stock: number;         // رصيد بضاعة الأمانة الخاص بهذا الموكل (عدد القطع)
+  stock: number | null;  // null/فارغ = متاح دائمًا؛ الرقم المحدد = رصيد مخصص محدود
   costPrice?: number;    // سعر التكلفة الخاص بهذا الموكل (ج.م)
   sellingPrice?: number; // سعر البيع المقترح
   notes?: string;

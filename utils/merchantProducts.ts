@@ -229,23 +229,46 @@ export const getProductsForMerchant = <T extends Partial<Product> | any>(
     .map(product => {
       const sourceProduct = product as any;
       const allocation = getMerchantAllocation(product, targetId);
+      const isShared = sourceProduct.ownerType === 'shared';
+      const sharedCost = Number(allocation?.costPrice ?? sourceProduct.merchantCostPrice ?? 0) || 0;
+      const sharedSafeFields = isShared ? {
+        merchantId: targetId,
+        merchantIds: [targetId],
+        merchantName: allocation?.merchantName || targetId,
+        merchantAllocations: allocation ? [allocation] : [],
+        cost: sharedCost,
+        wholesalePrice: undefined,
+        supplierPrice: undefined,
+        warehouseStock: undefined,
+        variants: Array.isArray(sourceProduct.variants)
+          ? sourceProduct.variants.map((variant: any) => ({ ...variant, stock: null, stockQuantity: null, warehouseStock: undefined }))
+          : sourceProduct.variants
+      } : {};
       if (!allocation) {
-        const stock = sourceProduct.ownerType === 'shared' ? 0 : getNumericStock(product);
+        const stock = isShared ? null : getNumericStock(product);
         return {
           ...sourceProduct,
+          ...sharedSafeFields,
           stock,
           stockQuantity: stock,
-          costPrice: Number(sourceProduct.costPrice ?? sourceProduct.cost ?? 0) || 0
+          ...(isShared ? { quantity: null, inventory: null, inStock: true, unlimitedStock: true, isSharedProduct: true } : {}),
+          costPrice: isShared ? sharedCost : Number(sourceProduct.costPrice ?? sourceProduct.cost ?? 0) || 0
         } as T;
       }
 
-      const stock = Number(allocation.stock ?? 0) || 0;
+      const unlimitedStock = isShared && (allocation.stock == null || String(allocation.stock).trim() === '');
+      const stock = unlimitedStock ? null : Number(allocation.stock) || 0;
       return {
         ...sourceProduct,
+        ...sharedSafeFields,
         stock,
         stockQuantity: stock,
         quantity: stock,
-        costPrice: Number(allocation.costPrice ?? sourceProduct.costPrice ?? 0) || 0,
+        inventory: stock,
+        inStock: unlimitedStock || stock > 0,
+        unlimitedStock,
+        isSharedProduct: isShared,
+        costPrice: Number(allocation.costPrice ?? (isShared ? sourceProduct.merchantCostPrice : sourceProduct.costPrice) ?? 0) || 0,
         price: Number(allocation.sellingPrice ?? sourceProduct.price ?? 0) || 0,
         isAllocatedConsignment: true,
         merchantAllocation: allocation
