@@ -2056,6 +2056,7 @@ export interface MerchantSettlement {
   totalCarrierAdditionalFees?: number; // تأمين/معاينة/ضريبة/رسوم شركة إضافية
   totalReturnLosses?: number;        // إجمالي تكلفة الطلبات المرتجعة والفاشلة
   totalOperatorEarnings?: number;    // عمولة مقدم الخدمة/التشغيل
+  transferReference?: string;       // رقم المرجع البنكي / التحويل
   orderSnapshots?: MerchantSettlementOrderSnapshot[]; // لقطة ثابتة تحفظ التقرير تاريخياً
 }
 
