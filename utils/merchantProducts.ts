@@ -263,7 +263,7 @@ export const getProductsForMerchant = <T extends Partial<Product> | any>(
     .map(product => {
       const sourceProduct = product as any;
       const allocation = getMerchantAllocation(product, targetId, merchantName);
-      const isShared = sourceProduct.ownerType === 'shared';
+      const isShared = sourceProduct.ownerType === 'shared' || (Array.isArray(sourceProduct.merchantAllocations) && sourceProduct.merchantAllocations.length > 0);
       const sharedCost = Number(allocation?.costPrice ?? sourceProduct.merchantCostPrice ?? 0) || 0;
       const sharedSafeFields = isShared ? {
         merchantId: targetId,
@@ -290,7 +290,7 @@ export const getProductsForMerchant = <T extends Partial<Product> | any>(
         } as T;
       }
 
-      const unlimitedStock = isShared && (allocation.stock == null || String(allocation.stock).trim() === '');
+      const unlimitedStock = (allocation.stock == null || String(allocation.stock).trim() === '');
       const stock = unlimitedStock ? null : Number(allocation.stock) || 0;
       return {
         ...sourceProduct,
@@ -301,7 +301,7 @@ export const getProductsForMerchant = <T extends Partial<Product> | any>(
         inventory: stock,
         inStock: unlimitedStock || stock > 0,
         unlimitedStock,
-        isSharedProduct: isShared,
+        isSharedProduct: true,
         costPrice: Number(allocation.costPrice ?? (isShared ? sourceProduct.merchantCostPrice : sourceProduct.costPrice) ?? 0) || 0,
         price: Number(allocation.sellingPrice ?? sourceProduct.price ?? 0) || 0,
         isAllocatedConsignment: true,

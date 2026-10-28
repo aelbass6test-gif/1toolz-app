@@ -8191,9 +8191,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       </tr>
                     ) : (
                       filteredConsignmentProducts.map(p => {
-                        const unlimited = Boolean((p as any).unlimitedStock);
-                        const sharedReadOnly = Boolean((p as any).isSharedProduct);
                         const stock = Number(p.stock || p.quantity || 0);
+                        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+                        const sharedReadOnly = Boolean((p as any).isSharedProduct);
+                        const unlimited = Boolean((p as any).unlimitedStock) || (sharedReadOnly && isStockEmpty) || (p.isAllocatedConsignment && isStockEmpty);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
                         const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));
                         const val = stock * cost;
