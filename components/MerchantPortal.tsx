@@ -813,6 +813,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const [savedBeneficiaryName, setSavedBeneficiaryName] = useState('');
   const [isSavingPayoutAccounts, setIsSavingPayoutAccounts] = useState(false);
 
+  // Basic Info States
+  const [editMerchantName, setEditMerchantName] = useState('');
+  const [editMerchantEmail, setEditMerchantEmail] = useState('');
+  const [editMerchantPhone, setEditMerchantPhone] = useState('');
+  const [isSavingBasicInfo, setIsSavingBasicInfo] = useState(false);
+
   // Receipt Image Preview Lightbox
   const [previewReceiptImage, setPreviewReceiptImage] = useState<string | null>(null);
 
@@ -1213,7 +1219,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
   }, [orderGovernorate]);
 
-  // Sync saved payout accounts when liveMerchant changes
+  // Sync saved payout accounts & basic info when liveMerchant changes
   useEffect(() => {
     if (liveMerchant) {
       const pa = liveMerchant.payoutAccounts || {};
@@ -1222,6 +1228,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       setSavedBankName(pa.bankName || '');
       setSavedBankAccount(pa.bankAccount || '');
       setSavedBeneficiaryName(pa.beneficiaryName || liveMerchant.name || '');
+      
+      // Basic Info Sync
+      setEditMerchantName(liveMerchant.name || '');
+      setEditMerchantEmail(liveMerchant.email || '');
+      setEditMerchantPhone(liveMerchant.phone || '');
     }
   }, [liveMerchant]);
 
@@ -1263,6 +1274,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   // Helper to persist payoutAccounts, passcode, subscriptionPlan, managerPlan, pendingPlanRequest, planCyclesHistory, scheduledNextPlan, payoutFrequency, weeklyPayoutDay, or wallet balance changes for the authenticated merchant
   const persistMerchantAccountUpdates = useCallback(async (updates: {
+    name?: string;
+    email?: string;
+    phone?: string;
     passcode?: string;
     payoutAccounts?: Partner['payoutAccounts'];
     subscriptionPlan?: MerchantSubscriptionConfig;
@@ -1291,6 +1305,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
     const applyPatch = (entity: any) => ({
       ...entity,
+      ...(updates.name !== undefined ? { name: updates.name } : {}),
+      ...(updates.email !== undefined ? { email: updates.email } : {}),
+      ...(updates.phone !== undefined ? { phone: updates.phone } : {}),
       ...(updates.passcode !== undefined ? { passcode: updates.passcode } : {}),
       ...(updates.payoutAccounts !== undefined ? { payoutAccounts: updates.payoutAccounts } : {}),
       ...(updates.subscriptionPlan !== undefined ? { subscriptionPlan: updates.subscriptionPlan } : {}),
@@ -1410,6 +1427,38 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       showToast('تعذر حفظ حسابات الدفع: ' + (err.message || ''), 'error');
     } finally {
       setIsSavingPayoutAccounts(false);
+    }
+  };
+
+  const handleSaveBasicInfo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!liveMerchant) return;
+    
+    const name = editMerchantName.trim();
+    const email = editMerchantEmail.trim().toLowerCase();
+    const phone = editMerchantPhone.trim();
+
+    if (!name) {
+      showToast('يرجى إدخال الاسم', 'error');
+      return;
+    }
+
+    setIsSavingBasicInfo(true);
+    try {
+      const success = await persistMerchantAccountUpdates({
+        name,
+        email,
+        phone
+      });
+      if (success) {
+        showToast('تم تحديث البيانات الأساسية بنجاح', 'success');
+      } else {
+        showToast('تعذر تحديث البيانات', 'error');
+      }
+    } catch (err: any) {
+      showToast('حدث خطأ أثناء الحفظ', 'error');
+    } finally {
+      setIsSavingBasicInfo(false);
     }
   };
 
@@ -9832,6 +9881,74 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
            ========================================================= */}
         {currentTab === 'account' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            
+            {/* Basic Profile Info Card */}
+            <div className={`rounded-3xl p-5 sm:p-6 border space-y-5 lg:col-span-2 ${
+              isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
+            }`}>
+              <div className={`flex items-center gap-3 border-b pb-4 ${isDark ? 'border-zinc-800' : 'border-zinc-100'}`}>
+                <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-[#00ab84] flex items-center justify-center font-black">
+                  <Users size={22} />
+                </div>
+                <div>
+                  <h3 className={`font-black text-base ${isDark ? 'text-white' : 'text-zinc-900'}`}>
+                    البيانات الأساسية للموكل
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    تعديل اسم العلامة التجارية، البريد الإلكتروني ورقم الهاتف المسجل
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveBasicInfo} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-bold">
+                <div>
+                  <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>الاسم / اسم المحل</label>
+                  <input
+                    type="text"
+                    value={editMerchantName}
+                    onChange={e => setEditMerchantName(e.target.value)}
+                    placeholder="اسم الموكل بالكامل"
+                    className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>البريد الإلكتروني</label>
+                  <input
+                    type="email"
+                    value={editMerchantEmail}
+                    onChange={e => setEditMerchantEmail(e.target.value)}
+                    placeholder="email@example.com"
+                    className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#00ab84] ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                    }`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className={`block ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>رقم الهاتف</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={editMerchantPhone}
+                      onChange={e => setEditMerchantPhone(e.target.value)}
+                      placeholder="010XXXXXXXX"
+                      className={`flex-1 p-3.5 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
+                        isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                      }`}
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSavingBasicInfo}
+                      className="px-6 bg-[#00ab84] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {isSavingBasicInfo ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                      <span>{isSavingBasicInfo ? 'حفظ...' : 'حفظ'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
             
             {/* Saved Payout Accounts Card */}
             <div className={`rounded-3xl p-5 sm:p-6 border space-y-5 ${
