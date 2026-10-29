@@ -8,6 +8,7 @@ workers_dev = true
 [assets]
 directory = "../dist"
 binding = "ASSETS"
+not_found_handling = "single-page-application"
 
 [[r2_buckets]]
 binding = "R2_IMAGES"

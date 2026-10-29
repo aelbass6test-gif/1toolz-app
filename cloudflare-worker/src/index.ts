@@ -347,16 +347,10 @@ async function proxyBackendRequest(request: Request, env: Env): Promise<Response
 }
 
 async function serveAssets(request: Request, env: Env): Promise<Response> {
-  const asset = await env.ASSETS.fetch(request);
-  if (asset.status !== 404) return asset;
-
-  // Client-side routes resolve to the Vite entry point, but API misses remain
-  // JSON responses and never receive index.html.
-  const url = new URL(request.url);
-  if (request.method === "GET" && !url.pathname.startsWith("/api/")) {
-    return env.ASSETS.fetch(new Request(new URL("/index.html", request.url), request));
-  }
-  return asset;
+  // Cloudflare's Static Assets layer owns SPA fallback and missing-asset
+  // handling via not_found_handling="single-page-application". Do not rewrite
+  // every missing GET to index.html: doing so masks missing JS/CSS files.
+  return env.ASSETS.fetch(request);
 }
 
 function bostaHeaders(key: string, content = false): Record<string, string> {
