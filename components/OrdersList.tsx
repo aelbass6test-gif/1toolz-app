@@ -3230,6 +3230,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       return nextSettings;
     });
 
+    // 2. Update State
+    const { updatedOrderData: financialUpdatedOrder, newTransactions } =
+      processFinancialsForStatusChange(orderWithFlexShip, newStatus);
+
     const nowIso = new Date().toISOString();
     const updatedOrderData = { 
       ...financialUpdatedOrder, 

@@ -24,6 +24,7 @@ import { SupplyOrderModal } from './SupplyOrderModal';
 import { SupplierStatementModal } from './SupplierStatementModal';
 import { WarehousesTab } from './WarehousesTab';
 import { SuppliersTab } from './SuppliersTab';
+import * as db from '../services/databaseService';
 
 interface SuppliersPageProps {
   settings: Settings;
@@ -315,13 +316,13 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
               const cleaned = deepCleanMerchantReferences(prev, id, suppName);
               
               // Persist to cloud
-              const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+              const activeStore = localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
               if (activeStore) {
                 db.updatePartnerSettings(activeStore, cleaned.partners, cleaned.suppliers).catch(() => {});
                 db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
                     ...prev,
                     settings: cleaned
-                }).catch(() => {});
+                } as any).catch(() => {});
               }
               
               return cleaned;

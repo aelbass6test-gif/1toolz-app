@@ -343,7 +343,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
           db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
               ...prev,
               settings: cleaned
-          }).catch(() => {});
+          } as any).catch(() => {});
         }
         
         return cleaned;
