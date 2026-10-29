@@ -1176,7 +1176,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           handleFieldChange("merchantBrandName", matchedMerchant.name);
         }
         const activeMgr = (matchedMerchant as any).managerPlan;
-        const defaultFee = activeMgr ? (activeMgr.orderFee || activeMgr.customOrderFee || 20) : 10;
+        const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none' && activeMgr.status === 'active';
+        let defaultFee = 10;
+        if (hasActivePlan) {
+          const isMonthlyOrPrepaid = activeMgr.planId === 'monthly_1000' || activeMgr.planId === 'monthly_700' || Boolean(activeMgr.customPrepaidQuota);
+          defaultFee = isMonthlyOrPrepaid ? 0 : Number(activeMgr.customOrderFee ?? activeMgr.orderFee ?? (activeMgr.planId === 'per_order_20' ? 20 : 0));
+        }
         if (orderData.serviceFeePerOrder === undefined) {
           handleFieldChange("serviceFeePerOrder", defaultFee);
         }
@@ -2591,16 +2596,23 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                     // Auto-fill and Lock logic based on Merchant's Manager Plan
                     const activeMgr = supplier?.managerPlan;
-                    const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none';
+                    const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none' && activeMgr.status === 'active';
                     
                     if (hasActivePlan) {
                       // Lock to fixed fee if on a manager plan (standard for agency fulfillment)
                       handleFieldChange("merchantSettlementMode", "fixed_fee");
                       
-                      // Auto-fill manager fee from plan
-                      const planFee = activeMgr.orderFee || activeMgr.customOrderFee || (activeMgr.planId === 'per_order_20' ? 20 : 0);
-                      handleFieldChange("serviceFeePerOrder", planFee);
-                    } else if (orderData.serviceFeePerOrder === 0 || orderData.serviceFeePerOrder === undefined) {
+                      const isMonthlyOrPrepaid = activeMgr.planId === 'monthly_1000' || activeMgr.planId === 'monthly_700' || Boolean(activeMgr.customPrepaidQuota);
+                      
+                      if (isMonthlyOrPrepaid) {
+                        // مشمول ضمن باقة الاشتراك الشهري أو الكوتة - 0 ج.م عمولة تشغيل إضافية
+                        handleFieldChange("serviceFeePerOrder", 0);
+                      } else {
+                        // باقة بالطلب - يتم أخذ السعر المتفق عليه للباقة فقط دون فرض عمولة إضافية
+                        const planFee = Number(activeMgr.customOrderFee ?? activeMgr.orderFee ?? (activeMgr.planId === 'per_order_20' ? 20 : 0));
+                        handleFieldChange("serviceFeePerOrder", planFee);
+                      }
+                    } else if (orderData.serviceFeePerOrder === undefined) {
                       handleFieldChange("serviceFeePerOrder", 10);
                     }
 
@@ -2623,18 +2635,25 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
                 const selectedSupplier = settings.suppliers?.find(s => s.id === orderData.merchantId);
                 const activeMgr = selectedSupplier?.managerPlan;
-                const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none';
-                const currentFee = orderData.serviceFeePerOrder ?? (activeMgr ? (activeMgr.orderFee || activeMgr.customOrderFee || 20) : 10);
+                const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none' && activeMgr.status === 'active';
+                const isMonthlyOrPrepaid = hasActivePlan && (activeMgr.planId === 'monthly_1000' || activeMgr.planId === 'monthly_700' || Boolean(activeMgr.customPrepaidQuota));
+                const currentFee = isMonthlyOrPrepaid ? 0 : (orderData.serviceFeePerOrder ?? (activeMgr ? (activeMgr.customOrderFee ?? activeMgr.orderFee ?? 20) : 10));
                 const modeLabel = orderData.merchantSettlementMode === 'profit_share' 
                   ? `مشاركة أرباح (${orderData.merchantProfitSharePercent || 50}%)` 
-                  : `عمولة ثابتة (${currentFee} ج.م / أوردر)`;
+                  : isMonthlyOrPrepaid
+                  ? `باقة مشمولة (0 ج.م تشغيل إضافي — مشمول بالباقة)`
+                  : `عمولة باقة الموكل (${currentFee} ج.م / أوردر — بدون تكرار)`;
 
                 return (
                   <div className="col-span-full space-y-3 pt-2">
                     {/* Compact Smart Summary Card */}
                     <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/20 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl font-bold border ${
+                          isMonthlyOrPrepaid 
+                            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                            : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                        }`}>
                           <CheckCircle size={13} />
                           <span>{modeLabel}</span>
                         </span>
@@ -2707,14 +2726,21 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                           {/* 2. Fee / Share */}
                           {(orderData.merchantSettlementMode || 'fixed_fee') === 'fixed_fee' ? (
                             <div className="space-y-1.5">
-                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">عمولة الأوردر (ج.م)</label>
+                              <div className="flex justify-between items-center">
+                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">عمولة الأوردر (ج.م)</label>
+                                {hasActivePlan && (
+                                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                                    {isMonthlyOrPrepaid ? 'مشمول بالباقة (0 ج.م إضافي)' : 'محدد آلياً وفق باقة الموكل'}
+                                  </span>
+                                )}
+                              </div>
                               <input
                                 type="number"
                                 disabled={hasActivePlan}
                                 value={orderData.serviceFeePerOrder !== undefined ? orderData.serviceFeePerOrder : currentFee}
                                 onChange={(e) => handleFieldChange("serviceFeePerOrder", parseFloat(e.target.value) || 0)}
                                 className={`w-full p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-center ${
-                                  hasActivePlan ? 'opacity-60 bg-slate-50 cursor-not-allowed' : ''
+                                  hasActivePlan ? 'opacity-70 bg-slate-50 dark:bg-slate-800/60 cursor-not-allowed' : ''
                                 }`}
                               />
                             </div>

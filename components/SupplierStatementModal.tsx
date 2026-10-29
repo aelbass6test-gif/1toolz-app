@@ -157,18 +157,18 @@ export const SupplierStatementModal: React.FC<SupplierStatementModalProps> = ({
       <body>
         <div class="header">
           <div>
-            <h1 class="title">🏢 كشف حساب تفصيلي للمورد</h1>
+            <h1 class="title">🏢 كشف حساب تفصيلي للموكل / المورد</h1>
             <div style="font-size: 13px; color: #64748b; margin-top: 5px;">تاريخ التصدير: ${new Date().toLocaleDateString('ar-EG')}</div>
           </div>
           <div class="store-name">${settings.storeName || 'متجرنا الإلكتروني'}</div>
         </div>
 
         <div class="info-grid">
-          <div class="info-item">اسم المورد / الشركة: <span>${supplier.name}</span></div>
+          <div class="info-item">اسم الموكل / المورد: <span>${supplier.name}</span></div>
           <div class="info-item">رقم الهاتف: <span class="num">${supplier.phone || '-'}</span></div>
           <div class="info-item">العنوان: <span>${supplier.address || '-'}</span></div>
-          <div class="info-item">عدد فواتير التوريد: <span class="num">${filteredSupplyOrders.length} فواتير</span></div>
-          <div class="info-item">مستحق للمورد (مديونية): <span class="num" style="color: #e11d48; font-size: 15px;">${(supplier.balance || 0).toLocaleString()} ج.م</span></div>
+          <div class="info-item">عدد المعاملات/التوريدات: <span class="num">${filteredSupplyOrders.length} حركات</span></div>
+          <div class="info-item">رصيد مستحقات الموكل: <span class="num" style="color: #059669; font-size: 15px;">${(supplier.balance || 0).toLocaleString()} ج.م</span></div>
         </div>
 
         <table>
@@ -178,9 +178,9 @@ export const SupplierStatementModal: React.FC<SupplierStatementModalProps> = ({
               <th>التاريخ</th>
               <th>المرجع / الرقم</th>
               <th>البيان والتفاصيل</th>
-              <th>دائن (قيمة التوريد)</th>
-              <th>مدين (المسدد للمورد)</th>
-              <th>رصيد مديونية المورد</th>
+              <th>دائن (مستحقات البضاعة/التوريد)</th>
+              <th>مدين (المحول/المسدد)</th>
+              <th>رصيد المحفظة المستحق</th>
             </tr>
           </thead>
           <tbody>
@@ -286,12 +286,12 @@ export const SupplierStatementModal: React.FC<SupplierStatementModalProps> = ({
               <span className="text-[10px] text-slate-400 font-bold block">نقداً أو عبر تحويلات الخزينة</span>
             </div>
 
-            <div className="p-5 rounded-3xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 space-y-1">
-              <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase block">صافي مستحقات المورد بذمتنا</span>
-              <div className="font-black text-rose-600 dark:text-rose-400 text-2xl font-mono">
+            <div className="p-5 rounded-3xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 space-y-1">
+              <span className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 uppercase block">صافي مستحقات الموكل / المورد</span>
+              <div className="font-black text-emerald-600 dark:text-emerald-400 text-2xl font-mono">
                 {(supplier.balance || 0).toLocaleString()} <span className="text-xs font-bold">ج.م</span>
               </div>
-              <span className="text-[10px] text-slate-400 font-bold block">مديونية آجل متبقية للمورد</span>
+              <span className="text-[10px] text-slate-400 font-bold block">رصيد محفظة الموكل المتاح</span>
             </div>
           </div>
 
@@ -345,7 +345,7 @@ export const SupplierStatementModal: React.FC<SupplierStatementModalProps> = ({
                   <th className="p-3.5">البيان والتفاصيل</th>
                   <th className="p-3.5 text-center text-sky-600">دائن (قيمة البضاعة)</th>
                   <th className="p-3.5 text-center text-emerald-600">مدين (المسدد للمورد)</th>
-                  <th className="p-3.5 text-left">رصيد مديونية المورد</th>
+                  <th className="p-3.5 text-left">رصيد مستحقات المحفظة</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium text-slate-800 dark:text-slate-200">

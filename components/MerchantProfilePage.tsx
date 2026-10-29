@@ -191,11 +191,12 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
     
     let runningBalance = 0;
     return sortedTxs.map(t => {
-      runningBalance = t.balanceAfter ?? (runningBalance + t.amount);
+      const amt = Number(t.amount) || 0;
+      runningBalance = Number((runningBalance + amt).toFixed(2));
       return {
         date: new Date(t.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }),
         balance: runningBalance,
-        amount: t.amount
+        amount: amt
       };
     });
   }, [merchant]);
@@ -410,29 +411,29 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
         ...(cleanRef ? { transferReference: cleanRef } : {})
       } : r));
 
-      // Deduct from central Treasury if selected (only for withdrawals)
-      if (!isCreditToWallet && selectedAcc && setTreasury && treasury) {
-        const treasuryTx = {
-          id: `tx-${Date.now()}`,
-          date: new Date().toISOString(),
-          amount,
-          type: 'withdrawal' as const,
-          description: `صرف طلب سحب مستحقات الموكل: ${merchant.name} (طلب #${req.id.slice(-6)})${cleanRef ? ` - مرجع: ${cleanRef}` : ''}`,
-          fromAccountId: selectedAcc.id,
-          operatorName: currentUser?.fullName || 'الإدارة',
-          reference: cleanRef || req.id
-        };
+      // Calculate configured transfer fee (weekly / daily)
+      const isDaily = (req as any).payoutFrequency === 'daily' || merchant.payoutFrequency === 'daily';
+      const feeRate = isDaily
+        ? (typeof merchant.dailyTransferFee === 'number' ? merchant.dailyTransferFee : (settings.dailyTransferFee ?? 1))
+        : (typeof merchant.weeklyTransferFee === 'number' ? merchant.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
+      const feeType = isDaily
+        ? (merchant.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
+        : (merchant.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
 
-        setTreasury(current => current ? ({
-          ...current,
-          accounts: current.accounts.map(acc => acc.id === selectedAcc.id
-            ? { ...acc, balance: acc.balance - amount }
-            : acc),
-          transactions: [treasuryTx, ...(current.transactions || [])]
-        }) : current);
+      let transferFee = typeof (req as any).transferFee === 'number' && (req as any).transferFee >= 0
+        ? Number((req as any).transferFee)
+        : 0;
+
+      if (transferFee === 0 && !isCreditToWallet && req.type !== 'plan_change_request' && feeRate > 0) {
+        if (feeType === 'percentage') {
+          transferFee = Math.round((amount * (feeRate / 100)) * 100) / 100;
+        } else {
+          transferFee = Math.min(amount, Number(feeRate) || 0);
+        }
       }
+      const netDisbursed = Math.max(0, Number((amount - transferFee).toFixed(2)));
 
-      // Update Merchant Balance and record Transaction
+      // Update Merchant Balance and record Transaction (Merchant Ledger Only)
       updateSettings(currentSettings => {
         const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
           if (s.id === merchant.id) {
@@ -440,29 +441,46 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
             const nextBal = isCreditToWallet
               ? Number((currentBalance + amount).toFixed(2))
               : Number((currentBalance - amount).toFixed(2));
-            const newTx: MerchantTransaction = {
+            const nowIso = new Date().toISOString();
+
+            const withdrawalTx: MerchantTransaction = {
               id: `mtx-w-${Date.now()}`,
               merchantId: s.id,
               merchantName: s.name,
-              date: new Date().toISOString(),
+              date: nowIso,
               type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
-              amount: isCreditToWallet ? amount : -amount,
-              balanceAfter: nextBal,
+              amount: isCreditToWallet ? amount : -netDisbursed,
+              balanceAfter: isCreditToWallet ? nextBal : Number((currentBalance - netDisbursed).toFixed(2)),
               notes: isRefundRequest
                 ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة - ${req.notes || ''}`
                 : isTopUpRequest
                 ? `شحن محفظة التاجر بعد اعتماد الإدارة - ${req.notes || ''}`
-                : `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
+                : `سحب مستحقات (صافي المحول - طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع: ${cleanRef}` : ''} - ${req.notes || ''}`,
               referenceId: req.id,
               receiptImage: cleanImg,
               transferReference: cleanRef,
               performedBy: currentUser?.fullName || 'الإدارة'
             };
 
+            const feeTx: MerchantTransaction | null = (!isCreditToWallet && transferFee > 0) ? {
+              id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+              merchantId: s.id,
+              merchantName: s.name,
+              date: nowIso,
+              type: 'expense',
+              amount: -transferFee,
+              balanceAfter: nextBal,
+              notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
+              referenceId: req.id,
+              performedBy: currentUser?.fullName || 'الإدارة'
+            } : null;
+
+            const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
+
             const nextSupplier: any = {
               ...s,
               balance: nextBal,
-              transactions: [newTx, ...(s.transactions || [])]
+              transactions: [...newTxs, ...(s.transactions || [])]
             };
 
             if (isRefundRequest) {
@@ -582,48 +600,31 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
       performedBy: currentUser?.fullName || 'الإدارة'
     };
 
-    // Update central Treasury if selected
-    if (selectedAcc && setTreasury && treasury) {
-      const treasuryDelta = directTxType === 'withdrawal' ? -amount : (directTxType === 'deposit' ? amount : 0);
-      if (treasuryDelta !== 0) {
-        const treasuryTx = {
-          id: `tx-${Date.now()}`,
-          date: new Date().toISOString(),
-          amount: Math.abs(treasuryDelta),
-          type: directTxType === 'withdrawal' ? ('withdrawal' as const) : ('deposit' as const),
-          description: `${typeLabels[directTxType]} للموكل: ${merchant.name} - ${directTxNotes || ''}`,
-          fromAccountId: directTxType === 'withdrawal' ? selectedAcc.id : undefined,
-          toAccountId: directTxType === 'deposit' ? selectedAcc.id : undefined,
-          operatorName: currentUser?.fullName || 'الإدارة',
-          reference: directTxRef || undefined
-        };
-
-        setTreasury(current => current ? ({
-          ...current,
-          accounts: current.accounts.map(acc => acc.id === selectedAcc.id
-            ? { ...acc, balance: acc.balance + treasuryDelta }
-            : acc),
-          transactions: [treasuryTx, ...(current.transactions || [])]
-        }) : current);
-      }
-    }
-
-    // Update Merchant and Settings
+    // Update Merchant and Settings (Sync both suppliers and partners)
     updateSettings(currentSettings => {
-      const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
-        if (s.id === merchant.id) {
+      const normTargetName = normalizeName(merchant.name || '');
+      const isMatch = (item: any) =>
+        item.id === merchant.id ||
+        (normTargetName && normalizeName(item.name || '') === normTargetName);
+
+      const updateList = (list: any[]) => (list || []).map(item => {
+        if (isMatch(item)) {
           return {
-            ...s,
+            ...item,
             balance: newBalance,
-            transactions: [newTx, ...(s.transactions || [])]
+            transactions: [newTx, ...(item.transactions || [])]
           };
         }
-        return s;
+        return item;
       });
+
+      const updatedSuppliers = updateList(currentSettings.suppliers || []);
+      const updatedPartners = updateList(currentSettings.partners || []);
 
       return {
         ...currentSettings,
         suppliers: updatedSuppliers,
+        partners: updatedPartners,
         merchantTransactions: [newTx, ...(currentSettings.merchantTransactions || [])]
       };
     });
@@ -1444,27 +1445,13 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
                 />
               </div>
 
-              {/* Central Treasury Linkage */}
-              {(treasury?.accounts || []).length > 0 && (
-                <div>
-                  <label className="block text-slate-700 mb-1">حساب الخزينة المركزية للصرف / الإيداع:</label>
-                  <select
-                    value={directTxTreasuryId}
-                    onChange={e => setDirectTxTreasuryId(e.target.value)}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs"
-                  >
-                    <option value="">تسوية دفترية فقط (بدون التأثير على أرصدة الخزينة المركزية)</option>
-                    {(treasury?.accounts || []).map(acc => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name} — الرصيد المتاح: {acc.balance.toLocaleString()} ج.م
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">
-                    إذا اخترت حساب خزينة، سيتم خصم أو إضافة المبلغ إلى الخزينة المركزية تلقائياً وتوثيق الحركة في سجل الخزينة.
-                  </p>
-                </div>
-              )}
+              {/* Central Treasury Disconnected - Direct Merchant Wallet Execution */}
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-medium">
+                <p className="font-bold">تسوية دفتري مباشرة على محفظة الموكل 💳</p>
+                <p className="text-[11px] text-emerald-600 mt-0.5">
+                  جميع معاملات الموكل (السحب والخصم والإيداع) تتم حصراً على حساب محفظته بدون المساس بخزينة المتجر المركزية.
+                </p>
+              </div>
 
               {/* Notes / Description */}
               <div>
@@ -1549,20 +1536,11 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
               )}
             </div>
 
-            <div>
-              <label className="block text-slate-700 text-xs font-bold mb-1.5">صرف المبلغ من حساب الخزينة المركزية:</label>
-              <select
-                value={approvalTreasuryAccountId}
-                onChange={e => setApprovalTreasuryAccountId(e.target.value)}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs"
-              >
-                <option value="">تسوية دفترية فقط (خصم من محفظة الموكل دون الخزينة)</option>
-                {(treasury?.accounts || []).map(acc => (
-                  <option key={acc.id} value={acc.id}>
-                    {acc.name} — الرصيد: {acc.balance.toLocaleString()} ج.م
-                  </option>
-                ))}
-              </select>
+            <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-2xl text-indigo-900 text-xs">
+              <span className="font-bold">خصم وصرف مباشر من محفظة الموكل 🏦</span>
+              <p className="text-[11px] text-indigo-600 mt-0.5">
+                يتم خصم المبلغ المعتمد من رصيد محفظة الموكل حصراً ودون التأثير على الخزينة المركزية للمتجر.
+              </p>
             </div>
 
             <div>

@@ -503,64 +503,61 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         ...(cleanRef ? { transferReference: cleanRef } : {})
       } : r));
 
-      // Deduct net cash disbursed from central Treasury if selected
-      if (selectedAcc && setTreasury && treasury && netDisbursed > 0) {
-        const treasuryTx = {
-          id: `tx-${Date.now()}`,
-          date: new Date().toISOString(),
-          amount: netDisbursed,
-          type: 'withdrawal' as const,
-          description: `صرف طلب سحب مستحقات الموكل: ${req.partnerName} (طلب #${req.id.slice(-6)})${transferFee > 0 ? ` [المطلوب: ${amount} ج.م - رسوم التحويل: ${transferFee} ج.م - صافي المنصرف: ${netDisbursed} ج.م]` : ''}${cleanRef ? ` - مرجع: ${cleanRef}` : ''}`,
-          fromAccountId: selectedAcc.id,
-          operatorName: currentUser?.fullName || 'الإدارة',
-          reference: cleanRef || req.id
-        };
-
-        setTreasury(current => current ? ({
-          ...current,
-          accounts: current.accounts.map(acc => acc.id === selectedAcc.id
-            ? { ...acc, balance: acc.balance - netDisbursed }
-            : acc),
-          transactions: [treasuryTx, ...(current.transactions || [])]
-        }) : current);
-      }
-
-      // Update only the merchant ledger; merchant withdrawals must never mutate partner balances.
+      // Update only the merchant ledger; merchant withdrawals affect merchant balance directly.
       updateSettings(currentSettings => {
         const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
           if (s.id === req.partnerId) {
-            const currentBalance = s.balance || 0;
-            const newTx: MerchantTransaction = {
+            const currentBalance = Number(s.balance || 0);
+            const nextBal = Number((currentBalance - amount).toFixed(2));
+            const nowIso = new Date().toISOString();
+
+            const withdrawalTx: MerchantTransaction = {
               id: `mtx-w-${Date.now()}`,
               merchantId: s.id,
               merchantName: s.name,
-              date: new Date().toISOString(),
+              date: nowIso,
               type: 'withdrawal',
-              amount: -amount,
-              balanceAfter: currentBalance - amount,
-              notes: `سحب مستحقات (طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${transferFee > 0 ? ` [إجمالي السحب: ${amount} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netDisbursed} ج.م]` : ''}${cleanRef ? ` - مرجع التحويل: ${cleanRef}` : ''} - ${req.notes || ''}`,
+              amount: -netDisbursed,
+              balanceAfter: Number((currentBalance - netDisbursed).toFixed(2)),
+              notes: `سحب مستحقات (صافي المحول - طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع: ${cleanRef}` : ''} - ${req.notes || ''}`,
               referenceId: req.id,
               receiptImage: cleanImg,
               transferReference: cleanRef,
               performedBy: currentUser?.fullName || 'الإدارة'
             };
+
+            const feeTx: MerchantTransaction | null = transferFee > 0 ? {
+              id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+              merchantId: s.id,
+              merchantName: s.name,
+              date: nowIso,
+              type: 'expense',
+              amount: -transferFee,
+              balanceAfter: nextBal,
+              notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
+              referenceId: req.id,
+              performedBy: currentUser?.fullName || 'الإدارة'
+            } : null;
+
+            const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
+
             return {
               ...s,
-              balance: currentBalance - amount,
-              transactions: [newTx, ...(s.transactions || [])]
+              balance: nextBal,
+              transactions: [...newTxs, ...(s.transactions || [])]
             };
           }
           return s;
         });
 
-        const addedTx = updatedSuppliers.find(s => s.id === req.partnerId)?.transactions?.[0];
+        const addedTxs = updatedSuppliers.find(s => s.id === req.partnerId)?.transactions?.slice(0, transferFee > 0 ? 2 : 1) || [];
         if (activeStoreId) {
           db.updatePartnerSettings(activeStoreId, currentSettings.partners || [], updatedSuppliers).catch(() => {});
         }
         return {
           ...currentSettings,
           suppliers: updatedSuppliers,
-          ...(addedTx ? { merchantTransactions: [addedTx, ...(currentSettings.merchantTransactions || [])] } : {})
+          ...(addedTxs.length > 0 ? { merchantTransactions: [...addedTxs, ...(currentSettings.merchantTransactions || [])] } : {})
         };
       });
 
@@ -1458,8 +1455,16 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     const defaultMarketing = financialOrder.marketingFeePerOrder !== undefined && financialOrder.marketingFeePerOrder > 0 ? financialOrder.marketingFeePerOrder : batchMarketingFee * (lineRatio < 1 ? lineRatio : 1);
     const marketingCost = scaledOverride.marketingFee !== undefined ? scaledOverride.marketingFee * (lineRatio < 1 ? lineRatio : 1) : defaultMarketing;
 
-    // 5. Service Fee
-    const defaultServiceFee = financialOrder.serviceFeePerOrder !== undefined ? financialOrder.serviceFeePerOrder : flatServiceFee * (lineRatio < 1 ? lineRatio : 1);
+    // 5. Service Fee (عمولة الخدمة والتشغيل)
+    // منع الخصم المزدوج: إذا كان الأوردر مشمولاً في كوتة باقة شهرية/مدفوعة، أو تم خصم رسوم المدير مسبقاً
+    const isCoveredByPlanOrPrepaid = Boolean(
+      (financialOrder as any).quotaIncludedOrder || 
+      (financialOrder as any).isQuotaCovered ||
+      (financialOrder as any).managerFeeDeducted
+    );
+    const defaultServiceFee = isCoveredByPlanOrPrepaid
+      ? 0
+      : (financialOrder.serviceFeePerOrder !== undefined ? financialOrder.serviceFeePerOrder : flatServiceFee * (lineRatio < 1 ? lineRatio : 1));
     const serviceFee = ((isDelivered || chargeServiceFeeOnReturns) && effectiveMode !== 'profit_share')
       ? (scaledOverride.serviceFee !== undefined ? scaledOverride.serviceFee * (lineRatio < 1 ? lineRatio : 1) : defaultServiceFee)
       : 0;
@@ -1906,12 +1911,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       }
 
       updateSettings(currentSettings => {
-        const suppliersList = currentSettings.suppliers || [];
-        const updatedSuppliers = suppliersList.map(s => {
+        const updateList = (list: any[]) => (list || []).map(s => {
           const addition = supplierBalanceAdditions.get(s.id);
           if (addition !== undefined) {
-            const currentBal = s.balance || 0;
-            const newBal = currentBal + addition;
+            const currentBal = Number(s.balance) || 0;
+            const newBal = Number((currentBal + addition).toFixed(2));
             const txsForThisSupplier = newLedgerTxs
               .filter(tx => tx.merchantId === s.id)
               .map(tx => ({ ...tx, balanceAfter: newBal }));
@@ -1927,9 +1931,13 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           return s;
         });
 
+        const updatedSuppliers = updateList(currentSettings.suppliers || []);
+        const updatedPartners = updateList(currentSettings.partners || []);
+
         return {
           ...currentSettings,
           suppliers: updatedSuppliers,
+          partners: updatedPartners,
           merchantTransactions: [...newLedgerTxs, ...(currentSettings.merchantTransactions || [])],
           merchantSettlements: upsertOrderSettlements(currentSettings.merchantSettlements || [], generatedSettlements)
         };
@@ -2049,31 +2057,50 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     updateSettings(currentSettings => {
       const shouldCreditWallet = actualSettlementStatus === 'approved';
       const now = new Date().toISOString();
+      let runningBal = Number(
+        (currentSettings.suppliers || []).find(s => s.id === selectedMerchantId)?.balance ||
+        (currentSettings.partners || []).find(p => p.id === selectedMerchantId)?.balance ||
+        0
+      );
       const walletTxs: MerchantTransaction[] = perOrderSettlements.flatMap(row => {
         const net = Number(row.netPayoutToMerchant) || 0;
-        if (actualSettlementStatus === 'paid' && net > 0) return [
-          { id: `mtx-${row.id}-credit`, merchantId: row.merchantId, merchantName: row.merchantName, date: now, type: 'order_delivered', amount: net, balanceAfter: 0, notes: `اعتماد مستحق ${row.settlementNumber}`, referenceId: row.id, performedBy: currentUser?.fullName || 'الإدارة' },
-          { id: `mtx-${row.id}-payment`, merchantId: row.merchantId, merchantName: row.merchantName, date: now, type: 'withdrawal', amount: -net, balanceAfter: 0, notes: `صرف فعلي ${row.settlementNumber}`, referenceId: row.id, performedBy: currentUser?.fullName || 'الإدارة' }
-        ];
-        if (shouldCreditWallet) return [{ id: `mtx-${row.id}-credit`, merchantId: row.merchantId, merchantName: row.merchantName, date: now, type: 'order_delivered', amount: net, balanceAfter: 0, notes: `اعتماد مستحق ${row.settlementNumber}`, referenceId: row.id, performedBy: currentUser?.fullName || 'الإدارة' }];
+        if (actualSettlementStatus === 'paid' && net > 0) {
+          const creditBal = Number((runningBal + net).toFixed(2));
+          const payoutBal = Number((creditBal - net).toFixed(2));
+          runningBal = payoutBal;
+          return [
+            { id: `mtx-${row.id}-credit`, merchantId: row.merchantId, merchantName: row.merchantName, date: now, type: 'order_delivered', amount: net, balanceAfter: creditBal, notes: `اعتماد مستحق ${row.settlementNumber}`, referenceId: row.id, performedBy: currentUser?.fullName || 'الإدارة' },
+            { id: `mtx-${row.id}-payment`, merchantId: row.merchantId, merchantName: row.merchantName, date: now, type: 'withdrawal', amount: -net, balanceAfter: payoutBal, notes: `صرف فعلي ${row.settlementNumber}`, referenceId: row.id, performedBy: currentUser?.fullName || 'الإدارة' }
+          ];
+        }
+        if (shouldCreditWallet) {
+          runningBal = Number((runningBal + net).toFixed(2));
+          return [{ id: `mtx-${row.id}-credit`, merchantId: row.merchantId, merchantName: row.merchantName, date: now, type: 'order_delivered', amount: net, balanceAfter: runningBal, notes: `اعتماد مستحق ${row.settlementNumber}`, referenceId: row.id, performedBy: currentUser?.fullName || 'الإدارة' }];
+        }
         return [];
       });
       const walletDelta = walletTxs.reduce((sum, tx) => sum + tx.amount, 0);
-      const updatedSuppliers = walletTxs.length ? (currentSettings.suppliers || []).map(s => {
+
+      const updateMerchantList = (list: any[]) => (list || []).map(s => {
         if (s.id !== selectedMerchantId) return s;
         const currentBalance = Number(s.balance) || 0;
+        const newBal = Number((currentBalance + walletDelta).toFixed(2));
         return {
           ...s,
-          balance: currentBalance + walletDelta,
+          balance: newBal,
           merchantSettlementOpeningBalance: typeof s.merchantSettlementOpeningBalance === 'number' ? s.merchantSettlementOpeningBalance : calculateMerchantOpeningBalance(currentBalance, currentSettings.merchantSettlements || [], [...new Map([...(currentSettings.merchantTransactions || []), ...(s.transactions || [])].map(tx => [tx.id, tx])).values()], s.id),
           merchantSettlementOpeningAt: s.merchantSettlementOpeningAt || now,
           transactions: [...walletTxs.filter(tx => tx.merchantId === s.id), ...(s.transactions || [])]
         };
-      }) : (currentSettings.suppliers || []);
+      });
+
+      const updatedSuppliers = walletTxs.length ? updateMerchantList(currentSettings.suppliers || []) : (currentSettings.suppliers || []);
+      const updatedPartners = walletTxs.length ? updateMerchantList(currentSettings.partners || []) : (currentSettings.partners || []);
 
       return {
         ...currentSettings,
         suppliers: updatedSuppliers,
+        partners: updatedPartners,
         ...(walletTxs.length ? { merchantTransactions: [...walletTxs, ...(currentSettings.merchantTransactions || [])] } : {}),
         merchantSettlements: upsertOrderSettlements(currentSettings.merchantSettlements || [], perOrderSettlements)
       };
@@ -2153,24 +2180,31 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         ...(nextStatus === 'paid' ? { paidFromTreasuryAccountId: selectedAccount?.id, paidFromTreasuryAccountName: selectedAccount?.name } : {}),
         notes: [settlement.notes, `${actionLabel} بتاريخ ${now}`].filter(Boolean).join('\n')
       });
-      const updatedSuppliers = (current.suppliers || []).map(item => {
+      const updateList = (list: any[]) => (list || []).map(item => {
         if (item.id !== settlement.merchantId) return item;
         const beforeBalance = Number(item.balance) || 0;
         const balanceDelta = walletTx?.amount || 0;
+        const newBal = Number((beforeBalance + balanceDelta).toFixed(2));
+        if (walletTx) walletTx.balanceAfter = newBal;
         const openingBalance = typeof item.merchantSettlementOpeningBalance === 'number'
           ? item.merchantSettlementOpeningBalance
           : calculateMerchantOpeningBalance(beforeBalance, current.merchantSettlements || [], [...new Map([...(current.merchantTransactions || []), ...(item.transactions || [])].map(tx => [tx.id, tx])).values()], item.id);
         return {
           ...item,
-          balance: beforeBalance + balanceDelta,
+          balance: newBal,
           merchantSettlementOpeningBalance: openingBalance,
           merchantSettlementOpeningAt: item.merchantSettlementOpeningAt || now,
           ...(walletTx ? { transactions: [walletTx, ...(item.transactions || [])] } : {})
         };
       });
+
+      const updatedSuppliers = updateList(current.suppliers || []);
+      const updatedPartners = updateList(current.partners || []);
+
       return {
         ...current,
         suppliers: updatedSuppliers,
+        partners: updatedPartners,
         ...(walletTx ? { merchantTransactions: [walletTx, ...(current.merchantTransactions || [])] } : {}),
         merchantSettlements: (current.merchantSettlements || []).map(row => row.id === settlement.id ? updatedSettlement : row)
       };
@@ -2234,11 +2268,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
     // Paid settlements are blocked above. Only reverse the merchant ledger for an unpaid/draft settlement.
     updateSettings(currentSettings => {
-      const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
+      const updateList = (list: any[]) => (list || []).map(s => {
         if (s.id !== settlement.merchantId) return s;
         const originalTx = (s.transactions || []).find(tx => tx.referenceId === settlement.id && tx.type === 'order_delivered');
         if (!originalTx) return s;
-        const currentBalance = s.balance || 0;
+        const currentBalance = Number(s.balance) || 0;
+        const newBal = Number((currentBalance - originalTx.amount).toFixed(2));
         const reversalTx: MerchantTransaction = {
           id: `mtx-reversal-${settlement.id}`,
           merchantId: s.id,
@@ -2246,21 +2281,26 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
           date: reversedAt,
           type: 'adjustment',
           amount: -originalTx.amount,
-          balanceAfter: currentBalance - originalTx.amount,
+          balanceAfter: newBal,
           notes: `قيد عكس كشف التسوية ${settlement.settlementNumber}`,
           referenceId: `${settlement.id}:reversal`,
           performedBy: currentUser?.fullName || 'الإدارة'
         };
         return {
           ...s,
-          balance: currentBalance - originalTx.amount,
+          balance: newBal,
           transactions: [reversalTx, ...(s.transactions || [])]
         };
       });
+
+      const updatedSuppliers = updateList(currentSettings.suppliers || []);
+      const updatedPartners = updateList(currentSettings.partners || []);
       const reversalTx = updatedSuppliers.find(s => s.id === settlement.merchantId)?.transactions?.find(tx => tx.referenceId === `${settlement.id}:reversal`);
+
       return {
         ...currentSettings,
         suppliers: updatedSuppliers,
+        partners: updatedPartners,
         ...(reversalTx ? { merchantTransactions: [reversalTx, ...(currentSettings.merchantTransactions || [])] } : {}),
         merchantSettlements: (currentSettings.merchantSettlements || []).map(s => s.id === settlement.id
           ? { ...s, reversedAt, reversedBy: currentUser?.fullName || currentUser?.email || 'الإدارة', reversalNote: 'تم عكس الكشف بقيد محاسبي مقابل' }

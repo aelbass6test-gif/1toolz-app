@@ -242,22 +242,39 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       const updatedSuppliers = suppliersList.map(s => {
         if (s.id === merchantId || (normName && s.name.trim() === normName)) {
           const currentBal = Number(s.balance || 0);
-          const newBal = Math.max(0, currentBal - amt);
-          const newTx: any = {
+          const newBal = Number((currentBal - amt).toFixed(2));
+          const nowIso = new Date().toISOString();
+
+          const payoutTx: any = {
             id: `mtx-${Date.now()}`,
             merchantId: s.id,
             merchantName: s.name,
             type: 'payout',
-            amount: -amt,
-            date: new Date().toISOString(),
-            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'}${transferFee > 0 ? ` (المبلغ الإجمالي: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netDisbursed} ج.م)` : ''}`,
-            balanceAfter: newBal,
+            amount: -netDisbursed,
+            date: nowIso,
+            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'} (صافي المحول - طلب #${req.id.slice(-6)})`,
+            balanceAfter: Number((currentBal - netDisbursed).toFixed(2)),
             referenceId: req.id
           };
+
+          const feeTx: any = transferFee > 0 ? {
+            id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+            merchantId: s.id,
+            merchantName: s.name,
+            type: 'expense',
+            amount: -transferFee,
+            date: nowIso,
+            notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
+            balanceAfter: newBal,
+            referenceId: req.id
+          } : null;
+
+          const newTxs = feeTx ? [feeTx, payoutTx] : [payoutTx];
+
           return {
             ...s,
             balance: newBal,
-            transactions: [newTx, ...(s.transactions || [])]
+            transactions: [...newTxs, ...(s.transactions || [])]
           };
         }
         return s;

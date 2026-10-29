@@ -3260,7 +3260,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         const returnedAt = new Date().toISOString();
         setSettings(prevSettings => {
           const reversalTransactions: MerchantTransaction[] = [];
-          const updatedSuppliers = (prevSettings.suppliers || []).map(supplier => {
+          const updateList = (list: any[]) => (list || []).map(supplier => {
             const charge = returnCharges.find(row => row.merchantId === supplier.id);
             if (!charge) return supplier;
             const curBal = Number(supplier.balance || 0);
@@ -3277,10 +3277,21 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
               referenceId: `${orderToUpdate.id}:${supplier.id}`,
               performedBy: currentUser?.fullName || 'النظام التلقائي'
             };
-            reversalTransactions.push(revTx);
+            if (!reversalTransactions.some(tx => tx.id === revTx.id)) {
+              reversalTransactions.push(revTx);
+            }
             return { ...supplier, balance: nextBal, transactions: [revTx, ...(supplier.transactions || [])] };
           });
-          return { ...prevSettings, suppliers: updatedSuppliers, merchantTransactions: [...reversalTransactions, ...(prevSettings.merchantTransactions || [])] };
+
+          const updatedSuppliers = updateList(prevSettings.suppliers || []);
+          const updatedPartners = updateList(prevSettings.partners || []);
+
+          return {
+            ...prevSettings,
+            suppliers: updatedSuppliers,
+            partners: updatedPartners,
+            merchantTransactions: [...reversalTransactions, ...(prevSettings.merchantTransactions || [])]
+          };
         });
 
         const totalDebit = returnCharges.reduce((sum, row) => sum + row.totalDebit, 0);

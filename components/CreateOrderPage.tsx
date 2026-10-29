@@ -380,11 +380,16 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 }
 
                 if (isConfirmedAtCreation) {
-                    (orderWithId as any).managerFeeDeducted = true;
+                    (orderWithId as any).managerFeeDeducted = managerFeeToDeduct > 0;
                     (orderWithId as any).managerFeeAmount = managerFeeToDeduct;
                     (orderWithId as any).quotaIncludedOrder = isQuotaIncluded;
                     (orderWithId as any).quotaConsumedAt = new Date().toISOString();
                     orderWithId.lockedManagerFee = managerFeeToDeduct;
+
+                    // منع الاحتساب المزدوج: إذا كان الأوردر مشمولاً في كوتة الباقة أو تم خصم رسوم المدير مسبقاً، تصبح عمولة التسوية 0
+                    if (isQuotaIncluded || managerFeeToDeduct > 0) {
+                        orderWithId.serviceFeePerOrder = 0;
+                    }
 
                     if (managerFeeToDeduct > 0) {
                         const curWallet = Number(matchedMerchant.balance || 0);
@@ -412,7 +417,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     // Draft/Pending: Zero fee deducted, quota unconsumed
                     (orderWithId as any).managerFeeDeducted = false;
                     (orderWithId as any).managerFeeAmount = 0;
-                    (orderWithId as any).quotaIncludedOrder = false;
+                    (orderWithId as any).quotaIncludedOrder = isQuotaIncluded;
+                    if (isQuotaIncluded) {
+                        orderWithId.serviceFeePerOrder = 0;
+                    }
                 }
             }
         }

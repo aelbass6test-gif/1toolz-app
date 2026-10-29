@@ -2273,7 +2273,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     let runningBalance = 0;
     const chartData = sortedTxs.map(t => {
       const amount = Number(t.amount) || 0;
-      runningBalance = t.balanceAfter ?? (runningBalance + amount);
+      runningBalance = Number((runningBalance + amount).toFixed(2));
       return {
         date: new Date(t.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }),
         'الرصيد الجاري': runningBalance,
@@ -2934,7 +2934,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     let running = 0;
     return sortedAll.map(tx => {
       const amt = Number(tx.amount) || 0;
-      running = tx.balanceAfter !== undefined ? tx.balanceAfter : Number((running + amt).toFixed(2));
+      running = Number((running + amt).toFixed(2));
       return {
         ...tx,
         amount: amt,
@@ -6561,7 +6561,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             : 'خصم / تعديل';
 
                           const subText = isTransferFee
-                            ? ''
+                            ? (tx.notes || 'رسوم التحويل المالي لسحب المستحقات')
                             : isWithdrawal 
                             ? (tx.notes || 'تحويل بنكي') 
                             : (tx.notes || 'تسوية معتمدة للحساب');
@@ -6683,7 +6683,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         : 'خصم / تعديل';
 
                       const subText = isTransferFee
-                        ? ''
+                        ? (tx.notes || 'رسوم التحويل المالي لسحب المستحقات')
                         : isWithdrawal 
                         ? (tx.notes || 'تحويل بنكي') 
                         : (tx.notes || 'تسوية معتمدة للحساب');
