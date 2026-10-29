@@ -309,3 +309,88 @@ export const getProductsForMerchant = <T extends Partial<Product> | any>(
       } as T;
     });
 };
+
+/**
+ * Robustly removes all references to a merchant from store settings.
+ * Cleans suppliers list, partners list, and all product-level allocations/ownerships.
+ */
+export const deepCleanMerchantReferences = (
+  settings: any,
+  merchantId: string,
+  merchantName?: string
+): any => {
+  if (!settings) return settings;
+  const targetId = normalizeMerchantId(merchantId);
+  const targetName = merchantName ? normalizeMerchantLabel(merchantName) : '';
+  if (!targetId && !targetName) return settings;
+
+  const matches = (m: any) =>
+    (targetId && normalizeMerchantId(m?.id) === targetId) ||
+    (targetName && normalizeMerchantLabel(m?.name) === targetName);
+
+  // 1. Clean Suppliers & Partners
+  const nextSuppliers = (Array.isArray(settings.suppliers) ? settings.suppliers : []).filter(s => !matches(s));
+  const nextPartners = (Array.isArray(settings.partners) ? settings.partners : []).filter(p => !matches(p));
+
+  // 2. Clean Products
+  const nextProducts = (Array.isArray(settings.products) ? settings.products : []).map(p => {
+    let changed = false;
+    let nextAllocations = p.merchantAllocations;
+    let nextIds = p.merchantIds;
+    let nextOwnerId = p.merchantId || p.supplierId;
+    let nextOwnerName = p.merchantName || p.supplierName;
+
+    // Filter allocations
+    if (Array.isArray(p.merchantAllocations)) {
+      const filtered = p.merchantAllocations.filter(a => 
+        (targetId && normalizeMerchantId(a.merchantId) !== targetId) &&
+        (targetName && normalizeMerchantLabel(a.merchantName) !== targetName)
+      );
+      if (filtered.length !== p.merchantAllocations.length) {
+        nextAllocations = filtered;
+        changed = true;
+      }
+    }
+
+    // Filter explicit ID list
+    if (Array.isArray(p.merchantIds)) {
+      const filtered = p.merchantIds.filter(id => normalizeMerchantId(id) !== targetId);
+      if (filtered.length !== p.merchantIds.length) {
+        nextIds = filtered;
+        changed = true;
+      }
+    }
+
+    // Clean primary owner fields
+    if (targetId && (normalizeMerchantId(p.merchantId) === targetId || normalizeMerchantId(p.supplierId) === targetId)) {
+      nextOwnerId = '';
+      changed = true;
+    }
+    if (targetName && (normalizeMerchantLabel(p.merchantName) === targetName || normalizeMerchantLabel(p.supplierName) === targetName)) {
+      nextOwnerName = '';
+      changed = true;
+    }
+
+    if (changed) {
+      return {
+        ...p,
+        merchantAllocations: nextAllocations,
+        merchantIds: nextIds,
+        merchantId: nextOwnerId,
+        supplierId: nextOwnerId,
+        merchantName: nextOwnerName,
+        supplierName: nextOwnerName,
+        // If it was shared but now has no specific owners, revert to store owned?
+        ownerType: (nextIds?.length > 0 || nextAllocations?.length > 0) ? 'shared' : (nextOwnerId ? 'merchant' : 'store')
+      };
+    }
+    return p;
+  });
+
+  return {
+    ...settings,
+    suppliers: nextSuppliers,
+    partners: nextPartners,
+    products: nextProducts
+  };
+};

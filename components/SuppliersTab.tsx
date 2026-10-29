@@ -11,6 +11,7 @@ import {
 import { Supplier, SupplyOrder, Settings } from '../types';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
+import { deepCleanMerchantReferences } from '../utils/merchantProducts';
 import * as db from '../services/databaseService';
 
 interface SuppliersTabProps {
@@ -331,12 +332,23 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       return;
     }
 
-    showConfirm("تأكيد الحذف", `هل أنت متأكد من حذف المورد "${s.name}"؟ لا يمكن التراجع عن هذا الإجراء.`, () => {
-      setSettings(prev => ({
-        ...prev,
-        suppliers: (prev.suppliers || []).filter(x => x.id !== id)
-      }));
-      audioSynth.announce("تم حذف المورد بنجاح", "success");
+    showConfirm("تأكيد الحذف النهائي", `هل أنت متأكد من حذف المورد "${s.name}"؟ سيتم حذف بياناته من قائمة الموردين والشركاء وإزالة أي تخصيصات أو تسعير خاص له على المنتجات. لا يمكن التراجع عن هذا الإجراء.`, () => {
+      setSettings(prev => {
+        const cleaned = deepCleanMerchantReferences(prev, id, s.name);
+        
+        // Persist to cloud
+        const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+        if (activeStore) {
+          db.updatePartnerSettings(activeStore, cleaned.partners, cleaned.suppliers).catch(() => {});
+          db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
+              ...prev,
+              settings: cleaned
+          }).catch(() => {});
+        }
+        
+        return cleaned;
+      });
+      audioSynth.announce("تم حذف المورد بنجاح من كافة السجلات", "success");
     });
   };
 

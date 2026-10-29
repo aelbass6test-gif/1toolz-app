@@ -24,6 +24,7 @@ import { Settings, Partner, PartnerTransaction, Wallet, Transaction, Order, Trea
 import { Plus, User, DollarSign, ArrowDownRight, ArrowUpLeft, Trash2, Edit2, Check, X, TrendingUp, Wallet as WalletIcon, PieChart, History, Activity, Info, AlertCircle, Package as PackageIcon, Truck, Coins, Calculator, Sparkles, ArrowRightLeft, Percent, Layers, Shield, ShieldCheck, Printer, BookOpen, HelpCircle, ChevronDown, ChevronUp, CheckCircle2, FileText, Search, Filter, Monitor, Users2, Eye, Lock, LogOut, Share2, Copy, Bell, Send, MessageSquare, Mail, Phone } from 'lucide-react';
 import { calculateOrderProfitLoss, getOrderProductCost, calculateWalletLiveBalance, getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
+import { deepCleanMerchantReferences } from '../utils/merchantProducts';
 import { PartnerExitModal } from './PartnerExitModal';
 import { PartnerPermissionsModal } from './PartnerPermissionsModal';
 import { generateSafeId } from '../utils/idUtils';
@@ -805,18 +806,33 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         showToast('عفواً، لا يمكن حذف شريك له حركات مالية مسجلة. للضرورة، قم بتصفية أرقامه أولاً.', 'error');
         return;
     }
+    const pName = partners.find(p => p.id === partnerId)?.name || 'شريك';
     setDialog({
         isOpen: true,
-        title: 'تأكيد الحذف',
-        message: 'هل أنت متأكد من حذف هذا الشريك؟ سيتم حذف جميع معاملاته أيضاً.',
+        title: 'تأكيد الحذف النهائي',
+        message: `هل أنت متأكد من حذف الشريك (${pName})؟ سيتم حذف بياناته من قائمة الشركاء والموردين وإلغاء أي ارتباطات له بالأصناف (تسعير أو رصيد أمانة). سيتم أيضاً حذف تاريخ معاملاته المالية.`,
         onConfirm: () => {
-            updateSettings({
-              ...settings,
-              partners: partners.filter(p => p.id !== partnerId),
+            const cleaned = deepCleanMerchantReferences(settings, partnerId, pName);
+            const nextSettings = {
+              ...cleaned,
               partnerTransactions: transactions.filter(t => t.partnerId !== partnerId)
-            });
+            };
+            
+            updateSettings(nextSettings);
+            
+            if (storeId) {
+              db.getStoreData(storeId).then(cur => {
+                if (cur) {
+                  db.saveStoreData({ id: storeId, name: settings.storeName || 'المتجر' } as any, {
+                    ...cur,
+                    settings: nextSettings
+                  });
+                }
+              }).catch(() => {});
+            }
+
             setDialog(null);
-            showToast('تم حذف الشريك بنجاح');
+            showToast('تم حذف الشريك وتنظيف كافة الارتباطات بنجاح');
         }
     });
   };

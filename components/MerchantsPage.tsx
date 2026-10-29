@@ -36,6 +36,7 @@ import {
   computeSelfServicePlanPricing
 } from '../utils/merchantSubscriptions';
 import { safeIsoDate } from '../utils/orderQuotaPolicy';
+import { deepCleanMerchantReferences } from '../utils/merchantProducts';
 
 interface MerchantsPageProps {
   settings: Settings;
@@ -316,6 +317,20 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     if (storeId) {
       await db.updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
     }
+  };
+
+  const handleDeleteMerchant = async (merchantId: string, merchantName: string) => {
+    if (!window.confirm(`هل أنت متأكد من حذف الموكل/الشريك (${merchantName}) نهائياً؟ سيتم إزالته من كافة السجلات وتنظيف كافة المبيعات وارتباطات المنتجات المخصصة له.`)) return;
+    const cleanedSettings = deepCleanMerchantReferences(settings, merchantId, merchantName);
+    updateSettings(cleanedSettings);
+    if (storeId) {
+      await db.updatePartnerSettings(storeId, cleanedSettings.partners, cleanedSettings.suppliers).catch(() => {});
+      await db.saveStoreData({ id: storeId, name: settings.storeName || 'المتجر' } as any, {
+        ...settings,
+        ...cleanedSettings
+      }).catch(() => {});
+    }
+    showToast(`تم حذف الموكل (${merchantName}) وتنظيف البيانات بنجاح`);
   };
 
   // Helper to archive a merchant's current active plan cycle before switching plans
@@ -1469,6 +1484,15 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
                               >
                                 عرض المحفظة
                               </Link>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMerchant(merchant.id, merchant.name)}
+                                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 dark:hover:bg-rose-900/60 rounded-xl text-[10px] font-black shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
+                                title="حذف الموكل نهائياً وتنظيف السجلات"
+                              >
+                                <Trash2 size={13} />
+                                <span>حذف</span>
+                              </button>
                             </div>
                           </td>
                         </motion.tr>

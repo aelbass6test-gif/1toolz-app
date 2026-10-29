@@ -17,6 +17,7 @@ import { InventoryAudit } from './InventoryAudit';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { getLatestProductCost, generateSupplyOrderInvoiceHTML } from '../utils/financials';
 import { applyCustodyPayments, validateCustodyPayments } from '../utils/custodyLedger';
+import { deepCleanMerchantReferences } from '../utils/merchantProducts';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplyOrderModal } from './SupplyOrderModal';
@@ -306,12 +307,26 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
           return;
       }
 
-      showConfirm("تأكيد الحذف", "هل أنت متأكد من حذف هذا المورد؟ لا يمكن التراجع عن هذا الإجراء.", () => {
-          setSettings(prev => ({
-              ...prev,
-              suppliers: (prev.suppliers || []).filter(s => s.id !== id)
-          }));
-          audioSynth.announce("تم حذف المورد بنجاح", "success");
+      const supp = (settings.suppliers || []).find(x => x.id === id);
+      const suppName = supp?.name || '';
+
+      showConfirm("تأكيد الحذف", "هل أنت متأكد من حذف هذا المورد؟ سيتم حذف بياناته من قائمة الموردين والشركاء وإزالة أي تخصيصات أو تسعير خاص له على المنتجات. لا يمكن التراجع عن هذا الإجراء.", () => {
+          setSettings(prev => {
+              const cleaned = deepCleanMerchantReferences(prev, id, suppName);
+              
+              // Persist to cloud
+              const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+              if (activeStore) {
+                db.updatePartnerSettings(activeStore, cleaned.partners, cleaned.suppliers).catch(() => {});
+                db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
+                    ...prev,
+                    settings: cleaned
+                }).catch(() => {});
+              }
+              
+              return cleaned;
+          });
+          audioSynth.announce("تم حذف المورد بنجاح من كافة السجلات", "success");
       });
   };
 
