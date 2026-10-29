@@ -333,7 +333,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (!s) return;
       const sId = String(s.id || '').trim();
       const sName = String(s.name || '').trim();
-      const sPhone = String(s.phone || '').trim();
+      let sPhone = String(s.phone || s.contactPhone || s.mobile || s.phoneNumber || s.phone_number || s.payoutAccounts?.walletPhone || '').trim();
       let sEmail = String(s.email || s.contactEmail || '').trim().toLowerCase();
 
       if (!sEmail && typeof s.notes === 'string') {
@@ -341,15 +341,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         if (emailMatch) sEmail = emailMatch[0].toLowerCase();
       }
 
+      if (!sPhone && typeof s.notes === 'string') {
+        const phoneMatch = s.notes.match(/(01[0125][0-9]{8})/);
+        if (phoneMatch) sPhone = phoneMatch[0];
+      }
+
       if (!sId && !sName && !sEmail && !sPhone) return;
       const normName = normalizeName(sName);
 
-      const existing = list.find(item =>
-        (sId && item.id && String(item.id).trim().toLowerCase() === sId.toLowerCase()) ||
-        (normName && item.name && normalizeName(item.name) === normName) ||
-        (sEmail && item.email && item.email.trim().toLowerCase() === sEmail) ||
-        (sPhone && sPhone.length >= 8 && item.phone && item.phone.trim() === sPhone)
-      );
+      const existing = list.find(item => {
+        if (sId && item.id && String(item.id).trim().toLowerCase() === sId.toLowerCase()) return true;
+        if (sId && Array.isArray(item.aliases) && item.aliases.some((a: string) => String(a).trim().toLowerCase() === sId.toLowerCase())) return true;
+        if (!sId && !item.id && normName && item.name && normalizeName(item.name) === normName) return true;
+        return false;
+      });
 
       if (existing) {
         if (!existing.email && sEmail) existing.email = sEmail;
@@ -554,9 +559,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     if (!authenticatedId) return null;
     const current = merchants.find(m => String(m.id || '').trim().toLowerCase() === authenticatedId);
     if (!current) return authenticatedMerchant;
+    const effectivePhone = current.phone || (current as any).contactPhone || (current as any).mobile || (current as any).phoneNumber || (current as any).phone_number || current.payoutAccounts?.walletPhone || authenticatedMerchant.phone || (authenticatedMerchant as any).contactPhone || (authenticatedMerchant as any).mobile || (authenticatedMerchant as any).phoneNumber || authenticatedMerchant.payoutAccounts?.walletPhone || '';
     return {
       ...authenticatedMerchant,
       ...current,
+      phone: effectivePhone,
       payoutFrequency: current.payoutFrequency ?? authenticatedMerchant.payoutFrequency ?? 'weekly',
       weeklyPayoutDay: current.weeklyPayoutDay ?? authenticatedMerchant.weeklyPayoutDay ?? 1,
       holdingDaysAfterSettlement: current.holdingDaysAfterSettlement ?? authenticatedMerchant.holdingDaysAfterSettlement ?? 7,
@@ -1223,7 +1230,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   useEffect(() => {
     if (liveMerchant) {
       const pa = liveMerchant.payoutAccounts || {};
-      setSavedWalletPhone(pa.walletPhone || liveMerchant.phone || '');
+      const effPhone = liveMerchant.phone || pa.walletPhone || (liveMerchant as any).contactPhone || (liveMerchant as any).mobile || '';
+      setSavedWalletPhone(pa.walletPhone || effPhone || '');
       setSavedInstaPay(pa.instaPayHandle || '');
       setSavedBankName(pa.bankName || '');
       setSavedBankAccount(pa.bankAccount || '');
@@ -1232,7 +1240,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       // Basic Info Sync
       setEditMerchantName(liveMerchant.name || '');
       setEditMerchantEmail(liveMerchant.email || '');
-      setEditMerchantPhone(liveMerchant.phone || '');
+      setEditMerchantPhone(effPhone);
     }
   }, [liveMerchant]);
 
@@ -1300,8 +1308,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const existingTxs = Array.isArray(liveMerchant.transactions) ? [...liveMerchant.transactions] : [];
     const nextTransactions = updates.newTransaction ? [updates.newTransaction, ...existingTxs] : existingTxs;
 
-    const targetPhone = String(liveMerchant.phone || '').trim();
-    const targetEmail = String(liveMerchant.email || '').trim().toLowerCase();
+    const targetId = String(liveMerchant.id || '').trim().toLowerCase();
+    const targetAliases = Array.isArray(liveMerchant.aliases) 
+      ? liveMerchant.aliases.map((a: string) => String(a).trim().toLowerCase()) 
+      : [];
+
+    const isMatch = (entity: any) => {
+      if (!entity) return false;
+      const entityId = String(entity.id || '').trim().toLowerCase();
+      if (entityId && (entityId === targetId || targetAliases.includes(entityId))) return true;
+      if (!entityId && !targetId && entity.name && normalizeName(entity.name) === normTargetName) return true;
+      return false;
+    };
 
     const applyPatch = (entity: any) => ({
       ...entity,
@@ -1326,12 +1344,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       // 1. Compute next state based on current settings
       let supplierFound = false;
       const nextSuppliers = currentSuppliers.map(s => {
-        if (
-          (s.id && s.id === liveMerchant.id) ||
-          (s.name && normalizeName(s.name) === normTargetName) ||
-          (targetPhone && s.phone && String(s.phone).trim() === targetPhone) ||
-          (targetEmail && s.email && String(s.email).trim().toLowerCase() === targetEmail)
-        ) {
+        if (isMatch(s)) {
           supplierFound = true;
           return applyPatch(s);
         }
@@ -1361,12 +1374,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       let partnerFound = false;
       const nextPartners = currentPartners.map(p => {
-        if (
-          (p.id && p.id === liveMerchant.id) ||
-          (p.name && normalizeName(p.name) === normTargetName) ||
-          (targetPhone && p.phone && String(p.phone).trim() === targetPhone) ||
-          (targetEmail && p.email && String(p.email).trim().toLowerCase() === targetEmail)
-        ) {
+        if (isMatch(p)) {
           partnerFound = true;
           return applyPatch(p);
         }
@@ -1435,7 +1443,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     if (!liveMerchant) return;
     
     const name = editMerchantName.trim();
-    const email = editMerchantEmail.trim().toLowerCase();
+    // Maintain verified email intact
+    const email = (liveMerchant.email || editMerchantEmail || '').trim().toLowerCase();
     const phone = editMerchantPhone.trim();
 
     if (!name) {
@@ -9914,14 +9923,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   />
                 </div>
                 <div>
-                  <label className={`block mb-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>البريد الإلكتروني</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className={`block ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>البريد الإلكتروني الموثق</label>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-500/10 dark:text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      <CheckCircle2 size={11} /> موثق ولا يمكن تعديله
+                    </span>
+                  </div>
                   <input
                     type="email"
                     value={editMerchantEmail}
-                    onChange={e => setEditMerchantEmail(e.target.value)}
+                    readOnly
+                    disabled
                     placeholder="email@example.com"
-                    className={`w-full p-3.5 border rounded-2xl text-xs outline-none focus:border-[#00ab84] ${
-                      isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                    className={`w-full p-3.5 border rounded-2xl text-xs outline-none cursor-not-allowed opacity-80 ${
+                      isDark ? 'bg-zinc-950/60 border-zinc-800 text-zinc-300' : 'bg-zinc-100/80 border-zinc-200 text-zinc-700'
                     }`}
                   />
                 </div>

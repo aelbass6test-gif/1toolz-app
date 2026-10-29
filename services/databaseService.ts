@@ -829,50 +829,75 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     }),
                     callScripts
                 },
-                orders: (orders || []).map((o: any) => {
-                    const detailsObj = o.details && typeof o.details === 'object' ? o.details : (typeof o.details === 'string' && o.details ? JSON.parse(o.details) : {});
-                    const cleanTopLevel = Object.entries(o).reduce((acc: any, [key, val]) => {
-                        if (val !== null && val !== undefined) acc[key] = val;
-                        return acc;
-                    }, {});
-                    const baseOrder = { ...detailsObj };
-                    Object.entries(cleanTopLevel).forEach(([key, val]) => {
-                        const detailsVal = detailsObj[key];
-                        const isZeroOverwritingPositive = val === 0 && typeof detailsVal === 'number' && detailsVal > 0 && ['insuranceFee', 'inspectionFee', 'codFee', 'productPrice', 'productCost', 'shippingFee', 'totalPrice'].includes(key);
-                        const isValEmpty = val === null || val === undefined || isZeroOverwritingPositive || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
-                        const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
-                        if (isValEmpty && !isDetailsEmpty) {
-                            // Keep non-empty value from detailsObj
-                        } else {
-                            baseOrder[key] = val;
-                        }
+                orders: (() => {
+                    const cloudOrderIds = new Set((orders || []).map((o: any) => String(o?.id || '').trim()));
+                    const mappedCloudOrders = (orders || []).map((o: any) => {
+                        const detailsObj = o.details && typeof o.details === 'object' ? o.details : (typeof o.details === 'string' && o.details ? JSON.parse(o.details) : {});
+                        const cleanTopLevel = Object.entries(o).reduce((acc: any, [key, val]) => {
+                            if (val !== null && val !== undefined) acc[key] = val;
+                            return acc;
+                        }, {});
+                        const baseOrder = { ...detailsObj };
+                        Object.entries(cleanTopLevel).forEach(([key, val]) => {
+                            const detailsVal = detailsObj[key];
+                            const isZeroOverwritingPositive = val === 0 && typeof detailsVal === 'number' && detailsVal > 0 && ['insuranceFee', 'inspectionFee', 'codFee', 'productPrice', 'productCost', 'shippingFee', 'totalPrice'].includes(key);
+                            const isValEmpty = val === null || val === undefined || isZeroOverwritingPositive || (Array.isArray(val) && val.length === 0) || (typeof val === 'object' && Object.keys(val).length === 0);
+                            const isDetailsEmpty = detailsVal === null || detailsVal === undefined || (Array.isArray(detailsVal) && detailsVal.length === 0) || (typeof detailsVal === 'object' && Object.keys(detailsVal).length === 0);
+                            if (isValEmpty && !isDetailsEmpty) {
+                                // Keep non-empty value from detailsObj
+                            } else {
+                                baseOrder[key] = val;
+                            }
+                        });
+                        const localOrder = local?.orders?.find((lo: any) => String(lo?.id || '').trim() === String(o?.id || '').trim() || (lo?.orderNumber && lo.orderNumber === o.orderNumber));
+                        const rawCloudItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : (Array.isArray(detailsObj.items) && detailsObj.items.length > 0 ? detailsObj.items : (Array.isArray(baseOrder.items) ? baseOrder.items : (baseOrder.items && typeof baseOrder.items === 'object' ? Object.values(baseOrder.items) : [])));
+                        const localItems = localOrder && Array.isArray(localOrder.items) ? localOrder.items : [];
+                        const itemsArray = (rawCloudItems.length > 0 || !localItems.length) ? rawCloudItems : localItems;
+
+                        // Check if local order has a newer timestamp or recent manual status change
+                        const localTime = new Date(localOrder?.updatedAt || localOrder?.statusUpdatedAt || 0).getTime();
+                        const cloudTime = new Date(baseOrder.updatedAt || baseOrder.statusUpdatedAt || 0).getTime();
+                        const isLocalStatusNewer = Boolean(
+                            localOrder && 
+                            localOrder.status && 
+                            (
+                                localTime > cloudTime || 
+                                (Date.now() - localTime < 300000 && localOrder.status !== baseOrder.status)
+                            )
+                        );
+
+                        const effectiveStatus = isLocalStatusNewer ? localOrder.status : baseOrder.status;
+                        const effectiveUpdatedAt = isLocalStatusNewer ? (localOrder.updatedAt || new Date().toISOString()) : (baseOrder.updatedAt || baseOrder.date);
+
+                        return {
+                            ...baseOrder,
+                            status: effectiveStatus,
+                            updatedAt: effectiveUpdatedAt,
+                            statusUpdatedAt: isLocalStatusNewer ? (localOrder.statusUpdatedAt || effectiveUpdatedAt) : (baseOrder.statusUpdatedAt || effectiveUpdatedAt),
+                            items: itemsArray,
+                            advancePayment: baseOrder.advancePayment ?? localOrder?.advancePayment ?? 0,
+                            advancePaymentPartnerId: baseOrder.advancePaymentPartnerId ?? localOrder?.advancePaymentPartnerId,
+                            advancePaymentTreasuryId: baseOrder.advancePaymentTreasuryId ?? localOrder?.advancePaymentTreasuryId,
+                            advancePaymentEmployeeId: baseOrder.advancePaymentEmployeeId ?? (localOrder as any)?.advancePaymentEmployeeId,
+                            advancePaymentRecipientPhone: baseOrder.advancePaymentRecipientPhone ?? localOrder?.advancePaymentRecipientPhone,
+                            advancePaymentSenderDetails: baseOrder.advancePaymentSenderDetails ?? localOrder?.advancePaymentSenderDetails,
+                            advancePaymentHistory: baseOrder.advancePaymentHistory ?? localOrder?.advancePaymentHistory ?? [],
+                            flexShipFee: baseOrder.flexShipFee ?? localOrder?.flexShipFee,
+                            flexShipCompanyFee: baseOrder.flexShipCompanyFee ?? localOrder?.flexShipCompanyFee,
+                            flexShipFeePaidByCustomer: baseOrder.flexShipFeePaidByCustomer ?? localOrder?.flexShipFeePaidByCustomer,
+                            enableFlexShip: baseOrder.enableFlexShip ?? localOrder?.enableFlexShip,
+                            channel: baseOrder.channel ?? localOrder?.channel ?? 'online',
+                            warehouseId: baseOrder.warehouseId ?? baseOrder.warehouse_id ?? localOrder?.warehouseId,
+                            warehouse_id: baseOrder.warehouse_id ?? baseOrder.warehouseId ?? localOrder?.warehouseId,
+                            createdBy: baseOrder.createdBy ?? localOrder?.createdBy,
+                            source: baseOrder.source ?? localOrder?.source,
+                            vatOnStandardShipping: baseOrder.vatOnStandardShipping ?? localOrder?.vatOnStandardShipping
+                        };
                     });
-                    const localOrder = local?.orders?.find((lo: any) => lo.id === o.id);
-                    const rawCloudItems = Array.isArray(o.items) && o.items.length > 0 ? o.items : (Array.isArray(detailsObj.items) && detailsObj.items.length > 0 ? detailsObj.items : (Array.isArray(baseOrder.items) ? baseOrder.items : (baseOrder.items && typeof baseOrder.items === 'object' ? Object.values(baseOrder.items) : [])));
-                    const localItems = localOrder && Array.isArray(localOrder.items) ? localOrder.items : [];
-                    const itemsArray = (rawCloudItems.length > 0 || !localItems.length) ? rawCloudItems : localItems;
-                    return {
-                        ...baseOrder,
-                        items: itemsArray,
-                        advancePayment: baseOrder.advancePayment ?? localOrder?.advancePayment ?? 0,
-                        advancePaymentPartnerId: baseOrder.advancePaymentPartnerId ?? localOrder?.advancePaymentPartnerId,
-                        advancePaymentTreasuryId: baseOrder.advancePaymentTreasuryId ?? localOrder?.advancePaymentTreasuryId,
-                        advancePaymentEmployeeId: baseOrder.advancePaymentEmployeeId ?? (localOrder as any)?.advancePaymentEmployeeId,
-                        advancePaymentRecipientPhone: baseOrder.advancePaymentRecipientPhone ?? localOrder?.advancePaymentRecipientPhone,
-                        advancePaymentSenderDetails: baseOrder.advancePaymentSenderDetails ?? localOrder?.advancePaymentSenderDetails,
-                        advancePaymentHistory: baseOrder.advancePaymentHistory ?? localOrder?.advancePaymentHistory ?? [],
-                        flexShipFee: baseOrder.flexShipFee ?? localOrder?.flexShipFee,
-                        flexShipCompanyFee: baseOrder.flexShipCompanyFee ?? localOrder?.flexShipCompanyFee,
-                        flexShipFeePaidByCustomer: baseOrder.flexShipFeePaidByCustomer ?? localOrder?.flexShipFeePaidByCustomer,
-                        enableFlexShip: baseOrder.enableFlexShip ?? localOrder?.enableFlexShip,
-                        channel: baseOrder.channel ?? localOrder?.channel ?? 'online',
-                        warehouseId: baseOrder.warehouseId ?? baseOrder.warehouse_id ?? localOrder?.warehouseId,
-                        warehouse_id: baseOrder.warehouse_id ?? baseOrder.warehouseId ?? localOrder?.warehouseId,
-                        createdBy: baseOrder.createdBy ?? localOrder?.createdBy,
-                        source: baseOrder.source ?? localOrder?.source,
-                        vatOnStandardShipping: baseOrder.vatOnStandardShipping ?? localOrder?.vatOnStandardShipping
-                    };
-                }),
+
+                    const localOnlyOrders = (local?.orders || []).filter((lo: any) => lo && lo.id && !cloudOrderIds.has(String(lo.id).trim()));
+                    return [...mappedCloudOrders, ...localOnlyOrders];
+                })(),
                 wallet: { balance: 0, transactions },
                 treasury: { 
                     accounts: (treasuryAccounts || []).map((acc: any) => ({

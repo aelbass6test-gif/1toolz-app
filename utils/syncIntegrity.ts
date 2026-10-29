@@ -258,8 +258,8 @@ export function reconcileDualOrderSources(
           collectionStatus: String(col.status || '')
         });
       }
-      const embTime = new Date(emb.updatedAt || emb.confirmedAt || emb.date || 0).getTime();
-      const colTime = new Date(col.updatedAt || col.confirmedAt || col.date || 0).getTime();
+      const embTime = new Date(emb.updatedAt || emb.statusUpdatedAt || emb.confirmedAt || emb.date || 0).getTime();
+      const colTime = new Date(col.updatedAt || col.statusUpdatedAt || col.confirmedAt || col.date || 0).getTime();
       const embVer = Number(emb.version || 0);
       const colVer = Number(col.version || 0);
 

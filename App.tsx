@@ -1751,7 +1751,7 @@ export const AppComponent = () => {
 
         debounceTimer.current = setTimeout(() => {
             executeCloudSync();
-        }, 5000); // 5s debounce to batch cloud requests and drastically reduce Egress
+        }, 800); // 800ms debounce to rapidly persist updates to Cloud without blocking UI
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);

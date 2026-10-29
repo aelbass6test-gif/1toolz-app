@@ -3230,10 +3230,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       return nextSettings;
     });
 
-    // 2. Update State
-    const { updatedOrderData: financialUpdatedOrder, newTransactions } =
-      processFinancialsForStatusChange(orderWithFlexShip, newStatus);
-    const updatedOrderData = { ...financialUpdatedOrder, stockDeducted };
+    const nowIso = new Date().toISOString();
+    const updatedOrderData = { 
+      ...financialUpdatedOrder, 
+      stockDeducted,
+      status: newStatus,
+      updatedAt: nowIso,
+      statusUpdatedAt: nowIso 
+    };
 
     // 2.1 Return handling: cancel unpaid rows, then reverse each explicitly identified merchant separately.
     const wasDeliveredOrSettled = ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "تم_الاستبدال", "مدفوعة"].includes(orderToUpdate.status) || orderToUpdate.settlementStatus === 'settled';
