@@ -300,13 +300,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (activeId && allStoresData[activeId]) return activeId;
       if (activeId) return activeId;
     } catch {}
-    try {
-      const savedM = localStorage.getItem('authenticated_merchant');
-      if (savedM) {
-        const parsedM = JSON.parse(savedM);
-        if (parsedM?._storeId) return parsedM._storeId;
-      }
-    } catch {}
     const keys = Object.keys(allStoresData);
     if (keys.length > 0) return keys[0];
     return '';
@@ -540,31 +533,28 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     return list;
   }, [localStoreData, directStoreData, allStoresData, effectiveStoreId]);
 
+  const merchantAuthStorageKey = `authenticated_merchant_${effectiveStoreId || 'unknown'}`;
+
   const [authenticatedMerchant, setAuthenticatedMerchant] = useState<Partner | null>(() => {
     try {
-      const saved = localStorage.getItem('authenticated_merchant');
-      if (saved) return JSON.parse(saved);
+      const saved = localStorage.getItem(`authenticated_merchant_${effectiveStoreId || 'unknown'}`);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+      const savedId = String(parsed?.id || '').trim().toLowerCase();
+      const savedStoreId = String(parsed?._storeId || '').trim();
+      if (requestedId && savedId !== requestedId) return null;
+      if (savedStoreId && effectiveStoreId && savedStoreId !== effectiveStoreId) return null;
+      return parsed;
     } catch {}
     return null;
   });
 
   const liveMerchant = useMemo(() => {
     if (!authenticatedMerchant) return null;
-    const current = merchants.find(m => {
-      // 1. Strict ID match is authoritative
-      if (m.id && authenticatedMerchant.id) {
-        return String(m.id).trim().toLowerCase() === String(authenticatedMerchant.id).trim().toLowerCase();
-      }
-      // 2. Email match if authenticatedMerchant has email
-      if (authenticatedMerchant.email && m.email) {
-        return m.email.trim().toLowerCase() === authenticatedMerchant.email.trim().toLowerCase();
-      }
-      // 3. Exact normalized name match
-      if (authenticatedMerchant.name && m.name) {
-        return normalizeName(m.name) === normalizeName(authenticatedMerchant.name);
-      }
-      return false;
-    });
+    const authenticatedId = String(authenticatedMerchant.id || '').trim().toLowerCase();
+    if (!authenticatedId) return null;
+    const current = merchants.find(m => String(m.id || '').trim().toLowerCase() === authenticatedId);
 
     if (!current) return authenticatedMerchant;
 
@@ -601,6 +591,23 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         : (authenticatedMerchant.planCyclesHistory || [])
     };
   }, [authenticatedMerchant, merchants]);
+
+  // A portal URL identifies one merchant. Never keep showing a previous browser session
+  // when the URL points to another merchant or store.
+  useEffect(() => {
+    const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+    const currentId = String(authenticatedMerchant?.id || '').trim().toLowerCase();
+    const sessionStoreId = String((authenticatedMerchant as any)?._storeId || '').trim();
+    const wrongMerchant = Boolean(requestedId && currentId && requestedId !== currentId);
+    const wrongStore = Boolean(sessionStoreId && effectiveStoreId && sessionStoreId !== effectiveStoreId);
+    if (wrongMerchant || wrongStore) {
+      setAuthenticatedMerchant(null);
+      try {
+        localStorage.removeItem(merchantAuthStorageKey);
+        localStorage.removeItem('authenticated_merchant');
+      } catch {}
+    }
+  }, [urlPartnerId, effectiveStoreId, authenticatedMerchant?.id, (authenticatedMerchant as any)?._storeId, merchantAuthStorageKey]);
 
   // Fetch fresh store data on mount
   const fetchFreshData = useCallback(async (isManualRefresh = false) => {
@@ -708,7 +715,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Persist authenticatedMerchant change and keep URL parameter in sync
   useEffect(() => {
     if (authenticatedMerchant) {
-      localStorage.setItem('authenticated_merchant', JSON.stringify(authenticatedMerchant));
+      const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+      const currentId = String(authenticatedMerchant.id || '').trim().toLowerCase();
+      if (requestedId && requestedId !== currentId) return;
+      const session = { ...authenticatedMerchant, _storeId: (authenticatedMerchant as any)._storeId || effectiveStoreId };
+      localStorage.setItem(merchantAuthStorageKey, JSON.stringify(session));
+      // Keep no global identity that could leak into another merchant portal.
+      localStorage.removeItem('authenticated_merchant');
       if (authenticatedMerchant.id) {
         const currentP = searchParams.get('p') || searchParams.get('merchantId') || searchParams.get('m');
         if (currentP && currentP !== authenticatedMerchant.id) {
@@ -722,9 +735,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         }
       }
     } else {
+      localStorage.removeItem(merchantAuthStorageKey);
       localStorage.removeItem('authenticated_merchant');
     }
-  }, [authenticatedMerchant, searchParams, setSearchParams]);
+  }, [authenticatedMerchant, searchParams, setSearchParams, effectiveStoreId, merchantAuthStorageKey]);
 
   useEffect(() => {
     document.title = liveMerchant?.name
@@ -1584,11 +1598,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (matched) return matched;
     }
 
-    // 3. Normalized Name match
-    matched = merchants.find(m => m.name && normalizeName(m.name) === normalizeName(clean));
-    if (matched) return matched;
-
-    // 4. Phone match
+    // 3. Phone match
     const cleanDigits = clean.replace(/[^\d]/g, '');
     if (cleanDigits.length >= 8) {
       const byPhone = merchants.filter(m => m.phone && m.phone.trim().replace(/[^\d]/g, '') === cleanDigits);
@@ -1728,6 +1738,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       return;
     }
 
+    if (urlPartnerId && String(matched.id).trim().toLowerCase() !== String(urlPartnerId).trim().toLowerCase()) {
+      setAuthError('بيانات الدخول تخص موكلاً مختلفاً عن الحساب الموجود في هذا الرابط. افتح رابط بوابتك الصحيح.');
+      return;
+    }
+
     const expectedPin = matched.passcode || '0000';
     if (cleanPin !== expectedPin) {
       setAuthError('رمز المرور السري (PIN) غير صحيح.');
@@ -1785,6 +1800,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           return;
         }
 
+        if (urlPartnerId && String(authenticatedObj.id).trim().toLowerCase() !== String(urlPartnerId).trim().toLowerCase()) {
+          setAuthError('هذا البريد مرتبط بموكل مختلف عن الحساب الموجود في هذا الرابط.');
+          return;
+        }
+
         setAuthenticatedMerchant(authenticatedObj);
         setSelectedMerchantId(authenticatedObj.id);
         showToast(`أهلاً بك يا ${authenticatedObj.name}! تم التحقق والدخول لبوابة الموكلين بنجاح`, 'success');
@@ -1801,33 +1821,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Filter Orders for Live Merchant
   const merchantOrders = useMemo(() => {
     if (!liveMerchant) return [];
-    const mName = normalizeName(liveMerchant.name || '');
     const mId = String(liveMerchant.id || '').trim().toLowerCase();
-    const mPhone = String(liveMerchant.phone || '').trim().replace(/[^\d]/g, '');
 
     return rawOrders.filter(o => {
-      const oMName = normalizeName(o.merchantName || '');
       const oMId = String(o.merchantId || '').trim().toLowerCase();
-      const oMPhone = String(o.merchantBrandPhone || '').trim().replace(/[^\d]/g, '');
 
-      const matchMain = (
-        (mId && oMId === mId) ||
-        (mName && oMName === mName) ||
-        (mPhone && mPhone.length > 5 && oMPhone === mPhone)
-      );
+      const matchMain = Boolean(mId && oMId === mId);
 
       if (matchMain) return true;
 
       // NEW: Check individual items for joint merchant association (Option B)
       return (o.items || []).some(item => {
         const iMId = String(item.merchantId || '').trim().toLowerCase();
-        const iMName = normalizeName(item.merchantName || '');
-        const iMPhone = String(item.merchantPhone || '').trim().replace(/[^\d]/g, '');
-        return (
-          (mId && iMId === mId) ||
-          (mName && iMName === mName) ||
-          (mPhone && mPhone.length > 5 && iMPhone === mPhone)
-        );
+        return Boolean(mId && iMId === mId);
       });
     });
   }, [rawOrders, liveMerchant]);

@@ -231,7 +231,12 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const [authenticatedPartner, setAuthenticatedPartner] = useState<Partner | null>(() => {
     try {
       const saved = sessionStorage.getItem(`partner_portal_auth_${effectiveStoreId}`);
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+      const savedId = String(parsed?.id || '').trim().toLowerCase();
+      if (requestedId && requestedId !== savedId) return null;
+      return parsed;
     } catch {
       return null;
     }
@@ -304,16 +309,11 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const autoLogin = searchParams.get('auto') === '1' || searchParams.get('direct') === '1';
 
     if (!authenticatedPartner && partners.length > 0 && urlPartnerId) {
-      const normUrlId = normalizeName(urlPartnerId);
-      const match = partners.find(p => 
-        p.id === urlPartnerId || 
-        p.id === `part_${urlPartnerId}` || 
-        urlPartnerId === `part_${p.id}` || 
-        normalizeName(p.name) === normUrlId ||
-        normalizeName(p.id) === normUrlId ||
-        String(p.id).includes(urlPartnerId) ||
-        urlPartnerId.includes(String(p.id))
-      );
+      const requestedId = String(urlPartnerId).trim().toLowerCase();
+      const match = partners.find(p => {
+        const id = String(p.id || '').trim().toLowerCase();
+        return id === requestedId || id === `part_${requestedId}` || requestedId === `part_${id}`;
+      });
 
       if (match) {
         setSelectedPartnerId(match.id);
@@ -338,15 +338,20 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   // Keep authenticated partner synced with fresh partners list
   const livePartner = useMemo(() => {
     if (!authenticatedPartner) return null;
-    const current = partners.find(p => 
-      (p.id && authenticatedPartner.id && String(p.id).trim() === String(authenticatedPartner.id).trim()) ||
-      (authenticatedPartner.phone && p.phone && String(p.phone).trim() === String(authenticatedPartner.phone).trim()) ||
-      (p.name && authenticatedPartner.name && normalizeName(p.name) === normalizeName(authenticatedPartner.name)) ||
-      (p.id && String(p.id) === `part_${authenticatedPartner.id}`) ||
-      (authenticatedPartner.id && String(authenticatedPartner.id) === `part_${p.id}`)
-    );
+    const authenticatedId = String(authenticatedPartner.id || '').trim();
+    if (!authenticatedId) return null;
+    const current = partners.find(p => String(p.id || '').trim() === authenticatedId);
     return current || authenticatedPartner;
   }, [authenticatedPartner, partners]);
+
+  useEffect(() => {
+    const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+    const currentId = String(authenticatedPartner?.id || '').trim().toLowerCase();
+    if (requestedId && currentId && requestedId !== currentId) {
+      setAuthenticatedPartner(null);
+      try { sessionStorage.removeItem(`partner_portal_auth_${effectiveStoreId}`); } catch {}
+    }
+  }, [urlPartnerId, authenticatedPartner?.id, effectiveStoreId]);
 
   const isMerchantMode = useMemo(() => {
     if (modeFromPath === 'merchant') return true;
