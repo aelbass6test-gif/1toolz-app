@@ -8240,7 +8240,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
                         const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));
                         const val = stock * cost;
-                        const profitMode = p.profitMode || 'commission';
+                        const profitMode = p.profitMode || (cost > 0 ? 'margin' : 'commission');
                         const commissionPct = Number(p.commissionPercentage || p.profitPercentage || liveMerchant?.profitRatio || 15);
                         const unitProfit = profitMode === 'commission'
                           ? Math.round(price * (commissionPct / 100))
