@@ -673,6 +673,38 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const holderId = `part_${pId}`;
     const partnerHolderIds = [pId, holderId, pId.replace('part_', '')];
 
+    // Merchant-owned ledger is isolated from the legacy partner ledger.
+    // Never fall back to merchantName here: merchantId is the only financial identity.
+    const merchantLedgerTxs: PartnerTransaction[] = isMerchantMode
+      ? (settings.merchantTransactions || [])
+          .filter((t: any) => String(t.merchantId || '') === String(pId))
+          .map((t: any) => ({
+            id: t.id,
+            partnerId: pId,
+            partnerName: t.merchantName,
+            type: t.type,
+            amount: Math.abs(Number(t.amount) || 0),
+            date: t.date || new Date().toISOString(),
+            note: `${t.notes || 'حركة مالية للموكل'}${t.referenceId ? ` · مرجع ${t.referenceId}` : ''}${t.transferReference ? ` · تحويل ${t.transferReference}` : ''}`,
+            orderId: t.referenceId,
+          }))
+      : [];
+
+    const merchantSettlementAuditTxs: PartnerTransaction[] = isMerchantMode
+      ? (settings.merchantSettlements || [])
+          .filter((s: any) => String(s.merchantId || '') === String(pId))
+          .map((s: any) => ({
+            id: `settlement-audit-${s.id}`,
+            partnerId: pId,
+            partnerName: s.merchantName,
+            type: `settlement_${s.status}`,
+            amount: 0,
+            date: s.date || new Date().toISOString(),
+            note: `كشف ${s.settlementNumber || s.id}: ${s.status === 'pending' ? 'بانتظار الاعتماد' : s.status === 'approved' ? 'معتمد' : s.status === 'paid' ? 'مدفوع' : s.status === 'cancelled' ? 'ملغى' : 'مسودة'} · صافي الكشف ${Number(s.netPayoutToMerchant || 0).toLocaleString()} ج.م`,
+            orderId: s.id,
+          }))
+      : [];
+
     // 1. Direct partner transactions from settings.partnerTransactions
     const matchedPartnerTxs = rawPartnerTransactions.filter((t: any) => {
       if (t.type === 'pos_collection') return false;
@@ -785,12 +817,15 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       }
     });
 
-    // All combined transactions
+    // All combined transactions. Merchant mode uses only the explicit merchant ledger.
     const allCombinedTxs = [
-      ...matchedPartnerTxs,
-      ...matchedHandovers,
-      ...matchedWalletTxs,
-      ...matchedSupplyTxs
+      ...(isMerchantMode ? merchantLedgerTxs : [
+        ...matchedPartnerTxs,
+        ...matchedHandovers,
+        ...matchedWalletTxs,
+        ...matchedSupplyTxs
+      ]),
+      ...(isMerchantMode ? merchantSettlementAuditTxs : [])
     ];
 
     // Chronological sorting
@@ -865,7 +900,17 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
     // Live Balance calculation
     let netBalance = 0;
-    if (livePartner.balance !== undefined && livePartner.balance !== null && !isNaN(Number(livePartner.balance))) {
+    const latestMerchantBalance = isMerchantMode
+      ? [...merchantLedgerTxs]
+          .filter((t: any) => Number.isFinite(Number((settings.merchantTransactions || []).find((raw: any) => raw.id === t.id)?.balanceAfter)))
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+      : null;
+    const latestMerchantRaw = latestMerchantBalance
+      ? (settings.merchantTransactions || []).find((raw: any) => raw.id === latestMerchantBalance.id)
+      : null;
+    if (isMerchantMode && latestMerchantRaw && Number.isFinite(Number(latestMerchantRaw.balanceAfter))) {
+      netBalance = Number(latestMerchantRaw.balanceAfter);
+    } else if (livePartner.balance !== undefined && livePartner.balance !== null && !isNaN(Number(livePartner.balance))) {
       netBalance = Number(livePartner.balance);
     } else {
       netBalance = capital + dividends - netWithdrawals;
@@ -873,7 +918,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
     // Pending withdrawal requests
     const pendingWithdrawalHold = partnerRequestsList
-      .filter(r => (r.partnerId === pId || normalizeName(r.partnerName) === normPName) && r.type === 'withdrawal' && r.status === 'pending')
+      .filter(r => (isMerchantMode ? String(r.partnerId || '') === String(pId) : (r.partnerId === pId || normalizeName(r.partnerName) === normPName)) && r.type === 'withdrawal' && r.status === 'pending')
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
     const availableToWithdraw = netBalance - pendingWithdrawalHold;
@@ -937,7 +982,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       totalInventoryValue,
       partnerInventoryShare
     };
-  }, [livePartner, rawPartnerTransactions, rawCashHandovers, rawWalletTransactions, rawTreasuryTransactions, rawSupplyOrders, rawOrders, rawTreasury, settings, partnerRequestsList, activeStoreData]);
+  }, [livePartner, rawPartnerTransactions, rawCashHandovers, rawWalletTransactions, rawTreasuryTransactions, rawSupplyOrders, rawOrders, rawTreasury, settings, partnerRequestsList, activeStoreData, isMerchantMode]);
 
   // Filter and organize orders belonging to this partner/merchant
   const merchantOrders = useMemo(() => {
@@ -949,11 +994,12 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     return rawOrders.filter(o => {
       const oMId = (o.merchantId || '').trim().toLowerCase();
       const oMName = (o.merchantName || '').trim().toLowerCase();
+      if (isMerchantMode) return Boolean(oMId) && oMId !== 'pending' && oMId === pId;
       if (!oMId && !oMName) return false;
       if (oMId === 'pending') return false;
       return oMId === pId || oMName === pName || (pPhone && oMId === pPhone) || oMName === pId;
     });
-  }, [rawOrders, livePartner]);
+  }, [rawOrders, livePartner, isMerchantMode]);
 
   // Status Categorization for Merchant Orders
   const merchantOrdersCategorized = useMemo(() => {
@@ -1054,6 +1100,22 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
   const getTxTypeBadge = (type: string) => {
     switch (type) {
+      case 'order_delivered':
+        return { label: 'مستحق أوردر محصل', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
+      case 'order_returned':
+        return { label: 'خصم مرتجع', bg: 'text-rose-700 bg-rose-50 border border-rose-200' };
+      case 'withdrawal':
+        return { label: 'صرف من المحفظة', bg: 'text-rose-700 bg-rose-50 border border-rose-200' };
+      case 'settlement_pending':
+        return { label: 'كشف بانتظار الاعتماد', bg: 'text-amber-700 bg-amber-50 border border-amber-200' };
+      case 'settlement_approved':
+        return { label: 'كشف معتمد', bg: 'text-indigo-700 bg-indigo-50 border border-indigo-200' };
+      case 'settlement_paid':
+        return { label: 'كشف مصروف', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
+      case 'settlement_cancelled':
+        return { label: 'كشف ملغى', bg: 'text-slate-600 bg-slate-100 border border-slate-200' };
+      case 'settlement_draft':
+        return { label: 'كشف مسودة', bg: 'text-slate-600 bg-slate-100 border border-slate-200' };
       case 'profit_distribution':
         return { label: 'توزيع أرباح', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
       case 'capital_addition':
@@ -2282,7 +2344,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                     ) : (
                       filteredStatementTxs.map(t => {
                         const badge = getTxTypeBadge(t.type);
-                        const isCredit = ['capital_addition', 'supply_funding', 'shipping_funding', 'profit_distribution', 'repayment', 'expense_coverage'].includes(t.type);
+                        const isCredit = ['capital_addition', 'supply_funding', 'shipping_funding', 'profit_distribution', 'repayment', 'expense_coverage', 'order_delivered', 'wallet_topup', 'order_profit'].includes(t.type);
+                        const isAuditRow = t.type.startsWith('settlement_');
 
                         return (
                           <tr key={t.id} className="hover:bg-slate-50 transition-colors">
@@ -2295,8 +2358,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                               </span>
                             </td>
                             <td className="py-3 px-4 font-mono font-black whitespace-nowrap">
-                              <span className={isCredit ? 'text-[#008060]' : 'text-rose-600'}>
-                                {isCredit ? '+' : '-'}{Number(t.amount || 0).toLocaleString()} ج.م
+                              <span className={isAuditRow ? 'text-indigo-600' : isCredit ? 'text-[#008060]' : 'text-rose-600'}>
+                                {isAuditRow ? '—' : `${isCredit ? '+' : '-'}${Number(t.amount || 0).toLocaleString()} ج.م`}
                               </span>
                             </td>
                             <td className="py-3 px-4 text-slate-800 font-medium">
