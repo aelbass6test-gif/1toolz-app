@@ -369,8 +369,8 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       return;
     }
 
-    await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
-    setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+    await db.updateMerchantRequestStatus(req.id, storeId, 'quoted' as any);
+    setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'quoted' as any } : r));
 
     const baseReqMeta: MerchantPlanChangeRequest = req.planRequestMeta || supplier.pendingPlanRequest || {
       id: req.id || `PLAN-REQ-${Date.now()}`,
@@ -1556,9 +1556,10 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
                         </div>
                         <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
                           req.status === 'pending' ? 'bg-amber-50 text-amber-600 animate-pulse' :
+                          req.status === 'quoted' ? 'bg-purple-50 text-purple-600' :
                           req.status === 'approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                         }`}>
-                          {req.status === 'pending' ? 'بانتظار الموافقة' : req.status === 'approved' ? 'تم الاعتماد' : 'مرفوض'}
+                          {req.status === 'pending' ? 'بانتظار الموافقة' : req.status === 'quoted' ? 'تم إرسال عرض السعر' : req.status === 'approved' ? 'تم الاعتماد' : 'مرفوض'}
                         </span>
                       </div>
 

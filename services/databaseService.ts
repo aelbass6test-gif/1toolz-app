@@ -3105,12 +3105,15 @@ export const updateMerchantRequestStatus = async (
             updated = await runTransaction(firebaseDb, async transaction => {
                 const isolatedSnap = await transaction.get(isolatedRef);
                 if (isolatedSnap.exists()) {
-                    if (isolatedSnap.data().storeId !== storeId || isolatedSnap.data().status !== 'pending') return false;
+                    const snapData = isolatedSnap.data();
+                    if (snapData.storeId !== storeId) return false;
                     transaction.update(isolatedRef, { status, updatedAt: new Date().toISOString(), ...extra });
                     return true;
                 }
                 const legacySnap = await transaction.get(legacyRef);
-                if (!legacySnap.exists() || legacySnap.data().storeId !== storeId || legacySnap.data().status !== 'pending' || !isLegacyMerchantRequest(legacySnap.data())) return false;
+                if (!legacySnap.exists()) return false;
+                const legacyData = legacySnap.data();
+                if (legacyData.storeId !== storeId || !isLegacyMerchantRequest(legacyData)) return false;
                 transaction.update(legacyRef, { status, updatedAt: new Date().toISOString(), ...extra });
                 return true;
             });

@@ -1294,85 +1294,99 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       ...(updates.newTransaction !== undefined ? { transactions: nextTransactions } : {})
     });
 
-    let supplierFound = false;
-    const updatedSuppliers = currentSuppliers.map(s => {
-      if (
-        (s.id && s.id === liveMerchant.id) ||
-        (s.name && normalizeName(s.name) === normTargetName) ||
-        (targetPhone && s.phone && String(s.phone).trim() === targetPhone) ||
-        (targetEmail && s.email && String(s.email).trim().toLowerCase() === targetEmail)
-      ) {
-        supplierFound = true;
-        return applyPatch(s);
-      }
-      return s;
-    });
-
-    if (!supplierFound) {
-      updatedSuppliers.push(applyPatch({
-        id: liveMerchant.id,
-        name: liveMerchant.name,
-        phone: liveMerchant.phone || '',
-        email: liveMerchant.email || '',
-        balance: updates.balance ?? liveMerchant.balance ?? 0,
-        transactions: nextTransactions,
-        passcode: updates.passcode ?? liveMerchant.passcode ?? '0000',
-        payoutAccounts: updates.payoutAccounts ?? liveMerchant.payoutAccounts ?? {},
-        subscriptionPlan: updates.subscriptionPlan ?? liveMerchant.subscriptionPlan,
-        managerPlan: updates.managerPlan ?? liveMerchant.managerPlan,
-        pendingPlanRequest: updates.pendingPlanRequest !== undefined ? updates.pendingPlanRequest : (liveMerchant.pendingPlanRequest ?? null),
-        planCyclesHistory: updates.planCyclesHistory ?? liveMerchant.planCyclesHistory ?? [],
-        scheduledNextPlan: updates.scheduledNextPlan !== undefined ? updates.scheduledNextPlan : (liveMerchant.scheduledNextPlan ?? null),
-        payoutFrequency: updates.payoutFrequency ?? liveMerchant.payoutFrequency ?? 'weekly',
-        weeklyPayoutDay: updates.weeklyPayoutDay ?? liveMerchant.weeklyPayoutDay ?? 1,
-        role: 'موكل / مورد صاحب بضاعة'
-      }));
-    }
-
-    let partnerFound = false;
-    const updatedPartners = currentPartners.map(p => {
-      if (
-        (p.id && p.id === liveMerchant.id) ||
-        (p.name && normalizeName(p.name) === normTargetName) ||
-        (targetPhone && p.phone && String(p.phone).trim() === targetPhone) ||
-        (targetEmail && p.email && String(p.email).trim().toLowerCase() === targetEmail)
-      ) {
-        partnerFound = true;
-        return applyPatch(p);
-      }
-      return p;
-    });
-
-    if (!partnerFound) {
-      updatedPartners.push(applyPatch({
-        ...liveMerchant
-      }));
-    }
+    let partnersToSave: any[] = [];
+    let suppliersToSave: any[] = [];
 
     try {
-      updateSettings((prev: any) => ({
+      updateSettings((prev: any) => {
+        const currentSuppliers: any[] = Array.isArray(prev?.suppliers) ? [...prev.suppliers] : [];
+        const currentPartners: any[] = Array.isArray(prev?.partners) ? [...prev.partners] : [];
+
+        let supplierFound = false;
+        const updatedSuppliers = currentSuppliers.map(s => {
+          if (
+            (s.id && s.id === liveMerchant.id) ||
+            (s.name && normalizeName(s.name) === normTargetName) ||
+            (targetPhone && s.phone && String(s.phone).trim() === targetPhone) ||
+            (targetEmail && s.email && String(s.email).trim().toLowerCase() === targetEmail)
+          ) {
+            supplierFound = true;
+            return applyPatch(s);
+          }
+          return s;
+        });
+
+        if (!supplierFound) {
+          updatedSuppliers.push(applyPatch({
+            id: liveMerchant.id,
+            name: liveMerchant.name,
+            phone: liveMerchant.phone || '',
+            email: liveMerchant.email || '',
+            balance: updates.balance ?? liveMerchant.balance ?? 0,
+            transactions: nextTransactions,
+            passcode: updates.passcode ?? liveMerchant.passcode ?? '0000',
+            payoutAccounts: updates.payoutAccounts ?? liveMerchant.payoutAccounts ?? {},
+            subscriptionPlan: updates.subscriptionPlan ?? liveMerchant.subscriptionPlan,
+            managerPlan: updates.managerPlan ?? liveMerchant.managerPlan,
+            pendingPlanRequest: updates.pendingPlanRequest !== undefined ? updates.pendingPlanRequest : (liveMerchant.pendingPlanRequest ?? null),
+            planCyclesHistory: updates.planCyclesHistory ?? liveMerchant.planCyclesHistory ?? [],
+            scheduledNextPlan: updates.scheduledNextPlan !== undefined ? updates.scheduledNextPlan : (liveMerchant.scheduledNextPlan ?? null),
+            payoutFrequency: updates.payoutFrequency ?? liveMerchant.payoutFrequency ?? 'weekly',
+            weeklyPayoutDay: updates.weeklyPayoutDay ?? liveMerchant.weeklyPayoutDay ?? 1,
+            role: 'موكل / مورد صاحب بضاعة'
+          }));
+        }
+
+        let partnerFound = false;
+        const updatedPartners = currentPartners.map(p => {
+          if (
+            (p.id && p.id === liveMerchant.id) ||
+            (p.name && normalizeName(p.name) === normTargetName) ||
+            (targetPhone && p.phone && String(p.phone).trim() === targetPhone) ||
+            (targetEmail && p.email && String(p.email).trim().toLowerCase() === targetEmail)
+          ) {
+            partnerFound = true;
+            return applyPatch(p);
+          }
+          return p;
+        });
+
+        if (!partnerFound) {
+          updatedPartners.push(applyPatch({
+            ...liveMerchant
+          }));
+        }
+
+        partnersToSave = updatedPartners;
+        suppliersToSave = updatedSuppliers;
+
+        return {
+          ...prev,
+          suppliers: updatedSuppliers,
+          partners: updatedPartners
+        };
+      });
+
+      setDirectStoreData(prev => prev ? ({
         ...prev,
-        suppliers: updatedSuppliers,
-        partners: updatedPartners
-      }));
-    } catch {}
+        settings: {
+          ...prev.settings,
+          suppliers: suppliersToSave,
+          partners: partnersToSave
+        }
+      }) : prev);
 
-    setDirectStoreData(prev => prev ? ({
-      ...prev,
-      settings: {
-        ...prev.settings,
-        suppliers: updatedSuppliers,
-        partners: updatedPartners
+      setAuthenticatedMerchant(prev => prev ? applyPatch(prev) : prev);
+
+      if (targetStore && partnersToSave.length > 0) {
+        await db.updatePartnerSettings(targetStore, partnersToSave, suppliersToSave);
       }
-    }) : prev);
-
-    setAuthenticatedMerchant(prev => prev ? applyPatch(prev) : prev);
-
-    if (targetStore) {
-      await db.updatePartnerSettings(targetStore, updatedPartners, updatedSuppliers);
+      return true;
+    } catch (err: any) {
+      console.error('[MerchantPortal] Failed to persist account updates:', err);
+      return false;
     }
-    return true;
-  }, [liveMerchant, effectiveStoreId, settings.suppliers, settings.partners, updateSettings]);
+  }, [liveMerchant, effectiveStoreId, updateSettings]);
 
   const handleSavePayoutAccounts = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3558,132 +3572,151 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   const handleAcceptAdminCustomQuote = useCallback(async (request: MerchantPlanChangeRequest) => {
     if (!liveMerchant) return;
-    const unitFee = Number(request.quotedOrderFee || 20);
-    const quota = Number(request.requestedCustomQuota || request.requestedOrdersTarget || 200);
-    const isPrepaid = request.requestedCustomBillingPreference === 'prepaid_quota';
+    const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
+    
+    try {
+      const unitFee = Number(request.quotedOrderFee || 20);
+      const quota = Number(request.requestedCustomQuota || request.requestedOrdersTarget || 200);
+      const isPrepaid = request.requestedCustomBillingPreference === 'prepaid_quota';
 
-    // Check if merchant is already active on custom manager plan (Quota Increase)
-    const isQuotaIncrease = Boolean(
-      liveMerchant.managerPlan?.enabled &&
-      liveMerchant.managerPlan.status === 'active' &&
-      liveMerchant.managerPlan.planId === 'custom_manager'
-    );
+      // Check if merchant is already active on custom manager plan (Quota Increase)
+      const isQuotaIncrease = Boolean(
+        liveMerchant.managerPlan?.enabled &&
+        liveMerchant.managerPlan.status === 'active' &&
+        liveMerchant.managerPlan.planId === 'custom_manager'
+      );
 
-    const oldQuota = Number(liveMerchant.managerPlan?.customOrderQuota || liveMerchant.managerPlan?.customOrdersTarget || 0);
-    const incrementalQuota = isQuotaIncrease ? Math.max(0, quota - oldQuota) : quota;
-    const totalCharge = isPrepaid ? Number((unitFee * incrementalQuota).toFixed(2)) : 0;
+      const oldQuota = Number(liveMerchant.managerPlan?.customOrderQuota || liveMerchant.managerPlan?.customOrdersTarget || 0);
+      const incrementalQuota = isQuotaIncrease ? Math.max(0, quota - oldQuota) : quota;
+      const totalCharge = isPrepaid ? Number((unitFee * incrementalQuota).toFixed(2)) : 0;
 
-    if (totalCharge > availableForWithdrawal) {
-      showToast(`رصيد المحفظة غير كافٍ لتفعيل عرض السعر (${totalCharge.toLocaleString()} ج.م). يرجى شحن المحفظة أولاً.`, 'error');
-      return;
-    }
-
-    const nowIso = new Date().toISOString();
-    const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
-
-    let nextManagerPlan: MerchantManagerConfig;
-    let nextHistory: MerchantPlanCycleRecord[];
-
-    if (isQuotaIncrease && liveMerchant.managerPlan) {
-      // PRESERVE ongoing cycle and previously executed orders!
-      nextManagerPlan = {
-        ...liveMerchant.managerPlan,
-        orderFee: unitFee,
-        customOrderFee: unitFee,
-        customOrderQuota: quota,
-        customOrdersTarget: quota,
-        customPrepaidQuota: isPrepaid,
-        totalPrepaidAmount: (liveMerchant.managerPlan.totalPrepaidAmount || 0) + totalCharge,
-        usedOrdersInCycle: planUsage.usedOrders, // preserve executed orders!
-        expiresAt: expIso,
-        status: 'active',
-        notes: `تمت زيادة كوتة الأوردرات من (${oldQuota}) إلى (${quota}) أوردر مع الحفاظ على الأوردرات المنفذة سابقاً (${planUsage.usedOrders} أوردر)`
-      };
-      nextHistory = Array.isArray(liveMerchant.planCyclesHistory) ? [...liveMerchant.planCyclesHistory] : [];
-    } else {
-      // Starting new cycle from scratch
-      const existingHistory: MerchantPlanCycleRecord[] = Array.isArray(liveMerchant.planCyclesHistory)
-        ? [...liveMerchant.planCyclesHistory]
-        : [];
-      if (liveMerchant.subscriptionPlan && liveMerchant.subscriptionPlan.status === 'active') {
-        existingHistory.unshift({
-          cycleId: liveMerchant.subscriptionPlan.cycleId || `CYC-OLD-${Date.now()}`,
-          mode: 'self_service',
-          planId: liveMerchant.subscriptionPlan.planId,
-          planNameAr: liveMerchant.subscriptionPlan.planNameAr,
-          billingCycle: liveMerchant.subscriptionPlan.billingCycle,
-          quotaOrders: liveMerchant.subscriptionPlan.monthlyOrderLimit || 0,
-          usedOrders: planUsage.usedOrders,
-          paidAmount: liveMerchant.subscriptionPlan.paidAmount || 0,
-          activatedAt: liveMerchant.subscriptionPlan.activatedAt || new Date().toISOString(),
-          endedAt: new Date().toISOString(),
-          endReason: 'switched_mode'
-        });
+      if (totalCharge > availableForWithdrawal) {
+        showToast(`رصيد المحفظة غير كافٍ لتفعيل عرض السعر (${totalCharge.toLocaleString()} ج.م). يرجى شحن المحفظة أولاً.`, 'error');
+        return;
       }
-      nextHistory = existingHistory;
-      const newCycleId = `CYC-MGR-${Date.now()}`;
-      nextManagerPlan = {
-        enabled: true,
-        planId: 'custom_manager',
-        planNameAr: `باقة المدير المخصصة (${unitFee} ج.م / أوردر)`,
-        cycleId: newCycleId,
-        orderFee: unitFee,
-        customOrderFee: unitFee,
-        customOrderQuota: quota,
-        customOrdersTarget: quota,
-        customPrepaidQuota: isPrepaid,
-        totalPrepaidAmount: totalCharge,
-        usedOrdersInCycle: 0,
-        activatedAt: nowIso,
-        expiresAt: expIso,
-        status: 'active',
-        notes: `تم التفعيل بموافقة الموكل على تسعير الإدارة (${unitFee} ج.م للأوردر — ${quota} أوردر)`
-      };
-    }
 
-    const nextSubscriptionPlan: MerchantSubscriptionConfig = liveMerchant.subscriptionPlan
-      ? { ...liveMerchant.subscriptionPlan, status: 'cancelled' }
-      : {
-          planId: 'free',
-          planNameAr: 'الباقة المجانية (تاجر مبتدئ)',
-          billingCycle: 'monthly',
-          pricePerMonth: 0,
-          paidAmount: 0,
-          monthlyOrderLimit: 50,
-          unlimitedOrders: false,
+      const nowIso = new Date().toISOString();
+      const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
+
+      let nextManagerPlan: MerchantManagerConfig;
+      let nextHistory: MerchantPlanCycleRecord[];
+
+      if (isQuotaIncrease && liveMerchant.managerPlan) {
+        // PRESERVE ongoing cycle and previously executed orders!
+        nextManagerPlan = {
+          ...liveMerchant.managerPlan,
+          orderFee: unitFee,
+          customOrderFee: unitFee,
+          customOrderQuota: quota,
+          customOrdersTarget: quota,
+          customPrepaidQuota: isPrepaid,
+          totalPrepaidAmount: (liveMerchant.managerPlan.totalPrepaidAmount || 0) + totalCharge,
+          usedOrdersInCycle: planUsage.usedOrders, // preserve executed orders!
+          expiresAt: expIso,
+          status: 'active',
+          notes: `تمت زيادة كوتة الأوردرات من (${oldQuota}) إلى (${quota}) أوردر مع الحفاظ على الأوردرات المنفذة سابقاً (${planUsage.usedOrders} أوردر)`
+        };
+        nextHistory = Array.isArray(liveMerchant.planCyclesHistory) ? [...liveMerchant.planCyclesHistory] : [];
+      } else {
+        // Starting new cycle from scratch
+        const existingHistory: MerchantPlanCycleRecord[] = Array.isArray(liveMerchant.planCyclesHistory)
+          ? [...liveMerchant.planCyclesHistory]
+          : [];
+        if (liveMerchant.subscriptionPlan && liveMerchant.subscriptionPlan.status === 'active') {
+          existingHistory.unshift({
+            cycleId: liveMerchant.subscriptionPlan.cycleId || `CYC-OLD-${Date.now()}`,
+            mode: 'self_service',
+            planId: liveMerchant.subscriptionPlan.planId,
+            planNameAr: liveMerchant.subscriptionPlan.planNameAr,
+            billingCycle: liveMerchant.subscriptionPlan.billingCycle,
+            quotaOrders: liveMerchant.subscriptionPlan.monthlyOrderLimit || 0,
+            usedOrders: planUsage.usedOrders,
+            paidAmount: liveMerchant.subscriptionPlan.paidAmount || 0,
+            activatedAt: liveMerchant.subscriptionPlan.activatedAt || new Date().toISOString(),
+            endedAt: new Date().toISOString(),
+            endReason: 'switched_mode'
+          });
+        }
+        nextHistory = existingHistory;
+        const newCycleId = `CYC-MGR-${Date.now()}`;
+        nextManagerPlan = {
+          enabled: true,
+          planId: 'custom_manager',
+          planNameAr: `باقة المدير المخصصة (${unitFee} ج.م / أوردر)`,
+          cycleId: newCycleId,
+          orderFee: unitFee,
+          customOrderFee: unitFee,
+          customOrderQuota: quota,
+          customOrdersTarget: quota,
+          customPrepaidQuota: isPrepaid,
+          totalPrepaidAmount: totalCharge,
+          usedOrdersInCycle: 0,
           activatedAt: nowIso,
           expiresAt: expIso,
-          status: 'cancelled'
+          status: 'active',
+          notes: `تم التفعيل بموافقة الموكل على تسعير الإدارة (${unitFee} ج.م للأوردر — ${quota} أوردر)`
         };
+      }
 
-    const nextBalance = Number((effectiveMerchantBalance - totalCharge).toFixed(2));
-    const newTx: MerchantTransaction | undefined = totalCharge > 0 ? {
-      id: `SUB-QUOTE-${Date.now()}`,
-      merchantId: liveMerchant.id,
-      merchantName: liveMerchant.name,
-      date: nowIso,
-      type: 'subscription_charge',
-      amount: -totalCharge,
-      balanceAfter: nextBalance,
-      notes: `موافقة وتفعيل باقة المدير المخصصة بتسعير الإدارة (${unitFee} ج.م × ${quota} أوردر)`
-    } : undefined;
+      const nextSubscriptionPlan: MerchantSubscriptionConfig = liveMerchant.subscriptionPlan
+        ? { ...liveMerchant.subscriptionPlan, status: 'cancelled' }
+        : {
+            planId: 'free',
+            planNameAr: 'الباقة المجانية (تاجر مبتدئ)',
+            billingCycle: 'monthly',
+            pricePerMonth: 0,
+            paidAmount: 0,
+            monthlyOrderLimit: 50,
+            unlimitedOrders: false,
+            activatedAt: nowIso,
+            expiresAt: expIso,
+            status: 'cancelled'
+          };
 
-    await persistMerchantAccountUpdates({
-      subscriptionPlan: nextSubscriptionPlan,
-      managerPlan: nextManagerPlan,
-      pendingPlanRequest: null,
-      planCyclesHistory: nextHistory,
-      ...(totalCharge > 0 ? { balance: nextBalance } : {}),
-      ...(newTx ? { newTransaction: newTx } : {})
-    });
+      const nextBalance = Number((effectiveMerchantBalance - totalCharge).toFixed(2));
+      const newTx: MerchantTransaction | undefined = totalCharge > 0 ? {
+        id: `SUB-QUOTE-${Date.now()}`,
+        merchantId: liveMerchant.id,
+        merchantName: liveMerchant.name,
+        date: nowIso,
+        type: 'subscription_charge',
+        amount: -totalCharge,
+        balanceAfter: nextBalance,
+        notes: `موافقة وتفعيل باقة المدير المخصصة بتسعير الإدارة (${unitFee} ج.م × ${quota} أوردر)`
+      } : undefined;
 
-    showToast(
-      totalCharge > 0
-        ? `تم اعتماد عرض السعر وتفعيل باقة المدير المخصصة (${unitFee} ج.م للأوردر) وخصم ${totalCharge.toLocaleString()} ج.م من المحفظة`
-        : `تم اعتماد عرض السعر وتفعيل باقة المدير المخصصة (${unitFee} ج.م تُخصم مع كل أوردر مؤكد)`,
-      'success'
-    );
-  }, [liveMerchant, availableForWithdrawal, effectiveMerchantBalance, planUsage.usedOrders, persistMerchantAccountUpdates, showToast]);
+      const success = await persistMerchantAccountUpdates({
+        subscriptionPlan: nextSubscriptionPlan,
+        managerPlan: nextManagerPlan,
+        pendingPlanRequest: null,
+        planCyclesHistory: nextHistory,
+        ...(totalCharge > 0 ? { balance: nextBalance } : {}),
+        ...(newTx ? { newTransaction: newTx } : {})
+      });
+
+      if (!success) {
+        throw new Error('تعذر تحديث بيانات الحساب، يرجى المحاولة لاحقاً');
+      }
+
+      // Cleanup standalone request doc in Firestore if it exists
+      if (request.id && targetStore) {
+        await db.updateMerchantRequestStatus(request.id, targetStore, 'approved', {
+          approvedBy: 'الموكل (موافقة ذاتية)',
+          approvedAt: nowIso
+        }).catch(err => console.warn('[MerchantPortal] Optional request doc update failed:', err));
+      }
+
+      showToast(
+        totalCharge > 0
+          ? `تم اعتماد عرض السعر وتفعيل باقة المدير المخصصة (${unitFee} ج.م للأوردر) وخصم ${totalCharge.toLocaleString()} ج.م من المحفظة`
+          : `تم اعتماد عرض السعر وتفعيل باقة المدير المخصصة (${unitFee} ج.م تُخصم مع كل أوردر مؤكد)`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('[MerchantPortal] Error accepting custom quote:', err);
+      showToast(err.message || 'حدث خطأ أثناء تفعيل الباقة، يرجى المحاولة لاحقاً', 'error');
+    }
+  }, [liveMerchant, effectiveStoreId, availableForWithdrawal, effectiveMerchantBalance, planUsage.usedOrders, persistMerchantAccountUpdates, showToast]);
 
   const handleCancelPendingPlanRequest = useCallback(async (_requestId?: string) => {
     if (!liveMerchant) return;

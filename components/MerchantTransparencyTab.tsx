@@ -13,6 +13,7 @@ import {
   calculateMerchantTransparencyAnalytics, 
   exportMerchantTransparencyExcel, 
   printMerchantTransparencyReport, 
+  printComprehensiveMerchantReport,
   buildWhatsAppTransparencyText,
   ProductMovementItem,
   TransparencyOrderRow,
@@ -222,6 +223,20 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                 <span>دخول بوابة الموكل</span>
               </button>
             )}
+            <button
+              onClick={() => {
+                try {
+                  printComprehensiveMerchantReport(analytics, settings.storeName || 'متجري');
+                } catch (e: any) {
+                  inAppToast('حدث خطأ أثناء تجهيز التقرير المالي الشامل: ' + (e?.message || ''), 'error');
+                }
+              }}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-md cursor-pointer border border-slate-700"
+              title="طباعة التقرير المالي الموحد والأداء الاستراتيجي الشامل"
+            >
+              <FileText className="w-4 h-4 text-emerald-400" />
+              <span>التقرير المالي الشامل</span>
+            </button>
             <button
               onClick={handlePrint}
               className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
