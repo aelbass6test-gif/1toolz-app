@@ -347,10 +347,19 @@ async function proxyBackendRequest(request: Request, env: Env): Promise<Response
 }
 
 async function serveAssets(request: Request, env: Env): Promise<Response> {
-  // Cloudflare's Static Assets layer owns SPA fallback and missing-asset
-  // handling via not_found_handling="single-page-application". Do not rewrite
-  // every missing GET to index.html: doing so masks missing JS/CSS files.
-  return env.ASSETS.fetch(request);
+  // Cloudflare's SPA fallback can return index.html for an unmatched path.
+  // Preserve that behavior for client routes, but never disguise a missing
+  // static file (especially a stale Vite JS/CSS chunk) as a successful HTML response.
+  const response = await env.ASSETS.fetch(request);
+  const pathname = new URL(request.url).pathname;
+  const looksLikeAsset = pathname.startsWith("/assets/") || /\.(?:m?js|cjs|css|map|json|webmanifest|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|otf|eot|wasm|xml|txt|pdf)$/i.test(pathname);
+  if (looksLikeAsset && response.status === 200 && response.headers.get("content-type")?.includes("text/html")) {
+    return new Response(request.method === "HEAD" ? null : "Not Found", {
+      status: 404,
+      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+  return response;
 }
 
 function bostaHeaders(key: string, content = false): Record<string, string> {
