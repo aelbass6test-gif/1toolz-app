@@ -17,7 +17,7 @@ import { InventoryAudit } from './InventoryAudit';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { getLatestProductCost, generateSupplyOrderInvoiceHTML } from '../utils/financials';
 import { applyCustodyPayments, validateCustodyPayments } from '../utils/custodyLedger';
-import { deepCleanMerchantReferences } from '../utils/merchantProducts';
+import { deepCleanMerchantReferences, isDummyMockSupplier, sanitizeSuppliersList } from '../utils/merchantProducts';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
 import { SupplyOrderModal } from './SupplyOrderModal';
@@ -51,6 +51,37 @@ const SuppliersPage: React.FC<SuppliersPageProps> = ({ settings, setSettings, wa
       setActiveTabInternal(queryTab as any);
     }
   }, [queryTab]);
+
+  // Auto-purge dummy mock suppliers (شركة النور / مؤسسة الأمانة)
+  useEffect(() => {
+    const rawSuppliers = settings?.suppliers || [];
+    const hasDummy = rawSuppliers.some(s => isDummyMockSupplier(s));
+    const cleaned = sanitizeSuppliersList(rawSuppliers);
+
+    if (hasDummy || cleaned.length !== rawSuppliers.length) {
+      const activeStore = localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+      rawSuppliers.forEach(s => {
+        if (isDummyMockSupplier(s) && activeStore) {
+          db.deleteStoreItem(activeStore, 'suppliers', s.id).catch(() => {});
+          db.deleteStoreItem(activeStore, 'partners', s.id).catch(() => {});
+        }
+      });
+      setSettings(prev => {
+        const next = {
+          ...prev,
+          suppliers: cleaned
+        };
+        if (activeStore) {
+          db.updatePartnerSettings(activeStore, next.partners, cleaned).catch(() => {});
+          db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
+            ...prev,
+            settings: next
+          } as any).catch(() => {});
+        }
+        return next;
+      });
+    }
+  }, [settings?.suppliers, setSettings]);
 
   const setActiveTab = (tab: 'suppliers' | 'orders' | 'inventory' | 'analytics' | 'audit' | 'warehouses') => {
     setActiveTabInternal(tab);
@@ -311,21 +342,30 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
       const supp = (settings.suppliers || []).find(x => x.id === id);
       const suppName = supp?.name || '';
 
-      showConfirm("تأكيد الحذف", "هل أنت متأكد من حذف هذا المورد؟ سيتم حذف بياناته من قائمة الموردين والشركاء وإزالة أي تخصيصات أو تسعير خاص له على المنتجات. لا يمكن التراجع عن هذا الإجراء.", () => {
+      showConfirm("تأكيد الحذف النهائي", "هل أنت متأكد من حذف هذا المورد؟ سيتم حذف بياناته من كافة سجلات الموردين والشركاء نهائياً دون رجوع.", async () => {
+          const activeStore = localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+          if (activeStore) {
+            await db.deleteStoreItem(activeStore, 'suppliers', id).catch(() => {});
+            await db.deleteStoreItem(activeStore, 'partners', id).catch(() => {});
+          }
+
           setSettings(prev => {
               const cleaned = deepCleanMerchantReferences(prev, id, suppName);
+              const nextSuppliers = sanitizeSuppliersList(cleaned.suppliers);
+              const finalCleaned = {
+                ...cleaned,
+                suppliers: nextSuppliers
+              };
               
-              // Persist to cloud
-              const activeStore = localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
               if (activeStore) {
-                db.updatePartnerSettings(activeStore, cleaned.partners, cleaned.suppliers).catch(() => {});
+                db.updatePartnerSettings(activeStore, finalCleaned.partners, finalCleaned.suppliers).catch(() => {});
                 db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
                     ...prev,
-                    settings: cleaned
+                    settings: finalCleaned
                 } as any).catch(() => {});
               }
               
-              return cleaned;
+              return finalCleaned;
           });
           audioSynth.announce("تم حذف المورد بنجاح من كافة السجلات", "success");
       });

@@ -58,7 +58,7 @@ import {
     SaveStoreDataResult,
     generateUniqueOrderId
 } from '../utils/syncIntegrity';
-import { normalizeMerchantLabel } from '../utils/merchantProducts';
+import { normalizeMerchantLabel, isDummyMockSupplier, sanitizeSuppliersList } from '../utils/merchantProducts';
 
 const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 
@@ -537,30 +537,65 @@ const WITH_TIMEOUT = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise
 // --- Sync Optimizations: Memory-Hash Cache & ID Tracking to Prevent Duplicate Firestore Reads/Writes & Accidental Deletions ---
 const LAST_SYNCED_HASHES: Record<string, string> = {};
 const LAST_KNOWN_DOC_IDS: Record<string, Set<string>> = {};
-const EXPLICIT_DELETED_IDS = new Set<string>();
+
+const loadInitialDeletedIds = (): Set<string> => {
+    const s = new Set<string>();
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const raw = localStorage.getItem('explicit_deleted_ids');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(id => s.add(String(id)));
+                }
+            }
+        }
+    } catch (_) {}
+    return s;
+};
+
+const EXPLICIT_DELETED_IDS = loadInitialDeletedIds();
+
+const recordExplicitDeletion = (key: string) => {
+    EXPLICIT_DELETED_IDS.add(key);
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const arr = Array.from(EXPLICIT_DELETED_IDS).slice(-3000);
+            localStorage.setItem('explicit_deleted_ids', JSON.stringify(arr));
+        }
+    } catch (_) {}
+};
 
 /**
- * Safely delete an item from a store collection in Firestore.
- * This explicitly tracks the deletion to ensure it's removed immediately
- * and never resurrected or accidentally wiping other concurrent items.
+ * Safely delete an item from a store collection in Firestore and Supabase.
+ * Deeply purges the item from collection docs, stores_data arrays, and local cache
+ * to ensure complete permanent deletion ("من جذوره") with zero accidental resurrection.
  */
 export const deleteStoreItem = async (storeId: string, collectionName: string, itemId: string): Promise<boolean> => {
     try {
         const rawId = String(itemId);
         const docId = rawId.startsWith(storeId + '_') ? rawId : `${storeId}_${rawId}`;
-        EXPLICIT_DELETED_IDS.add(`${storeId}_${collectionName}_${docId}`);
-        EXPLICIT_DELETED_IDS.add(`${storeId}_${collectionName}_${rawId}`);
+        recordExplicitDeletion(`${storeId}_${collectionName}_${docId}`);
+        recordExplicitDeletion(`${storeId}_${collectionName}_${rawId}`);
+        recordExplicitDeletion(`${storeId}_${docId}`);
+        recordExplicitDeletion(`${storeId}_${rawId}`);
+        recordExplicitDeletion(docId);
+        recordExplicitDeletion(rawId);
 
         const hashKey = `${storeId}_${collectionName}`;
         if (LAST_KNOWN_DOC_IDS[hashKey]) {
             LAST_KNOWN_DOC_IDS[hashKey].delete(docId);
             LAST_KNOWN_DOC_IDS[hashKey].delete(rawId);
         }
+        delete LAST_SYNCED_HASHES[hashKey];
 
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
                 await supabase.from(collectionName).delete().or(`id.eq.${docId},id.eq.${rawId}`);
+                if (collectionName === 'orders') {
+                    await supabase.from('orders').delete().or(`order_number.eq.${rawId},orderNumber.eq.${rawId}`);
+                }
             } catch (_) {}
         }
 
@@ -572,6 +607,129 @@ export const deleteStoreItem = async (storeId: string, collectionName: string, i
                 const rawDocRef = doc(firebaseDb, collectionName, rawId);
                 await deleteDoc(rawDocRef).catch(() => {});
             }
+
+            // CRITICAL: If deleting an order, purge it from the stores_data embedded array as well!
+            if (collectionName === 'orders') {
+                const storeDocRef = doc(firebaseDb, 'stores_data', storeId);
+                getDoc(storeDocRef).then(snap => {
+                    if (snap.exists()) {
+                        const sData = snap.data();
+                        if (Array.isArray(sData?.orders)) {
+                            const filteredOrders = sData.orders.filter((o: any) => {
+                                const oId = String(o?.id || '');
+                                const oNum = String(o?.orderNumber || '');
+                                return oId !== rawId && oId !== docId && oNum !== rawId && oNum !== docId;
+                            });
+                            if (filteredOrders.length !== sData.orders.length) {
+                                updateDoc(storeDocRef, { orders: filteredOrders }).catch(() => {});
+                            }
+                        }
+                    }
+                }).catch(() => {});
+            }
+
+            // CRITICAL: If deleting a supplier or partner, purge from stores_data settings & embedded arrays
+            if (collectionName === 'suppliers' || collectionName === 'partners') {
+                const storeDocRef = doc(firebaseDb, 'stores_data', storeId);
+                getDoc(storeDocRef).then(snap => {
+                    if (snap.exists()) {
+                        const sData = snap.data();
+                        const sSettings = sData?.settings || {};
+                        let updated = false;
+                        const newPayload: any = {};
+
+                        if (collectionName === 'suppliers') {
+                            if (Array.isArray(sData?.suppliers)) {
+                                const filtered = sData.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
+                                if (filtered.length !== sData.suppliers.length) {
+                                    newPayload.suppliers = filtered;
+                                    updated = true;
+                                }
+                            }
+                            if (Array.isArray(sSettings?.suppliers)) {
+                                const filtered = sSettings.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
+                                if (filtered.length !== sSettings.suppliers.length) {
+                                    newPayload.settings = { ...(newPayload.settings || sSettings), suppliers: filtered };
+                                    updated = true;
+                                }
+                            }
+                        }
+
+                        if (collectionName === 'partners') {
+                            if (Array.isArray(sData?.partners)) {
+                                const filtered = sData.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
+                                if (filtered.length !== sData.partners.length) {
+                                    newPayload.partners = filtered;
+                                    updated = true;
+                                }
+                            }
+                            if (Array.isArray(sSettings?.partners)) {
+                                const filtered = sSettings.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
+                                if (filtered.length !== sSettings.partners.length) {
+                                    newPayload.settings = { ...(newPayload.settings || sSettings), partners: filtered };
+                                    updated = true;
+                                }
+                            }
+                        }
+
+                        if (updated) {
+                            updateDoc(storeDocRef, newPayload).catch(() => {});
+                        }
+                    }
+                }).catch(() => {});
+            }
+        }
+
+        // Immediately update localStorage so offline/memory caches never resurrect it
+        if (collectionName === 'orders') {
+            getLocal(storeId).then(localData => {
+                if (localData && Array.isArray(localData.orders)) {
+                    const beforeCount = localData.orders.length;
+                    localData.orders = localData.orders.filter((o: any) => {
+                        const oId = String(o?.id || '');
+                        const oNum = String(o?.orderNumber || '');
+                        return oId !== rawId && oId !== docId && oNum !== rawId && oNum !== docId;
+                    });
+                    if (localData.orders.length !== beforeCount) {
+                        saveLocal(storeId, localData).catch(() => {});
+                    }
+                }
+            }).catch(() => {});
+        }
+
+        if (collectionName === 'suppliers' || collectionName === 'partners') {
+            getLocal(storeId).then(localData => {
+                if (localData) {
+                    let changed = false;
+                    if (collectionName === 'suppliers') {
+                        if (Array.isArray(localData.settings?.suppliers)) {
+                            const before = localData.settings.suppliers.length;
+                            localData.settings.suppliers = localData.settings.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
+                            if (localData.settings.suppliers.length !== before) changed = true;
+                        }
+                        if (Array.isArray(localData.suppliers)) {
+                            const before = localData.suppliers.length;
+                            localData.suppliers = localData.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
+                            if (localData.suppliers.length !== before) changed = true;
+                        }
+                    }
+                    if (collectionName === 'partners') {
+                        if (Array.isArray(localData.settings?.partners)) {
+                            const before = localData.settings.partners.length;
+                            localData.settings.partners = localData.settings.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
+                            if (localData.settings.partners.length !== before) changed = true;
+                        }
+                        if (Array.isArray(localData.partners)) {
+                            const before = localData.partners.length;
+                            localData.partners = localData.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
+                            if (localData.partners.length !== before) changed = true;
+                        }
+                    }
+                    if (changed) {
+                        saveLocal(storeId, localData).catch(() => {});
+                    }
+                }
+            }).catch(() => {});
         }
 
         return true;
@@ -729,7 +887,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             images: candidateImages
                         };
                     }),
-                    suppliers: (suppliers.length > 0 ? suppliers : (storeSettings.suppliers || local?.settings?.suppliers || [])).map((s: any) => {
+                    suppliers: sanitizeSuppliersList((suppliers.length > 0 ? suppliers : (storeSettings.suppliers || local?.settings?.suppliers || []))).map((s: any) => {
                         const sNameNorm = String(s.name || '').trim().toLowerCase();
                         const fallbackSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === s.id || (sNameNorm && String(fs.name || '').trim().toLowerCase() === sNameNorm))
                             || (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
@@ -743,7 +901,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? details.profitRatio ?? fallbackSupplier?.profitRatio ?? 0),
                             transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (fallbackSupplier?.transactions || [])
                         };
-                    }),
+                    }).filter((s: any) => !isDummyMockSupplier(s)),
                     supplyOrders: (supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || [])).map((so: any) => {
                         const details = (so.details && typeof so.details === 'object') ? so.details : {};
                         return {
@@ -994,11 +1152,31 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             } catch { return embeddedProducts; }
                         })(),
                         suppliers: await (async () => {
-                            const embedded = storeSettings.suppliers || local?.settings?.suppliers || [];
+                            const embedded = sanitizeSuppliersList(storeSettings.suppliers || local?.settings?.suppliers || []);
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
+                                const validDocs: any[] = [];
+                                for (const d of snap.docs) {
+                                    const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
+                                    const data = d.data();
+                                    const item = { id: rawId, ...data };
+                                    if (isDummyMockSupplier(item)) {
+                                        deleteDoc(d.ref).catch(() => {});
+                                        recordExplicitDeletion(`${storeId}_suppliers_${d.id}`);
+                                        recordExplicitDeletion(`${storeId}_suppliers_${rawId}`);
+                                        continue;
+                                    }
+                                    const isExplicitlyDeleted =
+                                        EXPLICIT_DELETED_IDS.has(`${storeId}_suppliers_${d.id}`) ||
+                                        EXPLICIT_DELETED_IDS.has(`${storeId}_suppliers_${rawId}`) ||
+                                        EXPLICIT_DELETED_IDS.has(d.id) ||
+                                        EXPLICIT_DELETED_IDS.has(rawId);
+                                    if (!isExplicitlyDeleted) {
+                                        validDocs.push(item);
+                                    }
+                                }
+                                return sanitizeSuppliersList(validDocs);
                             } catch { return embedded; }
                         })(),
                         supplyOrders: await (async () => {
@@ -1191,7 +1369,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                                 ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId)));
                             }
                             const colOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-                            const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders);
+                            const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders, EXPLICIT_DELETED_IDS);
                             return reconciled.mergedOrders;
                         } catch {
                             return embeddedOrders;
@@ -1240,13 +1418,14 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
     // Destructure items to sync relationally
     const { 
-        products = [], suppliers = [], supplyOrders = [], reviews = [], abandonedCarts = [], activityLogs = [],
+        products = [], suppliers: rawSuppliers = [], supplyOrders = [], reviews = [], abandonedCarts = [], activityLogs = [],
         employees = [], discountCodes = [], collections = [], customPages = [], paymentMethods = [],
         globalOptions = [], shippingIntegrations = [], partners = [], partnerTransactions = [],
         warehouses = [], inventoryAudits = [], stockTransfers = [], orderReturns = [], purchaseReturns = [],
         posSales = [], cashHolders = [], cashHandovers = [], whatsappTemplates = [], callScripts = [],
         ...cleanSettings 
     } = data.settings;
+    const suppliers = sanitizeSuppliersList(rawSuppliers);
     
     const { orders = [], wallet = { balance: 0, transactions: [] }, treasury = { accounts: [], transactions: [] }, customers = [] } = data;
 
@@ -2152,7 +2331,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 const existingDocsMap = new Map<string, any>(existingDbDocs.map(doc => [doc.id as string, doc]));
 
                 if (collectionName === 'orders') {
-                    const rec = reconcileDualOrderSources(store.id, stateItems, existingDbDocs);
+                    const rec = reconcileDualOrderSources(store.id, stateItems, existingDbDocs, EXPLICIT_DELETED_IDS);
                     reconciledCloudOrders = rec.mergedOrders;
                 }
 
@@ -2205,10 +2384,25 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 // STRICT ANTI-DATA-LOSS SAFEGUARD (Audit Fix #2):
                 // Inferred deletion from missing local array items (`wasKnownLocally && isMissingLocally`) is completely disabled.
                 // Deletion is ONLY permitted when explicitly authorized in EXPLICIT_DELETED_IDS and allowed by shouldDeleteCloudRecord.
+                // UNWANTED MOCK SEED PURGE: Dummy mock suppliers (شركة النور / مؤسسة الأمانة) are always purged permanently.
+                if (collectionName === 'suppliers') {
+                    existingDbDocs.forEach(d => {
+                        if (isDummyMockSupplier(d)) {
+                            deleteDoc(d._ref).catch(() => {});
+                            const rawId = d.id.startsWith(store.id + '_') ? d.id.substring(store.id.length + 1) : d.id;
+                            recordExplicitDeletion(`${store.id}_suppliers_${d.id}`);
+                            recordExplicitDeletion(`${store.id}_suppliers_${rawId}`);
+                        }
+                    });
+                }
+
                 const deletePromises = isMassDeletionRisk
                     ? []
                     : existingDbDocs
                         .filter(doc => {
+                            if (collectionName === 'suppliers' && isDummyMockSupplier(doc)) {
+                                return true;
+                            }
                             const rawId = doc.id.startsWith(store.id + '_') ? doc.id.substring(store.id.length + 1) : doc.id;
                             const isExplicitlyDeleted =
                                 EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${doc.id}`) ||
@@ -3234,6 +3428,46 @@ export const updatePartnerSettings = async (storeId: string, partners: any[], su
                 updatedAt: new Date().toISOString()
             }, { merge: true });
 
+            const cleanSupps = suppliers ? sanitizeSuppliersList(suppliers) : undefined;
+
+            if (cleanSupps) {
+                try {
+                    const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
+                    const keepIds = new Set(cleanSupps.map((s: any) => String(s?.id || '')));
+                    const deleteSupplierDocs = snap.docs
+                        .filter(d => {
+                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
+                            return (!keepIds.has(rawId) && !keepIds.has(d.id)) || isDummyMockSupplier(d.data());
+                        })
+                        .map(async (d) => {
+                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
+                            recordExplicitDeletion(`${storeId}_suppliers_${d.id}`);
+                            recordExplicitDeletion(`${storeId}_suppliers_${rawId}`);
+                            await deleteDoc(d.ref).catch(() => {});
+                        });
+                    await Promise.all(deleteSupplierDocs);
+                } catch (_) {}
+            }
+
+            if (partners) {
+                try {
+                    const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
+                    const keepIds = new Set(partners.map((p: any) => String(p?.id || '')));
+                    const deletePartnerDocs = snap.docs
+                        .filter(d => {
+                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
+                            return !keepIds.has(rawId) && !keepIds.has(d.id);
+                        })
+                        .map(async (d) => {
+                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
+                            recordExplicitDeletion(`${storeId}_partners_${d.id}`);
+                            recordExplicitDeletion(`${storeId}_partners_${rawId}`);
+                            await deleteDoc(d.ref).catch(() => {});
+                        });
+                    await Promise.all(deletePartnerDocs);
+                } catch (_) {}
+            }
+
             const partnerWrites = (partners || []).map(async (p) => {
                 if (!p || !p.id) return;
                 const docId = String(p.id).startsWith(storeId) ? String(p.id) : `${storeId}_${p.id}`;
@@ -3246,7 +3480,7 @@ export const updatePartnerSettings = async (storeId: string, partners: any[], su
                 }), { merge: true }).catch(() => {});
             });
 
-            const supplierWrites = (suppliers || []).map(async (s) => {
+            const supplierWrites = (cleanSupps || []).map(async (s) => {
                 if (!s || !s.id) return;
                 const docId = String(s.id).startsWith(storeId) ? String(s.id) : `${storeId}_${s.id}`;
                 const sRef = doc(firebaseDb, 'suppliers', docId);

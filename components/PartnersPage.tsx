@@ -811,7 +811,11 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
         isOpen: true,
         title: 'تأكيد الحذف النهائي',
         message: `هل أنت متأكد من حذف الشريك (${pName})؟ سيتم حذف بياناته من قائمة الشركاء والموردين وإلغاء أي ارتباطات له بالأصناف (تسعير أو رصيد أمانة). سيتم أيضاً حذف تاريخ معاملاته المالية.`,
-        onConfirm: () => {
+        onConfirm: async () => {
+            if (storeId) {
+              await db.deleteStoreItem(storeId, 'partners', partnerId).catch(() => {});
+              await db.deleteStoreItem(storeId, 'suppliers', partnerId).catch(() => {});
+            }
             const cleaned = deepCleanMerchantReferences(settings, partnerId, pName);
             const nextSettings = {
               ...cleaned,
@@ -821,6 +825,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
             updateSettings(nextSettings);
             
             if (storeId) {
+              db.updatePartnerSettings(storeId, nextSettings.partners, nextSettings.suppliers).catch(() => {});
               db.getStoreData(storeId).then(cur => {
                 if (cur) {
                   db.saveStoreData({ id: storeId, name: settings.storeName || 'المتجر' } as any, {

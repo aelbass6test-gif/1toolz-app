@@ -682,6 +682,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     return `${(Number(val) || 0).toLocaleString()}${showCurrency ? ' ج.م' : ''}`;
   }, [hideBalances]);
 
+  const formatExpenseMoney = useCallback((val: number | undefined | null, showCurrency = true) => {
+    const num = Math.abs(Number(val) || 0);
+    if (num <= 0.001) return formatMoney(0, showCurrency);
+    return `-${formatMoney(num, showCurrency)}`;
+  }, [formatMoney]);
+
   // Auth View Local States
   const [authMode, setAuthMode] = useState<'otp' | 'pin'>('otp');
   const [loginEmailInput, setLoginEmailInput] = useState('');
@@ -1172,6 +1178,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
   }, [liveMerchant]);
 
+
   // Auto-populate payoutAccount in withdrawal modal when payoutMethod or modal state changes
   useEffect(() => {
     if (!liveMerchant) return;
@@ -1308,6 +1315,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       return false;
     }
   }, [liveMerchant, effectiveStoreId, updateSettings]);
+
+  // Auto-resolve stale pending plan quote if it already matches the active manager plan
+  useEffect(() => {
+    if (!liveMerchant?.pendingPlanRequest || liveMerchant.pendingPlanRequest.status !== 'quoted_waiting_merchant') return;
+    const req = liveMerchant.pendingPlanRequest;
+    const mgr = liveMerchant.managerPlan;
+    if (
+      mgr?.status === 'active' &&
+      mgr?.planId === 'custom_manager' &&
+      Number(mgr.customOrderFee || mgr.orderFee) === Number(req.quotedOrderFee) &&
+      Number(mgr.customOrderQuota || mgr.customOrdersTarget) === Number(req.requestedCustomQuota || 200)
+    ) {
+      persistMerchantAccountUpdates({ pendingPlanRequest: null });
+    }
+  }, [liveMerchant, persistMerchantAccountUpdates]);
 
   const handleSavePayoutAccounts = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1927,9 +1949,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       ? Math.max(0, Math.floor((Date.now() - settledTimestamp) / 86400000))
       : 0;
 
-    // Rolling Weekly Cycle Rule:
-    // If the merchant is on weekly payout, any order settled during the current weekly cycle
-    // (or in the same week a payout already occurred) is deferred to next week's payout cycle.
+    const strategy = liveMerchant?.payoutStrategy || 'rolling_hold';
     const isWeeklyFreq = (liveMerchant?.payoutFrequency || 'weekly') === 'weekly';
     const weeklyDayIdx = typeof liveMerchant?.weeklyPayoutDay === 'number'
       ? Math.min(6, Math.max(0, liveMerchant.weeklyPayoutDay))
@@ -1940,32 +1960,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const currentWeekCycleStart = todayStart - daysSinceLastPayoutDay * 86400000;
     const daysUntilNextPayoutDay = ((weeklyDayIdx - nowDate.getDay() + 7) % 7) || 7;
 
-    // Check if a withdrawal was already executed in the current week cycle
     const hadWithdrawalThisWeek = (liveMerchant?.transactions || []).some(
       tx => tx.type === 'withdrawal' && new Date(tx.date).getTime() >= currentWeekCycleStart
-    );
-
-    const isSettledInCurrentWeekCycle = Boolean(
-      isSettled &&
-      isWeeklyFreq &&
-      holdingDaysRequired > 0 &&
-      settledTimestamp >= currentWeekCycleStart
-    );
-
-    const baseRemainingHoldingDays = isSettled
-      ? Math.max(0, holdingDaysRequired - daysSinceSettled)
-      : holdingDaysRequired;
-
-    // If settled this week (or a payout already happened this week while this order was settled this cycle),
-    // defer it at least until next week's payout day
-    const remainingHoldingDays = isSettledInCurrentWeekCycle
-      ? Math.max(baseRemainingHoldingDays, daysUntilNextPayoutDay)
-      : baseRemainingHoldingDays;
-
-    const isDeferredFromCurrentWeek = Boolean(
-      isSettled &&
-      (isSettledInCurrentWeekCycle || (hadWithdrawalThisWeek && settledTimestamp >= currentWeekCycleStart)) &&
-      o.payoutStatus !== 'ready'
     );
 
     const isPaidOut = Boolean(
@@ -1973,6 +1969,40 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       o.paidOutAt ||
       (isSettled && (liveMerchant?.balance || 0) === 0 && (liveMerchant?.transactions || []).some(tx => tx.type === 'withdrawal' && settledAtIso && new Date(tx.date).getTime() >= new Date(settledAtIso).getTime()))
     );
+
+    let remainingHoldingDays = 0;
+    let isDeferredFromCurrentWeek = false;
+
+    if (strategy === 'manual_request') {
+      remainingHoldingDays = 0;
+      isDeferredFromCurrentWeek = false;
+    } else if (strategy === 'batch_weekly') {
+      const isSettledInCurrentCycle = isSettled && settledTimestamp >= currentWeekCycleStart;
+      remainingHoldingDays = isSettledInCurrentCycle ? daysUntilNextPayoutDay : 0;
+      isDeferredFromCurrentWeek = isSettledInCurrentCycle;
+    } else {
+      // rolling_hold (default)
+      const baseRemainingHoldingDays = isSettled
+        ? Math.max(0, holdingDaysRequired - daysSinceSettled)
+        : holdingDaysRequired;
+
+      const isSettledThisWeekCycle = Boolean(
+        isSettled &&
+        isWeeklyFreq &&
+        holdingDaysRequired > 0 &&
+        settledTimestamp >= currentWeekCycleStart
+      );
+
+      remainingHoldingDays = isSettledThisWeekCycle
+        ? Math.max(baseRemainingHoldingDays, daysUntilNextPayoutDay)
+        : baseRemainingHoldingDays;
+
+      isDeferredFromCurrentWeek = Boolean(
+        isSettled &&
+        (isSettledThisWeekCycle || (hadWithdrawalThisWeek && settledTimestamp >= currentWeekCycleStart)) &&
+        o.payoutStatus !== 'ready'
+      );
+    }
 
     const payoutStage: 'unsettled' | 'holding' | 'ready' | 'paid' = isPaidOut
       ? 'paid'
@@ -1986,10 +2016,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       payoutStage === 'paid'
         ? 'مدفوع ✅'
         : payoutStage === 'ready'
-        ? 'جاهز للتحويل في السحبة القادمة'
+        ? (strategy === 'manual_request' ? 'جاهز للسحب الآن 🔓' : 'جاهز للتحويل في السحبة القادمة')
         : payoutStage === 'holding'
         ? isDeferredFromCurrentWeek
-          ? `تسوية هذا الأسبوع — يُرحّل لأسبوع التحويل القادم (متبقي ${remainingHoldingDays} يوم)`
+          ? (strategy === 'batch_weekly' 
+              ? `بانتظار دورة التحويل للأسبوع القادم (متبقي ${remainingHoldingDays} يوم)`
+              : `تسوية هذا الأسبوع — يُرحّل لأسبوع التحويل القادم (متبقي ${remainingHoldingDays} يوم)`)
           : `قيد التعليق (متبقي ${remainingHoldingDays} يوم)`
         : 'بانتظار التسوية المالية';
 
@@ -3140,6 +3172,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       minWeeklyPayout,
       maxWeeklyPayout,
       weeklyPayoutMode,
+      payoutStrategy: liveMerchant?.payoutStrategy || 'rolling_hold',
       weeklyTransferFee,
       weeklyTransferFeeType,
       dailyTransferFee,
@@ -4718,35 +4751,39 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
             </div>
 
-            {/* Usage Progress Card (Matching Bottom Right of Screenshot) */}
+            {/* Usage Progress Card (Upgraded Modern Look) */}
             <div
               onClick={() => setShowChangePlanModal(true)}
-              className={`rounded-2xl p-3 text-white shadow-md space-y-2 cursor-pointer hover:brightness-105 transition-all ${
+              className={`rounded-2xl p-3.5 text-white shadow-lg space-y-2.5 cursor-pointer hover:scale-[1.01] active:scale-[0.99] transition-all border ${
                 planUsage.managerPlanActive
-                  ? 'bg-gradient-to-tr from-amber-600 to-[#062d24] shadow-amber-950/20'
-                  : 'bg-gradient-to-tr from-[#00ab84] to-[#062d24] shadow-emerald-950/20'
+                  ? 'bg-gradient-to-br from-[#062d24] via-[#09352b] to-[#041a15] border-amber-500/30 shadow-amber-950/20'
+                  : 'bg-gradient-to-br from-[#062d24] via-[#00ab84] to-[#041a15] border-emerald-500/30 shadow-emerald-950/20'
               }`}
               title="اضغط لإدارة الباقة أو المدير المخصص"
             >
               <div className="flex items-center justify-between text-xs font-black">
-                <span className="flex items-center gap-1.5">
-                  <ExternalLink size={13} />
-                  <span>{planUsage.managerPlanActive ? 'باقة المدير المخصص' : 'استخدام الخطة'}</span>
+                <span className="flex items-center gap-1.5 text-amber-300">
+                  {planUsage.managerPlanActive ? <Crown size={14} /> : <ExternalLink size={13} />}
+                  <span>{planUsage.managerPlanActive ? 'باقة المدير المخصص' : 'استهلاك الباقة'}</span>
                 </span>
-                <span className="font-mono">{planUsage.usagePercent}%</span>
+                <span className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-black/30 border border-white/10 font-bold">
+                  {planUsage.usagePercent}%
+                </span>
               </div>
+
               {/* Progress bar */}
-              <div className="w-full h-1.5 bg-black/20 rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-black/30 rounded-full overflow-hidden p-0.5 border border-white/10">
                 <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    planUsage.usagePercent >= 90 ? 'bg-rose-500' : planUsage.usagePercent >= 70 ? 'bg-amber-400' : 'bg-white'
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    planUsage.usagePercent >= 90 ? 'bg-gradient-to-r from-rose-500 to-red-400' : planUsage.usagePercent >= 75 ? 'bg-gradient-to-r from-amber-400 to-yellow-300' : 'bg-gradient-to-r from-emerald-400 to-teal-300'
                   }`}
-                  style={{ width: `${Math.max(6, planUsage.usagePercent)}%` }}
+                  style={{ width: `${Math.max(8, planUsage.usagePercent)}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between text-[10px] font-bold text-emerald-50/90 pt-0.5 gap-1">
-                <span className="truncate max-w-[125px]">{planUsage.planLabelAr}</span>
-                <span className="font-mono shrink-0">{planUsage.quotaTextAr}</span>
+
+              <div className="flex items-center justify-between text-[10.5px] font-bold text-emerald-100/90 pt-0.5 gap-1">
+                <span className="truncate max-w-[120px] font-black">{planUsage.planLabelAr}</span>
+                <span className="font-mono text-[10px] text-amber-300 shrink-0">{planUsage.quotaTextAr}</span>
               </div>
             </div>
           </div>
@@ -4864,109 +4901,166 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           {/* Main Content Container (Full-width responsive workspace) */}
           <main className="flex-1 w-full max-w-[1720px] mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-5">
 
-            {/* Desktop Announcement / Plan Upgrade Banner (Dynamic with Active Plan) */}
-            <div className={`relative overflow-hidden rounded-2xl text-white p-3.5 sm:p-4 shadow-md border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-              planUsage.managerPlanActive
-                ? 'bg-gradient-to-r from-amber-700 via-[#062d24] to-[#09090b] border-amber-500/30 shadow-amber-950/20'
-                : 'bg-gradient-to-r from-[#062d24] via-[#00ab84] to-[#09090b] border-emerald-600/30 shadow-emerald-950/20'
-            }`}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
-                  {planUsage.managerPlanActive ? (
-                    <Crown size={16} className="text-amber-300" />
-                  ) : (
-                    <Sparkles size={16} className="text-amber-300" />
-                  )}
-                </div>
-                <p className="text-xs font-black leading-relaxed">
-                  {planUsage.topBannerTextAr}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setShowChangePlanModal(true)}
-                  className="px-3.5 py-1.5 bg-white text-[#062d24] hover:bg-emerald-50 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95"
-                >
-                  {planUsage.managerPlanActive ? 'إدارة باقة المدير المخصص' : 'ترقية / تغيير الخطة'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const phone = (settings as any)?.supportPhone || (settings as any)?.phone || '01000000000';
-                    window.open(`https://wa.me/2${phone.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم، أحتاج دعم بخصوص حساب الوكيل')}`, '_blank');
-                  }}
-                  className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition-all cursor-pointer"
-                >
-                  تواصل مع الدعم
-                </button>
-              </div>
-            </div>
+            {/* Dynamic Intelligent Quota & Plan Showcase (Upgraded & Conflict-Free) */}
+            {(() => {
+              const pendingQuote = liveMerchant.pendingPlanRequest && liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant' ? liveMerchant.pendingPlanRequest : null;
+              const isCustomManager = liveMerchant.managerPlan?.enabled && liveMerchant.managerPlan?.planId === 'custom_manager';
+              
+              // If the pending quote is identical to current active manager plan, it was already applied
+              const isAlreadyActiveQuote = Boolean(
+                pendingQuote &&
+                isCustomManager &&
+                Number(liveMerchant.managerPlan?.customOrderFee || liveMerchant.managerPlan?.orderFee) === Number(pendingQuote.quotedOrderFee) &&
+                Number(liveMerchant.managerPlan?.customOrderQuota || liveMerchant.managerPlan?.customOrdersTarget) === Number(pendingQuote.requestedCustomQuota || 200)
+              );
 
-            {/* Governed Plan Request / Admin Custom Pricing Offer Banner */}
-            {liveMerchant.pendingPlanRequest && (
-              <div className={`rounded-2xl p-4 border flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-                liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                  ? isDark
-                    ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-100'
-                    : 'bg-emerald-50 border-emerald-400 text-emerald-950 shadow-sm'
-                  : isDark
-                  ? 'bg-amber-950/40 border-amber-600/50 text-amber-100'
-                  : 'bg-amber-50/90 border-amber-300 text-amber-950'
-              }`}>
-                <div className="flex items-start gap-3">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                    liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                      ? 'bg-[#00ab84] text-white'
-                      : 'bg-amber-500 text-zinc-950'
+              // 1. If there is a genuinely pending quote awaiting merchant confirmation, show VIP Quote Approval Card prominently:
+              if (pendingQuote && !isAlreadyActiveQuote) {
+                return (
+                  <div className={`relative overflow-hidden rounded-3xl p-5 sm:p-6 border shadow-lg transition-all ${
+                    isDark 
+                      ? 'bg-gradient-to-br from-emerald-950/90 via-[#062d24] to-zinc-950 border-emerald-500/40 text-emerald-50 shadow-emerald-950/30'
+                      : 'bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-white border-emerald-300 text-emerald-950 shadow-emerald-600/10'
                   }`}>
-                    {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant' ? <CheckCircle2 size={18} /> : <Lock size={18} />}
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="font-black flex flex-wrap items-center gap-2">
-                      <span>
-                        {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                          ? `عرض تسعير الإدارة جاهز لموافقتك: ${liveMerchant.pendingPlanRequest.quotedOrderFee} ج.م لكل أوردر (${liveMerchant.pendingPlanRequest.requestedCustomQuota || 200} أوردر)`
-                          : `طلب معلّق قيد مراجعة الإدارة: ${liveMerchant.pendingPlanRequest.targetPlanNameAr}`}
-                      </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-black/10 dark:bg-white/10">
-                        {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                          ? 'بانتظار موافقتك للتفعيل من المحفظة'
-                          : 'قيد مراجعة وتسعير الإدارة'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] font-bold opacity-85">
-                      {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                        ? liveMerchant.pendingPlanRequest.requestedCustomBillingPreference === 'prepaid_quota'
-                          ? `إجمالي الدفعة المقدمة المطلوبة من المحفظة: ${((liveMerchant.pendingPlanRequest.quotedOrderFee || 0) * (liveMerchant.pendingPlanRequest.requestedCustomQuota || 200)).toLocaleString()} ج.م`
-                          : `سيتم تفعيل الباقة مجاناً الآن وخصم ${liveMerchant.pendingPlanRequest.quotedOrderFee} ج.م تلقائياً من المحفظة مع كل أوردر مؤكد.`
-                        : 'باقتك الحالية مستمرة ومؤمّنة بالكامل لحين اعتماد الإدارة، وكل أوردر يحتفظ بتسعير الدورة التي أُنشئ خلالها.'}
-                    </p>
-                  </div>
-                </div>
+                    <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
-                <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
-                  {liveMerchant.pendingPlanRequest.status === 'quoted_waiting_merchant' && (
-                    <button
-                      type="button"
-                      onClick={() => handleAcceptAdminCustomQuote(liveMerchant.pendingPlanRequest!)}
-                      className="px-4 py-2 rounded-xl bg-[#00ab84] hover:bg-[#00ab84] text-white text-xs font-black shadow-sm cursor-pointer transition-all"
-                    >
-                      موافقة وتفعيل الآن من المحفظة
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowChangePlanModal(true)}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-black border cursor-pointer transition-all ${
-                      isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800' : 'bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-100'
-                    }`}
-                  >
-                    عرض التفاصيل
-                  </button>
+                    <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                      <div className="flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#00ab84] to-teal-400 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
+                          <Sparkles size={22} className="animate-pulse" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-[#00ab84] text-white">
+                              عرض خاص معتمد من الإدارة
+                            </span>
+                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                              <span>⚡</span>
+                              <span>بانتظار موافقتك للتفعيل الفوري</span>
+                            </span>
+                          </div>
+                          <h3 className="text-base sm:text-lg font-black tracking-tight">
+                            باقة المدير المخصصة: {pendingQuote.quotedOrderFee} ج.م لكل أوردر ({pendingQuote.requestedCustomQuota || 200} أوردر كوتا)
+                          </h3>
+                          <p className="text-xs font-medium opacity-85 leading-relaxed max-w-2xl">
+                            {pendingQuote.requestedCustomBillingPreference === 'prepaid_quota'
+                              ? `إجمالي الدفعة المقدمة المطلوبة من المحفظة: ${((pendingQuote.quotedOrderFee || 0) * (pendingQuote.requestedCustomQuota || 200)).toLocaleString()} ج.م`
+                              : `سيتم تفعيل الباقة مجاناً الآن مع خصم ${pendingQuote.quotedOrderFee} ج.م تلقائياً من رصيد المحفظة مع كل أوردر مؤكد فقط.`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 shrink-0 self-end lg:self-center">
+                        <button
+                          type="button"
+                          onClick={() => handleAcceptAdminCustomQuote(pendingQuote)}
+                          className="px-5 py-3 rounded-2xl bg-gradient-to-r from-[#00ab84] to-teal-500 hover:from-[#087b61] hover:to-teal-600 text-white text-xs font-black shadow-lg shadow-emerald-600/25 cursor-pointer transition-all active:scale-95 flex items-center gap-2"
+                        >
+                          <CheckCircle2 size={16} />
+                          <span>موافقة وتفعيل الآن من المحفظة</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowChangePlanModal(true)}
+                          className={`px-4 py-3 rounded-2xl text-xs font-black border cursor-pointer transition-all ${
+                            isDark ? 'bg-zinc-900 border-zinc-700 text-zinc-200 hover:bg-zinc-800' : 'bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-100'
+                          }`}
+                        >
+                          عرض التفاصيل
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // 2. Otherwise, render the Upgraded Active Plan Card with live quota progress & status
+              return (
+                <div className={`relative overflow-hidden rounded-3xl p-4 sm:p-5 border shadow-md transition-all ${
+                  planUsage.managerPlanActive
+                    ? 'bg-gradient-to-br from-[#062d24] via-[#09352b] to-[#041a15] border-amber-500/30 text-white shadow-amber-950/20'
+                    : 'bg-gradient-to-br from-[#062d24] via-[#00ab84]/80 to-[#09090b] border-emerald-500/30 text-white shadow-emerald-950/20'
+                }`}>
+                  <div className="absolute top-0 left-1/4 w-96 h-24 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+
+                  <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    {/* Plan Header Info */}
+                    <div className="flex items-start gap-3.5">
+                      <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ${
+                        planUsage.managerPlanActive ? 'bg-amber-400 text-zinc-950' : 'bg-white/15 text-white'
+                      }`}>
+                        {planUsage.managerPlanActive ? <Crown size={20} /> : <Sparkles size={20} />}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs sm:text-sm font-black text-amber-300">
+                            {planUsage.managerPlanActive ? '👑 باقة المدير المخصص (معتمد)' : '🚀 باقة المتجر والوكالة'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-white/15 text-white">
+                            {planUsage.planLabelAr}
+                          </span>
+                          {planUsage.effectiveOrderFee > 0 && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                              {planUsage.effectiveOrderFee} ج.م / أوردر
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-emerald-100/90 font-bold leading-relaxed max-w-2xl">
+                          {planUsage.managerPlanActive
+                            ? `يتولى مديرك المخصص تسجيل وتأكيد وشحن الأوردرات — المنفذ: ${planUsage.usedOrdersCount} طلب من أصل ${planUsage.ordersLimit ?? '∞'} طلب كوتا معتمدة.`
+                            : planUsage.topBannerTextAr}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Quota Progress & Action Controls */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 shrink-0">
+                      {/* Circular/Pill Quota Indicator */}
+                      <div className="bg-black/30 backdrop-blur-sm border border-white/10 px-4 py-2.5 rounded-2xl flex items-center gap-3">
+                        <div className="text-right">
+                          <div className="text-[10px] font-bold text-zinc-400">استهلاك الكوتا</div>
+                          <div className="text-sm font-black font-mono text-white flex items-center gap-1.5">
+                            <span>{planUsage.usedOrdersCount}</span>
+                            <span className="text-zinc-400 font-normal">/</span>
+                            <span>{planUsage.ordersLimit ?? '∞'}</span>
+                            <span className="text-[10px] text-amber-300 mr-1">({planUsage.remainingQuota !== null ? `${planUsage.remainingQuota} متبقي` : 'غير محدود'})</span>
+                          </div>
+                        </div>
+                        {/* Mini Progress Bar */}
+                        <div className="w-16 h-2 bg-white/20 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              planUsage.usagePercent >= 90 ? 'bg-rose-500' : planUsage.usagePercent >= 75 ? 'bg-amber-400' : 'bg-emerald-400'
+                            }`}
+                            style={{ width: `${Math.max(8, planUsage.usagePercent)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowChangePlanModal(true)}
+                          className="px-3.5 py-2.5 bg-white text-[#062d24] hover:bg-emerald-50 rounded-2xl text-xs font-black transition-all cursor-pointer shadow-md active:scale-95"
+                        >
+                          {planUsage.managerPlanActive ? 'إدارة الباقة والكوتا' : 'ترقية / تغيير الخطة'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const phone = (settings as any)?.supportPhone || (settings as any)?.phone || '01000000000';
+                            window.open(`https://wa.me/2${phone.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم، أحتاج دعم بخصوص كوتا حساب الوكيل')}`, '_blank');
+                          }}
+                          className="px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-xs font-bold border border-white/20 transition-all cursor-pointer"
+                        >
+                          تواصل مع المدير
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Mobile Quick Sub-Navigation Pill Scroller (Only on mobile/tablets lg:hidden) */}
             <div className="lg:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
@@ -5236,7 +5330,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
                 </div>
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-rose-500">
-                  -{formatMoney(overviewStats.totalShippingDeductions)}
+                  {formatExpenseMoney(overviewStats.totalShippingDeductions)}
                 </div>
                 <div className="text-[11px] text-zinc-400 mt-1">
                   شحن + تأمين + ضريبة + معاينة + COD
@@ -5257,7 +5351,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
                 </div>
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-emerald-500">
-                  -{formatMoney(overviewStats.totalServiceFees)}
+                  {formatExpenseMoney(overviewStats.totalServiceFees)}
                 </div>
                 <div className="text-[11px] text-zinc-400 mt-1">
                   رسوم المعالجة وإنشاء الأوردرات
@@ -5278,7 +5372,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
                 </div>
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-amber-600">
-                  -{formatMoney(overviewStats.totalMarketingCosts)}
+                  {formatExpenseMoney(overviewStats.totalMarketingCosts)}
                 </div>
                 <div className="text-[11px] text-zinc-400 mt-1">
                   حملات إعلانية وتأجير وتسويق
@@ -5299,7 +5393,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
                 </div>
                 <div className="text-lg sm:text-2xl font-black font-mono tabular-nums text-purple-600">
-                  -{formatMoney(overviewStats.totalOtherStoreExpenses)}
+                  {formatExpenseMoney(overviewStats.totalOtherStoreExpenses)}
                 </div>
                 <div className="text-[11px] text-zinc-400 mt-1">
                   تغليف + إعلانات + عمالة + رسوم سحب
@@ -6388,25 +6482,48 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 text-xs sm:text-sm font-black text-zinc-800 dark:text-zinc-100">
-                          <Calendar size={15} className="text-[#00ab84]" />
-                          <span>تاريخ السحب النقدي القادم</span>
+                          {weeklyPayoutOverview.payoutStrategy === 'manual_request' ? (
+                            <>
+                              <PlusCircle size={15} className="text-[#00ab84]" />
+                              <span>طلب سحب رصيد متاح</span>
+                            </>
+                          ) : (
+                            <>
+                              <Calendar size={15} className="text-[#00ab84]" />
+                              <span>تاريخ السحب النقدي القادم</span>
+                            </>
+                          )}
                         </div>
                         <span className="text-[10px] font-mono font-black text-[#00ab84] bg-emerald-500/10 px-2.5 py-0.5 rounded-lg">
-                          {weeklyPayoutOverview.payoutFrequency === 'daily'
+                          {weeklyPayoutOverview.payoutStrategy === 'manual_request'
+                            ? 'نظام سحب يدوي'
+                            : weeklyPayoutOverview.payoutFrequency === 'daily'
                             ? 'سحب يومي'
                             : `بعد ${weeklyPayoutOverview.daysUntilNextPayout} يوم`}
                         </span>
                       </div>
-                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold leading-relaxed">
-                        {weeklyPayoutOverview.holdingOrdersCount > 0 && weeklyPayoutOverview.minRemainingDays !== null
-                          ? `لديك (${weeklyPayoutOverview.holdingOrdersCount}) أوردر مسوّى هذا الأسبوع يُرحّل للسحبة التالية بعد (${weeklyPayoutOverview.minRemainingDays} يوم)، بينما تسويات الأسبوع السابق تُحوّل في:`
-                          : 'تسويات الأسبوع السابق الجاهزة للصرف سيتم تحويلها إلى حسابك في:'}
-                      </p>
-                      <div className={`p-2.5 rounded-xl border text-sm font-mono font-black text-center ${
-                        isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
-                      }`}>
-                        {weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}
-                      </div>
+
+                      {weeklyPayoutOverview.payoutStrategy === 'manual_request' ? (
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold leading-relaxed">
+                          يمكنك طلب سحب أي مبالغ متاحة في محفظتك في أي وقت، وسيتم مراجعة الطلب واعتماده من قبل الإدارة.
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-zinc-500 dark:text-zinc-400 font-bold leading-relaxed">
+                          {weeklyPayoutOverview.payoutStrategy === 'batch_weekly'
+                            ? `كل الأوردرات التي تم تسويتها خلال الأسبوع الحالي، ستكون متاحة للسحب في موعد التحويل القادم:`
+                            : weeklyPayoutOverview.holdingOrdersCount > 0 && weeklyPayoutOverview.minRemainingDays !== null
+                            ? `لديك (${weeklyPayoutOverview.holdingOrdersCount}) أوردر مسوّى هذا الأسبوع يُرحّل للسحبة التالية بعد (${weeklyPayoutOverview.minRemainingDays} يوم)، بينما تسويات الأسبوع السابق تُحوّل في:`
+                            : 'تسويات الأسبوع السابق الجاهزة للصرف سيتم تحويلها إلى حسابك في:'}
+                        </p>
+                      )}
+
+                      {weeklyPayoutOverview.payoutStrategy !== 'manual_request' && (
+                        <div className={`p-2.5 rounded-xl border text-sm font-mono font-black text-center ${
+                          isDark ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
+                        }`}>
+                          {weeklyPayoutOverview.nextWeeklyPayoutDateFormatted}
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 space-y-1 text-[11px] font-black">

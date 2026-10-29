@@ -3,6 +3,8 @@ import * as db from '../services/databaseService';
 import { Link, useParams } from 'react-router-dom';
 import {
   Settings,
+  Supplier,
+  Partner,
   Order,
   Wallet,
   Treasury,
@@ -319,8 +321,33 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     }
   };
 
+  // Auto-clean pendingPlanRequest if merchant's managerPlan is already active
+  useEffect(() => {
+    const list = Array.isArray(settings.suppliers) ? settings.suppliers : [];
+    const staleList = list.filter(m => 
+      m.managerPlan?.status === 'active' && 
+      m.managerPlan?.planId === 'custom_manager' && 
+      m.pendingPlanRequest !== null && 
+      m.pendingPlanRequest !== undefined
+    );
+
+    if (staleList.length > 0) {
+      staleList.forEach(m => {
+        syncMerchantUpdates(
+          m.id,
+          m.name,
+          (item) => ({ ...item, pendingPlanRequest: null })
+        );
+      });
+    }
+  }, [settings.suppliers]);
+
   const handleDeleteMerchant = async (merchantId: string, merchantName: string) => {
     if (!window.confirm(`هل أنت متأكد من حذف الموكل/الشريك (${merchantName}) نهائياً؟ سيتم إزالته من كافة السجلات وتنظيف كافة المبيعات وارتباطات المنتجات المخصصة له.`)) return;
+    if (storeId) {
+      await db.deleteStoreItem(storeId, 'suppliers', merchantId).catch(() => {});
+      await db.deleteStoreItem(storeId, 'partners', merchantId).catch(() => {});
+    }
     const cleanedSettings = deepCleanMerchantReferences(settings, merchantId, merchantName);
     updateSettings(cleanedSettings);
     if (storeId) {
@@ -571,6 +598,91 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     );
 
     showToast(`تم ${isQuotaIncrease ? 'زيادة كوتة' : 'تفعيل'} الباقة المخصصة للموكل ${supplier.name} (${targetOrders} أوردر) بنجاح ✅`);
+  };
+
+  // Activate / Approve Merchant Accepted Custom Quote Directly
+  const handleActivateMerchantQuote = async (merchant: Supplier) => {
+    const req = merchant.pendingPlanRequest;
+    const unitFee = Number(req?.quotedOrderFee || 10);
+    const quota = Number(req?.quotedOrdersTarget || req?.requestedCustomQuota || req?.requestedOrdersTarget || 250);
+    const isPrepaid = req?.requestedCustomBillingPreference === 'prepaid_quota';
+    const upfrontCharge = isPrepaid ? Number((unitFee * quota).toFixed(2)) : 0;
+    const currentBalance = Number(merchant.balance || 0);
+
+    if (upfrontCharge > currentBalance) {
+      showToast(`رصيد محفظة الموكل (${currentBalance.toLocaleString()} ج.م) غير كافٍ لتفعيل الدفع المسبق (${upfrontCharge.toLocaleString()} ج.م). اشحن المحفظة أولاً.`, 'error');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const expIso = new Date(Date.now() + 30 * 86400000).toISOString();
+    const newCycleId = `CYC-MGR-${Date.now()}`;
+
+    const nextManagerPlan: MerchantManagerConfig = {
+      enabled: true,
+      planId: 'custom_manager',
+      planNameAr: `باقة المدير المخصصة (${unitFee} ج.م / أوردر)`,
+      cycleId: newCycleId,
+      orderFee: unitFee,
+      customOrderFee: unitFee,
+      customOrderQuota: quota,
+      customOrdersTarget: quota,
+      customPrepaidQuota: isPrepaid,
+      totalPrepaidAmount: upfrontCharge,
+      usedOrdersInCycle: 0,
+      activatedAt: nowIso,
+      expiresAt: expIso,
+      status: 'active',
+      notes: `تم اعتماد وتفعيل قبول الموكل لعرض الإدارة (${unitFee} ج.م/أوردر — ${quota} أوردر)`
+    };
+
+    const nextSubscriptionPlan: MerchantSubscriptionConfig = merchant.subscriptionPlan
+      ? { ...merchant.subscriptionPlan, status: 'cancelled' }
+      : {
+          planId: 'free',
+          planNameAr: 'الباقة المجانية (تاجر مبتدئ)',
+          billingCycle: 'monthly',
+          pricePerMonth: 0,
+          paidAmount: 0,
+          monthlyOrderLimit: 50,
+          unlimitedOrders: false,
+          activatedAt: nowIso,
+          expiresAt: expIso,
+          status: 'cancelled'
+        };
+
+    const nextBalance = Number((currentBalance - upfrontCharge).toFixed(2));
+    const newTx: MerchantTransaction | undefined = upfrontCharge > 0 ? {
+      id: generateSafeId('mtx'),
+      merchantId: merchant.id,
+      merchantName: merchant.name,
+      type: 'subscription_charge',
+      amount: -upfrontCharge,
+      date: nowIso,
+      notes: `تفعيل باقة المدير المخصصة بناءً على موافقة الموكل (${unitFee} ج.م/أوردر - ${quota} أوردر)`,
+      balanceAfter: nextBalance
+    } : undefined;
+
+    await syncMerchantUpdates(
+      merchant.id,
+      merchant.name,
+      (m) => ({
+        ...m,
+        subscriptionPlan: nextSubscriptionPlan,
+        managerPlan: nextManagerPlan,
+        pendingPlanRequest: null,
+        planCyclesHistory: archiveCurrentPlanCycle(m, 'switched_mode'),
+        ...(upfrontCharge > 0 ? { balance: nextBalance } : {}),
+        ...(newTx ? { transactions: [newTx, ...(m.transactions || [])] } : {})
+      }),
+      newTx,
+      {
+        action: 'تأكيد موافقة الموكل وتفعيل الباقة المخصصة',
+        details: `تم اعتماد موافقة ${merchant.name} وتفعيل باقة المدير المخصصة بـ ${unitFee} ج.م لكل أوردر`
+      }
+    );
+
+    showToast(`تم اعتماد موافقة ${merchant.name} وتفعيل باقة المدير المخصصة (${unitFee} ج.م / أوردر) بنجاح ✅`);
   };
 
   // Approve Standard Governed Plan Change Request
@@ -1419,17 +1531,30 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
                                 <span className="text-[10px] font-bold text-slate-400">إدارة ذاتية (بدون مدير مخصص)</span>
                               )}
                               {merchant.pendingPlanRequest && (
-                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black border ${
-                                  merchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                    : 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/50 dark:text-purple-300 animate-pulse'
-                                }`}>
-                                  <span>
-                                    {merchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
-                                      ? `عرض مرسل للموكل (${merchant.pendingPlanRequest.quotedOrderFee} ج/أوردر)`
-                                      : `طلب تسعير/باقة معلق: ${merchant.pendingPlanRequest.targetPlanNameAr || merchant.pendingPlanRequest.planNameAr || 'باقة المدير المخصصة'}`}
+                                <div className="flex flex-col items-center gap-1.5 mt-1">
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[10px] font-black border ${
+                                    merchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                      : 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/50 dark:text-purple-300 animate-pulse'
+                                  }`}>
+                                    <span>
+                                      {merchant.pendingPlanRequest.status === 'quoted_waiting_merchant'
+                                        ? `عرض مرسل للموكل (${merchant.pendingPlanRequest.quotedOrderFee} ج/أوردر)`
+                                        : `طلب تسعير/باقة معلق: ${merchant.pendingPlanRequest.targetPlanNameAr || merchant.pendingPlanRequest.planNameAr || 'باقة المدير المخصصة'}`}
+                                    </span>
                                   </span>
-                                </span>
+                                  {merchant.pendingPlanRequest.status === 'quoted_waiting_merchant' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleActivateMerchantQuote(merchant)}
+                                      className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-[10px] font-black shadow-md shadow-emerald-600/20 transition-all cursor-pointer hover:scale-105"
+                                      title="انقر لتأكيد موافقة الموكل وتفعيل العرض فوراً"
+                                    >
+                                      <CheckCircle2 size={11} />
+                                      <span>⚡ اعتماد قبول الموكل وتفعيل العرض</span>
+                                    </button>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </td>

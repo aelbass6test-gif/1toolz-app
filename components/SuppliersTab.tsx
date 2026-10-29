@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { 
   UserPlus, User, Phone, MapPin, DollarSign, FileText, ShoppingCart, 
@@ -11,7 +11,7 @@ import {
 import { Supplier, SupplyOrder, Settings } from '../types';
 import { audioSynth } from '../utils/audioSynth';
 import { motion, AnimatePresence } from 'motion/react';
-import { deepCleanMerchantReferences } from '../utils/merchantProducts';
+import { deepCleanMerchantReferences, isDummyMockSupplier, sanitizeSuppliersList } from '../utils/merchantProducts';
 import * as db from '../services/databaseService';
 
 interface SuppliersTabProps {
@@ -100,41 +100,39 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
     };
   }, [settings.suppliers, settings.supplyOrders]);
 
-  const handleCreateDefaultSuppliers = () => {
-    const defaultSuppliers: Supplier[] = [
-      {
-        id: 'sup-1-' + Date.now(),
-        name: 'شركة النور للتوريدات الغذائية والجملة',
-        phone: '01011112222',
-        address: 'شارع الهرم - الجيزة',
-        category: 'raw_materials',
-        tier: 'vip',
-        rating: 5,
-        balance: 12500,
-        creditLimit: 50000,
-        taxNumber: '302-401-889',
-        notes: 'مورد معتمد لخامات التعبئة والمواد الأساسية - خصم تجاري 5%'
-      },
-      {
-        id: 'sup-2-' + (Date.now() + 1),
-        name: 'مؤسسة الأمانة للخدمات واللوجستيات',
-        phone: '01033334444',
-        address: 'مدينة العبور - المنطقة الصناعية الأولى',
-        category: 'logistics',
-        tier: 'standard',
-        rating: 5,
-        balance: 0,
-        creditLimit: 20000,
-        taxNumber: '110-220-330',
-        notes: 'تجهيزات ومعدات تشغيل المخازن ونقاط البيع'
-      }
-    ];
-    setSettings(prev => ({
-      ...prev,
-      suppliers: [...(prev.suppliers || []), ...defaultSuppliers]
-    }));
-    showAlert('تم الإضافة بنجاح', 'تم إدراج شركاء التوريد المعتمدين بنجاح في سجلات الموردين.', 'success');
-  };
+  // Auto-purge any dummy mock suppliers (شركة النور / مؤسسة الأمانة) on mount and deduplicate records
+  useEffect(() => {
+    const rawSuppliers = settings.suppliers || [];
+    const hasDummy = rawSuppliers.some(s => isDummyMockSupplier(s));
+    const cleaned = sanitizeSuppliersList(rawSuppliers);
+
+    if (hasDummy || cleaned.length !== rawSuppliers.length) {
+      const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+      
+      // Delete every dummy supplier from cloud collections
+      rawSuppliers.forEach(s => {
+        if (isDummyMockSupplier(s) && activeStore) {
+          db.deleteStoreItem(activeStore, 'suppliers', s.id).catch(() => {});
+          db.deleteStoreItem(activeStore, 'partners', s.id).catch(() => {});
+        }
+      });
+
+      setSettings(prev => {
+        const next = {
+          ...prev,
+          suppliers: cleaned
+        };
+        if (activeStore) {
+          db.updatePartnerSettings(activeStore, next.partners, cleaned).catch(() => {});
+          db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
+            ...prev,
+            settings: next
+          } as any).catch(() => {});
+        }
+        return next;
+      });
+    }
+  }, [settings.suppliers, storeId, setSettings]);
 
   // Filtered Suppliers
   const filteredSuppliers = useMemo(() => {
@@ -332,21 +330,33 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
       return;
     }
 
-    showConfirm("تأكيد الحذف النهائي", `هل أنت متأكد من حذف المورد "${s.name}"؟ سيتم حذف بياناته من قائمة الموردين والشركاء وإزالة أي تخصيصات أو تسعير خاص له على المنتجات. لا يمكن التراجع عن هذا الإجراء.`, () => {
+    showConfirm("تأكيد الحذف النهائي", `هل أنت متأكد من حذف المورد "${s.name}"؟ سيتم حذف بياناته من كافة سجلات الموردين والشركاء نهائياً دون رجوع.`, async () => {
+      const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+      
+      // 1. Delete root docs from cloud database & record explicit deletion
+      if (activeStore) {
+        await db.deleteStoreItem(activeStore, 'suppliers', id).catch(() => {});
+        await db.deleteStoreItem(activeStore, 'partners', id).catch(() => {});
+      }
+
+      // 2. Cascade deep clean locally and persist
       setSettings(prev => {
         const cleaned = deepCleanMerchantReferences(prev, id, s.name);
-        
-        // Persist to cloud
-        const activeStore = storeId || localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+        const nextSuppliers = sanitizeSuppliersList(cleaned.suppliers);
+        const finalCleaned = {
+          ...cleaned,
+          suppliers: nextSuppliers
+        };
+
         if (activeStore) {
-          db.updatePartnerSettings(activeStore, cleaned.partners, cleaned.suppliers).catch(() => {});
+          db.updatePartnerSettings(activeStore, finalCleaned.partners, finalCleaned.suppliers).catch(() => {});
           db.saveStoreData({ id: activeStore, name: prev.storeName || 'المتجر' } as any, {
               ...prev,
-              settings: cleaned
+              settings: finalCleaned
           } as any).catch(() => {});
         }
         
-        return cleaned;
+        return finalCleaned;
       });
       audioSynth.announce("تم حذف المورد بنجاح من كافة السجلات", "success");
     });
@@ -695,11 +705,26 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
           </p>
           {(settings.suppliers || []).length === 0 ? (
             <button
-              onClick={handleCreateDefaultSuppliers}
+              onClick={() => {
+                setEditingSupplier(null);
+                setNewSupplier({
+                  name: '',
+                  phone: '',
+                  email: '',
+                  passcode: '0000',
+                  address: '',
+                  notes: '',
+                  balance: 0,
+                  category: 'general',
+                  rating: 5,
+                  tier: 'standard'
+                });
+                setShowSupplierModal(true);
+              }}
               className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-indigo-600/30 transition-all cursor-pointer hover:-translate-y-0.5"
             >
               <Plus size={18} />
-              <span>⚡ إضافة موردين نموذجيين معتمدين الآن (تجهيزات وخامات)</span>
+              <span>إضافة شريك أو مورد جديد</span>
             </button>
           ) : (
             <button
@@ -987,7 +1012,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                     </label>
                     <input
                       type="text"
-                      placeholder="مثال: شركة النور للتوريدات، مؤسسة الأهرام..."
+                      placeholder="مثال: شركة التوريدات، مورد معتمد..."
                       value={newSupplier.name || ''}
                       onChange={e => setNewSupplier({ ...newSupplier, name: e.target.value })}
                       className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm font-bold text-slate-800 dark:text-white outline-none focus:border-indigo-500 transition-all"

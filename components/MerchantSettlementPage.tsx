@@ -657,6 +657,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const [policyWeeklyTransferFeeType, setPolicyWeeklyTransferFeeType] = useState<'fixed' | 'percentage'>('fixed');
   const [policyDailyTransferFee, setPolicyDailyTransferFee] = useState<number>(1);
   const [policyDailyTransferFeeType, setPolicyDailyTransferFeeType] = useState<'fixed' | 'percentage'>('percentage');
+  const [policyPayoutStrategy, setPolicyPayoutStrategy] = useState<'rolling_hold' | 'batch_weekly' | 'manual_request'>('rolling_hold');
+
 
   const openMerchantPayoutPolicyModal = (supplier: any) => {
     setEditingPayoutPolicyMerchant(supplier);
@@ -670,6 +672,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     setPolicyWeeklyTransferFeeType(supplier.weeklyTransferFeeType === 'percentage' ? 'percentage' : 'fixed');
     setPolicyDailyTransferFee(typeof supplier.dailyTransferFee === 'number' ? supplier.dailyTransferFee : 1);
     setPolicyDailyTransferFeeType(supplier.dailyTransferFeeType === 'fixed' ? 'fixed' : 'percentage');
+    setPolicyPayoutStrategy(supplier.payoutStrategy || 'rolling_hold');
   };
 
   const handleSaveMerchantPayoutPolicy = () => {
@@ -690,7 +693,8 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             weeklyTransferFee: Math.max(0, Number(policyWeeklyTransferFee)),
             weeklyTransferFeeType: policyWeeklyTransferFeeType,
             dailyTransferFee: Math.max(0, Number(policyDailyTransferFee)),
-            dailyTransferFeeType: policyDailyTransferFeeType
+            dailyTransferFeeType: policyDailyTransferFeeType,
+            payoutStrategy: policyPayoutStrategy
           };
         }
         return item;
@@ -1204,16 +1208,28 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       const daysUntilNextPayoutDay = ((weeklyDayIndex - todayDayIndex + 7) % 7) || 7;
 
       settledUnpaidOrders.forEach(o => {
+        const strategy = s.payoutStrategy || 'rolling_hold';
         const orderHoldDays = typeof o.customHoldingDays === 'number' ? o.customHoldingDays : holdingDaysSetting;
         const settledAtTime = o.settledAt ? new Date(o.settledAt).getTime() : new Date(o.date || Date.now()).getTime();
         const elapsedDays = Math.max(0, (Date.now() - settledAtTime) / 86400000);
-        const baseRemDays = Math.max(0, Math.ceil(orderHoldDays - elapsedDays));
-        const isSettledThisWeekCycle = isWeeklyFreq && orderHoldDays > 0 && settledAtTime >= currentWeekCycleStart;
-        const remDays = o.payoutStatus === 'ready'
-          ? 0
-          : isSettledThisWeekCycle
-          ? Math.max(baseRemDays, daysUntilNextPayoutDay)
-          : baseRemDays;
+        
+        let remDays = 0;
+        
+        if (o.payoutStatus === 'ready') {
+          remDays = 0;
+        } else if (strategy === 'manual_request') {
+          remDays = 0;
+        } else if (strategy === 'batch_weekly') {
+          const isSettledInCurrentCycle = settledAtTime >= currentWeekCycleStart;
+          remDays = isSettledInCurrentCycle ? daysUntilNextPayoutDay : 0;
+        } else {
+          // rolling_hold (default)
+          const baseRemDays = Math.max(0, Math.ceil(orderHoldDays - elapsedDays));
+          const isSettledThisWeekCycle = isWeeklyFreq && orderHoldDays > 0 && settledAtTime >= currentWeekCycleStart;
+          remDays = isSettledThisWeekCycle
+            ? Math.max(baseRemDays, daysUntilNextPayoutDay)
+            : baseRemDays;
+        }
 
         // Find net amount from settlement snapshot if available
         let orderNet = 0;
@@ -4442,7 +4458,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                       </div>
                       <div className="p-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/50">
                         <div className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
-                          قيد التعليق ({row.holdingDaysSetting} أيام)
+                          {row.supplier.payoutStrategy === 'batch_weekly' 
+                            ? 'بانتظار دورة التحويل' 
+                            : row.supplier.payoutStrategy === 'manual_request'
+                            ? 'معلق (بانتظار الطلب)'
+                            : `قيد التعليق (${row.holdingDaysSetting} أيام)`}
                         </div>
                         <div className="text-xs font-black font-mono text-amber-700 dark:text-amber-300 mt-0.5">
                           {row.holdingAmount.toLocaleString()} ج.م ({row.holdingOrdersCount} طلب)
@@ -5475,6 +5495,71 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             </div>
 
             <div className="space-y-3 text-xs font-bold">
+              {/* Payout Strategy Selector (New Request) */}
+              <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                <label className="block text-indigo-700 dark:text-indigo-300 text-[11px] font-black mb-1">
+                  استراتيجية صرف الأرباح للموكل:
+                </label>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPolicyPayoutStrategy('rolling_hold')}
+                    className={`w-full p-2.5 rounded-xl border text-right transition-all flex flex-col gap-0.5 ${
+                      policyPayoutStrategy === 'rolling_hold'
+                        ? 'bg-white dark:bg-slate-900 border-indigo-500 shadow-sm ring-1 ring-indigo-500'
+                        : 'bg-transparent border-slate-200 dark:border-slate-800 opacity-60'
+                    }`}
+                  >
+                    <span className="text-[11px] font-black">1. تعليق متدحرج (بالأيام) ⏳</span>
+                    <span className="text-[9px] font-bold text-slate-500 italic">يتم تعليق كل أوردر لمدة X يوم من تاريخ تسويته (النظام الحالي).</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPolicyPayoutStrategy('batch_weekly')}
+                    className={`w-full p-2.5 rounded-xl border text-right transition-all flex flex-col gap-0.5 ${
+                      policyPayoutStrategy === 'batch_weekly'
+                        ? 'bg-white dark:bg-slate-900 border-indigo-500 shadow-sm ring-1 ring-indigo-500'
+                        : 'bg-transparent border-slate-200 dark:border-slate-800 opacity-60'
+                    }`}
+                  >
+                    <span className="text-[11px] font-black">2. تجميع أسبوعي (أوردرات الأسبوع بالكامل) 📅</span>
+                    <span className="text-[9px] font-bold text-slate-500 italic">كل ما يُسوى هذا الأسبوع، يُتاح للسحب في "يوم التحويل" من الأسبوع القادم.</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPolicyPayoutStrategy('manual_request')}
+                    className={`w-full p-2.5 rounded-xl border text-right transition-all flex flex-col gap-0.5 ${
+                      policyPayoutStrategy === 'manual_request'
+                        ? 'bg-white dark:bg-slate-900 border-indigo-500 shadow-sm ring-1 ring-indigo-500'
+                        : 'bg-transparent border-slate-200 dark:border-slate-800 opacity-60'
+                    }`}
+                  >
+                    <span className="text-[11px] font-black">3. سحب يدوي حر (بدون تعليق آلي) 🔓</span>
+                    <span className="text-[9px] font-bold text-slate-500 italic">تنتقل الأرباح للمحفظة فور التسوية، والموكل يطلب السحب يدوياً في أي وقت.</span>
+                  </button>
+                </div>
+                <div className="mt-2 p-2 rounded-xl bg-white/50 dark:bg-slate-900/50 border border-indigo-100/50 dark:border-indigo-900/30 text-[10px] font-bold text-slate-500 space-y-1">
+                  <p className="flex items-start gap-1.5">
+                    <span className="text-indigo-500 shrink-0">💡</span>
+                    <span>يمكنك "فك تعليق" أي أوردرات يدوياً من جدول الموكلين بضغطة زر واحدة لتنتقل فوراً من "قيد التعليق" إلى "الجاهز للتحويل".</span>
+                  </p>
+                  {policyPayoutStrategy === 'batch_weekly' && (
+                    <p className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
+                      <span className="shrink-0">📅</span>
+                      <span>في هذا النظام، يتم تأجيل صرف أرباح "الأسبوع الحالي" إلى موعد السحب في "الأسبوع القادم" لضمان تجميع الأرباح.</span>
+                    </p>
+                  )}
+                  {policyPayoutStrategy === 'manual_request' && (
+                    <p className="flex items-start gap-1.5 text-emerald-600 dark:text-emerald-400">
+                      <span className="shrink-0">🔓</span>
+                      <span>في هذا النظام، تكون كافة الأرباح المسواة متاحة للسحب فوراً، والتحكم يكون عبر "طلب سحب" يرسله الموكل وتوافق عليه الإدارة.</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 dark:text-slate-300 mb-1">
@@ -5560,28 +5645,30 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 mb-1">
-                  مدة التعليق بعد التسوية (أيام):
-                </label>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={60}
-                    value={policyHoldingDays}
-                    onChange={e => setPolicyHoldingDays(Math.max(0, Number(e.target.value) || 0))}
-                    className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPolicyHoldingDays(0)}
-                    className="px-2 py-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-black shrink-0 cursor-pointer"
-                  >
-                    0 يوم ⚡
-                  </button>
+              {policyPayoutStrategy === 'rolling_hold' && (
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 mb-1">
+                    مدة التعليق بعد التسوية (أيام):
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      value={policyHoldingDays}
+                      onChange={e => setPolicyHoldingDays(Math.max(0, Number(e.target.value) || 0))}
+                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono font-black text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPolicyHoldingDays(0)}
+                      className="px-2 py-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 text-[10px] font-black shrink-0 cursor-pointer"
+                    >
+                      0 يوم ⚡
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

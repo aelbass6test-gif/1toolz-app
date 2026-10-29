@@ -213,7 +213,8 @@ export function evaluateRecordUpsert(params: {
 export function reconcileDualOrderSources(
   storeId: string,
   embeddedOrders: any[],
-  collectionOrders: any[]
+  collectionOrders: any[],
+  explicitlyDeletedIds?: Set<string>
 ): {
   mergedOrders: any[];
   onlyInEmbeddedIds: string[];
@@ -228,16 +229,31 @@ export function reconcileDualOrderSources(
     return s.startsWith(`${storeId}_`) ? s.slice(storeId.length + 1) : s;
   };
 
+  const isExplicitlyDeleted = (id: string, orderNumber?: any): boolean => {
+    if (!explicitlyDeletedIds || explicitlyDeletedIds.size === 0) return false;
+    if (explicitlyDeletedIds.has(id) || explicitlyDeletedIds.has(`${storeId}_${id}`)) return true;
+    if (explicitlyDeletedIds.has(`${storeId}_orders_${id}`) || explicitlyDeletedIds.has(`${storeId}_orders_${storeId}_${id}`)) return true;
+    if (orderNumber) {
+      const oNum = String(orderNumber).trim();
+      if (explicitlyDeletedIds.has(oNum) || explicitlyDeletedIds.has(`${storeId}_orders_${oNum}`)) return true;
+    }
+    return false;
+  };
+
   const embeddedMap = new Map<string, any>();
   for (const o of safeEmbedded) {
     const id = normalizeId(o?.id);
-    if (id) embeddedMap.set(id, { ...o, id });
+    if (id && !isExplicitlyDeleted(id, o?.orderNumber)) {
+      embeddedMap.set(id, { ...o, id });
+    }
   }
 
   const collectionMap = new Map<string, any>();
   for (const o of safeCollection) {
     const id = normalizeId(o?.id);
-    if (id) collectionMap.set(id, { ...o, id });
+    if (id && !isExplicitlyDeleted(id, o?.orderNumber)) {
+      collectionMap.set(id, { ...o, id });
+    }
   }
 
   const onlyInEmbeddedIds: string[] = [];

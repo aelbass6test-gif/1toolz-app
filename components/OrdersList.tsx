@@ -4058,6 +4058,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         setOrders((prevOrders) =>
           prevOrders.filter((o) => !selectedOrders.includes(o.id)),
         );
+
+        if (activeStore?.id) {
+          ordersBeingDeleted.forEach((o) => {
+            deleteStoreItem(activeStore.id, 'orders', o.id);
+            if (o.orderNumber) {
+              deleteStoreItem(activeStore.id, 'orders', o.orderNumber);
+            }
+          });
+          if (typeof onRefresh === 'function') {
+            setTimeout(() => onRefresh(), 300);
+          }
+        }
+
         setSelectedOrders([]);
         setConfirmation((prev) => ({ ...prev, isOpen: false }));
       },

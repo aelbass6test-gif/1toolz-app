@@ -394,3 +394,73 @@ export const deepCleanMerchantReferences = (
     products: nextProducts
   };
 };
+
+/**
+ * Identifies unwanted mock/dummy seed suppliers (e.g. شركة النور للتوريدات الغذائية, مؤسسة الأمانة).
+ * Strictly distinguishes real user-created suppliers like "محمد عرب" (01060266683, abdoooads003@gmail.com).
+ */
+export const isDummyMockSupplier = (s: any): boolean => {
+  if (!s || typeof s !== 'object') return false;
+  const name = String(s.name || '').trim().toLowerCase();
+  const phone = String(s.phone || '').replace(/[^0-9]/g, '');
+  const id = String(s.id || '').trim();
+
+  // Explicit mock detection
+  if (name.includes('شركة النور للتوريدات') || name.includes('نور للتوريدات الغذائية') || (name.includes('شركة النور') && (phone.includes('1111') || id.startsWith('sup-1-')))) {
+    return true;
+  }
+  if (name.includes('مؤسسة الأمانة للخدمات') || name.includes('الأمانة للخدمات واللوجستيات') || (name.includes('مؤسسة الأمانة') && (phone.includes('3333') || id.startsWith('sup-2-')))) {
+    return true;
+  }
+  if (phone === '01011112222' || phone === '201011112222') {
+    return true;
+  }
+  if (phone === '01033334444' || phone === '201033334444') {
+    return true;
+  }
+  if (id.startsWith('sup-1-') && (phone.includes('1111') || name.includes('نور'))) {
+    return true;
+  }
+  if (id.startsWith('sup-2-') && (phone.includes('3333') || name.includes('أمانة') || name.includes('امانة'))) {
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Sanitizes and deduplicates the suppliers list:
+ * - Purges all mock dummy suppliers permanently
+ * - Deduplicates by ID, phone, or name so no duplicate cards ever appear
+ * - Retains legitimate suppliers (especially محمد عرب)
+ */
+export const sanitizeSuppliersList = (suppliers: any[] | undefined): any[] => {
+  if (!Array.isArray(suppliers)) return [];
+  const seenIds = new Set<string>();
+  const seenPhones = new Set<string>();
+  const seenNames = new Set<string>();
+  const cleanList: any[] = [];
+
+  for (const s of suppliers) {
+    if (!s || typeof s !== 'object') continue;
+    if (isDummyMockSupplier(s)) continue;
+
+    const id = String(s.id || '').trim();
+    const phone = String(s.phone || '').replace(/[^0-9]/g, '');
+    const name = String(s.name || '').trim().toLowerCase();
+
+    // Deduplication check
+    if (id && seenIds.has(id)) continue;
+    if (phone && phone.length >= 8 && seenPhones.has(phone)) continue;
+    if (name && seenNames.has(name)) continue;
+
+    if (id) seenIds.add(id);
+    if (phone && phone.length >= 8) seenPhones.add(phone);
+    if (name) seenNames.add(name);
+
+    cleanList.push(s);
+  }
+
+  return cleanList;
+};
+

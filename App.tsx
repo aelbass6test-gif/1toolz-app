@@ -14,7 +14,7 @@ import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
 import { verifyPasswordSecure } from './utils/syncIntegrity';
 import { oneToolzProducts } from './data/one-toolz-products';
-import { migrateLegacyProductMerchantLinks } from './utils/merchantProducts';
+import { migrateLegacyProductMerchantLinks, isDummyMockSupplier, sanitizeSuppliersList } from './utils/merchantProducts';
 
 import { triggerWebhooks } from './utils/webhook';
 import { audioSynth } from './utils/audioSynth';
@@ -780,6 +780,15 @@ function sanitizeData(storeData: StoreData): StoreData {
         if (healedProducts !== sanitizedSettings.products || mediaNormalized) {
             hasChanges = true;
             sanitizedSettings = { ...sanitizedSettings, products: normalizedProducts };
+        }
+    }
+
+    if (sanitizedSettings?.suppliers) {
+        const rawSuppliers = sanitizedSettings.suppliers;
+        const cleanedSuppliers = sanitizeSuppliersList(rawSuppliers);
+        if (cleanedSuppliers.length !== rawSuppliers.length) {
+            hasChanges = true;
+            sanitizedSettings = { ...sanitizedSettings, suppliers: cleanedSuppliers };
         }
     }
 
