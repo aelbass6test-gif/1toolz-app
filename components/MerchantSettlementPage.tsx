@@ -81,7 +81,7 @@ const calculateMerchantShippingBreakdown = (
   const inspectionFee = ov?.inspectionFee !== undefined ? ov.inspectionFee : rawInspection;
 
   // 4. VAT Fee (14% VAT on shipping + inspection + insurance)
-  const rawVat = (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
+  const rawVat = (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0)
     ? Number(order.vatValue)
     : calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings);
   const vatFee = ov?.vatFee !== undefined ? ov.vatFee : rawVat;

@@ -228,7 +228,7 @@ export function computeOrderCarrierBreakdown(order: Order, settings: Settings) {
   const codFee = Number(((isDelivered || order.status === 'تم_الارسال' || order.status === 'قيد_الشحن') && order.status !== 'مدفوعة' && !isExchange ? calculateCodFee(order, settings) : 0).toFixed(2));
 
   const vatFee = Number((
-    (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
+    (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0)
       ? Number(order.vatValue)
       : calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings)
   ).toFixed(2));

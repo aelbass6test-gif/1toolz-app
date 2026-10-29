@@ -355,14 +355,12 @@ export const calculateBostaVat = (order: Order, insuranceFee: number, settings?:
     const vatRate = useCustom ? (compFees?.shippingVatRate ?? defaultVatRate) : (settings?.shippingVatRate ?? defaultVatRate);
     
     const useStandard = order.vatOnStandardShipping === true; 
-    // Fix: If useStandard is false, we should respect the shipping fee even if it's 0.
-    // Fallback only if the shipping fee is not a number (not yet entered)
     const hasManualFee = typeof order.shippingFee === 'number';
     const manualShippingFee = (order.isManualShippingOverride && order.shippingFee !== undefined) ? order.shippingFee : null;
     const baseShippingFee = manualShippingFee !== null ? manualShippingFee : (
-        (useStandard || !hasManualFee)
-            ? (settings ? getStandardShippingFee(order, settings) : (order.shippingFee || 0))
-            : (order.shippingFee || 0)
+        (Number(order.shippingFee) > 0)
+            ? Number(order.shippingFee)
+            : (settings ? getStandardShippingFee(order, settings) : 0)
     );
         
     const defaultVatBasis = isCompanyBosta ? 'shipping_and_insurance' : 'shipping_only';
@@ -685,7 +683,7 @@ export const calculateOrderShippingAndFees = (o: Order, settings: Settings): num
   const effectiveInspectionCost = (o.inspectionFee !== undefined && o.inspectionFee !== null && Number(o.inspectionFee) > 0)
     ? Number(o.inspectionFee)
     : (o.includeInspectionFee === false ? 0 : inspectionCost);
-  const bostaVat = (o.vatValue !== undefined && o.vatValue !== null && Number(o.vatValue) > 0 && !o.vatOnStandardShipping)
+  const bostaVat = (o.vatValue !== undefined && o.vatValue !== null && Number(o.vatValue) > 0)
     ? Number(o.vatValue)
     : calculateBostaVat(o, insuranceFee, settings);
   

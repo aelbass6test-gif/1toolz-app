@@ -77,7 +77,7 @@ export const BulkOrderSettlementModal: React.FC<BulkOrderSettlementModalProps> =
       : (isInspectionExplicitlyCharged ? inspectionCost : 0);
 
     // VAT
-    const vatFee = (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0 && !order.vatOnStandardShipping)
+    const vatFee = (order.vatValue !== undefined && order.vatValue !== null && Number(order.vatValue) > 0)
       ? Number(order.vatValue)
       : calculateBostaVat({ ...order, shippingFee: baseShippingFee }, insuranceFee, settings);
 
