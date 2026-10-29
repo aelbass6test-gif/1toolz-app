@@ -7431,35 +7431,26 @@ const OrderCard = ({
               </h4>
             </div>
             {displayTotal !== standardRequiredTotal && (
-              order.totalAmountOverride !== undefined && order.totalAmountOverride !== null ? (
-                <div className="flex items-center gap-1.5 text-[10px] text-slate-600 dark:text-slate-300 mt-1 font-bold bg-emerald-50/70 dark:bg-emerald-950/30 px-2.5 py-1 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40">
-                  <span>تعديل سعر متفق عليه:</span>
-                  <span className={displayTotal > standardRequiredTotal ? "text-emerald-600 dark:text-emerald-400 font-mono font-black" : "text-amber-600 font-mono font-black"}>
-                    {displayTotal > standardRequiredTotal ? `+${(displayTotal - standardRequiredTotal).toLocaleString()}` : (displayTotal - standardRequiredTotal).toLocaleString()} ج.م
+              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
+                  <span className="font-black text-indigo-600 dark:text-indigo-400">
+                    {standardRequiredTotal.toLocaleString(undefined, {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 2,
+                    })} ج.م
                   </span>
                 </div>
-              ) : (
-                <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
-                    <span className="font-black text-indigo-600 dark:text-indigo-400">
-                      {standardRequiredTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })} ج.م
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-[10px]">المحصل فعلياً:</span>
-                    <span className="font-black text-slate-700 dark:text-slate-300">
-                      {displayTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })} ج.م
-                    </span>
-                  </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-[10px]">المحصل فعلياً:</span>
+                  <span className="font-black text-slate-700 dark:text-slate-300">
+                    {displayTotal.toLocaleString(undefined, {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 2,
+                    })} ج.م
+                  </span>
                 </div>
-              )
+              </div>
             )}
           </div>
           {(order.advancePayment || 0) > 0 && (
@@ -8054,7 +8045,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>التأمين على الشحنة:</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{insuranceFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                      -{insuranceFee.toFixed(2)} ج.م
                     </span>
                   </div>
                 )}
@@ -8063,7 +8054,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>{dynamicVatLabel}:</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{bostaVatFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                      -{bostaVatFee.toFixed(2)} ج.م
                     </span>
                   </div>
                 )}
@@ -8072,7 +8063,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>المعاينة (سماح بفتح الطرد):</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{inspectionAdjustment.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                      -{inspectionAdjustment.toFixed(2)} ج.م
                     </span>
                   </div>
                 )}
@@ -8081,7 +8072,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>رسوم التحصيل (COD):</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{codFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
+                      -{codFee.toFixed(2)} ج.م
                     </span>
                   </div>
                 )}
@@ -8681,15 +8672,13 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
 
               {/* Price & Actions Section */}
               <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/50 dark:border-white/[0.04] shrink-0">
-                <div className="text-right sm:text-left">
+                <div className="text-right sm:text-left font-mono">
                   <div className="flex items-center gap-1.5 sm:justify-end">
-                    <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
-                      {itemQty} {itemQty === 1 ? 'قطعة' : itemQty === 2 ? 'قطعتين' : 'قطع'}
-                    </span>
-                    <span className="text-base font-black text-slate-900 dark:text-white font-mono tabular-nums">
+                    <span className="text-xs font-bold text-slate-400">×{itemQty}</span>
+                    <span className="text-base font-black text-slate-900 dark:text-white tabular-nums">
                       {lineTotal.toLocaleString()}
                     </span>
-                    <span className="text-[11px] font-bold text-slate-400">ج.م</span>
+                    <span className="text-[10px] font-bold text-slate-400">ج.م</span>
                   </div>
                 </div>
 
@@ -8722,7 +8711,7 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
       <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 flex items-center justify-between text-xs font-bold text-indigo-950 dark:text-indigo-200">
         <span className="flex items-center gap-1.5 font-black">
           <Boxes size={15} className="text-indigo-600 dark:text-indigo-400" />
-          <span>إجمالي قيمة المنتجات ({totalUnits === 1 ? 'قطعة واحدة' : totalUnits === 2 ? 'قطعتان' : `${totalUnits} قطع`}):</span>
+          <span>إجمالي قيمة المنتجات ({totalUnits} قطع):</span>
         </span>
         <span className="font-mono text-sm font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
           {totalProductsPrice.toLocaleString()} ج.م
@@ -9301,35 +9290,26 @@ const OrderRow = ({
                 </div>
               )}
               {displayTotal !== standardRequiredTotal && (
-                order.totalAmountOverride !== undefined && order.totalAmountOverride !== null ? (
-                  <div className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-slate-400 mt-1 font-bold bg-emerald-50/70 dark:bg-emerald-950/30 px-2 py-0.5 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
-                    <span>سعر متفق عليه:</span>
-                    <span className={displayTotal > standardRequiredTotal ? "text-emerald-600 dark:text-emerald-400 font-mono font-black" : "text-amber-600 font-mono font-black"}>
-                      {displayTotal > standardRequiredTotal ? `+${(displayTotal - standardRequiredTotal).toLocaleString()}` : (displayTotal - standardRequiredTotal).toLocaleString()} ج.م
+                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-[9px]">المطلوب:</span>
+                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
+                      {standardRequiredTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
                     </span>
                   </div>
-                ) : (
-                  <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
-                    <div className="flex items-center gap-1">
-                      <span className="font-bold text-[9px]">المطلوب:</span>
-                      <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
-                        {standardRequiredTotal.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 2,
-                        })} ج.م
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="font-bold text-[9px]">الفعلي:</span>
-                      <span className="font-extrabold text-slate-700 dark:text-slate-300">
-                        {displayTotal.toLocaleString(undefined, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 2,
-                        })} ج.م
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-[9px]">الفعلي:</span>
+                    <span className="font-extrabold text-slate-700 dark:text-slate-300">
+                      {displayTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
+                    </span>
                   </div>
-                )
+                </div>
               )}
             </div>
             <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-1.5 justify-end mix-blend-multiply dark:mix-blend-normal mt-1">
@@ -9359,17 +9339,10 @@ const OrderRow = ({
                   </span>
                 </div>
                 {(() => {
-                  if (order.compensationStatus === "compensated") {
-                    return (
-                      <span className="text-[8px] font-bold block text-emerald-600 dark:text-emerald-400">
-                        تم التعويض
-                      </span>
-                    );
-                  }
-                  if (isDelivered || order.status === "تم_الاستبدال") {
+                  if (order.compensationStatus === "compensated" || isDelivered || order.status === "تم_الاستبدال") {
                     return (
                       <span className="text-[8px] font-bold block text-slate-400 dark:text-slate-500">
-                        غير مستحق (مسلّم)
+                        غير مستحق بعد
                       </span>
                     );
                   }

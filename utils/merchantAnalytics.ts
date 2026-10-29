@@ -357,13 +357,7 @@ export function calculateMerchantTransparencyAnalytics(
     // Marketing & Service (proportional)
     const marketingFee = (Number(o.marketingFeePerOrder) || 0) * ratio;
     const defaultService = (settings as any).defaultMerchantServiceFee ?? 0;
-    const isCoveredByPlanOrPrepaid = Boolean(
-      (o as any).quotaIncludedOrder || 
-      (o as any).isQuotaCovered ||
-      (o as any).managerFeeDeducted
-    );
-    const baseServiceFee = isCoveredByPlanOrPrepaid ? 0 : (o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : defaultService);
-    const serviceFee = isDelivered ? (baseServiceFee * ratio) : 0;
+    const serviceFee = isDelivered ? ((o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : defaultService) * ratio) : 0;
 
     // Return loss (proportional)
     const returnLoss = isReturn ? ((carrierCalc.totalShippingAndCarrier + (Number(o.marketingFeePerOrder) || 0)) * ratio) : 0;
