@@ -695,7 +695,128 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 
         triggerWebhooks(orderWithId, settings);
         
-        // 1. تشغيل المؤثرات وإغلاق نافذة التأكيد فوراً لعرض الملخص دون أي تأخير
+        // Sync with forceSync using complete updated state to bypass React async delay
+        const currentStoreId = activeStore?.id;
+        if (forceSync && allStoresData && currentStoreId && allStoresData[currentStoreId]) {
+            const storeData = allStoresData[currentStoreId];
+            let updatedOrders = [...(storeData.orders || [])];
+            if (orderWithId.orderType === 'exchange' && orderWithId.originalOrderId) {
+                updatedOrders = updatedOrders.map(o => 
+                    o.id === orderWithId.originalOrderId ? { 
+                        ...o, 
+                        status: 'تم_الاستبدال' as OrderStatus,
+                        customerPaidOriginalShipping: orderWithId.customerPaidOriginalShipping !== false
+                    } : o
+                );
+            }
+            updatedOrders = [orderWithId, ...updatedOrders];
+
+            const updatedStoreData = {
+                ...storeData,
+                orders: updatedOrders,
+                settings: {
+                    ...(storeData.settings || settings),
+                    cashHandovers: updatedHandovers
+                }
+            };
+            await forceSync(updatedStoreData);
+        } else if (forceSync) {
+            await forceSync();
+        }
+
+        // --- 2. Interactive WhatsApp Automation Message ---
+        // The message must be persisted in the same order record after a successful send;
+        // otherwise the customer receives it but the conversation loses it on reload.
+        if (settings.whatsappConfig?.isActive && settings.whatsappConfig?.providerType !== 'direct_web') {
+            const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
+            const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فوراً 🚚";
+            const buttonsToUse = template?.buttons && template.buttons.length > 0
+                ? template.buttons
+                : ['تأكيد الطلب ✅', 'تعديل العنوان 📍', 'إلغاء الطلب ❌'];
+            const footerToUse = template?.footer || "خدمة عملاء {storeName}";
+            const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
+            try {
+                const sendResult = await whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse, activeStore?.name);
+                const supabase = getSupabaseClient();
+                if (supabase && activeStore?.id) {
+                    let { data: conversation } = await supabase
+                        .from('whatsapp_conversations')
+                        .select('id')
+                        .eq('store_id', activeStore.id)
+                        .eq('order_id', orderWithId.id)
+                        .limit(1)
+                        .maybeSingle();
+                    if (!conversation?.id) {
+                        const created = await supabase
+                            .from('whatsapp_conversations')
+                            .insert({
+                                store_id: activeStore.id,
+                                order_id: orderWithId.id,
+                                customer_phone: orderWithId.customerPhone || '',
+                                customer_name: orderWithId.customerName || ''
+                            })
+                            .select('id')
+                            .single();
+                        conversation = created.data;
+                    }
+                    if (conversation?.id) {
+                        await supabase.from('whatsapp_messages').insert({
+                            conversation_id: conversation.id,
+                            store_id: activeStore.id,
+                            order_id: orderWithId.id,
+                            customer_phone: orderWithId.customerPhone || '',
+                            provider: (settings.whatsappConfig?.providerType as any) === 'direct_web' ? 'direct_web' : 'meta_cloud',
+                            provider_message_id: sendResult.messageId || `local_${Date.now()}`,
+                            direction: 'outgoing',
+                            message_type: 'interactive',
+                            body: formattedMsg,
+                            sender_name: `${activeStore.name || 'المتجر'} (المتجر)`,
+                            recipient_phone: orderWithId.customerPhone || '',
+                            status: sendResult.success ? 'sent' : 'failed',
+                            occurred_at: new Date().toISOString(),
+                            sent_at: sendResult.success ? new Date().toISOString() : null,
+                            metadata: { source: 'new_order_automation', buttons: buttonsToUse }
+                        });
+                    }
+                }
+                const automaticLog = {
+                    id: sendResult.messageId || `wa_auto_${Date.now()}`,
+                    timestamp: new Date().toISOString(),
+                    type: 'confirmation',
+                    direction: 'outgoing',
+                    message: formattedMsg,
+                    sender: `${activeStore?.name || 'المتجر'} (المتجر)`,
+                    recipient: orderWithId.customerName || orderWithId.customerPhone || 'العميل',
+                    status: sendResult.success ? 'sent' : 'failed',
+                    errorReason: sendResult.error
+                } as any;
+                const currentLogs = Array.isArray((orderWithId as any).whatsappLogs)
+                    ? (orderWithId as any).whatsappLogs
+                    : (Array.isArray((orderWithId as any).whatsapp_logs) ? (orderWithId as any).whatsapp_logs : []);
+                const orderWithMessage = {
+                    ...orderWithId,
+                    whatsappLogs: [...currentLogs, automaticLog],
+                    whatsapp_logs: [...currentLogs, automaticLog],
+                    updatedAt: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                } as Order;
+
+                setOrders(prev => prev.map(existing => existing.id === orderWithId.id ? orderWithMessage : existing));
+                orderWithId = orderWithMessage;
+                if (forceSync && currentStoreId && allStoresData?.[currentStoreId]) {
+                    const savedStore = allStoresData[currentStoreId];
+                    const hasOrder = (savedStore.orders || []).some(existing => existing.id === orderWithId.id);
+                    const savedOrders = hasOrder
+                        ? (savedStore.orders || []).map(existing => existing.id === orderWithId.id ? orderWithMessage : existing)
+                        : [orderWithMessage, ...(savedStore.orders || [])];
+                    await forceSync({ ...savedStore, orders: savedOrders });
+                }
+            } catch (_err) {
+                // Handled gracefully in OrderConfirmationSummary
+            }
+        }
+        
+        // تشغيل صوت واحتفالات نجاح تسجيل الطلب
         triggerCelebration('create_order', settings);
         
         // إشعار المتصفح وتنبيه نافذة المدير الفورية للأوردرات الجديدة Pending
@@ -705,137 +826,12 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             });
         }
 
-        // إرسال الـ Webhooks لحظياً للأنظمة المربوطة
+        // إرسال الـ Webhooks لحظياً للأنظمة المربوطة (مثل Akked أو Zapier)
         void triggerWebhooks(orderWithId, settings, activeStore?.id);
         
-        // إغلاق نافذة المراجعة وفتح نافذة التأكيد والملخص بشكل فوري ولحظي
         setOrderToConfirm(null);
         setShowSummaryModal(orderWithId);
         confirmingOrderRef.current = false;
-
-        // 2. تشغيل المزامنة السحابية وإرسال رسائل الواتساب في الخلفية دون تجميد واجهة المستخدم
-        void (async () => {
-            const currentStoreId = activeStore?.id;
-            try {
-                if (forceSync && allStoresData && currentStoreId && allStoresData[currentStoreId]) {
-                    const storeData = allStoresData[currentStoreId];
-                    let updatedOrders = [...(storeData.orders || [])];
-                    if (orderWithId.orderType === 'exchange' && orderWithId.originalOrderId) {
-                        updatedOrders = updatedOrders.map(o => 
-                            o.id === orderWithId.originalOrderId ? { 
-                                ...o, 
-                                status: 'تم_الاستبدال' as OrderStatus,
-                                customerPaidOriginalShipping: orderWithId.customerPaidOriginalShipping !== false
-                            } : o
-                        );
-                    }
-                    updatedOrders = [orderWithId, ...updatedOrders];
-
-                    const updatedStoreData = {
-                        ...storeData,
-                        orders: updatedOrders,
-                        settings: {
-                            ...(storeData.settings || settings),
-                            cashHandovers: updatedHandovers
-                        }
-                    };
-                    await forceSync(updatedStoreData);
-                } else if (forceSync) {
-                    await forceSync();
-                }
-            } catch (syncErr) {
-                console.error("Background forceSync error after order creation:", syncErr);
-            }
-
-            // WhatsApp Automation Message in background
-            if (settings.whatsappConfig?.isActive && settings.whatsappConfig?.providerType !== 'direct_web') {
-                const template = (settings.whatsappTemplates || []).find(t => t.id === 'new_order_interactive' || t.id === 'confirm' || t.label?.includes('تأكيد') || t.label?.includes('جديد'));
-                const textToUse = template?.text || "مرحباً بك {customerName} 🌸\nنشكرك على طلبك من متجر {storeName}! 🎉\n\n📦 تفاصيل الطلب: رقم #{orderNumber}\n🛍️ المنتجات المطلوبة:\n{products}\n\n💰 إجمالي المبلغ: {totalPrice} {currency}\n📍 عنوان التوصيل: {address} - {city}\n\n⚠️ ملاحظة: في حالة عدم الاستلام عند وصول المندوب يتم سداد مصاريف الشحن ({flexShipFee} {currency}).\n\nنرجو منك الضغط على أحد الأزرار التفاعلية بالأسفل لمباشرة التجهيز والشحن فوراً 🚚";
-                const buttonsToUse = template?.buttons && template.buttons.length > 0
-                    ? template.buttons
-                    : ['تأكيد الطلب ✅', 'تعديل العنوان 📍', 'إلغاء الطلب ❌'];
-                const footerToUse = template?.footer || "خدمة عملاء {storeName}";
-                const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
-                try {
-                    const sendResult = await whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse, activeStore?.name);
-                    const supabase = getSupabaseClient();
-                    if (supabase && activeStore?.id) {
-                        let { data: conversation } = await supabase
-                            .from('whatsapp_conversations')
-                            .select('id')
-                            .eq('store_id', activeStore.id)
-                            .eq('order_id', orderWithId.id)
-                            .limit(1)
-                            .maybeSingle();
-                        if (!conversation?.id) {
-                            const created = await supabase
-                                .from('whatsapp_conversations')
-                                .insert({
-                                    store_id: activeStore.id,
-                                    order_id: orderWithId.id,
-                                    customer_phone: orderWithId.customerPhone || '',
-                                    customer_name: orderWithId.customerName || ''
-                                })
-                                .select('id')
-                                .single();
-                            conversation = created.data;
-                        }
-                        if (conversation?.id) {
-                            await supabase.from('whatsapp_messages').insert({
-                                conversation_id: conversation.id,
-                                store_id: activeStore.id,
-                                order_id: orderWithId.id,
-                                customer_phone: orderWithId.customerPhone || '',
-                                provider: (settings.whatsappConfig?.providerType as any) === 'direct_web' ? 'direct_web' : 'meta_cloud',
-                                provider_message_id: sendResult.messageId || `local_${Date.now()}`,
-                                direction: 'outgoing',
-                                message_type: 'interactive',
-                                body: formattedMsg,
-                                sender_name: `${activeStore.name || 'المتجر'} (المتجر)`,
-                                recipient_phone: orderWithId.customerPhone || '',
-                                status: sendResult.success ? 'sent' : 'failed',
-                                occurred_at: new Date().toISOString(),
-                                sent_at: sendResult.success ? new Date().toISOString() : null,
-                                metadata: { source: 'new_order_automation', buttons: buttonsToUse }
-                            });
-                        }
-                    }
-                    const automaticLog = {
-                        id: sendResult.messageId || `wa_auto_${Date.now()}`,
-                        timestamp: new Date().toISOString(),
-                        type: 'confirmation',
-                        direction: 'outgoing',
-                        message: formattedMsg,
-                        sender: `${activeStore?.name || 'المتجر'} (المتجر)`,
-                        recipient: orderWithId.customerName || orderWithId.customerPhone || 'العميل',
-                        status: sendResult.success ? 'sent' : 'failed',
-                        errorReason: sendResult.error
-                    } as any;
-                    const currentLogs = Array.isArray((orderWithId as any).whatsappLogs)
-                        ? (orderWithId as any).whatsappLogs
-                        : (Array.isArray((orderWithId as any).whatsapp_logs) ? (orderWithId as any).whatsapp_logs : []);
-                    const orderWithMessage = {
-                        ...orderWithId,
-                        whatsappLogs: [...currentLogs, automaticLog],
-                        whatsapp_logs: [...currentLogs, automaticLog],
-                        updatedAt: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    } as Order;
-
-                    setOrders(prev => prev.map(existing => existing.id === orderWithId.id ? orderWithMessage : existing));
-                    if (forceSync && currentStoreId && allStoresData?.[currentStoreId]) {
-                        const savedStore = allStoresData[currentStoreId];
-                        const hasOrder = (savedStore.orders || []).some(existing => existing.id === orderWithId.id);
-                        const savedOrders = hasOrder
-                            ? (savedStore.orders || []).map(existing => existing.id === orderWithId.id ? orderWithMessage : existing)
-                            : [orderWithMessage, ...(savedStore.orders || [])];
-                        await forceSync({ ...savedStore, orders: savedOrders });
-                    }
-                } catch (_err) {
-                    // Handled gracefully in OrderConfirmationSummary
-                }
-            }
-        })();
     };
 
     const uniqueCustomers = useMemo(() => {

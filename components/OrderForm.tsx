@@ -488,7 +488,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [showMerchantCustomOverrides, setShowMerchantCustomOverrides] = useState(
     Boolean(orderData.merchantItemCost) || Boolean(orderData.marketingFeePerOrder) || (orderData.merchantSettlementMode === 'profit_share')
   );
-  const [showInvoiceDetails, setShowInvoiceDetails] = useState(true);
+  const [showInvoiceDetails, setShowInvoiceDetails] = useState(false);
 
   // Bosta Estimator states
   const [isEstimatingBostaFee, setIsEstimatingBostaFee] = useState(false);
@@ -1172,6 +1172,9 @@ export const OrderForm: React.FC<OrderFormProps> = ({
       if (matchedMerchant) {
         handleFieldChange("merchantId", matchedMerchant.id);
         handleFieldChange("merchantName", matchedMerchant.name);
+        if (!orderData.merchantBrandName) {
+          handleFieldChange("merchantBrandName", matchedMerchant.name);
+        }
         const activeMgr = (matchedMerchant as any).managerPlan;
         const hasActivePlan = activeMgr && activeMgr.planId && activeMgr.planId !== 'none' && activeMgr.status === 'active';
         let defaultFee = 10;
@@ -2585,8 +2588,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                     handleFieldChange("merchantId", mId);
                     handleFieldChange("merchantName", merchant?.name);
                     
-                    // Note: Never overwrite the store name (merchantBrandName / subSenderName) with the merchant's name!
-                    // The user chooses which store fulfills the order, while the merchant is the product owner.
+                    // Auto-fill Brand and Sender names if they are empty
+                    if (merchant?.name) {
+                      handleFieldChange("merchantBrandName", merchant.name);
+                      handleFieldChange("subSenderName", merchant.name);
+                    }
 
                     // Auto-fill and Lock logic based on Merchant's Manager Plan
                     const activeMgr = supplier?.managerPlan;
@@ -4623,219 +4629,184 @@ export const OrderForm: React.FC<OrderFormProps> = ({
 
           {/* Right/Sticky Column: Live Invoice Summary (4 of 12 cols) */}
           <div className="xl:col-span-4 sticky top-6 space-y-6">
-            <div className="bg-white/95 dark:bg-slate-900/95 p-6 sm:p-7 rounded-[32px] border border-slate-200/90 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-xl shadow-slate-200/40 dark:shadow-slate-950/40 space-y-5 relative overflow-hidden backdrop-blur-xl">
-              {/* Top Accent Gradient Line */}
-              <div className="absolute top-0 inset-x-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600" />
-
-              {/* Card Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800/80">
+            <div className="bg-white dark:bg-slate-900 p-6 sm:p-7 rounded-[28px] border border-slate-200/80 dark:border-slate-800 text-slate-800 dark:text-slate-100 shadow-sm space-y-6 relative overflow-hidden backdrop-blur-xl">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-50 to-teal-50 dark:from-emerald-950/60 dark:to-teal-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shadow-xs">
-                    <Calculator size={22} className="stroke-[2.2]" />
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-2xs">
+                    <Calculator size={20} />
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-black text-base sm:text-lg text-slate-900 dark:text-white">ملخص الطلب</h3>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/80">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        مباشر
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">حساب لحظي شفاف للمنتجات والشحن</p>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-900 dark:text-white">ملخص الطلب</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">الإجمالي يتحدث تلقائياً</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   aria-expanded={showInvoiceDetails}
                   onClick={() => setShowInvoiceDetails((open) => !open)}
-                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/70 dark:border-slate-700/70 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  className="px-3 py-2 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
                 >
-                  <span>{showInvoiceDetails ? "طي التفاصيل" : "عرض التفاصيل"}</span>
-                  <ChevronDown size={14} className={`transition-transform duration-200 ${showInvoiceDetails ? "rotate-180" : ""}`} />
+                  التفاصيل <ChevronDown size={15} className={`transition-transform ${showInvoiceDetails ? "rotate-180" : ""}`} />
                 </button>
               </div>
 
-              {/* Financial breakdown list */}
-              {showInvoiceDetails && (
-                <div className="space-y-2.5 text-xs sm:text-sm font-semibold bg-slate-50/70 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/70 dark:border-slate-800/80">
-                  <div className="flex justify-between items-center py-1">
-                    <span className="text-slate-600 dark:text-slate-400 font-bold flex items-center gap-1.5">
-                      <span>إجمالي المنتجات</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold">
-                        {getArray(orderData.items).length} أصناف
-                      </span>
-                    </span>
-                    <span className="font-mono font-black text-slate-900 dark:text-white text-sm">
-                      {(subtotal ?? 0).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                    </span>
-                  </div>
-
-                  {itemDiscounts > 0 && (
-                    <div className="flex justify-between items-center py-1 text-emerald-600 dark:text-emerald-400">
-                      <span className="font-bold">خصومات مباشرة على الأصناف:</span>
-                      <span className="font-mono font-black text-sm">
-                        -{Math.round(itemDiscounts).toLocaleString("ar-EG")} <span className="text-[10px] font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {isMaintenance && (
-                    <div className="flex justify-between items-center py-1 text-sky-600 dark:text-sky-400">
-                      <span className="font-bold">تكلفة الصيانة وقطع الغيار:</span>
-                      <span className="font-mono font-black text-sm">
-                        {Number(orderData.maintenanceCost || 0).toLocaleString("ar-EG")} <span className="text-[10px] font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between items-center py-1">
-                    <span className="text-slate-600 dark:text-slate-400 font-bold flex items-center gap-1.5">
-                      <span>مصاريف الشحن والتوصيل</span>
-                      {orderData.governorate && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold">
-                          {orderData.governorate}
-                        </span>
-                      )}
-                    </span>
-                    <span className="font-mono font-black text-slate-900 dark:text-white text-sm">
-                      +{Number(orderData.shippingFee || 0).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                    </span>
-                  </div>
-
-                  {(orderData.includeInspectionFee !== false && orderData.allowOpenShipment !== false) && inspectionFee > 0 && (
-                    <div className="flex justify-between items-center py-1">
-                      <span className="text-slate-600 dark:text-slate-400 font-bold">رسوم المعاينة وفتح الشحنة:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
-                        +{(inspectionFee ?? 0).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {orderData.isInsured !== false && insuranceFee > 0 && (
-                    <div className="flex justify-between items-center py-1">
-                      <span className="text-slate-600 dark:text-slate-400 font-bold">رسوم التأمين على الشحنة:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
-                        +{(insuranceFee ?? 0).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {isFlexShipSupported && orderData.enableFlexShip && (
-                    <div className="flex justify-between items-center py-1">
-                      <span className="text-slate-600 dark:text-slate-400 font-bold">رسوم الشحن المرن (FlexShip):</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
-                        +{Number(orderData.flexShipFee || 150).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {orderData.codFee !== undefined && orderData.codFee > 0 && (
-                    <div className="flex justify-between items-center py-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-600 dark:text-slate-400 font-bold">مصاريف التحصيل النقدي (COD):</span>
-                        <span className="text-[9px] font-black px-1.5 py-0.2 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-md">Auto</span>
-                      </div>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
-                        +{(orderData.codFee ?? 0).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {activeVatAmount > 0 && (
-                    <div className="flex justify-between items-center py-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-600 dark:text-slate-400 font-bold">ضريبة القيمة المضافة (VAT):</span>
-                        <span className="text-[9px] font-black px-1.5 py-0.2 bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-md">14%</span>
-                      </div>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
-                        +{(activeVatAmount ?? 0).toLocaleString("ar-EG")} <span className="text-[10px] text-slate-500 font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {Number(orderData.discount || 0) > 0 && (
-                    <div className="flex justify-between items-center py-1 text-emerald-600 dark:text-emerald-400">
-                      <span className="font-bold">خصم إضافي على الفاتورة:</span>
-                      <span className="font-mono font-black text-sm">
-                        -{Number(orderData.discount).toLocaleString("ar-EG")} <span className="text-[10px] font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {Number(orderData.advancePayment || 0) > 0 && (
-                    <div className="flex justify-between items-center py-1 text-teal-600 dark:text-teal-400">
-                      <span className="font-bold">عربون مدفوع مقدماً:</span>
-                      <span className="font-mono font-black text-sm">
-                        -{Number(orderData.advancePayment).toLocaleString("ar-EG")} <span className="text-[10px] font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {Number(creditAmount) > 0 && (
-                    <div className="flex justify-between items-center py-1 text-emerald-600 dark:text-emerald-400">
-                      <span className="font-bold">رصيد دائن مخصوم للعميل:</span>
-                      <span className="font-mono font-black text-sm">
-                        -{Number(creditAmount).toLocaleString("ar-EG")} <span className="text-[10px] font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
-
-                  {orderData.returnCashToCustomer && Number(orderData.cashToReturnAmount || 0) > 0 && (
-                    <div className="flex justify-between items-center py-1 text-rose-600 dark:text-rose-400">
-                      <span className="font-bold">نقدية مستردة مع المندوب:</span>
-                      <span className="font-mono font-black text-sm">
-                        -{Number(orderData.cashToReturnAmount).toLocaleString("ar-EG")} <span className="text-[10px] font-bold">ج.م</span>
-                      </span>
-                    </div>
-                  )}
+              {/* Optional financial breakdown */}
+              {showInvoiceDetails && <div className="space-y-3 text-xs sm:text-sm font-bold divide-y divide-slate-100 dark:divide-slate-800/80">
+                <div className="flex justify-between items-center pt-2">
+                  <span className="text-slate-600 dark:text-slate-400">إجمالي المنتجات ({getArray(orderData.items).length} أصناف):</span>
+                  <span className="font-mono font-black text-slate-900 dark:text-white text-base">
+                    {(subtotal ?? 0).toLocaleString("ar-EG")} ج.م
+                  </span>
                 </div>
-              )}
 
-              {/* Grand Total COD Banner - Modernized */}
-              <div className="bg-gradient-to-br from-emerald-600 via-teal-600 to-emerald-700 text-white rounded-[24px] p-5 shadow-lg shadow-emerald-600/20 relative overflow-hidden border border-emerald-400/30">
-                <div className="absolute -top-10 -left-10 w-32 h-32 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-                
-                <div className="flex justify-between items-center mb-2.5 relative z-10">
+                {itemDiscounts > 0 && (
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
+                    <span>خصومات مباشرة على الأصناف:</span>
+                    <span className="font-mono font-black">
+                      -{Math.round(itemDiscounts).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {isMaintenance && (
+                  <div className="flex justify-between items-center pt-2.5 text-sky-600 dark:text-sky-400">
+                    <span>تكلفة الصيانة وقطع الغيار:</span>
+                    <span className="font-mono font-black">
+                      {Number(orderData.maintenanceCost || 0).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center pt-2.5">
+                  <span className="text-slate-600 dark:text-slate-400">مصاريف الشحن والتوصيل:</span>
+                  <span className="font-mono text-slate-900 dark:text-white font-black text-base">
+                    +{Number(orderData.shippingFee || 0).toLocaleString("ar-EG")} ج.م
+                  </span>
+                </div>
+
+                {(orderData.includeInspectionFee !== false && orderData.allowOpenShipment !== false) && inspectionFee > 0 && (
+                  <div className="flex justify-between items-center pt-2.5">
+                    <span className="text-slate-600 dark:text-slate-400">رسوم المعاينة وفتح الشحنة:</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(inspectionFee ?? 0).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {orderData.isInsured !== false && insuranceFee > 0 && (
+                  <div className="flex justify-between items-center pt-2.5">
+                    <span className="text-slate-600 dark:text-slate-400">رسوم التأمين على الشحنة:</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(insuranceFee ?? 0).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {isFlexShipSupported && orderData.enableFlexShip && (
+                  <div className="flex justify-between items-center pt-2.5">
+                    <span className="text-slate-600 dark:text-slate-400">رسوم الشحن المرن (FlexShip):</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{Number(orderData.flexShipFee || 150).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {orderData.codFee !== undefined && orderData.codFee > 0 && (
+                  <div className="flex justify-between items-center pt-2.5">
+                    <div className="flex items-center gap-1.5">
+                       <span className="text-slate-600 dark:text-slate-400">مصاريف التحصيل النقدي (COD Fee):</span>
+                       <span className="text-[10px] font-black px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-md border border-slate-200 dark:border-slate-700 uppercase">Auto</span>
+                    </div>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(orderData.codFee ?? 0).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {activeVatAmount > 0 && (
+                  <div className="flex justify-between items-center pt-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-600 dark:text-slate-400">ضريبة القيمة المضافة (VAT):</span>
+                      <span className="text-[10px] font-black px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-md border border-slate-200 dark:border-slate-700 uppercase">Auto</span>
+                    </div>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                      +{(activeVatAmount ?? 0).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {Number(orderData.discount || 0) > 0 && (
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
+                    <span>خصم إضافي على الفاتورة:</span>
+                    <span className="font-mono font-black text-base">
+                      -{Number(orderData.discount).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {Number(orderData.advancePayment || 0) > 0 && (
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
+                    <span>عربون مدفوع مقدماً (Advance):</span>
+                    <span className="font-mono font-black text-base">
+                      -{Number(orderData.advancePayment).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {Number(creditAmount) > 0 && (
+                  <div className="flex justify-between items-center pt-2.5 text-emerald-600 dark:text-emerald-400">
+                    <span>رصيد دائن مخصوم للعميل:</span>
+                    <span className="font-mono font-black">
+                      -{Number(creditAmount).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+
+                {orderData.returnCashToCustomer && Number(orderData.cashToReturnAmount || 0) > 0 && (
+                  <div className="flex justify-between items-center pt-2.5 text-rose-600 dark:text-rose-400">
+                    <span>نقدية مستردة للعميل مع المندوب:</span>
+                    <span className="font-mono font-black">
+                      -{Number(orderData.cashToReturnAmount).toLocaleString("ar-EG")} ج.م
+                    </span>
+                  </div>
+                )}
+              </div>}
+
+              {/* Grand Total COD Banner */}
+              <div className="p-5 rounded-2xl bg-emerald-700 text-white shadow-sm shadow-emerald-900/10 space-y-2.5 mt-4">
+                <div className="flex justify-between items-center">
+                  <span className="font-black text-xs uppercase tracking-wider text-emerald-100">
+                    المبلغ المطلوب تحصيله (COD):
+                  </span>
                   <div className="flex items-center gap-2">
-                    <span className="font-black text-xs uppercase tracking-wide text-emerald-100">
-                      المبلغ المطلوب تحصيله (COD):
+                    <span className="font-mono font-black text-2xl tracking-tight text-white">
+                      {(finalAmount ?? 0).toLocaleString("ar-EG")} <span className="text-sm font-bold">ج.م</span>
                     </span>
-                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-white/15 text-white backdrop-blur-xs">
-                      صافي الاستلام
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowEditTotalModal(true)}
+                      className="p-2 px-2.5 bg-white/15 hover:bg-white/25 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer active:scale-95 border border-white/20"
+                      title="تعديل وتقفيل المبلغ المطلوب تحصيله يدوياً"
+                    >
+                      <Edit3 size={14} />
+                      <span>تعديل يدوي</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowEditTotalModal(true)}
-                    className="px-3 py-1.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer border border-white/25 backdrop-blur-md"
-                    title="تعديل وتقفيل المبلغ المطلوب تحصيله يدوياً"
-                  >
-                    <Edit3 size={13} />
-                    <span>تعديل يدوي</span>
-                  </button>
                 </div>
-
-                <div className="flex items-baseline gap-2 relative z-10">
-                  <span className="font-mono font-black text-3xl sm:text-4xl tracking-tight text-white drop-shadow-xs">
-                    {(finalAmount ?? 0).toLocaleString("ar-EG")}
-                  </span>
-                  <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-white/20 text-white font-mono">
-                    ج.م
-                  </span>
-                </div>
-
                 {orderData.totalAmountOverride !== undefined && orderData.totalAmountOverride !== null && String(orderData.totalAmountOverride).trim() !== "" && (
-                  <div className="flex items-center justify-between bg-emerald-950/60 backdrop-blur-md p-3 rounded-xl border border-emerald-400/40 mt-3 text-xs relative z-10">
-                    <span className="font-bold text-emerald-100 text-[11px] leading-relaxed">
-                      ⚠️ تم فرض المبلغ يدوياً: {Number(orderData.totalAmountOverride).toLocaleString("ar-EG")} ج.م ({orderData.totalAmountOverrideReason || "بدون سبب"})
-                    </span>
+                  <div className="flex items-center justify-between bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-400/40 mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-emerald-100">
+                        ⚠️ تم فرض المبلغ يدوياً: {Number(orderData.totalAmountOverride).toLocaleString("ar-EG")} ج.م ({orderData.totalAmountOverrideReason || "بدون سبب"})
+                      </span>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
                         handleFieldChange("totalAmountOverride", undefined);
                         handleFieldChange("totalAmountOverrideReason", undefined);
                       }}
-                      className="text-[10px] bg-rose-500 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer shrink-0 mr-2"
+                      className="text-[10px] bg-rose-500/90 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer"
                     >
                       إلغاء التعديل
                     </button>

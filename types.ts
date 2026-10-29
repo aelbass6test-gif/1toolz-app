@@ -845,7 +845,7 @@ export interface MerchantTransaction {
   merchantId: string;
   merchantName: string;
   date: string;
-  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit' | 'carrier_fee' | 'expense' | 'transfer_fee';
+  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'expense' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit' | 'carrier_fee';
   amount: number; // Positive = Credit (Merchant gets money), Negative = Debit
   balanceAfter: number;
   notes: string;

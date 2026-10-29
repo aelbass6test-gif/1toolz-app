@@ -344,21 +344,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (!sId && !sName && !sEmail && !sPhone) return;
       const normName = normalizeName(sName);
 
-      const existing = list.find(item => {
-        // 1. If both have explicit IDs, strict ID match is authoritative
-        if (sId && item.id) {
-          return String(item.id).trim().toLowerCase() === sId.toLowerCase();
-        }
-        // 2. If neither or one lacks an ID, match by exact non-empty email
-        if (sEmail && item.email) {
-          return item.email.trim().toLowerCase() === sEmail;
-        }
-        // 3. Match by normalized name ONLY if neither has a conflicting ID, and name is not a generic placeholder
-        if (normName && item.name && !['موكل معتمد', 'موكل صاحب بضاعة', 'موكل مشترك مسجل'].includes(sName)) {
-          return normalizeName(item.name) === normName;
-        }
-        return false;
-      });
+      const existing = list.find(item =>
+        (sId && item.id && String(item.id).trim().toLowerCase() === sId.toLowerCase()) ||
+        (normName && item.name && normalizeName(item.name) === normName) ||
+        (sEmail && item.email && item.email.trim().toLowerCase() === sEmail) ||
+        (sPhone && sPhone.length >= 8 && item.phone && item.phone.trim() === sPhone)
+      );
 
       if (existing) {
         if (!existing.email && sEmail) existing.email = sEmail;
@@ -555,23 +546,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const authenticatedId = String(authenticatedMerchant.id || '').trim().toLowerCase();
     if (!authenticatedId) return null;
     const current = merchants.find(m => String(m.id || '').trim().toLowerCase() === authenticatedId);
-
     if (!current) return authenticatedMerchant;
-
-    // Preserve the authenticated identity (id, name, phone, email) as authoritative,
-    // only pulling fresh business balances, plan cycles, and payout rules from live store state.
     return {
-      ...current,
       ...authenticatedMerchant,
-      id: authenticatedMerchant.id || current.id,
-      name: authenticatedMerchant.name || current.name,
-      phone: authenticatedMerchant.phone || current.phone,
-      email: authenticatedMerchant.email || current.email,
-      balance: current.balance !== undefined ? current.balance : (authenticatedMerchant.balance ?? 0),
-      transactions: (Array.isArray(current.transactions) && current.transactions.length > 0)
-        ? current.transactions
-        : (authenticatedMerchant.transactions || []),
-      profitRatio: current.profitRatio !== undefined ? current.profitRatio : (authenticatedMerchant.profitRatio ?? 0),
+      ...current,
       payoutFrequency: current.payoutFrequency ?? authenticatedMerchant.payoutFrequency ?? 'weekly',
       weeklyPayoutDay: current.weeklyPayoutDay ?? authenticatedMerchant.weeklyPayoutDay ?? 1,
       holdingDaysAfterSettlement: current.holdingDaysAfterSettlement ?? authenticatedMerchant.holdingDaysAfterSettlement ?? 7,
@@ -712,7 +690,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const portalTitle = 'عبده ميديا · بوابة الموكلين';
   const storeName = portalTitle;
 
-  // Persist authenticatedMerchant change and keep URL parameter in sync
+  // Persist authenticatedMerchant change
   useEffect(() => {
     if (authenticatedMerchant) {
       const requestedId = String(urlPartnerId || '').trim().toLowerCase();
@@ -1588,26 +1566,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const clean = identifier.trim().toLowerCase();
     if (!clean) return null;
 
-    // 1. Direct ID match (authoritative)
-    let matched = merchants.find(m => m.id && String(m.id).trim().toLowerCase() === clean);
+    let matched = merchants.find(m =>
+      (m.email && m.email.trim().toLowerCase() === clean) ||
+      (m.phone && m.phone.trim().toLowerCase() === clean) ||
+      (m.id && String(m.id).trim().toLowerCase() === clean)
+    );
     if (matched) return matched;
-
-    // 2. Direct Email match
-    if (clean.includes('@')) {
-      matched = merchants.find(m => m.email && m.email.trim().toLowerCase() === clean);
-      if (matched) return matched;
-    }
-
-    // 3. Phone match
-    const cleanDigits = clean.replace(/[^\d]/g, '');
-    if (cleanDigits.length >= 8) {
-      const byPhone = merchants.filter(m => m.phone && m.phone.trim().replace(/[^\d]/g, '') === cleanDigits);
-      if (byPhone.length === 1) return byPhone[0];
-      if (byPhone.length > 1 && selectedMerchantId) {
-        const sel = byPhone.find(m => String(m.id).trim().toLowerCase() === selectedMerchantId.trim().toLowerCase());
-        if (sel) return sel;
-      }
-    }
 
     if (effectiveStoreId) {
       try {
@@ -1780,20 +1744,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.valid) {
-        // 1. Authoritative match by the exact email to which OTP was sent
         let authenticatedObj = merchants.find(m =>
-          m.email && m.email.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase()
+          (selectedMerchantId && m.id === selectedMerchantId) ||
+          (m.email && m.email.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase())
         );
-        // 2. If not found by email, try resolver by email
         if (!authenticatedObj) {
           authenticatedObj = (await resolveMerchantByEmailOrIdentifier(otpTargetEmail)) || undefined;
-        }
-        // 3. Fallback to selectedMerchantId ONLY if its email matches or is unassigned
-        if (!authenticatedObj && selectedMerchantId) {
-          const byId = merchants.find(m => String(m.id).trim().toLowerCase() === selectedMerchantId.trim().toLowerCase());
-          if (byId && (!byId.email || byId.email.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase())) {
-            authenticatedObj = byId;
-          }
         }
         if (!authenticatedObj) {
           setAuthError('تعذر العثور على حساب الموكل المرتبط بهذا البريد. تواصل مع الإدارة.');
@@ -4011,14 +3967,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     setShowProfileBottomSheet(false);
     setShowFullMenuDrawer(false);
     setAuthenticatedMerchant(null);
-    setSelectedMerchantId('');
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      next.delete('p');
-      next.delete('merchantId');
-      next.delete('m');
-      return next;
-    }, { replace: true });
     showToast('تم تسجيل الخروج الآمن من بوابة الموكلين', 'success');
   };
 
@@ -4106,7 +4054,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   if (isLoadingStore || loadingProgress < 100) {
     return (
       <WelcomeLoader 
-        userName={liveMerchant?.name || authenticatedMerchant?.name || 'عزيزنا الموكل'} 
+        userName={authenticatedMerchant?.name || 'عزيزنا الموكل'}
         storeName={portalTitle}
         onFastPass={() => {
           setLoadingProgress(100);
