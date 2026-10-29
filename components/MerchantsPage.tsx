@@ -834,7 +834,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         }
         return nextObj;
       },
-      newTx,
+      withdrawalTx,
       {
         action: isRefundRequest ? 'اعتماد استرداد باقة (14 يوم)' : isTopUpRequest ? 'اعتماد شحن محفظة موكل' : 'اعتماد طلب سحب موكل',
         details: isCreditToWallet
