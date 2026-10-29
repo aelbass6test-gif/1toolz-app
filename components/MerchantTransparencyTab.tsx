@@ -18,6 +18,7 @@ import {
   TransparencyOrderRow,
   TransparencyFilterOptions
 } from '../utils/merchantAnalytics';
+import { printModernMerchantTransparencyReport } from '../utils/modernMerchantAnalytics';
 import { inAppToast } from '../utils/inAppAlert';
 
 interface MerchantTransparencyTabProps {
@@ -152,7 +153,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
   // Action: Print Report
   const handlePrint = () => {
     try {
-      printMerchantTransparencyReport(analytics, settings.storeName || 'متجري');
+      printModernMerchantTransparencyReport(analytics, settings.storeName || 'متجري');
     } catch (e: any) {
       inAppToast('حدث خطأ أثناء تجهيز الطباعة: ' + (e?.message || ''), 'error');
     }
@@ -419,7 +420,7 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
         {/* Card 4: Service Fee & Marketing & Returns */}
         <div className="bg-white rounded-2xl p-4 border border-amber-100 bg-amber-50/20 shadow-sm relative overflow-hidden group hover:border-amber-200 transition-all">
           <div className="flex items-center justify-between text-amber-800 mb-2">
-            <span className="text-xs font-bold">التشغيل والإعلانات</span>
+            <span className="text-xs font-bold">مصاريف التشغيل والمرتجع</span>
             <span className="p-2 rounded-xl bg-amber-100 text-amber-700">
               <ShieldCheck className="w-4 h-4" />
             </span>
@@ -427,8 +428,8 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
           <div className="text-xl font-black text-amber-800 font-mono">
             -{(analytics.totalServiceFees + analytics.totalMarketingCosts + analytics.totalReturnLosses).toLocaleString()} <span className="text-xs font-bold text-amber-600">ج.م</span>
           </div>
-          <div className="text-[10px] text-amber-700 mt-1 truncate">
-            عمولة {analytics.totalServiceFees} + إعلانات {analytics.totalMarketingCosts}
+          <div className="text-[10px] text-amber-700 mt-1 truncate" title={`عمولة: ${analytics.totalServiceFees} | تسويق: ${analytics.totalMarketingCosts} | خسارة مرتجع: ${analytics.totalReturnLosses}`}>
+            عمولة {analytics.totalServiceFees} + تسويق {analytics.totalMarketingCosts} + مرتجع {analytics.totalReturnLosses}
           </div>
         </div>
 
@@ -756,7 +757,8 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                     <th className="py-3 px-3">الأصناف المشمولة</th>
                     <th className="py-3 px-3 text-center">المحصل</th>
                     <th className="py-3 px-3 text-center text-sky-800">رأس المال</th>
-                    <th className="py-3 px-3 text-center text-rose-800">الشحن والرسوم</th>
+                    <th className="py-3 px-3 text-center text-rose-800">الشحن الأساسي</th>
+                    <th className="py-3 px-3 text-center text-rose-600">رسوم (VAT/تأمين)</th>
                     <th className="py-3 px-3 text-center text-amber-800">العمولة والإعلانات</th>
                     <th className="py-3 px-3 text-center text-indigo-900">صافي المستحق</th>
                     <th className="py-3 px-3 text-center">ربح/خسارة</th>
@@ -842,9 +844,12 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                               {o.merchantGoodsCost.toLocaleString()} <span className="text-[10px] text-sky-500">ج.م</span>
                             </td>
                             <td className="py-3 px-3 text-center font-bold font-mono text-rose-700">
-                              -{o.totalShippingAndCarrier.toLocaleString()} <span className="text-[10px] text-rose-400">ج.م</span>
+                              -{o.baseShippingFee.toLocaleString()} <span className="text-[10px] text-rose-400">ج.م</span>
                             </td>
-                            <td className="py-3 px-3 text-center font-bold font-mono text-amber-800">
+                            <td className="py-3 px-3 text-center font-bold font-mono text-rose-600" title={`تأمين: ${o.insuranceFee} | ضريبة: ${o.vatFee} | معاينة: ${o.inspectionFee} | COD: ${o.codFee}`}>
+                              -{(o.carrierAdditionalFees + o.codFee).toLocaleString()} <span className="text-[10px] text-rose-400">ج.م</span>
+                            </td>
+                            <td className="py-3 px-3 text-center font-bold font-mono text-amber-800" title={`عمولة: ${o.serviceFee} | تسويق: ${o.marketingFee}`}>
                               -{(o.serviceFee + o.marketingFee).toLocaleString()} <span className="text-[10px] text-amber-500">ج.م</span>
                             </td>
                             <td className="py-3 px-3 text-center font-black font-mono">
@@ -877,9 +882,14 @@ export const MerchantTransparencyTab: React.FC<MerchantTransparencyTabProps> = (
                                     </div>
                                     <div className="font-mono text-xs text-slate-700 font-semibold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
                                       {o.isDelivered ? (
-                                        <>
-                                          التحصيل ({o.collectedAmount}) - الشحن ({o.baseShippingFee}) - الرسوم الإضافية ({o.carrierAdditionalFees}) - التشغيل ({o.serviceFee}) - التسويق ({o.marketingFee}) = <span className="text-emerald-700 font-bold">{o.netMerchantAmount} ج.م</span>
-                                        </>
+                                        <div className="space-y-1">
+                                          <div>
+                                            معادلة الأرباح: التحصيل ({o.collectedAmount}) - [الشحن ({o.baseShippingFee}) + رسوم ({o.carrierAdditionalFees}) + عمولة ({o.serviceFee}) + تسويق ({o.marketingFee})] = <span className="text-emerald-700 font-bold">{o.netMerchantAmount} ج.م</span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-400 font-sans">
+                                            * صافي ربحك الفعلي = {o.netMerchantAmount} - تكلفة البضاعة ({o.merchantGoodsCost}) = <span className={o.merchantProfitOrLoss >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{o.merchantProfitOrLoss} ج.م</span>
+                                          </div>
+                                        </div>
                                       ) : (
                                         <>
                                           خسارة المرتجع = الشحن والرسوم ({o.totalShippingAndCarrier}) + التسويق ({o.marketingFee}) = <span className="text-rose-700 font-bold">-{o.returnLoss} ج.م</span>

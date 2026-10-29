@@ -202,7 +202,7 @@ export interface Product {
   thumbnail?: string;
   images?: string[];
   inStock?: boolean;
-  stock?: number;
+  stock?: number | null;
   stockQuantity: number | null;
   warehouseStock?: Record<string, number>; // New field for multi-warehouse stock
   collectionId?: string; 
@@ -221,8 +221,9 @@ export interface Product {
   profitMode?: 'manual' | 'margin' | 'commission';
   basePrice?: number;
   commissionPercentage?: number;
-  ownerType?: 'store' | 'merchant' | 'shared';
   stockThreshold?: number;
+  /** Explicit inventory ownership; absent legacy values are treated as store-owned until reviewed. */
+  ownerType?: 'store' | 'merchant' | 'shared';
   merchantId?: string;
   merchantName?: string;
   merchantIds?: string[]; // معرّفات الموكلين المشتركين في الصنف دون الحاجة لتكرار المنتج
@@ -232,7 +233,7 @@ export interface Product {
 export interface MerchantStockAllocation {
   merchantId: string;
   merchantName?: string;
-  stock: number;         // رصيد بضاعة الأمانة الخاص بهذا الموكل (عدد القطع)
+  stock: number | null;  // null/فارغ = متاح دائمًا؛ الرقم المحدد = رصيد مخصص محدود
   costPrice?: number;    // سعر التكلفة الخاص بهذا الموكل (ج.م)
   sellingPrice?: number; // سعر البيع المقترح
   notes?: string;
@@ -796,6 +797,8 @@ export interface Supplier {
   address?: string;
   notes?: string;
   balance?: number; // Zero or Positive means debt to them
+  merchantSettlementOpeningBalance?: number; // Legacy balance preserved as the opening point for derived merchant settlement balance
+  merchantSettlementOpeningAt?: string;
   category?: 'raw_materials' | 'ready_products' | 'logistics' | 'general'; // تصنيف المورد
   creditLimit?: number; // الحد الائتماني
   taxNumber?: string; // الرقم الضريبي
@@ -842,7 +845,7 @@ export interface MerchantTransaction {
   merchantId: string;
   merchantName: string;
   date: string;
-  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit' | 'carrier_fee';
+  type: 'order_delivered' | 'order_returned' | 'withdrawal' | 'adjustment' | 'lump_sum_deduction' | 'subscription_charge' | 'subscription_refund' | 'manager_order_fee' | 'wallet_topup' | 'order_profit' | 'carrier_fee' | 'expense' | 'transfer_fee';
   amount: number; // Positive = Credit (Merchant gets money), Negative = Debit
   balanceAfter: number;
   notes: string;
@@ -1666,10 +1669,10 @@ export interface OrderItem {
   discountValue?: number;
   discountType?: 'amount' | 'percentage';
   discount?: number;
+  ownerType?: 'store' | 'merchant' | 'shared';
   merchantId?: string;
   merchantName?: string;
   merchantPhone?: string;
-  ownerType?: 'store' | 'merchant' | 'shared';
 }
 
 export interface ConfirmationLog {
@@ -1996,7 +1999,7 @@ export interface Order {
   merchantProfitSharePercent?: number; // نسبة الموكل من الربح (في حالة نظام المشاركة)
   settlementStatus?: 'pending' | 'settled' | 'unsettled' | 'returned_after_settlement'; // حالة التسوية المالية مع صاحب البضاعة
   settlementId?: string;           // رقم كشف التسوية المرتبط
-  merchantSettlementRefs?: Record<string, string>; // merchantId -> settlementId for mixed orders
+  merchantSettlementRefs?: Array<{ merchantId: string; settlementId: string }>; // تسوية مستقلة لكل وكيل في الطلب المختلط
   settledAt?: string;              // تاريخ تسوية الأوردر مالياً من الإدارة (يبدأ منه عدّاد الـ 7 أيام)
   customHoldingDays?: number;      // مدة تعليق مخصصة لهذا الأوردر يحددها مدير المتجر (افتراضي 7 أيام، أو 0 للصرف الفوري)
   payoutStatus?: 'unsettled' | 'holding' | 'ready' | 'paid'; // حالة السداد للموكل (بانتظار التسوية / قيد التعليق / جاهز للتحويل الأسبوعي / مدفوع)
@@ -2035,6 +2038,12 @@ export interface MerchantSettlement {
   totalReturnFees: number;         // مصاريف شحن المرتجعات المخصومة
   totalCollectionFees: number;     // عمولات التحصيل النقدية (COD Fees)
   netPayoutToMerchant: number;      // الصافي المستحق للتحويل لصاحب البضاعة
+  /** New lifecycle; legacy draft/paid values remain readable and are not rewritten destructively. */
+  status: 'pending' | 'approved' | 'paid' | 'cancelled' | 'draft';
+  orderId?: string;
+  batchId?: string;
+  idempotencyKey?: string;
+  calculationComplete?: boolean;
   reversedAt?: string;
   reversedBy?: string;
   reversalNote?: string;
@@ -2047,20 +2056,8 @@ export interface MerchantSettlement {
   totalCarrierAdditionalFees?: number; // تأمين/معاينة/ضريبة/رسوم شركة إضافية
   totalReturnLosses?: number;        // إجمالي تكلفة الطلبات المرتجعة والفاشلة
   totalOperatorEarnings?: number;    // عمولة مقدم الخدمة/التشغيل
+  transferReference?: string;       // رقم المرجع البنكي / التحويل
   orderSnapshots?: MerchantSettlementOrderSnapshot[]; // لقطة ثابتة تحفظ التقرير تاريخياً
-  storeId?: string;
-  orderId?: string;
-  batchId?: string;
-  idempotencyKey?: string;
-  calculationComplete?: boolean;
-  status: 'draft' | 'pending' | 'approved' | 'paid' | 'cancelled';
-  approvedAt?: string;
-  paidAt?: string;
-  cancelledAt?: string;
-  cancelledBy?: string;
-  reversalTransactionId?: string;
-  payoutMethod?: 'bank' | 'wallet' | 'instapay' | 'cash' | 'treasury' | 'ledger_only';
-  transferReference?: string;
 }
 
 export interface MerchantSettlementOrderSnapshot {

@@ -570,7 +570,7 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
               مخلص بالكامل
             </span>
           </div>
-          <p className="text-xs font-bold text-slate-400">موردين بدون مديونية قائمة</p>
+          <p className="text-xs font-bold text-slate-400">شركاء بموقف مالي مخلص</p>
           <h3 className="text-3xl font-black text-slate-900 dark:text-white mt-1 tracking-tight">
             {kpis.clearedCount}
             <span className="text-xs font-bold text-slate-400 mr-1.5">شريك</span>
@@ -613,9 +613,9 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl">
             {[
               { id: 'all', label: 'الكل' },
-              { id: 'indebted', label: '🔴 علينا مديونية' },
+              { id: 'indebted', label: '🔴 مستحقات للموكل' },
               { id: 'cleared', label: '🟢 مخلصين بالكامل' },
-              { id: 'credit', label: '🔵 رصيد دائن' }
+              { id: 'credit', label: '🔵 رصيد بالسالب عليه' }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -784,21 +784,21 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
                   {/* Financial Balance Pill Box */}
                   <div className={`p-4 rounded-2xl border transition-all ${
                     bal > 0 
-                      ? 'bg-rose-50/70 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/40' 
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/40' 
                       : bal < 0
                       ? 'bg-cyan-50/70 dark:bg-cyan-950/20 border-cyan-200 dark:border-cyan-900/40'
                       : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/60'
                   }`}>
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400">
-                        {bal > 0 ? '🔴 مديونية قائمة علينا:' : bal < 0 ? '🔵 رصيد دائن لنا عنده:' : '🟢 موقف مالي مخلص:'}
+                        {bal > 0 ? '🔴 مستحقات الموكل (رصيد المحفظة):' : bal < 0 ? '🔵 رصيد بالسالب على الموكل:' : '🟢 موقف مالي مخلص:'}
                       </span>
                       {bal > 0 && (
                         <button
                           onClick={() => onOpenPaymentModal(s)}
-                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black rounded-lg shadow-sm transition-all cursor-pointer flex items-center gap-1"
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black rounded-lg shadow-sm transition-all cursor-pointer flex items-center gap-1"
                         >
-                          <span>سداد دفعة</span>
+                          <span>تحويل / صرف مستحقات</span>
                           <DollarSign size={11}/>
                         </button>
                       )}
@@ -806,13 +806,13 @@ export const SuppliersTab: React.FC<SuppliersTabProps> = ({
 
                     <div className="flex items-baseline justify-between pt-0.5">
                       <span className={`text-2xl font-black ${
-                        bal > 0 ? 'text-rose-600 dark:text-rose-400' : bal < 0 ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-700 dark:text-slate-300'
+                        bal > 0 ? 'text-emerald-600 dark:text-emerald-400' : bal < 0 ? 'text-cyan-600 dark:text-cyan-400' : 'text-slate-700 dark:text-slate-300'
                       }`}>
                         {Math.abs(bal).toLocaleString()}
                         <span className="text-xs font-bold ml-1">ج.م</span>
                       </span>
                       <span className="text-[10px] font-bold text-slate-400">
-                        {bal > 0 ? 'مستحق للمورد' : bal < 0 ? 'مدفوع بالزيادة' : 'صفر'}
+                        {bal > 0 ? 'مستحق للموكل' : bal < 0 ? 'رصيد بالسالب عليه' : 'صفر'}
                       </span>
                     </div>
 

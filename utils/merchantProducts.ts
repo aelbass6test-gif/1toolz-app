@@ -5,61 +5,105 @@ import type { MerchantStockAllocation, Product } from '../types';
  * IDs are authoritative; names and phone numbers are intentionally not used here.
  */
 export const normalizeMerchantId = (value: unknown): string =>
-  String(value ?? '').trim().toLowerCase();
+  String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 
-const normalizeMerchantLabel = (value: unknown): string => {
-  let label = String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-  label = label.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)\s*/gi, '');
-  return label.replace(/عبد\s+/g, 'عبد').replace(/ابو\s+/g, 'ابو').trim();
+export const normalizeMerchantLabel = (value: unknown): string => {
+  let name = String(value ?? '').trim().replace(/\s+/g, ' ');
+  name = name.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)/gi, '');
+  
+  // Normalize compound Arabic names
+  name = name.replace(/عبد\s+/g, 'عبد');
+  name = name.replace(/ابو\s+/g, 'ابو');
+  name = name.replace(/بن\s+/g, 'بن');
+
+  return name
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
+    .replace(/ـ+/g, '') // remove tatweel
+    .toLowerCase()
+    .trim();
 };
 
 export const getMerchantAllocation = (
   product: Partial<Product> | any,
-  merchantId: string
+  merchantId: string,
+  merchantName?: string
 ): MerchantStockAllocation | undefined => {
   const targetId = normalizeMerchantId(merchantId);
-  if (!targetId || !Array.isArray(product?.merchantAllocations)) return undefined;
+  const targetName = merchantName ? normalizeMerchantLabel(merchantName) : '';
+  if (!Array.isArray(product?.merchantAllocations)) return undefined;
+  if (!targetId && !targetName) return undefined;
 
   return product.merchantAllocations.find(
-    (allocation: MerchantStockAllocation) => normalizeMerchantId(allocation?.merchantId) === targetId
+    (allocation: MerchantStockAllocation) => 
+      (targetId && normalizeMerchantId(allocation?.merchantId) === targetId) ||
+      (targetName && normalizeMerchantLabel(allocation?.merchantName) === targetName)
   );
 };
 
 export const productBelongsToMerchant = (
   product: Partial<Product> | any,
-  merchantId: string
+  merchantId: string,
+  merchantName?: string
 ): boolean => {
+  if (!product) return false;
   const targetId = normalizeMerchantId(merchantId);
-  if (!targetId || !product) return false;
+  const targetName = merchantName ? normalizeMerchantLabel(merchantName) : '';
+  
+  if (!targetId && !targetName) return false;
 
-  if (normalizeMerchantId(product.merchantId) === targetId) return true;
-
-  // Legacy product records used supplierId before merchantId was standardized.
-  if (normalizeMerchantId(product.supplierId) === targetId) return true;
-
-  if (Array.isArray(product.merchantIds) && product.merchantIds.some((id: unknown) => normalizeMerchantId(id) === targetId)) {
+  // 1. Direct ID matches
+  if (targetId && normalizeMerchantId(product.merchantId) === targetId) return true;
+  if (targetId && normalizeMerchantId(product.supplierId) === targetId) return true;
+  if (targetId && Array.isArray(product.merchantIds) && product.merchantIds.some((id: unknown) => normalizeMerchantId(id) === targetId)) {
     return true;
   }
 
-  return Boolean(getMerchantAllocation(product, targetId));
+  // 2. Direct Name matches (using robust label normalization)
+  const pName = normalizeMerchantLabel(product.merchantName || '');
+  const pSupName = normalizeMerchantLabel(product.supplierName || '');
+  
+  if (targetName) {
+    if (pName && (pName === targetName || pName.includes(targetName) || targetName.includes(pName))) return true;
+    if (pSupName && (pSupName === targetName || pSupName.includes(targetName) || targetName.includes(pSupName))) return true;
+  }
+
+  // 3. Fallback: ID as Name (handles cases where name was stored in ID field)
+  if (targetId && pName && (pName === targetId || pName.includes(targetId) || targetId.includes(pName))) return true;
+
+  // 4. Allocation matches (ID or Name)
+  return Boolean(getMerchantAllocation(product, targetId, merchantName));
 };
 
-/** True for orders created for a merchant/consignment account, not store-owned sales. */
+/** Only an explicit merchant ID makes an order a merchant sale; names are descriptive only. */
 export const isMerchantOrder = (order: any): boolean => {
   if (!order || typeof order !== 'object') return false;
   const orderMerchantId = normalizeMerchantId(order.merchantId);
   if (orderMerchantId && orderMerchantId !== 'pending') return true;
   return Array.isArray(order.items) && order.items.some((item: any) =>
-    Boolean(normalizeMerchantId(item?.merchantId)) && normalizeMerchantId(item?.merchantId) !== 'pending'
+    Boolean(normalizeMerchantId(item?.merchantId))
   );
 };
 
+export const isUnresolvedMerchantOrder = (order: any): boolean => {
+  if (!order || typeof order !== 'object') return false;
+  const hasOrderId = Boolean(normalizeMerchantId(order.merchantId) && normalizeMerchantId(order.merchantId) !== 'pending');
+  if (!hasOrderId && String(order.merchantName || '').trim()) return true;
+  if (hasOrderId) return false;
+  return Array.isArray(order.items) && order.items.some((item: any) =>
+    !normalizeMerchantId(item?.merchantId) && Boolean(String(item?.merchantName || '').trim())
+  );
+};
+
+/** Unresolved name-only agency orders are excluded from store and merchant reports until reviewed. */
 export const getStoreOwnedOrders = <T extends any>(orders: T[] | undefined): T[] =>
-  (Array.isArray(orders) ? orders : []).filter(order => !isMerchantOrder(order));
+  (Array.isArray(orders) ? orders : []).filter(order => !isMerchantOrder(order) && !isUnresolvedMerchantOrder(order));
 
 /**
- * Safe migration: only preserves explicit IDs and derives ownerType from explicit
- * IDs/allocations. Name-only records are never assigned to an entity.
+ * Safe legacy migration: only already-explicit IDs are normalized into the ID list.
+ * Name-only relationships are never linked automatically; they remain reviewable.
  */
 export const migrateLegacyProductMerchantLinks = (
   products: any[] | undefined,
@@ -95,8 +139,10 @@ export const migrateLegacyProductMerchantLinks = (
       }
     };
 
-    const primaryName = normalizeMerchantLabel(product.merchantName || product.supplierName);
-    if (!normalizeMerchantId(product.merchantId) && !normalizeMerchantId(product.supplierId) && primaryName) ambiguousCount += 1;
+    const legacyName = normalizeMerchantLabel(product.merchantName || product.supplierName);
+    if (!normalizeMerchantId(product.merchantId) && !normalizeMerchantId(product.supplierId) && (idsByName.get(legacyName) || []).length > 1) {
+      ambiguousCount += 1;
+    }
 
     const nextAllocations = Array.isArray(product.merchantAllocations)
       ? product.merchantAllocations.map((allocation: any) => {
@@ -104,7 +150,8 @@ export const migrateLegacyProductMerchantLinks = (
             addMerchantId(String(allocation.merchantId));
             return allocation;
           }
-          if (normalizeMerchantLabel(allocation?.merchantName)) ambiguousCount += 1;
+          const allocationName = normalizeMerchantLabel(allocation?.merchantName);
+          if ((idsByName.get(allocationName) || []).length > 1) ambiguousCount += 1;
           return allocation;
         })
       : product.merchantAllocations;
@@ -117,6 +164,25 @@ export const migrateLegacyProductMerchantLinks = (
     if (nextMerchantIds.length > 0 && JSON.stringify(nextMerchantIds) !== JSON.stringify(product.merchantIds || [])) {
       nextProduct = { ...nextProduct, merchantIds: Array.from(new Set(nextMerchantIds)) };
       productChanged = true;
+    }
+
+    if (!product.ownerType) {
+      const explicitIds = new Set([
+        normalizeMerchantId(product.merchantId),
+        normalizeMerchantId(product.supplierId),
+        ...nextMerchantIds.map(normalizeMerchantId),
+        ...(Array.isArray(nextAllocations) ? nextAllocations.map((allocation: any) => normalizeMerchantId(allocation?.merchantId)) : [])
+      ].filter(Boolean));
+      if (explicitIds.size > 1 || (Array.isArray(nextAllocations) && nextAllocations.length > 0)) {
+        nextProduct = { ...nextProduct, ownerType: 'shared' };
+        productChanged = true;
+      } else if (explicitIds.size === 1) {
+        nextProduct = { ...nextProduct, ownerType: 'merchant' };
+        productChanged = true;
+      } else if (!normalizeMerchantLabel(product.merchantName || product.supplierName)) {
+        nextProduct = { ...nextProduct, ownerType: 'store' };
+        productChanged = true;
+      }
     }
 
     if (productChanged) {
@@ -151,10 +217,13 @@ export const getProductsNeedingMerchantReview = (
     const primaryName = normalizeMerchantLabel(product.merchantName || product.supplierName);
     const primaryNeedsReview = !normalizeMerchantId(product.merchantId) &&
       !normalizeMerchantId(product.supplierId) &&
-      (idsByName.get(primaryName) || []).length > 1;
+      !(Array.isArray(product.merchantIds) && product.merchantIds.some((id: unknown) => normalizeMerchantId(id))) &&
+      !(Array.isArray(product.merchantAllocations) && product.merchantAllocations.some((allocation: any) => normalizeMerchantId(allocation?.merchantId))) &&
+      Boolean(primaryName);
     const allocationNeedsReview = Array.isArray(product.merchantAllocations) && product.merchantAllocations.some((allocation: any) =>
       !normalizeMerchantId(allocation?.merchantId) &&
-      (idsByName.get(normalizeMerchantLabel(allocation?.merchantName)) || []).length > 1
+      Boolean(normalizeMerchantLabel(allocation?.merchantName)) &&
+      Boolean(normalizeMerchantLabel(allocation?.merchantName))
     );
     return primaryNeedsReview || allocationNeedsReview;
   });
@@ -181,35 +250,59 @@ const getNumericStock = (product: any): number => {
  */
 export const getProductsForMerchant = <T extends Partial<Product> | any>(
   products: T[] | undefined,
-  merchantId: string
+  merchantId: string,
+  merchantName?: string
 ): T[] => {
   const source = Array.isArray(products) ? products : [];
   const targetId = normalizeMerchantId(merchantId);
-  if (!targetId) return [];
+  const targetName = merchantName ? normalizeMerchantLabel(merchantName) : '';
+  if (!targetId && !targetName) return [];
 
   return source
-    .filter(product => productBelongsToMerchant(product, targetId))
+    .filter(product => productBelongsToMerchant(product, targetId, merchantName))
     .map(product => {
       const sourceProduct = product as any;
-      const allocation = getMerchantAllocation(product, targetId);
+      const allocation = getMerchantAllocation(product, targetId, merchantName);
+      const isShared = sourceProduct.ownerType === 'shared' || (Array.isArray(sourceProduct.merchantAllocations) && sourceProduct.merchantAllocations.length > 0);
+      const sharedCost = Number(allocation?.costPrice ?? sourceProduct.merchantCostPrice ?? 0) || 0;
+      const sharedSafeFields = isShared ? {
+        merchantId: targetId,
+        merchantIds: [targetId],
+        merchantName: allocation?.merchantName || targetId,
+        merchantAllocations: allocation ? [allocation] : [],
+        cost: sharedCost,
+        wholesalePrice: undefined,
+        supplierPrice: undefined,
+        warehouseStock: undefined,
+        variants: Array.isArray(sourceProduct.variants)
+          ? sourceProduct.variants.map((variant: any) => ({ ...variant, stock: null, stockQuantity: null, warehouseStock: undefined }))
+          : sourceProduct.variants
+      } : {};
       if (!allocation) {
-        const isShared = sourceProduct.ownerType === 'shared' || (Array.isArray(sourceProduct.merchantIds) && sourceProduct.merchantIds.length > 1);
-        const stock = isShared ? 0 : getNumericStock(product);
+        const stock = isShared ? null : getNumericStock(product);
         return {
           ...sourceProduct,
+          ...sharedSafeFields,
           stock,
           stockQuantity: stock,
-          costPrice: Number(sourceProduct.costPrice ?? sourceProduct.cost ?? 0) || 0
+          ...(isShared ? { quantity: null, inventory: null, inStock: true, unlimitedStock: true, isSharedProduct: true } : {}),
+          costPrice: isShared ? sharedCost : Number(sourceProduct.costPrice ?? sourceProduct.cost ?? 0) || 0
         } as T;
       }
 
-      const stock = Number(allocation.stock ?? 0) || 0;
+      const unlimitedStock = (allocation.stock == null || String(allocation.stock).trim() === '');
+      const stock = unlimitedStock ? null : Number(allocation.stock) || 0;
       return {
         ...sourceProduct,
+        ...sharedSafeFields,
         stock,
         stockQuantity: stock,
         quantity: stock,
-        costPrice: Number(allocation.costPrice ?? sourceProduct.costPrice ?? 0) || 0,
+        inventory: stock,
+        inStock: unlimitedStock || stock > 0,
+        unlimitedStock,
+        isSharedProduct: true,
+        costPrice: Number(allocation.costPrice ?? (isShared ? sourceProduct.merchantCostPrice : sourceProduct.costPrice) ?? 0) || 0,
         price: Number(allocation.sellingPrice ?? sourceProduct.price ?? 0) || 0,
         isAllocatedConsignment: true,
         merchantAllocation: allocation

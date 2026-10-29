@@ -13,6 +13,7 @@ import { inAppToast, inAppConfirm } from '../utils/inAppAlert';
 import MerchantsPage from './MerchantsPage';
 import { MerchantSettlementPage } from './MerchantSettlementPage';
 import MerchantPortal from './MerchantPortal';
+import MerchantProductReview from './MerchantProductReview';
 
 interface AgencyHubPageProps {
   storeId?: string;
@@ -29,7 +30,7 @@ interface AgencyHubPageProps {
   allStoresData?: Record<string, any>;
 }
 
-type AgencyTab = 'merchants' | 'settlements' | 'requests' | 'policies' | 'portal';
+type AgencyTab = 'merchants' | 'settlements' | 'requests' | 'policies' | 'portal' | 'product-review';
 
 export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
   storeId,
@@ -48,7 +49,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab');
   // Normalize 'overview' or any unmapped tab to 'merchants'
-  const currentTab: AgencyTab = (rawTab === 'settlements' || rawTab === 'requests' || rawTab === 'policies' || rawTab === 'portal') 
+  const currentTab: AgencyTab = (rawTab === 'settlements' || rawTab === 'requests' || rawTab === 'policies' || rawTab === 'portal' || rawTab === 'product-review')
     ? rawTab 
     : 'merchants';
     
@@ -241,22 +242,39 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       const updatedSuppliers = suppliersList.map(s => {
         if (s.id === merchantId || (normName && s.name.trim() === normName)) {
           const currentBal = Number(s.balance || 0);
-          const newBal = Math.max(0, currentBal - amt);
-          const newTx: any = {
+          const newBal = Number((currentBal - amt).toFixed(2));
+          const nowIso = new Date().toISOString();
+
+          const payoutTx: any = {
             id: `mtx-${Date.now()}`,
             merchantId: s.id,
             merchantName: s.name,
             type: 'payout',
-            amount: -amt,
-            date: new Date().toISOString(),
-            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'}${transferFee > 0 ? ` (المبلغ الإجمالي: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المحول: ${netDisbursed} ج.م)` : ''}`,
-            balanceAfter: newBal,
+            amount: -netDisbursed,
+            date: nowIso,
+            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'} (صافي المحول - طلب #${req.id.slice(-6)})`,
+            balanceAfter: Number((currentBal - netDisbursed).toFixed(2)),
             referenceId: req.id
           };
+
+          const feeTx: any = transferFee > 0 ? {
+            id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+            merchantId: s.id,
+            merchantName: s.name,
+            type: 'expense',
+            amount: -transferFee,
+            date: nowIso,
+            notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
+            balanceAfter: newBal,
+            referenceId: req.id
+          } : null;
+
+          const newTxs = feeTx ? [feeTx, payoutTx] : [payoutTx];
+
           return {
             ...s,
             balance: newBal,
-            transactions: [newTx, ...(s.transactions || [])]
+            transactions: [...newTxs, ...(s.transactions || [])]
           };
         }
         return s;
@@ -525,6 +543,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
           <Globe size={16} />
           <span>بوابة الموكل الإلكترونية</span>
         </button>
+        <button onClick={() => setTab('product-review')} className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-colors flex items-center gap-2 ${currentTab === 'product-review' ? 'bg-amber-500 text-slate-950' : 'text-slate-600 dark:text-slate-400'}`}>
+          <AlertTriangle size={16} />مراجعة ملكية المنتجات ({settings.products.filter(p => !p.ownerType && (p.merchantName || (p as any).supplierName)).length})
+        </button>
       </div>
 
       {/* ======================================================== */}
@@ -560,6 +581,8 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
           embedded={true}
         />
       )}
+
+      {currentTab === 'product-review' && <MerchantProductReview settings={settings} updateSettings={updateSettings} />}
 
       {/* TAB 3: PAYOUT REQUESTS & DISBURSEMENTS */}
       {currentTab === 'requests' && (

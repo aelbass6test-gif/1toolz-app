@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Partner, PartnerTransaction, StoreData, Wallet, Order, Treasury } from '../types';
+import { Partner, PartnerTransaction, StoreData, Wallet, Order, Treasury, MerchantTransaction, MerchantSettlement } from '../types';
 import { 
   User, Lock, LogOut, ArrowUpLeft, ArrowDownRight, 
   DollarSign, Search, Printer, FileText, CheckCircle,
@@ -8,7 +8,8 @@ import {
   Copy, Share2, Coins, Package as PackageIcon,
   X, Send, ShieldCheck, Building2, Key, BarChart3,
   Fingerprint, Scan, Cpu, Trash2, CheckCircle2, Shield, PlusCircle,
-  Truck, Clock, Eye, Sparkles, ExternalLink, ChevronDown, ChevronUp, PackageCheck, Layers
+  Truck, Clock, Eye, Sparkles, ExternalLink, ChevronDown, ChevronUp, PackageCheck, Layers,
+  Receipt, ArrowUpRight, ArrowDownLeft, Paperclip, Check
 } from 'lucide-react';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
@@ -35,7 +36,8 @@ import { getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
 import { PartnerProfileTab } from './PartnerProfileTab';
 import { PartnerReportsView } from './PartnerReportsView';
-import { getStoreOwnedOrders } from '../utils/merchantProducts';
+import { getStoreOwnedOrders, normalizeMerchantId } from '../utils/merchantProducts';
+import { calculateMerchantBalance } from '../utils/merchantAccounting';
 import { PartnerAuthView } from './PartnerAuthView';
 
 const normalizeName = (name: string): string => {
@@ -268,6 +270,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const [payoutAccount, setPayoutAccount] = useState('');
   const [requestNotes, setRequestNotes] = useState('');
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [previewReceiptImage, setPreviewReceiptImage] = useState<string | null>(null);
 
   // PIN Management State (in account tab)
   const [newPinInput, setNewPinInput] = useState('');
@@ -667,43 +670,193 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   // Comprehensive Partner Calculations
   const partnerData = useMemo(() => {
     if (!livePartner) return null;
+
+    // Strict Isolation: Merchant / Supplier Account Mode
+    if (isMerchantMode) {
+      const mId = normalizeMerchantId(livePartner.id);
+
+      // 1. Settlements for this merchant strictly filtered by merchantId
+      const allSettlements: MerchantSettlement[] = (settings.merchantSettlements || []) as MerchantSettlement[];
+      const mySettlements = allSettlements.filter(
+        (s: any) => normalizeMerchantId(s?.merchantId) === mId
+      );
+
+      // 2. Direct merchant transactions strictly filtered by merchantId
+      const matchingSupplier = (settings.suppliers || []).find(
+        (s: any) => normalizeMerchantId(s?.id) === mId
+      );
+      const supplierTxs: MerchantTransaction[] = (matchingSupplier?.transactions || []) as MerchantTransaction[];
+      const globalMerchantTxs: MerchantTransaction[] = ((settings.merchantTransactions || []) as MerchantTransaction[]).filter(
+        (tx: any) => normalizeMerchantId(tx?.merchantId) === mId
+      );
+
+      const txMap = new Map<string, MerchantTransaction>();
+      globalMerchantTxs.forEach(tx => txMap.set(tx.id, tx));
+      supplierTxs.forEach(tx => {
+        if (!txMap.has(tx.id)) txMap.set(tx.id, tx);
+      });
+      const myTransactions = Array.from(txMap.values());
+
+      // 3. Authoritative balance calculated via standard merchant accounting formula
+      const netBalance = calculateMerchantBalance(mId, mySettlements, myTransactions);
+
+      // 4. Construct unified chronological ledger entries for the merchant
+      const ledgerRows: any[] = [];
+      const processedTxIds = new Set<string>();
+
+      // A. Each settlement represents a certified credit line
+      mySettlements.forEach(s => {
+        const credit = Number(s.netPayoutToMerchant || 0);
+
+        // Find linked transaction if already generated in ledger
+        const linkedTx = myTransactions.find(tx =>
+          (tx.referenceId === s.id || tx.referenceId === s.settlementNumber || tx.id === `mtx-settlement-${s.id}`) &&
+          (tx.type === 'order_delivered' || tx.type === 'order_profit')
+        );
+        if (linkedTx) {
+          processedTxIds.add(linkedTx.id);
+        }
+
+        ledgerRows.push({
+          id: s.id || `sett_${s.settlementNumber}`,
+          date: s.date || linkedTx?.date || new Date().toISOString(),
+          referenceId: s.settlementNumber || s.id,
+          sourceType: 'settlement',
+          type: 'settlement_credit',
+          category: credit >= 0 ? 'credit' : 'debit',
+          amount: credit,
+          note: s.notes || `كشف تسوية بضاعة معتمد (${s.ordersCount || 1} أوردر) - رقم ${s.settlementNumber || s.id}`,
+          description: s.notes || `تسوية شحنات البضاعة (${s.ordersCount || 1} أوردر)`,
+          status: s.status,
+          balanceAfter: 0,
+          details: {
+            ordersCount: s.ordersCount,
+            goodsCost: s.totalMerchantGoodsCost,
+            collectedAmount: s.totalCollected,
+            shippingCosts: s.totalShippingCosts,
+            serviceFees: s.totalServiceFees,
+            returnFees: s.totalReturnFees,
+            marketingCosts: s.totalMarketingCosts,
+            transferReference: s.transferReference
+          },
+          transferReference: s.transferReference,
+          rawSettlement: s
+        });
+      });
+
+      // B. Remaining transactions (withdrawals, manager fees, subscriptions, adjustments, etc.)
+      myTransactions.forEach(tx => {
+        if (processedTxIds.has(tx.id)) return;
+        if (tx.type === 'order_delivered' && mySettlements.some(s => s.id === tx.referenceId || s.settlementNumber === tx.referenceId)) {
+          return;
+        }
+
+        const amt = Number(tx.amount || 0);
+        const isDebit = amt < 0;
+
+        let sourceType: string = 'transaction';
+        if (tx.type === 'withdrawal') sourceType = 'withdrawal';
+        else if (['subscription_charge', 'manager_order_fee', 'lump_sum_deduction', 'carrier_fee'].includes(tx.type)) sourceType = 'fee';
+        else if (tx.type === 'adjustment') sourceType = 'adjustment';
+
+        ledgerRows.push({
+          id: tx.id,
+          date: tx.date || new Date().toISOString(),
+          referenceId: tx.transferReference || tx.referenceId || tx.id,
+          sourceType,
+          type: tx.type,
+          category: isDebit ? 'debit' : 'credit',
+          amount: amt,
+          note: tx.notes || (tx.type === 'withdrawal' ? 'سحب مستحقات الموكل' : 'حركة مالية بالمحفظة'),
+          description: tx.notes || (tx.type === 'withdrawal' ? 'سحب مستحقات الموكل' : 'حركة مالية'),
+          status: 'paid',
+          balanceAfter: 0,
+          details: {
+            transferReference: tx.transferReference
+          },
+          receiptImage: tx.receiptImage,
+          transferReference: tx.transferReference,
+          rawTransaction: tx
+        });
+      });
+
+      // Sort chronologically (earliest to latest) to compute running balance
+      ledgerRows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      let running = 0;
+      const ledgerWithBalance = ledgerRows.map(row => {
+        // Pending/draft settlements do not affect realized cash ledger balance until approved/paid
+        const isPending = row.status === 'pending' || row.status === 'draft';
+        if (!isPending) {
+          running = Math.round((running + row.amount) * 100) / 100;
+        }
+        return {
+          ...row,
+          balanceAfter: running
+        };
+      });
+
+      // Cumulative balance progression for chart
+      const chartData = ledgerWithBalance
+        .filter(r => r.status !== 'pending' && r.status !== 'draft')
+        .map(r => ({
+          date: new Date(r.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }),
+          'الرصيد الجاري': r.balanceAfter,
+          amount: r.amount,
+          type: r.type
+        }));
+
+      // Pending withdrawal hold
+      const pendingWithdrawalHold = partnerRequestsList
+        .filter(r => normalizeMerchantId(r.partnerId) === mId && r.type === 'withdrawal' && r.status === 'pending')
+        .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+      const availableToWithdraw = Math.max(0, netBalance - pendingWithdrawalHold);
+
+      const totalSettlementsApproved = mySettlements
+        .filter(s => ['approved', 'paid'].includes(s.status))
+        .reduce((sum, s) => sum + Number(s.netPayoutToMerchant || 0), 0);
+
+      const totalWithdrawals = myTransactions
+        .filter(tx => tx.type === 'withdrawal' || (tx.amount < 0 && (tx.notes?.includes('سحب') || tx.notes?.includes('تحويل'))))
+        .reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+
+      const totalPendingSettlements = mySettlements
+        .filter(s => s.status === 'pending' || s.status === 'draft')
+        .reduce((sum, s) => sum + Number(s.netPayoutToMerchant || 0), 0);
+
+      return {
+        isMerchantData: true,
+        transactions: [...ledgerWithBalance].reverse(),
+        chartData,
+        capital: totalSettlementsApproved,
+        dividends: 0,
+        withdrawals: totalWithdrawals,
+        netWithdrawals: totalWithdrawals,
+        netBalance,
+        pendingWithdrawalHold,
+        availableToWithdraw,
+        custodyAmt: 0,
+        totalSettlementsApproved,
+        totalPendingSettlements,
+        mySettlements,
+        myTransactions,
+        totalStoreSales: 0,
+        totalDeliveredOrders: 0,
+        storeNetProfit: 0,
+        partnerRatio: 0,
+        partnerEstimatedProfit: 0,
+        undistributedProfit: 0,
+        totalInventoryValue: 0,
+        partnerInventoryShare: 0
+      };
+    }
+
     const pId = livePartner.id;
     const pName = livePartner.name || '';
     const normPName = normalizeName(pName);
     const holderId = `part_${pId}`;
     const partnerHolderIds = [pId, holderId, pId.replace('part_', '')];
-
-    // Merchant-owned ledger is isolated from the legacy partner ledger.
-    // Never fall back to merchantName here: merchantId is the only financial identity.
-    const merchantLedgerTxs: PartnerTransaction[] = isMerchantMode
-      ? (settings.merchantTransactions || [])
-          .filter((t: any) => String(t.merchantId || '') === String(pId))
-          .map((t: any) => ({
-            id: t.id,
-            partnerId: pId,
-            partnerName: t.merchantName,
-            type: t.type,
-            amount: Math.abs(Number(t.amount) || 0),
-            date: t.date || new Date().toISOString(),
-            note: `${t.notes || 'حركة مالية للموكل'}${t.referenceId ? ` · مرجع ${t.referenceId}` : ''}${t.transferReference ? ` · تحويل ${t.transferReference}` : ''}`,
-            orderId: t.referenceId,
-          }))
-      : [];
-
-    const merchantSettlementAuditTxs: PartnerTransaction[] = isMerchantMode
-      ? (settings.merchantSettlements || [])
-          .filter((s: any) => String(s.merchantId || '') === String(pId))
-          .map((s: any) => ({
-            id: `settlement-audit-${s.id}`,
-            partnerId: pId,
-            partnerName: s.merchantName,
-            type: `settlement_${s.status}`,
-            amount: 0,
-            date: s.date || new Date().toISOString(),
-            note: `كشف ${s.settlementNumber || s.id}: ${s.status === 'pending' ? 'بانتظار الاعتماد' : s.status === 'approved' ? 'معتمد' : s.status === 'paid' ? 'مدفوع' : s.status === 'cancelled' ? 'ملغى' : 'مسودة'} · صافي الكشف ${Number(s.netPayoutToMerchant || 0).toLocaleString()} ج.م`,
-            orderId: s.id,
-          }))
-      : [];
 
     // 1. Direct partner transactions from settings.partnerTransactions
     const matchedPartnerTxs = rawPartnerTransactions.filter((t: any) => {
@@ -817,15 +970,12 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       }
     });
 
-    // All combined transactions. Merchant mode uses only the explicit merchant ledger.
+    // All combined transactions
     const allCombinedTxs = [
-      ...(isMerchantMode ? merchantLedgerTxs : [
-        ...matchedPartnerTxs,
-        ...matchedHandovers,
-        ...matchedWalletTxs,
-        ...matchedSupplyTxs
-      ]),
-      ...(isMerchantMode ? merchantSettlementAuditTxs : [])
+      ...matchedPartnerTxs,
+      ...matchedHandovers,
+      ...matchedWalletTxs,
+      ...matchedSupplyTxs
     ];
 
     // Chronological sorting
@@ -900,17 +1050,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
     // Live Balance calculation
     let netBalance = 0;
-    const latestMerchantBalance = isMerchantMode
-      ? [...merchantLedgerTxs]
-          .filter((t: any) => Number.isFinite(Number((settings.merchantTransactions || []).find((raw: any) => raw.id === t.id)?.balanceAfter)))
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
-      : null;
-    const latestMerchantRaw = latestMerchantBalance
-      ? (settings.merchantTransactions || []).find((raw: any) => raw.id === latestMerchantBalance.id)
-      : null;
-    if (isMerchantMode && latestMerchantRaw && Number.isFinite(Number(latestMerchantRaw.balanceAfter))) {
-      netBalance = Number(latestMerchantRaw.balanceAfter);
-    } else if (livePartner.balance !== undefined && livePartner.balance !== null && !isNaN(Number(livePartner.balance))) {
+    if (livePartner.balance !== undefined && livePartner.balance !== null && !isNaN(Number(livePartner.balance))) {
       netBalance = Number(livePartner.balance);
     } else {
       netBalance = capital + dividends - netWithdrawals;
@@ -918,7 +1058,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
     // Pending withdrawal requests
     const pendingWithdrawalHold = partnerRequestsList
-      .filter(r => (isMerchantMode ? String(r.partnerId || '') === String(pId) : (r.partnerId === pId || normalizeName(r.partnerName) === normPName)) && r.type === 'withdrawal' && r.status === 'pending')
+      .filter(r => (r.partnerId === pId || normalizeName(r.partnerName) === normPName) && r.type === 'withdrawal' && r.status === 'pending')
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
     const availableToWithdraw = netBalance - pendingWithdrawalHold;
@@ -982,7 +1122,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       totalInventoryValue,
       partnerInventoryShare
     };
-  }, [livePartner, rawPartnerTransactions, rawCashHandovers, rawWalletTransactions, rawTreasuryTransactions, rawSupplyOrders, rawOrders, rawTreasury, settings, partnerRequestsList, activeStoreData, isMerchantMode]);
+  }, [livePartner, rawPartnerTransactions, rawCashHandovers, rawWalletTransactions, rawTreasuryTransactions, rawSupplyOrders, rawOrders, rawTreasury, settings, partnerRequestsList, activeStoreData]);
 
   // Filter and organize orders belonging to this partner/merchant
   const merchantOrders = useMemo(() => {
@@ -994,12 +1134,11 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     return rawOrders.filter(o => {
       const oMId = (o.merchantId || '').trim().toLowerCase();
       const oMName = (o.merchantName || '').trim().toLowerCase();
-      if (isMerchantMode) return Boolean(oMId) && oMId !== 'pending' && oMId === pId;
       if (!oMId && !oMName) return false;
       if (oMId === 'pending') return false;
       return oMId === pId || oMName === pName || (pPhone && oMId === pPhone) || oMName === pId;
     });
-  }, [rawOrders, livePartner, isMerchantMode]);
+  }, [rawOrders, livePartner]);
 
   // Status Categorization for Merchant Orders
   const merchantOrdersCategorized = useMemo(() => {
@@ -1064,58 +1203,55 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     return list;
   }, [merchantOrders, ordersStatusFilter, ordersSearchQuery, merchantOrdersCategorized]);
 
-  // Filtered partner requests for current partner
+  // Filtered partner requests for current partner / merchant
   const myPartnerRequests = useMemo(() => {
     if (!livePartner) return [];
     return partnerRequestsList.filter(r => {
-      const isMyRequest = r.partnerId === livePartner.id || normalizeName(r.partnerName) === normalizeName(livePartner.name);
+      const isMyRequest = normalizeMerchantId(r.partnerId) === normalizeMerchantId(livePartner.id) || 
+                          r.partnerId === livePartner.id || 
+                          normalizeName(r.partnerName) === normalizeName(livePartner.name);
+      if (isMerchantMode) {
+        return isMyRequest;
+      }
       const isMerchant = r.id?.startsWith('REQ-M-') || 
                          r.isMerchantRequest === true || 
                          (r.typeArabic && r.typeArabic.includes('الموكل')) ||
                          (r.partnerId && (r.partnerId.startsWith('m_') || r.partnerId.startsWith('sup_')));
       return isMyRequest && !isMerchant;
     });
-  }, [partnerRequestsList, livePartner]);
+  }, [partnerRequestsList, livePartner, isMerchantMode]);
 
   // Filtered Transactions for statement tab
   const filteredStatementTxs = useMemo(() => {
     if (!partnerData) return [];
-    return partnerData.transactions.filter(t => {
-      if (txCategoryFilter === 'withdrawals' && !['loan', 'profit_withdrawal', 'expense_repayment', 'internal_transfer_out', 'capital_withdrawal', 'wallet_withdrawal'].includes(t.type)) return false;
-      if (txCategoryFilter === 'capital' && !['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage', 'internal_transfer_in'].includes(t.type)) return false;
-      if (txCategoryFilter === 'dividends' && t.type !== 'profit_distribution') return false;
-      if (txCategoryFilter === 'custody' && !['custody_give', 'custody_receive'].includes(t.type)) return false;
+    return partnerData.transactions.filter((t: any) => {
+      if (isMerchantMode) {
+        if (txCategoryFilter === 'withdrawals' && t.type !== 'withdrawal') return false;
+        if (txCategoryFilter === 'capital' && !['settlement_credit', 'order_delivered'].includes(t.type)) return false;
+        if (txCategoryFilter === 'dividends' && !['fee', 'subscription_charge', 'manager_order_fee', 'lump_sum_deduction', 'carrier_fee'].includes(t.type)) return false;
+        if (txCategoryFilter === 'custody' && !['adjustment', 'wallet_topup', 'order_profit'].includes(t.type)) return false;
+      } else {
+        if (txCategoryFilter === 'withdrawals' && !['loan', 'profit_withdrawal', 'expense_repayment', 'internal_transfer_out', 'capital_withdrawal', 'wallet_withdrawal'].includes(t.type)) return false;
+        if (txCategoryFilter === 'capital' && !['capital_addition', 'supply_funding', 'shipping_funding', 'expense_coverage', 'internal_transfer_in'].includes(t.type)) return false;
+        if (txCategoryFilter === 'dividends' && t.type !== 'profit_distribution') return false;
+        if (txCategoryFilter === 'custody' && !['custody_give', 'custody_receive'].includes(t.type)) return false;
+      }
 
       if (txSearch) {
         const query = txSearch.toLowerCase();
-        const note = (t.note || '').toLowerCase();
+        const note = (t.note || t.description || '').toLowerCase();
+        const ref = (t.referenceId || '').toLowerCase();
         const amount = String(t.amount || '');
         const date = (t.date || '').toLowerCase();
-        return note.includes(query) || amount.includes(query) || date.includes(query);
+        return note.includes(query) || ref.includes(query) || amount.includes(query) || date.includes(query);
       }
 
       return true;
     });
-  }, [partnerData, txCategoryFilter, txSearch]);
+  }, [partnerData, txCategoryFilter, txSearch, isMerchantMode]);
 
   const getTxTypeBadge = (type: string) => {
     switch (type) {
-      case 'order_delivered':
-        return { label: 'مستحق أوردر محصل', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
-      case 'order_returned':
-        return { label: 'خصم مرتجع', bg: 'text-rose-700 bg-rose-50 border border-rose-200' };
-      case 'withdrawal':
-        return { label: 'صرف من المحفظة', bg: 'text-rose-700 bg-rose-50 border border-rose-200' };
-      case 'settlement_pending':
-        return { label: 'كشف بانتظار الاعتماد', bg: 'text-amber-700 bg-amber-50 border border-amber-200' };
-      case 'settlement_approved':
-        return { label: 'كشف معتمد', bg: 'text-indigo-700 bg-indigo-50 border border-indigo-200' };
-      case 'settlement_paid':
-        return { label: 'كشف مصروف', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
-      case 'settlement_cancelled':
-        return { label: 'كشف ملغى', bg: 'text-slate-600 bg-slate-100 border border-slate-200' };
-      case 'settlement_draft':
-        return { label: 'كشف مسودة', bg: 'text-slate-600 bg-slate-100 border border-slate-200' };
       case 'profit_distribution':
         return { label: 'توزيع أرباح', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
       case 'capital_addition':
@@ -1133,6 +1269,142 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       default:
         return { label: 'معاملة مالية', bg: 'text-slate-700 bg-slate-100 border border-slate-200' };
     }
+  };
+
+  const getMerchantTxBadge = (type: string) => {
+    switch (type) {
+      case 'settlement_credit':
+      case 'order_delivered':
+        return { label: 'تسوية شحنات', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
+      case 'withdrawal':
+        return { label: 'سحب مستحقات', bg: 'text-rose-700 bg-rose-50 border border-rose-200' };
+      case 'subscription_charge':
+        return { label: 'رسوم باقة', bg: 'text-indigo-700 bg-indigo-50 border border-indigo-200' };
+      case 'manager_order_fee':
+        return { label: 'عمولة مدير', bg: 'text-amber-700 bg-amber-50 border border-amber-200' };
+      case 'lump_sum_deduction':
+        return { label: 'خصم تسويق', bg: 'text-purple-700 bg-purple-50 border border-purple-200' };
+      case 'carrier_fee':
+        return { label: 'رسوم شحن', bg: 'text-sky-700 bg-sky-50 border border-sky-200' };
+      case 'wallet_topup':
+      case 'order_profit':
+        return { label: 'إيداع بالمحفظة', bg: 'text-teal-700 bg-teal-50 border border-teal-200' };
+      case 'adjustment':
+        return { label: 'تسوية يدوية', bg: 'text-slate-700 bg-slate-100 border border-slate-200' };
+      default:
+        return { label: 'حركة مالية', bg: 'text-slate-700 bg-slate-100 border border-slate-200' };
+    }
+  };
+
+  const getMerchantStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'paid':
+        return { label: 'مدفوع ومصروف', bg: 'text-emerald-700 bg-emerald-50 border border-emerald-200' };
+      case 'approved':
+        return { label: 'معتمد وجاهز', bg: 'text-teal-700 bg-teal-50 border border-teal-200' };
+      case 'pending':
+        return { label: 'قيد الاعتماد', bg: 'text-amber-700 bg-amber-50 border border-amber-200' };
+      case 'cancelled':
+        return { label: 'ملغي', bg: 'text-rose-700 bg-rose-50 border border-rose-200' };
+      default:
+        return { label: 'مكتمل', bg: 'text-slate-700 bg-slate-100 border border-slate-200' };
+    }
+  };
+
+  const handlePrintMerchantStatement = () => {
+    if (!livePartner || !partnerData) return;
+    const now = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+    const rows = (partnerData.transactions || []).map((t: any, index: number) => {
+      const isCredit = t.amount >= 0;
+      return `
+        <tr>
+          <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
+          <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace;">${new Date(t.date).toLocaleDateString('ar-EG')}</td>
+          <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;">${t.referenceId || '-'}</td>
+          <td style="padding: 8px; border: 1px solid #e2e8f0;">${t.description || t.note || '-'}</td>
+          <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace; font-weight: bold; color: ${isCredit ? '#008060' : '#e11d48'}; text-align: left;" dir="ltr">
+            ${isCredit ? '+' : ''}${Number(t.amount || 0).toLocaleString()} ج.م
+          </td>
+          <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace; font-weight: bold; text-align: left;" dir="ltr">
+            ${Number(t.balanceAfter || 0).toLocaleString()} ج.م
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="utf-8">
+        <title>كشف حساب الموكل - ${livePartner.name}</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; color: #0f172a; direction: rtl; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #008060; padding-bottom: 16px; margin-bottom: 24px; }
+          .title { font-size: 22px; font-weight: 900; color: #008060; margin: 0; }
+          .subtitle { font-size: 13px; color: #64748b; margin-top: 4px; }
+          .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+          .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; }
+          .kpi-card .label { font-size: 11px; color: #64748b; font-weight: bold; }
+          .kpi-card .val { font-size: 18px; font-weight: 900; margin-top: 4px; font-family: monospace; }
+          table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+          th { background: #f1f5f9; padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #334155; }
+          .footer { margin-top: 36px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="title">${storeName}</h1>
+            <div class="subtitle">كشف حساب موكل معتمد (صاحب بضاعة)</div>
+          </div>
+          <div style="text-align: left;">
+            <div style="font-weight: bold; font-size: 14px;">الموكل: ${livePartner.name}</div>
+            <div style="font-size: 12px; color: #64748b; font-family: monospace;">معرّف الموكل: ${livePartner.id}</div>
+            <div style="font-size: 11px; color: #94a3b8;">تاريخ التقرير: ${now}</div>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="label">الرصيد الصافي المتاح</div>
+            <div class="val" style="color: #008060;">${(partnerData.netBalance || 0).toLocaleString()} ج.م</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">إجمالي التسويات المعتمدة</div>
+            <div class="val" style="color: #0f172a;">${(partnerData.totalSettlementsApproved || 0).toLocaleString()} ج.م</div>
+          </div>
+          <div class="kpi-card">
+            <div class="label">إجمالي المسحوبات المصروفة</div>
+            <div class="val" style="color: #e11d48;">${(partnerData.withdrawals || 0).toLocaleString()} ج.م</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 40px;">#</th>
+              <th style="width: 90px;">التاريخ</th>
+              <th style="width: 140px;">رقم المرجع / الكشف</th>
+              <th>البيان والتفاصيل</th>
+              <th style="width: 120px;">المبلغ</th>
+              <th style="width: 120px;">الرصيد بعد الحركة</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length > 0 ? rows : '<tr><td colspan="6" style="text-align: center; padding: 24px; color: #94a3b8;">لا توجد حركات مالية مسجلة</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div>نظام إدارة الموكلين والوكلاء • ${storeName}</div>
+          <div>تم استخراج هذا الكشف آلياً وهو معتمد دفترياً</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    printHTMLDirectly(html);
   };
 
   // ----------------------------------------------------
@@ -1408,7 +1680,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
-                      الرصيد الصافي المتاح بالمتجر
+                      {isMerchantMode ? 'الرصيد الصافي المتاح بالسحب' : 'الرصيد الصافي المتاح بالمتجر'}
                     </span>
                     <div className="mt-1 flex items-baseline gap-1.5">
                       <span className={`text-3xl font-black font-mono tracking-tight ${
@@ -1422,7 +1694,9 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                   <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-black ${
                     (partnerData?.netBalance || 0) >= 0 ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
                   }`}>
-                    {(partnerData?.netBalance || 0) >= 0 ? 'لك بالمحل' : 'عليك سلفة'}
+                    {isMerchantMode 
+                      ? ((partnerData?.netBalance || 0) >= 0 ? 'لك مستحقات' : 'عليك مديونية')
+                      : ((partnerData?.netBalance || 0) >= 0 ? 'لك بالمحل' : 'عليك سلفة')}
                   </span>
                 </div>
 
@@ -1441,12 +1715,36 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 )}
 
                 <div className="mt-3 text-[10px] text-slate-400 font-medium">
-                  رأس المال + الأرباح الموزعة - المسحوبات المعتمدة
+                  {isMerchantMode 
+                    ? 'صافي مستحقات كشوف التسوية المعتمدة بعد خصم المسحوبات والرسوم' 
+                    : 'رأس المال + الأرباح الموزعة - المسحوبات المعتمدة'}
                 </div>
               </div>
 
-              {/* Card 2: رأس المال المستثمر */}
-              {portalPerms.canViewCapital && (
+              {/* Card 2: رأس المال المستثمر أو إجمالي التسويات المعتمدة */}
+              {isMerchantMode ? (
+                <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                        إجمالي مستحقات التسويات المعتمدة
+                      </span>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-3xl font-black font-mono text-slate-900">
+                          {(partnerData?.totalSettlementsApproved || 0).toLocaleString()}
+                        </span>
+                        <span className="text-xs font-bold text-slate-500">ج.م</span>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-50 text-[#008060]">
+                      <PackageCheck size={20} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-medium mt-3">
+                    صافي قيمة بضاعة الأوردرات المسلّمة المعتمدة رسمياً
+                  </p>
+                </div>
+              ) : portalPerms.canViewCapital && (
                 <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -1470,8 +1768,30 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 </div>
               )}
 
-              {/* Card 3: الأرباح الموزعة */}
-              {portalPerms.canViewProfits && (
+              {/* Card 3: المسحوبات المصروفة أو الأرباح الموزعة */}
+              {isMerchantMode ? (
+                <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                        إجمالي المسحوبات المصروفة
+                      </span>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-3xl font-black font-mono text-rose-600">
+                          {(partnerData?.withdrawals || 0).toLocaleString()}
+                        </span>
+                        <span className="text-xs font-bold text-slate-500">ج.م</span>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600">
+                      <Coins size={20} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-medium mt-3">
+                    المستحقات المحولة لحسابك عبر إنستاباي أو المحفظة أو البنك
+                  </p>
+                </div>
+              ) : portalPerms.canViewProfits && (
                 <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -1495,8 +1815,30 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 </div>
               )}
 
-              {/* Card 4: إجمالي المسحوبات والسلف */}
-              {portalPerms.canViewProfits && (
+              {/* Card 4: تسويات قيد المراجعة أو المسحوبات الشخصية */}
+              {isMerchantMode ? (
+                <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                        تسويات قيد المراجعة والاعتماد
+                      </span>
+                      <div className="mt-1 flex items-baseline gap-1.5">
+                        <span className="text-3xl font-black font-mono text-amber-600">
+                          {(partnerData?.totalPendingSettlements || 0).toLocaleString()}
+                        </span>
+                        <span className="text-xs font-bold text-slate-500">ج.م</span>
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
+                      <Clock size={20} />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-medium mt-3">
+                    شحنات قيد التدقيق لاعتماد الصرف والإيداع بالمحفظة
+                  </p>
+                </div>
+              ) : portalPerms.canViewProfits && (
                 <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-xs">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -2257,32 +2599,42 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 <div>
                   <h3 className="font-black text-base text-slate-900 flex items-center gap-2">
                     <FileText size={20} className="text-[#008060]" />
-                    <span>كشف الحساب المالي المعتمد</span>
+                    <span>{isMerchantMode ? 'كشف حساب الموكل المعتمد (حساب البضاعة والمستحقات)' : 'كشف الحساب المالي المعتمد'}</span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    سجل المعاملات المالية المعتمدة للشريك {livePartner.name}
+                    {isMerchantMode 
+                      ? `سجل الحسابات والتسويات المعتمدة والمسحوبات للموكل: ${livePartner.name}` 
+                      : `سجل المعاملات المالية المعتمدة للشريك ${livePartner.name}`}
                   </p>
                 </div>
 
                 {portalPerms.canPrintStatement && (
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
-                      onClick={() => setSelectedStatementPartner(livePartner)}
+                      onClick={() => {
+                        if (isMerchantMode) {
+                          handlePrintMerchantStatement();
+                        } else {
+                          setSelectedStatementPartner(livePartner);
+                        }
+                      }}
                       className="flex items-center gap-1.5 bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs active:scale-95"
                     >
                       <Printer size={15} />
-                      <span>طباعة كشف حساب رسمي</span>
+                      <span>{isMerchantMode ? 'طباعة كشف حساب الموكل' : 'طباعة كشف حساب رسمي'}</span>
                     </button>
-                    <button
-                      onClick={() => {
-                        const html = generateAbdoMediaPolicyHTML(storeName);
-                        printHTMLDirectly(html);
-                      }}
-                      className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-200"
-                    >
-                      <Printer size={14} />
-                      <span>وثيقة الشراكة</span>
-                    </button>
+                    {!isMerchantMode && (
+                      <button
+                        onClick={() => {
+                          const html = generateAbdoMediaPolicyHTML(storeName);
+                          printHTMLDirectly(html);
+                        }}
+                        className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border border-slate-200"
+                      >
+                        <Printer size={14} />
+                        <span>وثيقة الشراكة</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2294,20 +2646,26 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                     type="text"
                     value={txSearch}
                     onChange={(e) => setTxSearch(e.target.value)}
-                    placeholder="ابحث برقم المعاملة، البيان، أو المبلغ..."
+                    placeholder={isMerchantMode ? "ابحث برقم الكشف، رقم المرجع، البيان، أو المبلغ..." : "ابحث برقم المعاملة، البيان، أو المبلغ..."}
                     className="w-full bg-slate-50 border border-slate-300 rounded-2xl pl-4 pr-10 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-[#008060]"
                   />
                   <Search size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
 
                 <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                  {[
+                  {(isMerchantMode ? [
+                    { id: 'all', label: 'الكل' },
+                    { id: 'capital', label: 'تسويات البضاعة (+)' },
+                    { id: 'withdrawals', label: 'سحب المستحقات (-)' },
+                    { id: 'dividends', label: 'رسوم وعمولات' },
+                    { id: 'custody', label: 'تعديلات وإيداعات' },
+                  ] : [
                     { id: 'all', label: 'الكل' },
                     { id: 'withdrawals', label: 'سلف ومسحوبات' },
                     { id: 'capital', label: 'رأس مال وتمويل' },
                     { id: 'dividends', label: 'أرباح' },
                     { id: 'custody', label: 'عهدة' },
-                  ].map(tab => (
+                  ]).map(tab => (
                     <button
                       key={tab.id}
                       onClick={() => setTxCategoryFilter(tab.id as any)}
@@ -2325,54 +2683,202 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
 
               {/* Ledger Table */}
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                    <tr>
-                      <th className="py-3 px-4">التاريخ</th>
-                      <th className="py-3 px-4">نوع الحركة</th>
-                      <th className="py-3 px-4">المبلغ</th>
-                      <th className="py-3 px-4">البيان والملاحظات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {filteredStatementTxs.length === 0 ? (
+                {isMerchantMode ? (
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                       <tr>
-                        <td colSpan={4} className="py-10 text-center text-slate-400 font-bold">
-                          لا توجد حركات مالية مطابقة للفلاتر المحددة.
-                        </td>
+                        <th className="py-3 px-4">التاريخ</th>
+                        <th className="py-3 px-3">رقم المرجع / الكشف</th>
+                        <th className="py-3 px-3">نوع الحركة</th>
+                        <th className="py-3 px-4">البيان وتفاصيل التسوية</th>
+                        <th className="py-3 px-4 text-center">المبلغ</th>
+                        <th className="py-3 px-4 text-center">الرصيد بعد الحركة</th>
+                        <th className="py-3 px-3 text-center">الحالة والمرفقات</th>
                       </tr>
-                    ) : (
-                      filteredStatementTxs.map(t => {
-                        const badge = getTxTypeBadge(t.type);
-                        const isCredit = ['capital_addition', 'supply_funding', 'shipping_funding', 'profit_distribution', 'repayment', 'expense_coverage', 'order_delivered', 'wallet_topup', 'order_profit'].includes(t.type);
-                        const isAuditRow = t.type.startsWith('settlement_');
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {filteredStatementTxs.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-slate-400 font-bold">
+                            لا توجد حركات أو كشوفات تسوية مسجلة مطابقة لهذا الفلتر.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredStatementTxs.map((t: any) => {
+                          const badge = getMerchantTxBadge(t.type);
+                          const statusBadge = getMerchantStatusBadge(t.status);
+                          const isCredit = Number(t.amount || 0) >= 0;
+                          const details = t.details;
 
-                        return (
-                          <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
-                              {new Date(t.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' })}
-                            </td>
-                            <td className="py-3 px-4 whitespace-nowrap">
-                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${badge.bg}`}>
-                                {badge.label}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 font-mono font-black whitespace-nowrap">
-                              <span className={isAuditRow ? 'text-indigo-600' : isCredit ? 'text-[#008060]' : 'text-rose-600'}>
-                                {isAuditRow ? '—' : `${isCredit ? '+' : '-'}${Number(t.amount || 0).toLocaleString()} ج.م`}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-slate-800 font-medium">
-                              {t.note || 'معاملة مالية مقيدة بحساب الشريك'}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                          return (
+                            <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-3.5 px-4 font-mono text-slate-500 whitespace-nowrap">
+                                <div>{new Date(t.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                                <div className="text-[10px] text-slate-400">{new Date(t.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</div>
+                              </td>
+
+                              <td className="py-3.5 px-3 whitespace-nowrap font-mono font-bold text-slate-700">
+                                <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 text-[11px]">
+                                  {t.referenceId || t.id}
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${badge.bg}`}>
+                                  {badge.label}
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-slate-800">
+                                <div className="font-medium text-slate-900">{t.description || t.note || 'تسوية حسابات الموكل'}</div>
+                                {details && (details.goodsCost !== undefined || details.shippingCosts !== undefined || details.ordersCount) && (
+                                  <div className="flex items-center gap-2 flex-wrap text-[10px] text-slate-500 mt-1">
+                                    {details.ordersCount && (
+                                      <span className="bg-emerald-50 text-emerald-800 px-1.5 py-0.2 rounded border border-emerald-200 font-mono">
+                                        {details.ordersCount} أوردر
+                                      </span>
+                                    )}
+                                    {details.goodsCost !== undefined && (
+                                      <span>تكلفة البضاعة: <strong>{Number(details.goodsCost).toLocaleString()} ج.م</strong></span>
+                                    )}
+                                    {details.shippingCosts !== undefined && Number(details.shippingCosts) > 0 && (
+                                      <span>شحن ولوجستيات: <strong>-{Number(details.shippingCosts).toLocaleString()} ج.م</strong></span>
+                                    )}
+                                    {details.serviceFees !== undefined && Number(details.serviceFees) > 0 && (
+                                      <span>عمولة التشغيل: <strong>-{Number(details.serviceFees).toLocaleString()} ج.م</strong></span>
+                                    )}
+                                    {details.transferReference && (
+                                      <span className="text-slate-400 font-mono">مرجع: {details.transferReference}</span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-4 font-mono font-black whitespace-nowrap text-center text-sm" dir="ltr">
+                                <span className={isCredit ? 'text-[#008060]' : 'text-rose-600'}>
+                                  {isCredit ? '+' : ''}{Number(t.amount || 0).toLocaleString()} ج.م
+                                </span>
+                              </td>
+
+                              <td className="py-3.5 px-4 font-mono font-black whitespace-nowrap text-center text-slate-900 bg-slate-50/50" dir="ltr">
+                                {Number(t.balanceAfter || 0).toLocaleString()} ج.م
+                              </td>
+
+                              <td className="py-3.5 px-3 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge.bg}`}>
+                                    {statusBadge.label}
+                                  </span>
+                                  {t.receiptImage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setPreviewReceiptImage(t.receiptImage)}
+                                      className="p-1 rounded-md bg-emerald-50 text-[#008060] hover:bg-emerald-100 border border-emerald-200 transition-colors cursor-pointer"
+                                      title="عرض صورة إيصال التحويل"
+                                    >
+                                      <Paperclip size={13} />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4">التاريخ</th>
+                        <th className="py-3 px-4">نوع الحركة</th>
+                        <th className="py-3 px-4">المبلغ</th>
+                        <th className="py-3 px-4">البيان والملاحظات</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {filteredStatementTxs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="py-10 text-center text-slate-400 font-bold">
+                            لا توجد حركات مالية مطابقة للفلاتر المحددة.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredStatementTxs.map(t => {
+                          const badge = getTxTypeBadge(t.type);
+                          const isCredit = ['capital_addition', 'supply_funding', 'shipping_funding', 'profit_distribution', 'repayment', 'expense_coverage'].includes(t.type);
+
+                          return (
+                            <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
+                                {new Date(t.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'short', day: 'numeric' })}
+                              </td>
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${badge.bg}`}>
+                                  {badge.label}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 font-mono font-black whitespace-nowrap">
+                                <span className={isCredit ? 'text-[#008060]' : 'text-rose-600'}>
+                                  {isCredit ? '+' : '-'}{Number(t.amount || 0).toLocaleString()} ج.م
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-slate-800 font-medium">
+                                {t.note || 'معاملة مالية مقيدة بحساب الشريك'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
+
+            {/* Receipt Image Preview Modal */}
+            {previewReceiptImage && (
+              <div 
+                className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" 
+                onClick={() => setPreviewReceiptImage(null)} 
+                dir="rtl"
+              >
+                <div 
+                  className="bg-white rounded-3xl p-5 max-w-lg w-full shadow-2xl space-y-3" 
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                    <h4 className="text-xs font-black text-slate-900 flex items-center gap-2">
+                      <Paperclip size={16} className="text-[#008060]" />
+                      <span>صورة إيصال التحويل المالي المرفق</span>
+                    </h4>
+                    <button 
+                      onClick={() => setPreviewReceiptImage(null)} 
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="bg-slate-50 rounded-2xl p-2 border border-slate-200">
+                    <img 
+                      src={previewReceiptImage} 
+                      alt="Receipt" 
+                      className="max-h-[65vh] w-auto mx-auto rounded-xl object-contain" 
+                    />
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewReceiptImage(null)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                    >
+                      إغلاق
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
           </div>
         )}

@@ -76,7 +76,7 @@ import {
   Wallet as WalletIcon,
   Store as StoreIcon,
 } from "lucide-react";
-import { deleteStoreItem, getSupabaseClient, updatePartnerSettings } from "../services/databaseService";
+import { deleteStoreItem, getSupabaseClient } from "../services/databaseService";
 import {
   Order,
   Settings,
@@ -106,6 +106,7 @@ import { CustomerDeliveryRateBadge } from "./CustomerDeliveryRateBadge";
 import { generateInvoiceHTML } from "../utils/invoiceGenerator";
 import { generateShippingLabelHTML } from "../utils/shippingLabelGenerator";
 import { generateShippingNote } from "../services/geminiService";
+import { cancelUnpaidOrderSettlements, getMerchantOrderGroups } from "../utils/merchantAccounting";
 import {
   calculateCodFee,
   getLatestProductCost,
@@ -3216,12 +3217,16 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       newStatus,
       settings.products,
     );
+    const isReturnStatus = ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مرتجع_بعد_الاستلام", "ملغي"].includes(newStatus);
     setSettings((prev) => {
       let nextSettings = prev;
       if (stockDeducted !== orderToUpdate.stockDeducted) {
         nextSettings = { ...nextSettings, products: updatedProducts };
       }
       nextSettings = processEmployeeCommission(orderToUpdate, orderToUpdate.status, newStatus, nextSettings);
+      if (isReturnStatus) {
+        nextSettings = { ...nextSettings, merchantSettlements: cancelUnpaidOrderSettlements(nextSettings.merchantSettlements || [], orderToUpdate.id) };
+      }
       return nextSettings;
     });
 
@@ -3230,84 +3235,71 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       processFinancialsForStatusChange(orderWithFlexShip, newStatus);
     const updatedOrderData = { ...financialUpdatedOrder, stockDeducted };
 
-    // 2.1 Late Return / Post-Settlement Merchant Debit Handling
-    const isReturnStatus = ["مرتجع", "فشل_التوصيل", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مرتجع_بعد_الاستلام"].includes(newStatus);
+    // 2.1 Return handling: cancel unpaid rows, then reverse each explicitly identified merchant separately.
     const wasDeliveredOrSettled = ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "تم_الاستبدال", "مدفوعة"].includes(orderToUpdate.status) || orderToUpdate.settlementStatus === 'settled';
+    const merchantGroupsForReturn = getMerchantOrderGroups(orderToUpdate);
+    if (isReturnStatus && wasDeliveredOrSettled && merchantGroupsForReturn.size > 0 && !orderToUpdate.merchantLateReturnDebited) {
+      const refs = orderToUpdate.merchantSettlementRefs || [];
+      const returnShareDenominator = [...merchantGroupsForReturn.values()].flat().reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+      const returnCharges = [...merchantGroupsForReturn.entries()].map(([merchantId, lines], index) => {
+        const lineRevenue = lines.reduce((sum, item) => sum + Math.max(0, Number(item.price) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+        const share = returnShareDenominator > 0 ? lineRevenue / returnShareDenominator : 1 / merchantGroupsForReturn.size;
+        const refId = refs.find(ref => ref.merchantId === merchantId)?.settlementId;
+        const settlement = (settings.merchantSettlements || []).find(row => row.id === refId)
+          || (settings.merchantSettlements || []).find(row => row.orderId === orderToUpdate.id && row.merchantId === merchantId);
+        if (settlement && settlement.status !== 'approved' && settlement.status !== 'paid') return null;
+        if (!settlement && orderToUpdate.settlementStatus !== 'settled') return null;
+        const snapshot = settlement?.orderSnapshots?.find(row => row.orderId === orderToUpdate.id);
+        const lineCost = lines.reduce((sum, item) => sum + (Number(item.cost) || 0) * Math.max(1, Number(item.quantity) || 1), 0);
+        const creditedGoods = Math.max(0, Number(snapshot?.netMerchantAmount ?? snapshot?.merchantGoodsCost ?? settlement?.netPayoutToMerchant ?? lineCost) || 0);
+        const returnShippingCharge = Number(((settings.returnShippingFee ?? 35) * share).toFixed(2));
+        return { merchantId, creditedGoods, returnShippingCharge, totalDebit: Number((creditedGoods + returnShippingCharge).toFixed(2)), reverseApprovedCredit: settlement?.status === 'approved', index };
+      }).filter((row): row is NonNullable<typeof row> => Boolean(row && row.totalDebit > 0));
 
-    if (isReturnStatus && wasDeliveredOrSettled && orderToUpdate.merchantId && orderToUpdate.merchantId !== 'pending' && !orderToUpdate.merchantLateReturnDebited) {
-      const merchantId = orderToUpdate.merchantId;
-      const merchantName = (orderToUpdate.merchantName || '').trim();
-
-      // Calculate credited goods cost / payout that was originally allocated to merchant
-      let creditedAmountToRevert = 0;
-      if (orderToUpdate.settlementId) {
-        const st = (settings.merchantSettlements || []).find(s => s.id === orderToUpdate.settlementId);
-        const snap = st?.orderSnapshots?.find(sn => sn.orderId === orderToUpdate.id);
-        if (snap && (snap.netMerchantAmount || 0) > 0) {
-          creditedAmountToRevert = snap.netMerchantAmount;
-        }
-      }
-      if (creditedAmountToRevert <= 0) {
-        const goodsCost = orderToUpdate.merchantItemCost || (orderToUpdate.items || []).reduce((sum, item) => sum + (item.cost || 0) * (item.quantity || 1), 0);
-        creditedAmountToRevert = goodsCost;
-      }
-
-      const returnShippingCharge = settings.returnShippingFee ?? 35;
-      const totalDebit = Number((creditedAmountToRevert + returnShippingCharge).toFixed(2));
-
-      if (totalDebit > 0) {
+      if (returnCharges.length > 0) {
+        const returnedAt = new Date().toISOString();
         setSettings(prevSettings => {
-          const updatedSuppliers = (prevSettings.suppliers || []).map(s => {
-            const isMatch = s.id === merchantId;
-            if (isMatch) {
-              const curBal = Number(s.balance || 0);
-              const nextBal = Number((curBal - totalDebit).toFixed(2));
-              const revTx: MerchantTransaction = {
-                id: `mtx-rev-${Date.now()}`,
-                merchantId: s.id,
-                merchantName: s.name,
-                date: new Date().toISOString(),
-                type: 'order_returned',
-                amount: -totalDebit,
-                balanceAfter: nextBal,
-                notes: `خصم عكسي لمرتجع متأخر بعد التسوية (أوردر #${orderToUpdate.orderNumber}) - استرداد أرباح/بضاعة: ${creditedAmountToRevert} ج.م + شحن مرتجع: ${returnShippingCharge} ج.م`,
-                referenceId: orderToUpdate.id,
-                performedBy: currentUser?.fullName || 'النظام التلقائي'
-              };
-              return {
-                ...s,
-                balance: nextBal,
-                transactions: [revTx, ...(s.transactions || [])]
-              };
+          const reversalTransactions: MerchantTransaction[] = [];
+          const updateList = (list: any[]) => (list || []).map(supplier => {
+            const charge = returnCharges.find(row => row.merchantId === supplier.id);
+            if (!charge) return supplier;
+            const curBal = Number(supplier.balance || 0);
+            const nextBal = Number((curBal - charge.totalDebit).toFixed(2));
+            const revTx: MerchantTransaction = {
+              id: `mtx-rev-${orderToUpdate.id}-${charge.merchantId}`,
+              merchantId: supplier.id,
+              merchantName: supplier.name,
+              date: returnedAt,
+              type: 'order_returned',
+              amount: -(charge.reverseApprovedCredit ? charge.returnShippingCharge : charge.totalDebit),
+              balanceAfter: nextBal,
+              notes: `قيد مرتجع للوكيل بمعرّف ${supplier.id} (طلب #${orderToUpdate.orderNumber}) — عكس مستحق ${charge.creditedGoods} ج.م + شحن ${charge.returnShippingCharge} ج.م`,
+              referenceId: `${orderToUpdate.id}:${supplier.id}`,
+              performedBy: currentUser?.fullName || 'النظام التلقائي'
+            };
+            if (!reversalTransactions.some(tx => tx.id === revTx.id)) {
+              reversalTransactions.push(revTx);
             }
-            return s;
+            return { ...supplier, balance: nextBal, transactions: [revTx, ...(supplier.transactions || [])] };
           });
 
-          // Merchant returns must never mutate settings.partners or partner wallets.
-          const updatedPartners = prevSettings.partners || [];
-
-          if (activeStore?.id) {
-            updatePartnerSettings(activeStore.id, updatedPartners, updatedSuppliers).catch(() => {});
-          }
+          const updatedSuppliers = updateList(prevSettings.suppliers || []);
+          const updatedPartners = updateList(prevSettings.partners || []);
 
           return {
             ...prevSettings,
             suppliers: updatedSuppliers,
-            partners: updatedPartners
+            partners: updatedPartners,
+            merchantTransactions: [...reversalTransactions, ...(prevSettings.merchantTransactions || [])]
           };
         });
 
+        const totalDebit = returnCharges.reduce((sum, row) => sum + row.totalDebit, 0);
         updatedOrderData.merchantLateReturnDebited = true;
         updatedOrderData.settlementStatus = 'returned_after_settlement';
         updatedOrderData.lateReturnDebitAmount = totalDebit;
-
-        addAuditLog(
-          id,
-          "خصم مرتجع متأخر للموكل",
-          `تم قيد تسوية عكسية وخصم ${totalDebit} ج.م من محفظة الموكل (${merchantName || merchantId}) نظير تحول الأوردر إلى مرتجع بعد التسوية (استرداد بضاعة: ${creditedAmountToRevert} ج.م + شحن: ${returnShippingCharge} ج.م)`
-        );
-
-        inAppToast(`تم تسجيل تسوية عكسية وخصم ${totalDebit} ج.م من محفظة الموكل (${merchantName || 'الموكل'}) نظير ارتجاع الأوردر بعد التسوية ↩️`, 'info');
+        addAuditLog(id, "عكس تسويات الوكلاء للمرتجع", `تم تسجيل قيود عكس مستقلة بمعرّف كل وكيل بإجمالي ${totalDebit} ج.م؛ لم تتم مطابقة أي حساب بالاسم.`);
+        inAppToast(`تم حفظ قيود المرتجع المستقلة للوكلاء بإجمالي ${totalDebit.toLocaleString()} ج.م.`, 'info');
       }
     }
 
@@ -7439,26 +7431,35 @@ const OrderCard = ({
               </h4>
             </div>
             {displayTotal !== standardRequiredTotal && (
-              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
-                  <span className="font-black text-indigo-600 dark:text-indigo-400">
-                    {standardRequiredTotal.toLocaleString(undefined, {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 2,
-                    })} ج.م
+              order.totalAmountOverride !== undefined && order.totalAmountOverride !== null ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-600 dark:text-slate-300 mt-1 font-bold bg-emerald-50/70 dark:bg-emerald-950/30 px-2.5 py-1 rounded-xl border border-emerald-200/60 dark:border-emerald-800/40">
+                  <span>تعديل سعر متفق عليه:</span>
+                  <span className={displayTotal > standardRequiredTotal ? "text-emerald-600 dark:text-emerald-400 font-mono font-black" : "text-amber-600 font-mono font-black"}>
+                    {displayTotal > standardRequiredTotal ? `+${(displayTotal - standardRequiredTotal).toLocaleString()}` : (displayTotal - standardRequiredTotal).toLocaleString()} ج.م
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-[10px]">المحصل فعلياً:</span>
-                  <span className="font-black text-slate-700 dark:text-slate-300">
-                    {displayTotal.toLocaleString(undefined, {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 2,
-                    })} ج.م
-                  </span>
+              ) : (
+                <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
+                    <span className="font-black text-indigo-600 dark:text-indigo-400">
+                      {standardRequiredTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-[10px]">المحصل فعلياً:</span>
+                    <span className="font-black text-slate-700 dark:text-slate-300">
+                      {displayTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )
             )}
           </div>
           {(order.advancePayment || 0) > 0 && (
@@ -8053,7 +8054,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>التأمين على الشحنة:</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{insuranceFee.toFixed(2)} ج.م
+                      -{insuranceFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                     </span>
                   </div>
                 )}
@@ -8062,7 +8063,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>{dynamicVatLabel}:</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{bostaVatFee.toFixed(2)} ج.م
+                      -{bostaVatFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                     </span>
                   </div>
                 )}
@@ -8071,7 +8072,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>المعاينة (سماح بفتح الطرد):</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{inspectionAdjustment.toFixed(2)} ج.م
+                      -{inspectionAdjustment.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                     </span>
                   </div>
                 )}
@@ -8080,7 +8081,7 @@ const ProfitBreakdown: React.FC<{
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>رسوم التحصيل (COD):</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
-                      -{codFee.toFixed(2)} ج.م
+                      -{codFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                     </span>
                   </div>
                 )}
@@ -8680,13 +8681,15 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
 
               {/* Price & Actions Section */}
               <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/50 dark:border-white/[0.04] shrink-0">
-                <div className="text-right sm:text-left font-mono">
+                <div className="text-right sm:text-left">
                   <div className="flex items-center gap-1.5 sm:justify-end">
-                    <span className="text-xs font-bold text-slate-400">×{itemQty}</span>
-                    <span className="text-base font-black text-slate-900 dark:text-white tabular-nums">
+                    <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                      {itemQty} {itemQty === 1 ? 'قطعة' : itemQty === 2 ? 'قطعتين' : 'قطع'}
+                    </span>
+                    <span className="text-base font-black text-slate-900 dark:text-white font-mono tabular-nums">
                       {lineTotal.toLocaleString()}
                     </span>
-                    <span className="text-[10px] font-bold text-slate-400">ج.م</span>
+                    <span className="text-[11px] font-bold text-slate-400">ج.م</span>
                   </div>
                 </div>
 
@@ -8719,7 +8722,7 @@ const ProductDetailsList: React.FC<{ order: Order }> = ({ order }) => {
       <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 flex items-center justify-between text-xs font-bold text-indigo-950 dark:text-indigo-200">
         <span className="flex items-center gap-1.5 font-black">
           <Boxes size={15} className="text-indigo-600 dark:text-indigo-400" />
-          <span>إجمالي قيمة المنتجات ({totalUnits} قطع):</span>
+          <span>إجمالي قيمة المنتجات ({totalUnits === 1 ? 'قطعة واحدة' : totalUnits === 2 ? 'قطعتان' : `${totalUnits} قطع`}):</span>
         </span>
         <span className="font-mono text-sm font-black text-indigo-600 dark:text-indigo-400 tabular-nums">
           {totalProductsPrice.toLocaleString()} ج.م
@@ -9298,26 +9301,35 @@ const OrderRow = ({
                 </div>
               )}
               {displayTotal !== standardRequiredTotal && (
-                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
-                  <div className="flex items-center gap-1">
-                    <span className="font-bold text-[9px]">المطلوب:</span>
-                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
-                      {standardRequiredTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })} ج.م
+                order.totalAmountOverride !== undefined && order.totalAmountOverride !== null ? (
+                  <div className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-slate-400 mt-1 font-bold bg-emerald-50/70 dark:bg-emerald-950/30 px-2 py-0.5 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40">
+                    <span>سعر متفق عليه:</span>
+                    <span className={displayTotal > standardRequiredTotal ? "text-emerald-600 dark:text-emerald-400 font-mono font-black" : "text-amber-600 font-mono font-black"}>
+                      {displayTotal > standardRequiredTotal ? `+${(displayTotal - standardRequiredTotal).toLocaleString()}` : (displayTotal - standardRequiredTotal).toLocaleString()} ج.م
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <span className="font-bold text-[9px]">الفعلي:</span>
-                    <span className="font-extrabold text-slate-700 dark:text-slate-300">
-                      {displayTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })} ج.م
-                    </span>
+                ) : (
+                  <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-[9px]">المطلوب:</span>
+                      <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
+                        {standardRequiredTotal.toLocaleString(undefined, {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2,
+                        })} ج.م
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-[9px]">الفعلي:</span>
+                      <span className="font-extrabold text-slate-700 dark:text-slate-300">
+                        {displayTotal.toLocaleString(undefined, {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2,
+                        })} ج.م
+                      </span>
+                    </div>
                   </div>
-                </div>
+                )
               )}
             </div>
             <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-1.5 justify-end mix-blend-multiply dark:mix-blend-normal mt-1">
@@ -9347,10 +9359,17 @@ const OrderRow = ({
                   </span>
                 </div>
                 {(() => {
-                  if (order.compensationStatus === "compensated" || isDelivered || order.status === "تم_الاستبدال") {
+                  if (order.compensationStatus === "compensated") {
+                    return (
+                      <span className="text-[8px] font-bold block text-emerald-600 dark:text-emerald-400">
+                        تم التعويض
+                      </span>
+                    );
+                  }
+                  if (isDelivered || order.status === "تم_الاستبدال") {
                     return (
                       <span className="text-[8px] font-bold block text-slate-400 dark:text-slate-500">
-                        غير مستحق بعد
+                        غير مستحق (مسلّم)
                       </span>
                     );
                   }

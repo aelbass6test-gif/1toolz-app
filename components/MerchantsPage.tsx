@@ -143,10 +143,36 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       if (!map.has(key)) {
         map.set(key, m);
       } else {
-        // Merge data if duplicate (keep the one with more fields)
         const existing = map.get(key);
         if (existing && typeof existing === 'object' && typeof m === 'object') {
-          map.set(key, { ...existing, ...m });
+          const b1 = Number(existing.balance);
+          const b2 = Number(m.balance);
+
+          const existingTxs = Array.isArray(existing.transactions) ? existing.transactions : [];
+          const mTxs = Array.isArray(m.transactions) ? m.transactions : [];
+          const txMap = new Map<string, any>();
+          [...existingTxs, ...mTxs].forEach(tx => {
+            if (tx && tx.id) txMap.set(String(tx.id), tx);
+          });
+          const mergedTransactions = Array.from(txMap.values()).sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+          let mergedBalance = 0;
+          if (mergedTransactions.length > 0 && Number.isFinite(mergedTransactions[0]?.balanceAfter)) {
+            mergedBalance = Number(mergedTransactions[0].balanceAfter);
+          } else if (Number.isFinite(b1) && b1 !== 0) {
+            mergedBalance = b1;
+          } else if (Number.isFinite(b2) && b2 !== 0) {
+            mergedBalance = b2;
+          } else {
+            mergedBalance = Number.isFinite(b1) ? b1 : Number.isFinite(b2) ? b2 : 0;
+          }
+
+          map.set(key, {
+            ...existing,
+            ...m,
+            balance: mergedBalance,
+            transactions: mergedTransactions
+          });
         }
       }
     });
@@ -720,26 +746,63 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     }
     setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
+    // Calculate configured transfer fee (weekly / daily)
+    const isDaily = (req as any).payoutFrequency === 'daily' || supplier.payoutFrequency === 'daily';
+    const feeRate = isDaily
+      ? (typeof supplier.dailyTransferFee === 'number' ? supplier.dailyTransferFee : (settings.dailyTransferFee ?? 1))
+      : (typeof supplier.weeklyTransferFee === 'number' ? supplier.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
+    const feeType = isDaily
+      ? (supplier.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
+      : (supplier.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
+
+    let transferFee = typeof (req as any).transferFee === 'number' && (req as any).transferFee >= 0
+      ? Number((req as any).transferFee)
+      : 0;
+
+    if (transferFee === 0 && !isCreditToWallet && req.type !== 'plan_change_request' && feeRate > 0) {
+      if (feeType === 'percentage') {
+        transferFee = Math.round((amt * (feeRate / 100)) * 100) / 100;
+      } else {
+        transferFee = Math.min(amt, Number(feeRate) || 0);
+      }
+    }
+    const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
+
     const currentBalance = Number(supplier.balance || 0);
     const newBalance = isCreditToWallet
       ? Number((currentBalance + amt).toFixed(2))
       : Number((currentBalance - amt).toFixed(2));
+    const nowIso = new Date().toISOString();
 
-    const newTx: MerchantTransaction = {
+    const withdrawalTx: MerchantTransaction = {
       id: generateSafeId('mtx'),
       merchantId: supplier.id,
       merchantName: supplier.name,
       type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
-      amount: isCreditToWallet ? amt : -amt,
-      date: new Date().toISOString(),
+      amount: isCreditToWallet ? amt : -netDisbursed,
+      date: nowIso,
       notes: isRefundRequest
         ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة: ${req.notes || ''}`
         : isTopUpRequest
         ? `اعتماد شحن محفظة التاجر: ${req.notes || ''}`
-        : `اعتماد طلب سحب من البوابة: ${req.notes || ''}`,
-      balanceAfter: newBalance,
+        : `اعتماد طلب سحب من البوابة (صافي المحول - طلب #${req.id.slice(-6)}): ${req.notes || ''}`,
+      balanceAfter: isCreditToWallet ? newBalance : Number((currentBalance - netDisbursed).toFixed(2)),
       referenceId: req.id
     };
+
+    const feeTx: MerchantTransaction | null = (!isCreditToWallet && transferFee > 0) ? {
+      id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+      merchantId: supplier.id,
+      merchantName: supplier.name,
+      type: 'expense',
+      amount: -transferFee,
+      date: nowIso,
+      notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
+      balanceAfter: newBalance,
+      referenceId: req.id
+    } : null;
+
+    const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
 
     await syncMerchantUpdates(
       supplier.id,
@@ -748,7 +811,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         const nextObj: any = {
           ...m,
           balance: newBalance,
-          transactions: [newTx, ...(m.transactions || [])]
+          transactions: [...newTxs, ...(m.transactions || [])]
         };
         if (isRefundRequest) {
           const targetType = req.refundMeta?.targetType;
@@ -771,7 +834,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         }
         return nextObj;
       },
-      newTx,
+      withdrawalTx,
       {
         action: isRefundRequest ? 'اعتماد استرداد باقة (14 يوم)' : isTopUpRequest ? 'اعتماد شحن محفظة موكل' : 'اعتماد طلب سحب موكل',
         details: isCreditToWallet

@@ -90,8 +90,13 @@ export const BulkOrderSettlementModal: React.FC<BulkOrderSettlementModalProps> =
     // Goods cost
     const goodsCost = order.merchantItemCost || (order.items || []).reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
 
-    // Service fee: 10 EGP default on delivered
-    const serviceFee = isDelivered ? (order.serviceFeePerOrder !== undefined ? order.serviceFeePerOrder : serviceFeeParam) : 0;
+    // Service fee: 10 EGP default on delivered (منع الخصم المزدوج إذا كان الأوردر مشمولاً بالباقة أو مخصوماً مسبقاً)
+    const isCoveredByPlanOrPrepaid = Boolean(
+      (order as any).quotaIncludedOrder || 
+      (order as any).isQuotaCovered ||
+      (order as any).managerFeeDeducted
+    );
+    const serviceFee = isDelivered && !isCoveredByPlanOrPrepaid ? (order.serviceFeePerOrder !== undefined ? order.serviceFeePerOrder : serviceFeeParam) : 0;
 
     // Revenue collected
     const collected = isDelivered ? (Number(order.totalAmountOverride || order.totalPrice) || 0) : 0;
@@ -332,12 +337,11 @@ export const BulkOrderSettlementModal: React.FC<BulkOrderSettlementModalProps> =
 
       // 2. Update Settings (Suppliers balances + Settlements + Ledger)
       updateSettings(currSettings => {
-        const suppliersList = currSettings.suppliers || [];
-        const updatedSuppliers = suppliersList.map(s => {
+        const updateList = (list: any[]) => (list || []).map(s => {
           const addition = supplierBalanceAdditions.get(s.id);
           if (addition !== undefined && saveAsStatus === 'paid') {
-            const currentBal = s.balance || 0;
-            const newBal = currentBal + addition;
+            const currentBal = Number(s.balance) || 0;
+            const newBal = Number((currentBal + addition).toFixed(2));
             const txsForThisSupplier = newLedgerTransactions
               .filter(tx => tx.merchantId === s.id)
               .map(tx => ({ ...tx, balanceAfter: newBal }));
@@ -351,9 +355,13 @@ export const BulkOrderSettlementModal: React.FC<BulkOrderSettlementModalProps> =
           return s;
         });
 
+        const updatedSuppliers = updateList(currSettings.suppliers || []);
+        const updatedPartners = updateList(currSettings.partners || []);
+
         return {
           ...currSettings,
           suppliers: updatedSuppliers,
+          partners: updatedPartners,
           merchantTransactions: [...newLedgerTransactions, ...(currSettings.merchantTransactions || [])],
           merchantSettlements: [...newSettlements, ...(currSettings.merchantSettlements || [])]
         };

@@ -3829,15 +3829,15 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200">
             <div className="bg-slate-900 dark:bg-black p-5 text-white flex justify-between items-center">
-              <h3 className="text-base font-black">تسجيل دفعة سداد للمورد</h3>
+              <h3 className="text-base font-black">تسجيل صرف مستحقات / دفعة سداد للموكل أو المورد</h3>
               <button onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
             </div>
             
             <div className="p-6 space-y-4 text-right">
               <div className="bg-indigo-50/50 dark:bg-indigo-950/20 p-4 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/30">
-                <span className="text-xs text-indigo-600 dark:text-indigo-400 block mb-0.5 font-bold">اسم المورد الحالي</span>
+                <span className="text-xs text-indigo-600 dark:text-indigo-400 block mb-0.5 font-bold">اسم الموكل / المورد</span>
                 <span className="font-extrabold text-slate-800 dark:text-white block text-sm">{selectedSupplierForPayment.name}</span>
-                <span className="text-[10px] text-slate-400 block mt-2">إجمالي المسحوبات المستحقة في الدفتر الجاري:</span>
+                <span className="text-[10px] text-slate-400 block mt-2">إجمالي المستحقات المتاحة في الدفتر الجاري:</span>
                 <span className="text-2xl font-black text-rose-600 dark:text-rose-400 tracking-tight mt-0.5 block">{selectedSupplierForPayment.balance?.toLocaleString()} ج.م</span>
               </div>
               
@@ -3934,7 +3934,7 @@ const [partnerPayments, setPartnerPayments] = useState<{ partnerId: string, amou
                   className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-black shadow-lg shadow-emerald-500/10 transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
                 >
                   <Check size={16}/>
-                  <span>تأكيد تسجيل السداد وخصم المديونية</span>
+                  <span>تأكيد تسجيل السداد / الصرف ورصد العملية</span>
                 </button>
               </div>
             </div>

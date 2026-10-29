@@ -207,16 +207,30 @@ export function isOrderForMerchant(
   merchantIdOrName: string, 
   merchantObj?: { id: string; name: string }
 ): boolean {
-  const target = normalizeStr(merchantIdOrName);
-  if (!target) return false;
-  const ids = new Set<string>();
-  const headerId = normalizeStr(order.merchantId || '');
-  if (headerId && headerId !== 'pending') ids.add(headerId);
-  (order.items || []).forEach(item => {
-    const itemId = normalizeStr(item.merchantId || '');
-    if (itemId && itemId !== 'pending') ids.add(itemId);
+  // Names and legacy agency flags are descriptive only; only explicit IDs qualify.
+  const hasMerchant = Boolean(
+    (order.merchantId && order.merchantId !== 'pending') ||
+    (order.items || []).some(item => Boolean(item.merchantId && item.merchantId !== 'pending'))
+  );
+
+  // If no merchant/supplier association at all, it is a standard store retail order -> EXCLUDE from merchant transparency report
+  if (!hasMerchant) return false;
+
+  // If 'all' is selected, include all merchant/supplier/agency orders
+  if (!merchantIdOrName || merchantIdOrName === 'all') return true;
+
+  const oMId = normalizeStr(order.merchantId || '');
+  const targetId = normalizeStr(merchantObj?.id || merchantIdOrName);
+  const hasLineOwnership = (order.items || []).some(item => Boolean(item.merchantId || item.ownerType));
+  if (targetId && oMId === targetId && !hasLineOwnership) return true;
+
+  // NEW: Check individual items for joint merchant association (Option B)
+  const hasItemMatch = (order.items || []).some(item => {
+    const iMId = normalizeStr(item.merchantId || '');
+    return Boolean(targetId && iMId === targetId);
   });
-  return target === 'all' ? ids.size > 0 : ids.has(target);
+
+  return hasItemMatch;
 }
 
 /**
@@ -316,8 +330,8 @@ export function calculateMerchantTransparencyAnalytics(
     const allItems = o.items || [];
     const relevantItems = allItems.filter(item => {
       const iMId = normalizeStr(item.merchantId || '');
-      const target = normalizeStr(merchantIdOrName);
-      return Boolean(target && iMId === target);
+      const targetId = normalizeStr(merchantObj?.id || merchantIdOrName);
+      return Boolean(targetId && iMId === targetId);
     });
 
     // If no relevant items (should not happen due to 'filtered' check, but for safety), treat whole order as relevant if it's their order
@@ -343,7 +357,13 @@ export function calculateMerchantTransparencyAnalytics(
     // Marketing & Service (proportional)
     const marketingFee = (Number(o.marketingFeePerOrder) || 0) * ratio;
     const defaultService = (settings as any).defaultMerchantServiceFee ?? 0;
-    const serviceFee = isDelivered ? ((o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : defaultService) * ratio) : 0;
+    const isCoveredByPlanOrPrepaid = Boolean(
+      (o as any).quotaIncludedOrder || 
+      (o as any).isQuotaCovered ||
+      (o as any).managerFeeDeducted
+    );
+    const baseServiceFee = isCoveredByPlanOrPrepaid ? 0 : (o.serviceFeePerOrder !== undefined ? o.serviceFeePerOrder : defaultService);
+    const serviceFee = isDelivered ? (baseServiceFee * ratio) : 0;
 
     // Return loss (proportional)
     const returnLoss = isReturn ? ((carrierCalc.totalShippingAndCarrier + (Number(o.marketingFeePerOrder) || 0)) * ratio) : 0;

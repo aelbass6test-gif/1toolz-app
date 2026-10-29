@@ -1,7 +1,7 @@
 import React from 'react';
 import { Order, Settings } from '../types';
 import { calculateInsuranceFee, getStandardShippingFee, calculateCodFee } from '../utils/financials';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface OrderPreConfirmationModalProps {
     order: Omit<Order, 'id'>;
@@ -40,6 +40,19 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
     const total = hasOverride
         ? Math.max(0, Math.round(Number((order as any).totalAmountOverride)))
         : baseTotal;
+
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+    const handleConfirm = async () => {
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            await onConfirm();
+        } catch (err) {
+            console.error("Error confirming order:", err);
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
@@ -110,14 +123,25 @@ export const OrderPreConfirmationModal: React.FC<OrderPreConfirmationModalProps>
                 </div>
                 <div className="mt-6 flex gap-3">
                     <button 
-                        onClick={onConfirm} 
-                        className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black transition-all shadow-lg shadow-emerald-500/25 active:scale-95 cursor-pointer text-sm"
+                        type="button"
+                        onClick={handleConfirm} 
+                        disabled={isSubmitting}
+                        className={`flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black transition-all shadow-lg shadow-emerald-500/25 active:scale-95 cursor-pointer text-sm flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-85 cursor-not-allowed' : ''}`}
                     >
-                        تأكيد وإنشاء الطلب ✓
+                        {isSubmitting ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                <span>جارٍ حفظ وترحيل الطلب...</span>
+                            </>
+                        ) : (
+                            <span>تأكيد وإنشاء الطلب ✓</span>
+                        )}
                     </button>
                     <button 
+                        type="button"
                         onClick={onCancel} 
-                        className="flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer text-sm"
+                        disabled={isSubmitting}
+                        className={`flex-1 py-3.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-2xl font-black hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer text-sm ${isSubmitting ? 'opacity-60 cursor-not-allowed pointer-events-none' : ''}`}
                     >
                         مراجعة وتعديل
                     </button>

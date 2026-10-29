@@ -22,7 +22,7 @@ import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlan
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
-import { getProductsForMerchant } from '../utils/merchantProducts';
+import { getProductsForMerchant, normalizeMerchantLabel } from '../utils/merchantProducts';
 import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
@@ -37,23 +37,7 @@ import {
   removeStoredBiometric
 } from '../utils/webAuthnService';
 
-const normalizeName = (name: string): string => {
-  if (!name) return '';
-  let normalized = name.trim().replace(/\s+/g, ' ');
-  normalized = normalized.replace(/\s*\((موكل|مورد|صاحب بضاعة|تاجر|partner|employee|admin|الموكل الرئيسي|مشترك|وكيل معتمد|وكيل أمانة)\)/gi, '');
-  // Normalize compound Arabic names so "عبد الرحمن" matches "عبدالرحمن", "ابو بكر" -> "ابوبكر"
-  normalized = normalized.replace(/عبد\s+/g, 'عبد');
-  normalized = normalized.replace(/ابو\s+/g, 'ابو');
-  normalized = normalized.replace(/بن\s+/g, 'بن');
-  return normalized
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
-    .replace(/ـ+/g, '') // remove tatweel
-    .toLowerCase()
-    .trim();
-};
+const normalizeName = (name: string): string => normalizeMerchantLabel(name);
 
 const maskEmail = (email?: string) => {
   if (!email || !email.includes('@')) return email || '';
@@ -137,7 +121,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   const [directStoreId, setDirectStoreId] = useState<string>('');
   const [directStoreData, setDirectStoreData] = useState<StoreData | null>(null);
-  const [crossStoreProducts, setCrossStoreProducts] = useState<Product[]>([]);
+  const [crossStoreProducts, setCrossStoreProducts] = useState<Product[]>(() => {
+    try {
+      const savedMerchant = localStorage.getItem('authenticated_merchant');
+      if (savedMerchant) {
+        const parsed = JSON.parse(savedMerchant);
+        if (parsed?.id) {
+          const cached = localStorage.getItem(`merchant_cached_prods_${parsed.id}`);
+          if (cached) return JSON.parse(cached);
+        }
+      }
+    } catch {}
+    return [];
+  });
   const [isFetchingCrossStore, setIsFetchingCrossStore] = useState(false);
   const [isLoadingStore, setIsLoadingStore] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -304,6 +300,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (activeId && allStoresData[activeId]) return activeId;
       if (activeId) return activeId;
     } catch {}
+    try {
+      const savedM = localStorage.getItem('authenticated_merchant');
+      if (savedM) {
+        const parsedM = JSON.parse(savedM);
+        if (parsedM?._storeId) return parsedM._storeId;
+      }
+    } catch {}
     const keys = Object.keys(allStoresData);
     if (keys.length > 0) return keys[0];
     return '';
@@ -348,12 +351,21 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (!sId && !sName && !sEmail && !sPhone) return;
       const normName = normalizeName(sName);
 
-      const existing = list.find(item =>
-        (sId && item.id && String(item.id).trim().toLowerCase() === sId.toLowerCase()) ||
-        (normName && item.name && normalizeName(item.name) === normName) ||
-        (sEmail && item.email && item.email.trim().toLowerCase() === sEmail) ||
-        (sPhone && sPhone.length >= 8 && item.phone && item.phone.trim() === sPhone)
-      );
+      const existing = list.find(item => {
+        // 1. If both have explicit IDs, strict ID match is authoritative
+        if (sId && item.id) {
+          return String(item.id).trim().toLowerCase() === sId.toLowerCase();
+        }
+        // 2. If neither or one lacks an ID, match by exact non-empty email
+        if (sEmail && item.email) {
+          return item.email.trim().toLowerCase() === sEmail;
+        }
+        // 3. Match by normalized name ONLY if neither has a conflicting ID, and name is not a generic placeholder
+        if (normName && item.name && !['موكل معتمد', 'موكل صاحب بضاعة', 'موكل مشترك مسجل'].includes(sName)) {
+          return normalizeName(item.name) === normName;
+        }
+        return false;
+      });
 
       if (existing) {
         if (!existing.email && sEmail) existing.email = sEmail;
@@ -538,16 +550,38 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   const liveMerchant = useMemo(() => {
     if (!authenticatedMerchant) return null;
-    const current = merchants.find(m => 
-      (m.id && authenticatedMerchant.id && String(m.id).trim() === String(authenticatedMerchant.id).trim()) ||
-      (authenticatedMerchant.phone && m.phone && String(m.phone).trim() === String(authenticatedMerchant.phone).trim()) ||
-      (authenticatedMerchant.email && m.email && String(m.email).trim().toLowerCase() === String(authenticatedMerchant.email).trim().toLowerCase()) ||
-      (m.name && authenticatedMerchant.name && normalizeName(m.name) === normalizeName(authenticatedMerchant.name))
-    );
+    const current = merchants.find(m => {
+      // 1. Strict ID match is authoritative
+      if (m.id && authenticatedMerchant.id) {
+        return String(m.id).trim().toLowerCase() === String(authenticatedMerchant.id).trim().toLowerCase();
+      }
+      // 2. Email match if authenticatedMerchant has email
+      if (authenticatedMerchant.email && m.email) {
+        return m.email.trim().toLowerCase() === authenticatedMerchant.email.trim().toLowerCase();
+      }
+      // 3. Exact normalized name match
+      if (authenticatedMerchant.name && m.name) {
+        return normalizeName(m.name) === normalizeName(authenticatedMerchant.name);
+      }
+      return false;
+    });
+
     if (!current) return authenticatedMerchant;
+
+    // Preserve the authenticated identity (id, name, phone, email) as authoritative,
+    // only pulling fresh business balances, plan cycles, and payout rules from live store state.
     return {
-      ...authenticatedMerchant,
       ...current,
+      ...authenticatedMerchant,
+      id: authenticatedMerchant.id || current.id,
+      name: authenticatedMerchant.name || current.name,
+      phone: authenticatedMerchant.phone || current.phone,
+      email: authenticatedMerchant.email || current.email,
+      balance: current.balance !== undefined ? current.balance : (authenticatedMerchant.balance ?? 0),
+      transactions: (Array.isArray(current.transactions) && current.transactions.length > 0)
+        ? current.transactions
+        : (authenticatedMerchant.transactions || []),
+      profitRatio: current.profitRatio !== undefined ? current.profitRatio : (authenticatedMerchant.profitRatio ?? 0),
       payoutFrequency: current.payoutFrequency ?? authenticatedMerchant.payoutFrequency ?? 'weekly',
       weeklyPayoutDay: current.weeklyPayoutDay ?? authenticatedMerchant.weeklyPayoutDay ?? 1,
       holdingDaysAfterSettlement: current.holdingDaysAfterSettlement ?? authenticatedMerchant.holdingDaysAfterSettlement ?? 7,
@@ -570,7 +604,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
   // Fetch fresh store data on mount
   const fetchFreshData = useCallback(async (isManualRefresh = false) => {
-    const targetStoreId = directStoreId || storeId || effectiveStoreId;
+    const targetStoreId = directStoreId || storeId || effectiveStoreId || (authenticatedMerchant as any)?._storeId;
     if (!targetStoreId) return;
 
     if (isManualRefresh) {
@@ -589,11 +623,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       }
       await loadRequests();
 
-      // NEW: Fetch products for this merchant from ALL stores to ensure cross-store allocations are visible
-      if (liveMerchant?.id) {
+      // Fetch products for this merchant from ALL stores to ensure cross-store allocations are visible
+      const targetId = String(liveMerchant?.id || authenticatedMerchant?.id || '').trim();
+      const targetName = String(liveMerchant?.name || authenticatedMerchant?.name || '').trim();
+      if (targetId) {
         setIsFetchingCrossStore(true);
-        const allocated = await db.getMerchantAllocatedProducts(liveMerchant.id, liveMerchant.name);
+        const allocated = await db.getMerchantAllocatedProducts(targetId, targetName);
         setCrossStoreProducts(allocated);
+        if (targetId || targetName) {
+          const cacheKey = targetId ? `merchant_cached_prods_${targetId}` : `merchant_cached_prods_name_${normalizeName(targetName)}`;
+          localStorage.setItem(cacheKey, JSON.stringify(allocated));
+        }
         setIsFetchingCrossStore(false);
       }
     } catch (err) {
@@ -603,7 +643,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       setIsRefreshing(false);
       setIsFetchingCrossStore(false);
     }
-  }, [directStoreId, storeId, effectiveStoreId, loadRequests, liveMerchant]);
+  }, [directStoreId, storeId, effectiveStoreId, loadRequests, liveMerchant, authenticatedMerchant]);
+
+  // Trigger fetchFreshData on mount or when effectiveStoreId is resolved
+  useEffect(() => {
+    const targetStoreId = directStoreId || storeId || effectiveStoreId || (authenticatedMerchant as any)?._storeId;
+    if (targetStoreId) {
+      fetchFreshData(false);
+    }
+  }, [directStoreId, storeId, effectiveStoreId, (authenticatedMerchant as any)?._storeId]);
 
   useEffect(() => {
     const fetchAllocated = async () => {
@@ -616,6 +664,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           const allocated = await db.getMerchantAllocatedProducts(targetId, targetName);
           console.log('[MerchantPortal] Found cross-store products:', allocated.length);
           setCrossStoreProducts(allocated);
+          if (targetId || targetName) {
+            try {
+              const cacheKey = targetId ? `merchant_cached_prods_${targetId}` : `merchant_cached_prods_name_${normalizeName(targetName)}`;
+              localStorage.setItem(cacheKey, JSON.stringify(allocated));
+            } catch {}
+          }
         } catch (err) {
           console.error('[MerchantPortal] Error fetching cross-store products:', err);
         } finally {
@@ -651,14 +705,26 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const portalTitle = 'عبده ميديا · بوابة الموكلين';
   const storeName = portalTitle;
 
-  // Persist authenticatedMerchant change
+  // Persist authenticatedMerchant change and keep URL parameter in sync
   useEffect(() => {
     if (authenticatedMerchant) {
       localStorage.setItem('authenticated_merchant', JSON.stringify(authenticatedMerchant));
+      if (authenticatedMerchant.id) {
+        const currentP = searchParams.get('p') || searchParams.get('merchantId') || searchParams.get('m');
+        if (currentP && currentP !== authenticatedMerchant.id) {
+          setSearchParams(prev => {
+            const next = new URLSearchParams(prev);
+            next.set('p', authenticatedMerchant.id);
+            next.delete('merchantId');
+            next.delete('m');
+            return next;
+          }, { replace: true });
+        }
+      }
     } else {
       localStorage.removeItem('authenticated_merchant');
     }
-  }, [authenticatedMerchant]);
+  }, [authenticatedMerchant, searchParams, setSearchParams]);
 
   useEffect(() => {
     document.title = liveMerchant?.name
@@ -1508,12 +1574,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const clean = identifier.trim().toLowerCase();
     if (!clean) return null;
 
-    let matched = merchants.find(m =>
-      (m.email && m.email.trim().toLowerCase() === clean) ||
-      (m.phone && m.phone.trim().toLowerCase() === clean) ||
-      (m.id && String(m.id).trim().toLowerCase() === clean)
-    );
+    // 1. Direct ID match (authoritative)
+    let matched = merchants.find(m => m.id && String(m.id).trim().toLowerCase() === clean);
     if (matched) return matched;
+
+    // 2. Direct Email match
+    if (clean.includes('@')) {
+      matched = merchants.find(m => m.email && m.email.trim().toLowerCase() === clean);
+      if (matched) return matched;
+    }
+
+    // 3. Normalized Name match
+    matched = merchants.find(m => m.name && normalizeName(m.name) === normalizeName(clean));
+    if (matched) return matched;
+
+    // 4. Phone match
+    const cleanDigits = clean.replace(/[^\d]/g, '');
+    if (cleanDigits.length >= 8) {
+      const byPhone = merchants.filter(m => m.phone && m.phone.trim().replace(/[^\d]/g, '') === cleanDigits);
+      if (byPhone.length === 1) return byPhone[0];
+      if (byPhone.length > 1 && selectedMerchantId) {
+        const sel = byPhone.find(m => String(m.id).trim().toLowerCase() === selectedMerchantId.trim().toLowerCase());
+        if (sel) return sel;
+      }
+    }
 
     if (effectiveStoreId) {
       try {
@@ -1681,12 +1765,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.valid) {
+        // 1. Authoritative match by the exact email to which OTP was sent
         let authenticatedObj = merchants.find(m =>
-          (selectedMerchantId && m.id === selectedMerchantId) ||
-          (m.email && m.email.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase())
+          m.email && m.email.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase()
         );
+        // 2. If not found by email, try resolver by email
         if (!authenticatedObj) {
           authenticatedObj = (await resolveMerchantByEmailOrIdentifier(otpTargetEmail)) || undefined;
+        }
+        // 3. Fallback to selectedMerchantId ONLY if its email matches or is unassigned
+        if (!authenticatedObj && selectedMerchantId) {
+          const byId = merchants.find(m => String(m.id).trim().toLowerCase() === selectedMerchantId.trim().toLowerCase());
+          if (byId && (!byId.email || byId.email.trim().toLowerCase() === otpTargetEmail.trim().toLowerCase())) {
+            authenticatedObj = byId;
+          }
         }
         if (!authenticatedObj) {
           setAuthError('تعذر العثور على حساب الموكل المرتبط بهذا البريد. تواصل مع الإدارة.');
@@ -1746,10 +1838,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const merchantProducts = useMemo(() => {
     if (!liveMerchant) return [];
 
+    console.log('[MerchantPortal] Scanning products for merchant:', {
+      name: liveMerchant.name,
+      id: liveMerchant.id,
+      storeId: (liveMerchant as any)._storeId
+    });
+
     const productSources: any[][] = [
       Array.isArray(activeStoreData?.settings?.products) ? activeStoreData.settings.products : [],
       Array.isArray((activeStoreData as any)?.products) ? (activeStoreData as any).products : [],
-      Array.isArray(settings?.products) ? settings.products : []
+      Array.isArray(settings?.products) ? settings.products : [],
+      Array.isArray(crossStoreProducts) ? crossStoreProducts : []
     ];
 
     const productsById = new Map<string, any>();
@@ -1759,8 +1858,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       }
     });
 
-    return getProductsForMerchant(Array.from(productsById.values()), liveMerchant.id);
-  }, [activeStoreData, settings?.products, liveMerchant]);
+    console.log(`[MerchantPortal] Total unique candidate products found: ${productsById.size}`);
+
+    const list = getProductsForMerchant(Array.from(productsById.values()), liveMerchant.id, liveMerchant.name);
+    
+    console.log(`[MerchantPortal] Products after filtering for merchant: ${list.length}`);
+
+    if (list.length === 0 && (liveMerchant.id || liveMerchant.name)) {
+      try {
+        const cacheKey = liveMerchant.id ? `merchant_cached_prods_${liveMerchant.id}` : `merchant_cached_prods_name_${normalizeName(liveMerchant.name)}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            console.log(`[MerchantPortal] Found ${parsed.length} products in localStorage cache`);
+            return getProductsForMerchant(parsed, liveMerchant.id, liveMerchant.name);
+          }
+        }
+      } catch (err) {
+        console.error('[MerchantPortal] Cache error:', err);
+      }
+    }
+
+    return list;
+  }, [activeStoreData, settings?.products, crossStoreProducts, liveMerchant]);
 
   // Orders Counts by Status for Filter Pills
   const orderStatusCounts = useMemo(() => {
@@ -2043,6 +2164,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     return merchantProducts.reduce((sum, p) => sum + Number(p.stock || p.quantity || p.inventory || 0), 0);
   }, [merchantProducts]);
 
+  const unlimitedProductCount = useMemo(() =>
+    merchantProducts.filter(product => Boolean((product as any).unlimitedStock)).length,
+  [merchantProducts]);
+
   // Memoized Customers List derived from merchant orders
   const customersList = useMemo(() => {
     const map = new Map<string, {
@@ -2217,7 +2342,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     let runningBalance = 0;
     const chartData = sortedTxs.map(t => {
       const amount = Number(t.amount) || 0;
-      runningBalance = t.balanceAfter ?? (runningBalance + amount);
+      runningBalance = Number((runningBalance + amount).toFixed(2));
       return {
         date: new Date(t.date).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric' }),
         'الرصيد الجاري': runningBalance,
@@ -2323,14 +2448,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       });
     }
     if (inventoryStockFilter === 'available') {
-      list = list.filter(p => Number(p.stock || p.quantity || 0) > 0);
+      list = list.filter(p => {
+        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+        const isUnlimited = Boolean((p as any).unlimitedStock) || (Boolean((p as any).isSharedProduct || p.isAllocatedConsignment) && isStockEmpty);
+        return isUnlimited || Number(p.stock || p.quantity || 0) > 0;
+      });
     } else if (inventoryStockFilter === 'low') {
       list = list.filter(p => {
+        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+        const isUnlimited = Boolean((p as any).unlimitedStock) || (Boolean((p as any).isSharedProduct || p.isAllocatedConsignment) && isStockEmpty);
+        if (isUnlimited) return false;
         const s = Number(p.stock || p.quantity || 0);
         return s > 0 && s <= 5;
       });
     } else if (inventoryStockFilter === 'out') {
-      list = list.filter(p => Number(p.stock || p.quantity || 0) <= 0);
+      list = list.filter(p => {
+        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+        const isUnlimited = Boolean((p as any).unlimitedStock) || (Boolean((p as any).isSharedProduct || p.isAllocatedConsignment) && isStockEmpty);
+        return !isUnlimited && Number(p.stock || p.quantity || 0) <= 0;
+      });
     }
     return list;
   }, [merchantProducts, inventorySearch, inventoryStockFilter]);
@@ -2373,12 +2509,13 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
 
     const qty = Math.max(1, Number(orderQuantity) || 1);
-    const availableStock = Number(
+    const unlimitedStock = Boolean((selectedProd as any).unlimitedStock);
+    const availableStock = unlimitedStock ? Number.POSITIVE_INFINITY : Number(
       (selectedProd as any).stockQuantity ?? (selectedProd as any).stock ?? (selectedProd as any).quantity ?? 0
     );
 
-    // Audit Fix #9: Reject order when requested quantity exceeds available stock instead of silently clamping to 0
-    if (qty > availableStock) {
+    // Blank shared allocation means unlimited; a numeric allocation remains strictly enforced.
+    if (!unlimitedStock && qty > availableStock) {
       showToast(
         `الكمية المطلوبة (${qty}) أكبر من الرصيد المتاح في المخزون (${availableStock} قطعة). لا يمكن إنشاء الطلب بكمية تتجاوز المتاح.`,
         'error'
@@ -2449,7 +2586,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             price: unitPrice,
             costPrice: unitCost,
             merchantId: liveMerchant.id,
-            merchantName: liveMerchant.name
+            merchantName: liveMerchant.name,
+            ownerType: selectedProd.ownerType || 'merchant'
           }
         ]
       };
@@ -2464,6 +2602,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       // Deduct validated inventory
       const updatedProducts = (activeStoreData?.settings?.products || []).map((p: any) => {
+        if (p.id === selectedProd.id && unlimitedStock) return p;
+        if (p.id === selectedProd.id && p.ownerType === 'shared') {
+          const merchantAllocations = (Array.isArray(p.merchantAllocations) ? p.merchantAllocations : []).map((allocation: any) =>
+            allocation.merchantId === liveMerchant.id && allocation.stock !== null && allocation.stock !== undefined
+              ? { ...allocation, stock: Math.max(0, Number(allocation.stock) - qty) }
+              : allocation
+          );
+          return { ...p, merchantAllocations, updatedAt: nowIso, version: Number(p.version || 0) + 1 };
+        }
         if (p.id === selectedProd.id) {
           const currentStock = Number(p.stockQuantity ?? p.stock ?? p.quantity ?? 0);
           const nextStock = currentStock - qty;
@@ -2856,7 +3003,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     let running = 0;
     return sortedAll.map(tx => {
       const amt = Number(tx.amount) || 0;
-      running = tx.balanceAfter !== undefined ? tx.balanceAfter : Number((running + amt).toFixed(2));
+      running = Number((running + amt).toFixed(2));
       return {
         ...tx,
         amount: amt,
@@ -3858,6 +4005,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     setShowProfileBottomSheet(false);
     setShowFullMenuDrawer(false);
     setAuthenticatedMerchant(null);
+    setSelectedMerchantId('');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('p');
+      next.delete('merchantId');
+      next.delete('m');
+      return next;
+    }, { replace: true });
     showToast('تم تسجيل الخروج الآمن من بوابة الموكلين', 'success');
   };
 
@@ -3945,7 +4100,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   if (isLoadingStore || loadingProgress < 100) {
     return (
       <WelcomeLoader 
-        userName={authenticatedMerchant?.name || 'عزيزنا الموكل'} 
+        userName={liveMerchant?.name || authenticatedMerchant?.name || 'عزيزنا الموكل'} 
         storeName={portalTitle}
         onFastPass={() => {
           setLoadingProgress(100);
@@ -4171,7 +4326,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     wallet: { title: 'المحفظة والدورة المالية', subtitle: 'الرصيد الحالي، قائمة المعاملات، والدورة المالية للشحنات' },
     orders: { title: 'الأوردرات المنشأة', subtitle: `متابعة جميع الأوردرات المنشأة لحسابك (${merchantOrders.length} أوردر)` },
     create_order: { title: 'إنشاء أوردر جديد', subtitle: 'استوديو تسجيل وشحن أوردرات الوكيل' },
-    inventory: { title: 'مخزون بضاعتي', subtitle: `متابعة ${merchantProducts.length} صنف و ${totalStockUnits} قطعة بالمستودع` },
+    inventory: { title: 'مخزون بضاعتي', subtitle: `متابعة ${merchantProducts.length} صنف · ${totalStockUnits} قطعة محددة · ${unlimitedProductCount} متاح دائمًا` },
     analytics: { title: 'تحليل الأصناف والمحافظات', subtitle: 'ترتيب المنتجات الأكثر ربحية ونسب التسليم' },
     customers: { title: 'إدارة العملاء والمشترين', subtitle: `سجل العملاء، بيانات الاتصال، وإحصائيات لـ ${uniqueCustomersCount} عميل` },
     apps: { title: 'التطبيقات والربط الآلي', subtitle: 'ربط شركات الشحن (بوسطة)، إشعارات الواتساب، وتكامل المخزون والـ Webhooks' },
@@ -5351,7 +5506,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         بضاعة الأمانة بالمخزن ({merchantProducts.length})
                       </h4>
                       <p className="text-xs text-zinc-400">
-                        إجمالي {overviewStats.totalStockUnits} قطعة متوفرة حالياً
+                        إجمالي {overviewStats.totalStockUnits} قطعة محددة · {unlimitedProductCount} صنف متاح دائمًا
                       </p>
                     </div>
                     <button
@@ -5371,6 +5526,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   ) : (
                     <div className="divide-y divide-zinc-100 dark:divide-zinc-800 max-h-60 overflow-y-auto pr-1">
                       {merchantProducts.map((p, idx) => {
+                        const unlimited = Boolean((p as any).unlimitedStock);
                         const stock = Number(p.stock || p.quantity || p.inventory || 0);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || p.supplierPrice || 0);
                         return (
@@ -5380,15 +5536,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 {p.name || p.title || 'منتج أمانة'}
                               </div>
                               <div className="text-[11px] text-zinc-400 font-mono">
-                                تكلفة القطعة: {formatMoney(cost)}
+                                {(p as any).isSharedProduct && cost <= 0 ? 'منتج مشترك — عرض فقط' : `تكلفة القطعة: ${formatMoney(cost)}`}
                               </div>
                             </div>
                             <div className="text-left shrink-0">
                               <div className="font-mono tabular-nums font-black text-[#00ab84]">
-                                {stock} قطعة
+                                {unlimited ? 'متاح دائمًا' : `${stock} قطعة`}
                               </div>
                               <div className="text-[10px] font-mono text-zinc-400">
-                                {formatMoney(stock * cost)}
+                                {unlimited || cost <= 0 ? '—' : formatMoney(stock * cost)}
                               </div>
                             </div>
                           </div>
@@ -6482,7 +6638,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             : 'خصم / تعديل';
 
                           const subText = isTransferFee
-                            ? ''
+                            ? (tx.notes || 'رسوم التحويل المالي لسحب المستحقات')
                             : isWithdrawal 
                             ? (tx.notes || 'تحويل بنكي') 
                             : (tx.notes || 'تسوية معتمدة للحساب');
@@ -6604,7 +6760,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         : 'خصم / تعديل';
 
                       const subText = isTransferFee
-                        ? ''
+                        ? (tx.notes || 'رسوم التحويل المالي لسحب المستحقات')
                         : isWithdrawal 
                         ? (tx.notes || 'تحويل بنكي') 
                         : (tx.notes || 'تسوية معتمدة للحساب');
@@ -7545,7 +7701,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               </div>
 
               <div className="text-[11px] font-bold text-zinc-400">
-                أصناف بضاعتك بالمستودع: <span className="font-black text-[#00ab84]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة متاحة)
+                أصناف بضاعتك بالمستودع: <span className="font-black text-[#00ab84]">{merchantProducts.length} صنف</span> ({totalStockUnits} قطعة محددة · {unlimitedProductCount} متاح دائمًا)
               </div>
             </div>
 
@@ -7695,7 +7851,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           اختيار الصنف والتسعير
                         </h3>
                         <p className="text-xs text-zinc-400">
-                          اختر الصنف المتوفر ببضاعتك في المستودع
+                          اختر الصنف المخصص لك أو المتاح دائمًا
                         </p>
                       </div>
                     </div>
@@ -7720,10 +7876,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                           >
                             <option value="">-- اختر المنتج من مخزونك --</option>
                             {merchantProducts.map(p => {
+                              const unlimited = Boolean((p as any).unlimitedStock);
                               const stock = Number(p.stock || p.quantity || 0);
                               return (
-                                <option key={p.id} value={p.id} disabled={stock <= 0}>
-                                  {p.name || p.title} (المتبقي: {stock} قطعة) {stock <= 0 ? '❌ نفد' : ''}
+                                <option key={p.id} value={p.id} disabled={!unlimited && stock <= 0}>
+                                  {p.name || p.title} {unlimited ? '(متاح دائمًا)' : `(المتبقي: ${stock} قطعة)`} {!unlimited && stock <= 0 ? '❌ نفد' : ''}
                                 </option>
                               );
                             })}
@@ -7738,7 +7895,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             <input
                               type="number"
                               min={1}
-                              max={orderProductId ? Number(merchantProducts.find(p => p.id === orderProductId)?.stock || 10) : 100}
+                              max={orderProductId && !(merchantProducts.find(p => p.id === orderProductId) as any)?.unlimitedStock
+                                ? Number(merchantProducts.find(p => p.id === orderProductId)?.stock || 0) || undefined
+                                : undefined}
                               value={orderQuantity}
                               onChange={e => setOrderQuantity(Math.max(1, parseInt(e.target.value) || 1))}
                               className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
@@ -7757,6 +7916,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               value={orderSellingPrice}
                               onChange={e => setOrderSellingPrice(e.target.value === '' ? '' : parseFloat(e.target.value))}
                               placeholder="سعر البيع"
+                              disabled={(merchantProducts.find(p => p.id === orderProductId) as any)?.isSharedProduct}
                               className={`w-full p-3 border rounded-2xl font-mono text-xs outline-none focus:border-[#00ab84] ${
                                 isDark ? 'bg-zinc-950 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                               }`}
@@ -7985,7 +8145,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                       مخزون بضاعة الأمانة بالمستودع ({merchantProducts.length} صنف)
                     </h3>
                     <p className="text-xs text-zinc-400 mt-0.5">
-                      متابعة حية لكميات الأصناف المودعة، والقطع المحجوزة في أوردرات الطريق، وتقييم رأس المال بسعر التكلفة
+                      متابعة المنتجات المخصصة والمشتركة؛ الخانة الفارغة تعني متاحًا دائمًا، ولا تعرض مخزون المتجر العام
                     </p>
                   </div>
                 </div>
@@ -8013,7 +8173,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* 4 Financial & Unit Inventory Cards */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 pt-5">
                 <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
-                  <span className="text-[11px] font-bold text-zinc-400 block mb-1">إجمالي القطع بالمخزن</span>
+                  <span className="text-[11px] font-bold text-zinc-400 block mb-1">إجمالي القطع ذات الكمية المحددة</span>
                   <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-zinc-900 dark:text-white">
                     {totalStockUnits} <span className="text-xs font-bold text-zinc-400">قطعة</span>
                   </div>
@@ -8036,7 +8196,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className={`p-4 rounded-2xl border ${isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-amber-50/70 border-amber-200'}`}>
                   <span className="text-[11px] font-bold text-amber-600 block mb-1">أصناف قاربت على النفاد (&le; 5)</span>
                   <div className="text-xl sm:text-2xl font-black font-mono tabular-nums text-amber-600">
-                    {merchantProducts.filter(p => Number(p.stock || p.quantity || 0) <= 5).length} <span className="text-xs font-bold text-amber-500">صنف</span>
+                    {merchantProducts.filter(p => !(p as any).unlimitedStock && Number(p.stock || p.quantity || 0) <= 5).length} <span className="text-xs font-bold text-amber-500">صنف</span>
                   </div>
                 </div>
               </div>
@@ -8119,6 +8279,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     ) : (
                       filteredConsignmentProducts.map(p => {
                         const stock = Number(p.stock || p.quantity || 0);
+                        const isStockEmpty = p.stock === null || p.stock === undefined || p.stock === '' || p.quantity === null || p.quantity === undefined || p.quantity === '';
+                        const sharedReadOnly = Boolean((p as any).isSharedProduct);
+                        // A product is unlimited if explicitly flagged OR if it is shared/allocated AND the stock field is left empty
+                        const unlimited = Boolean((p as any).unlimitedStock) || (sharedReadOnly && isStockEmpty) || (p.isAllocatedConsignment && isStockEmpty);
                         const cost = Number(p.costPrice || p.cost || p.wholesalePrice || 0);
                         const price = Number(p.price || p.sellingPrice || (cost > 0 ? cost * 1.35 : 0));
                         const val = stock * cost;
@@ -8148,7 +8312,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                         📦 رصيد أمانة مخصص لك: {stock} قطعة (تكلفة: {formatMoney(cost)})
                                       </span>
                                     )}
-                                    {!p.isAllocatedConsignment && (
+                                    {sharedReadOnly && (
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                        منتج مشترك · عرض فقط
+                                      </span>
+                                    )}
+                                    {!p.isAllocatedConsignment && !sharedReadOnly && (
                                       <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                                         👑 الموكل الرئيسي
                                       </span>
@@ -8174,13 +8343,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                               </div>
                             </td>
                             <td className="py-4 px-4 text-center">
-                              <span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-zinc-400">قطعة</span>
+                              {unlimited ? <span className="text-xs font-black text-emerald-600">— <span className="text-[10px] text-zinc-400">بلا حد</span></span> : <><span className="font-mono font-black text-sm">{stock}</span> <span className="text-[10px] text-zinc-400">قطعة</span></>}
                             </td>
                             <td className="py-4 px-4 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300">
-                              {formatMoney(val)}
+                              {unlimited || (sharedReadOnly && cost <= 0) ? '—' : formatMoney(val)}
                             </td>
                             <td className="py-4 px-4 text-center">
-                              {stock <= 0 ? (
+                              {unlimited ? (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-[#00ab84]">
+                                  متاح دائمًا · مشترك
+                                </span>
+                              ) : stock <= 0 ? (
                                 <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-500/10 text-rose-500">
                                   نفد من المخزن
                                 </span>
@@ -8196,6 +8369,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                             </td>
                             <td className="py-4 px-4 text-center">
                               <div className="flex items-center justify-center gap-1.5">
+                                {sharedReadOnly ? <span className="text-[10px] font-bold text-zinc-400">قراءة فقط</span> : <>
                                 <button
                                   type="button"
                                   onClick={() => handleOpenPricingModal(p)}
@@ -8212,6 +8386,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                                 >
                                   تعديل
                                 </button>
+                                </>}
                               </div>
                             </td>
                           </tr>
