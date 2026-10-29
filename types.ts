@@ -644,6 +644,7 @@ export interface Partner {
   dailyTransferFeeType?: 'fixed' | 'percentage'; // نوع عمولة اليومي: نسبة % أو مبلغ ثابت ج.م
   lastPayoutFrequencyChangeAt?: string; // تاريخ آخر تغيير لنظام السحب (لمنع التغيير قبل مرور أسبوع)
   lastWeeklyPayoutDate?: string;
+  aliases?: string[]; // معرّفات بديلة للموكل (مثلاً عند تكراره في متاجر مختلفة بأسماء أو معرفات متباينة)
 }
 
 export interface ScheduledMerchantPlanTransition {

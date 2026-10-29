@@ -397,6 +397,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         if (existing.dailyTransferFee === undefined && typeof s.dailyTransferFee === 'number') existing.dailyTransferFee = s.dailyTransferFee;
         if (existing.dailyTransferFeeType === undefined && s.dailyTransferFeeType !== undefined) existing.dailyTransferFeeType = s.dailyTransferFeeType;
         if (existing.lastPayoutFrequencyChangeAt === undefined && s.lastPayoutFrequencyChangeAt !== undefined) existing.lastPayoutFrequencyChangeAt = s.lastPayoutFrequencyChangeAt;
+        
+        // Collect alias IDs
+        if (sId && existing.id !== sId) {
+          if (!existing.aliases) existing.aliases = [];
+          if (!existing.aliases.includes(sId)) existing.aliases.push(sId);
+        }
         return;
       }
 
@@ -427,7 +433,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         dailyTransferFeeType: s.dailyTransferFeeType,
         lastPayoutFrequencyChangeAt: s.lastPayoutFrequencyChangeAt,
         _storeId: sourceStoreId || effectiveStoreId,
-        _fromFreshCloud: isFreshCloud
+        _fromFreshCloud: isFreshCloud,
+        aliases: sId ? [sId] : []
       });
     };
 
@@ -576,7 +583,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const requestedId = String(urlPartnerId || '').trim().toLowerCase();
     const currentId = String(authenticatedMerchant?.id || '').trim().toLowerCase();
     const sessionStoreId = String((authenticatedMerchant as any)?._storeId || '').trim();
-    const wrongMerchant = Boolean(requestedId && currentId && requestedId !== currentId);
+
+    const isAliasMatch = authenticatedMerchant?.aliases?.some(alias => String(alias).trim().toLowerCase() === requestedId);
+    const isNameMatch = authenticatedMerchant?.name && requestedId && normalizeName(authenticatedMerchant.name) === normalizeName(requestedId);
+
+    const wrongMerchant = Boolean(requestedId && currentId && requestedId !== currentId && !isAliasMatch && !isNameMatch);
     const wrongStore = Boolean(sessionStoreId && effectiveStoreId && sessionStoreId !== effectiveStoreId);
     if (wrongMerchant || wrongStore) {
       setAuthenticatedMerchant(null);
@@ -1294,92 +1305,85 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       ...(updates.newTransaction !== undefined ? { transactions: nextTransactions } : {})
     });
 
-    let partnersToSave: any[] = [];
-    let suppliersToSave: any[] = [];
-
     try {
-      updateSettings((prev: any) => {
-        const currentSuppliers: any[] = Array.isArray(prev?.suppliers) ? [...prev.suppliers] : [];
-        const currentPartners: any[] = Array.isArray(prev?.partners) ? [...prev.partners] : [];
-
-        let supplierFound = false;
-        const updatedSuppliers = currentSuppliers.map(s => {
-          if (
-            (s.id && s.id === liveMerchant.id) ||
-            (s.name && normalizeName(s.name) === normTargetName) ||
-            (targetPhone && s.phone && String(s.phone).trim() === targetPhone) ||
-            (targetEmail && s.email && String(s.email).trim().toLowerCase() === targetEmail)
-          ) {
-            supplierFound = true;
-            return applyPatch(s);
-          }
-          return s;
-        });
-
-        if (!supplierFound) {
-          updatedSuppliers.push(applyPatch({
-            id: liveMerchant.id,
-            name: liveMerchant.name,
-            phone: liveMerchant.phone || '',
-            email: liveMerchant.email || '',
-            balance: updates.balance ?? liveMerchant.balance ?? 0,
-            transactions: nextTransactions,
-            passcode: updates.passcode ?? liveMerchant.passcode ?? '0000',
-            payoutAccounts: updates.payoutAccounts ?? liveMerchant.payoutAccounts ?? {},
-            subscriptionPlan: updates.subscriptionPlan ?? liveMerchant.subscriptionPlan,
-            managerPlan: updates.managerPlan ?? liveMerchant.managerPlan,
-            pendingPlanRequest: updates.pendingPlanRequest !== undefined ? updates.pendingPlanRequest : (liveMerchant.pendingPlanRequest ?? null),
-            planCyclesHistory: updates.planCyclesHistory ?? liveMerchant.planCyclesHistory ?? [],
-            scheduledNextPlan: updates.scheduledNextPlan !== undefined ? updates.scheduledNextPlan : (liveMerchant.scheduledNextPlan ?? null),
-            payoutFrequency: updates.payoutFrequency ?? liveMerchant.payoutFrequency ?? 'weekly',
-            weeklyPayoutDay: updates.weeklyPayoutDay ?? liveMerchant.weeklyPayoutDay ?? 1,
-            role: 'موكل / مورد صاحب بضاعة'
-          }));
+      // 1. Compute next state based on current settings
+      let supplierFound = false;
+      const nextSuppliers = currentSuppliers.map(s => {
+        if (
+          (s.id && s.id === liveMerchant.id) ||
+          (s.name && normalizeName(s.name) === normTargetName) ||
+          (targetPhone && s.phone && String(s.phone).trim() === targetPhone) ||
+          (targetEmail && s.email && String(s.email).trim().toLowerCase() === targetEmail)
+        ) {
+          supplierFound = true;
+          return applyPatch(s);
         }
-
-        let partnerFound = false;
-        const updatedPartners = currentPartners.map(p => {
-          if (
-            (p.id && p.id === liveMerchant.id) ||
-            (p.name && normalizeName(p.name) === normTargetName) ||
-            (targetPhone && p.phone && String(p.phone).trim() === targetPhone) ||
-            (targetEmail && p.email && String(p.email).trim().toLowerCase() === targetEmail)
-          ) {
-            partnerFound = true;
-            return applyPatch(p);
-          }
-          return p;
-        });
-
-        if (!partnerFound) {
-          updatedPartners.push(applyPatch({
-            ...liveMerchant
-          }));
-        }
-
-        partnersToSave = updatedPartners;
-        suppliersToSave = updatedSuppliers;
-
-        return {
-          ...prev,
-          suppliers: updatedSuppliers,
-          partners: updatedPartners
-        };
+        return s;
       });
 
+      if (!supplierFound && liveMerchant.role?.includes('مورد')) {
+        nextSuppliers.push(applyPatch({
+          id: liveMerchant.id,
+          name: liveMerchant.name,
+          phone: liveMerchant.phone || '',
+          email: liveMerchant.email || '',
+          balance: updates.balance ?? liveMerchant.balance ?? 0,
+          transactions: nextTransactions,
+          passcode: updates.passcode ?? liveMerchant.passcode ?? '0000',
+          payoutAccounts: updates.payoutAccounts ?? liveMerchant.payoutAccounts ?? {},
+          subscriptionPlan: updates.subscriptionPlan ?? liveMerchant.subscriptionPlan,
+          managerPlan: updates.managerPlan ?? liveMerchant.managerPlan,
+          pendingPlanRequest: updates.pendingPlanRequest !== undefined ? updates.pendingPlanRequest : (liveMerchant.pendingPlanRequest ?? null),
+          planCyclesHistory: updates.planCyclesHistory ?? liveMerchant.planCyclesHistory ?? [],
+          scheduledNextPlan: updates.scheduledNextPlan !== undefined ? updates.scheduledNextPlan : (liveMerchant.scheduledNextPlan ?? null),
+          payoutFrequency: updates.payoutFrequency ?? liveMerchant.payoutFrequency ?? 'weekly',
+          weeklyPayoutDay: updates.weeklyPayoutDay ?? liveMerchant.weeklyPayoutDay ?? 1,
+          role: 'موكل / مورد صاحب بضاعة'
+        }));
+      }
+
+      let partnerFound = false;
+      const nextPartners = currentPartners.map(p => {
+        if (
+          (p.id && p.id === liveMerchant.id) ||
+          (p.name && normalizeName(p.name) === normTargetName) ||
+          (targetPhone && p.phone && String(p.phone).trim() === targetPhone) ||
+          (targetEmail && p.email && String(p.email).trim().toLowerCase() === targetEmail)
+        ) {
+          partnerFound = true;
+          return applyPatch(p);
+        }
+        return p;
+      });
+
+      if (!partnerFound) {
+        nextPartners.push(applyPatch({
+          ...liveMerchant
+        }));
+      }
+
+      // 2. Update Global Settings (Admin View)
+      updateSettings((prev: any) => ({
+        ...prev,
+        suppliers: nextSuppliers,
+        partners: nextPartners
+      }));
+
+      // 3. Update Local Merchant State (Current View)
       setDirectStoreData(prev => prev ? ({
         ...prev,
         settings: {
           ...prev.settings,
-          suppliers: suppliersToSave,
-          partners: partnersToSave
+          suppliers: nextSuppliers,
+          partners: nextPartners
         }
       }) : prev);
 
       setAuthenticatedMerchant(prev => prev ? applyPatch(prev) : prev);
 
-      if (targetStore && partnersToSave.length > 0) {
-        await db.updatePartnerSettings(targetStore, partnersToSave, suppliersToSave);
+      // 4. Persist to Firestore
+      if (targetStore) {
+        await db.updatePartnerSettings(targetStore, nextPartners, nextSuppliers);
       }
       return true;
     } catch (err: any) {
@@ -1716,7 +1720,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       return;
     }
 
-    if (urlPartnerId && String(matched.id).trim().toLowerCase() !== String(urlPartnerId).trim().toLowerCase()) {
+    const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+    const matchId = String(matched.id).trim().toLowerCase() === requestedId;
+    const matchAlias = matched.aliases?.some(alias => String(alias).trim().toLowerCase() === requestedId);
+    const matchName = matched.name && requestedId && normalizeName(matched.name) === normalizeName(requestedId);
+
+    if (urlPartnerId && !matchId && !matchAlias && !matchName) {
       setAuthError('بيانات الدخول تخص موكلاً مختلفاً عن الحساب الموجود في هذا الرابط. افتح رابط بوابتك الصحيح.');
       return;
     }
@@ -1770,7 +1779,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
           return;
         }
 
-        if (urlPartnerId && String(authenticatedObj.id).trim().toLowerCase() !== String(urlPartnerId).trim().toLowerCase()) {
+        const requestedId = String(urlPartnerId || '').trim().toLowerCase();
+        const matchId = String(authenticatedObj.id).trim().toLowerCase() === requestedId;
+        const matchAlias = authenticatedObj.aliases?.some(alias => String(alias).trim().toLowerCase() === requestedId);
+        const matchName = authenticatedObj.name && requestedId && normalizeName(authenticatedObj.name) === normalizeName(requestedId);
+
+        if (urlPartnerId && !matchId && !matchAlias && !matchName) {
           setAuthError('هذا البريد مرتبط بموكل مختلف عن الحساب الموجود في هذا الرابط.');
           return;
         }
@@ -8275,8 +8289,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         const val = stock * cost;
                         const profitMode = p.profitMode || (cost > 0 ? 'margin' : 'commission');
                         const commissionPct = Number(p.commissionPercentage || p.profitPercentage || liveMerchant?.profitRatio || 15);
+                        
+                        // IMPROVED: If cost is known (>0) and we are in commission mode, 
+                        // it's much more likely the commission is a share of the profit (margin) 
+                        // rather than 50% of the total selling price (which would lead to owner loss).
                         const unitProfit = profitMode === 'commission'
-                          ? Math.round(price * (commissionPct / 100))
+                          ? (cost > 0 
+                              ? Math.round((price - cost) * (commissionPct / 100)) 
+                              : Math.round(price * (commissionPct / 100)))
                           : Math.max(0, price - cost);
 
                         return (
