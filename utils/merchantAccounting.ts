@@ -130,9 +130,11 @@ export function calculateMerchantBalance(
   const transactions = (typeof first === 'string' ? third : second) as MerchantTransaction[];
   const id = normalizeMerchantId(merchantId);
   if (!id) return 0;
-  const settlementCredit = settlements.filter(row => normalizeMerchantId(row?.merchantId) === id && ['approved', 'paid'].includes(row?.status) && !row.reversedAt)
+  const uniqueSettlements = [...new Map(settlements.map((row, index) => [String(row?.idempotencyKey || row?.id || `settlement-${index}`), row])).values()];
+  const uniqueTransactions = [...new Map(transactions.map((tx, index) => [String(tx?.id || `transaction-${index}`), tx])).values()];
+  const settlementCredit = uniqueSettlements.filter(row => normalizeMerchantId(row?.merchantId) === id && ['approved', 'paid'].includes(row?.status) && !row.reversedAt)
     .reduce((sum, row) => sum + Number(row.netPayoutToMerchant || 0), 0);
-  const transactionNet = transactions.filter(tx => normalizeMerchantId(tx?.merchantId) === id && tx.type !== 'order_delivered' && !(tx.type === 'adjustment' && tx.referenceId?.endsWith(':cancel')))
+  const transactionNet = uniqueTransactions.filter(tx => normalizeMerchantId(tx?.merchantId) === id && tx.type !== 'order_delivered' && !(tx.type === 'adjustment' && tx.referenceId?.endsWith(':cancel')))
     .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
   return money(Number(openingBalance || 0) + settlementCredit + transactionNet);
 }
@@ -226,6 +228,53 @@ export function upsertOrderSettlements(existing: MerchantSettlement[], incoming:
 export function transitionMerchantSettlement(settlement: MerchantSettlement, status: MerchantSettlementStatus, patch: Partial<MerchantSettlement> = {}): MerchantSettlement {
   if (!canTransitionSettlement(settlement.status, status) && settlement.status !== status) throw new Error(`Cannot transition ${settlement.status} settlement to ${status}`);
   return { ...settlement, ...patch, status };
+}
+
+export function allocateMerchantWithdrawal(
+  settlements: MerchantSettlement[] = [],
+  merchantId: string,
+  amount: number,
+  referenceId: string,
+  date = new Date().toISOString()
+): { settlements: MerchantSettlement[]; paidSettlementIds: string[]; allocatedAmount: number; unappliedAmount: number } {
+  const targetId = normalizeMerchantId(merchantId);
+  const requested = money(positive(amount));
+  if (!targetId || !referenceId || requested <= 0) {
+    return { settlements, paidSettlementIds: [], allocatedAmount: 0, unappliedAmount: requested };
+  }
+  if (settlements.some(row => row.paymentReferences?.some(payment => payment.referenceId === referenceId))) {
+    return { settlements, paidSettlementIds: [], allocatedAmount: 0, unappliedAmount: 0 };
+  }
+
+  let remaining = requested;
+  let allocatedAmount = 0;
+  const paidSettlementIds: string[] = [];
+  const eligible = settlements
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => normalizeMerchantId(row.merchantId) === targetId && row.status === 'approved' && !row.reversedAt)
+    .sort((a, b) => String(a.row.date || '').localeCompare(String(b.row.date || '')));
+  const updated = [...settlements];
+
+  for (const { row, index } of eligible) {
+    if (remaining <= 0) break;
+    const total = money(positive(row.netPayoutToMerchant));
+    const alreadyPaid = Math.min(total, money(positive(row.paidAmount)));
+    const outstanding = money(Math.max(0, total - alreadyPaid));
+    if (outstanding <= 0) continue;
+    const applied = Math.min(remaining, outstanding);
+    const paidAmount = money(alreadyPaid + applied);
+    updated[index] = {
+      ...row,
+      paidAmount,
+      paymentReferences: [...(row.paymentReferences || []), { referenceId, amount: applied, date }],
+      ...(paidAmount >= total ? { status: 'paid' as const } : {})
+    };
+    if (paidAmount >= total) paidSettlementIds.push(row.id);
+    remaining = money(remaining - applied);
+    allocatedAmount = money(allocatedAmount + applied);
+  }
+
+  return { settlements: updated, paidSettlementIds, allocatedAmount, unappliedAmount: money(Math.max(0, requested - allocatedAmount)) };
 }
 
 export function calculateMerchantOpeningBalance(storedBalance: number | undefined, settlements: MerchantSettlement[] = [], transactions: MerchantTransaction[] = [], merchantId: string): number {

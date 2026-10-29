@@ -17,7 +17,7 @@ import MerchantPortal from './MerchantPortal';
 import * as XLSX from 'xlsx';
 import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee, getCompanySpecificFees, calculateInsuranceFee, calculateBostaVat } from '../utils/financials';
 import { inAppAlert, inAppConfirm, inAppToast } from '../utils/inAppAlert';
-import { calculateMerchantBalance, calculateMerchantOpeningBalance, getMerchantOrderGroups, splitSettlementByOrder, transitionMerchantSettlement, upsertOrderSettlements } from '../utils/merchantAccounting';
+import { allocateMerchantWithdrawal, calculateMerchantBalance, calculateMerchantOpeningBalance, getMerchantOrderGroups, splitSettlementByOrder, transitionMerchantSettlement, upsertOrderSettlements } from '../utils/merchantAccounting';
 
 const SETTLEMENT_ELIGIBLE_STATUSES = [
   'تم_التحصيل',
@@ -318,7 +318,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
       updateSettings(currentSettings => {
         const updateItem = (m: any) => {
-          if (m.id !== supplier.id && m.name?.trim() !== supplier.name?.trim()) return m;
+          if (String(m.id || '') !== String(supplier.id || '')) return m;
           if (mode === 'send_quote') {
             return {
               ...m,
@@ -487,6 +487,10 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
       const cleanRef = approvalTransferRef.trim() || undefined;
       const cleanImg = approvalReceiptImage || undefined;
+      const paidNowIso = new Date().toISOString();
+      const withdrawalAllocation = allocateMerchantWithdrawal(
+        settings.merchantSettlements || [], req.partnerId, amount, req.id, paidNowIso
+      );
 
       const statusUpdated = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
         receiptImage: cleanImg,
@@ -505,6 +509,9 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
       // Update only the merchant ledger; merchant withdrawals affect merchant balance directly.
       updateSettings(currentSettings => {
+        const currentAllocation = allocateMerchantWithdrawal(
+          currentSettings.merchantSettlements || [], req.partnerId, amount, req.id, paidNowIso
+        );
         const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
           if (s.id === req.partnerId) {
             const currentBalance = Number(s.balance || 0);
@@ -557,17 +564,22 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return {
           ...currentSettings,
           suppliers: updatedSuppliers,
+          merchantSettlements: currentAllocation.settlements,
           ...(addedTxs.length > 0 ? { merchantTransactions: [...addedTxs, ...(currentSettings.merchantTransactions || [])] } : {})
         };
       });
 
-      // Mark settled orders for this merchant as paid out proportionally up to the withdrawn amount (FIFO)
+      // Link this withdrawal to approved per-order settlements first. Fully covered rows
+      // become paid; partial rows retain approved status and their cumulative paidAmount.
       if (!isCreditToWallet && req.type !== 'plan_change_request') {
-        const paidNowIso = new Date().toISOString();
-        let remainingToCover = amount;
+        const paidSettlementIds = new Set(withdrawalAllocation.paidSettlementIds);
+        let remainingToCover = Math.max(0, amount - withdrawalAllocation.allocatedAmount);
         setOrders(currentOrders => currentOrders.map(o => {
           const orderGroups = getMerchantOrderGroups(o);
-          const isForThisMerchant = orderGroups.size === 1 && orderGroups.has(req.partnerId) && !(o.merchantSettlementRefs || []).some(ref => ref.merchantId === req.partnerId);
+          const linkedSettlements = (o.merchantSettlementRefs || []).filter(ref => ref.merchantId === req.partnerId);
+          const linkedPaidSettlement = linkedSettlements.some(ref => paidSettlementIds.has(ref.settlementId));
+          if (linkedPaidSettlement) return { ...o, payoutStatus: 'paid' as const, paidOutAt: paidNowIso, payoutReferenceId: cleanRef || req.id };
+          const isForThisMerchant = orderGroups.size === 1 && orderGroups.has(req.partnerId) && linkedSettlements.length === 0;
           if (isForThisMerchant && o.settlementStatus === 'settled' && o.payoutStatus !== 'paid') {
             if (remainingToCover > 0) {
               let orderNet = 0;
@@ -896,64 +908,31 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   const [testMailRecipient, setTestMailRecipient] = useState('');
   const [isTestingMail, setIsTestingMail] = useState(false);
 
-  // Extract Merchants List strictly from:
-  // 1. Registered merchant records (settings.suppliers)
-  // 2. Customers explicitly tagged as 'merchant' / 'موكل' / 'صاحب بضاعة'
-  // 3. Unique merchantId / merchantName assigned on orders (excluding 'pending')
-  // 4. Historical settlements (settings.merchantSettlements)
+  // The active merchant directory is based on explicitly enabled merchant profiles.
+  // Order names and old settlement snapshots remain historical evidence, never new accounts.
   const merchantsList = useMemo(() => {
     const list: Array<{ id: string; name: string; phone?: string; email?: string; sourceLabel?: string }> = [];
     const seen = new Set<string>();
-
-    // 1. From Suppliers (identity is always the entity ID, never its name).
     (settings.suppliers || []).forEach(s => {
-      if (s.id && s.name && !seen.has(String(s.id))) {
-        seen.add(String(s.id));
-        list.push({ 
-          id: s.id, 
-          name: s.name.trim(), 
-          phone: s.phone, 
-          email: s.email || '',
-          sourceLabel: 'مورد / صاحب بضاعة' 
-        });
-      }
-    });
-
-    // 2. From Customers ONLY if explicitly marked as a merchant / supplier (never regular store buyers or profit-share partners!)
-    customers.forEach(c => {
-      const isTaggedMerchant =
-        c.customerSegment === 'merchant' ||
-        (Array.isArray(c.tags) && c.tags.some(t => ['موكل', 'صاحب بضاعة', 'تاجر', 'مورد', 'merchant', 'supplier'].includes(String(t).trim().toLowerCase())));
-      const explicitMerchantId = String((c as any).merchantId || '').trim();
-      if (isTaggedMerchant && explicitMerchantId && c.name && !seen.has(explicitMerchantId)) {
-        seen.add(explicitMerchantId);
-        list.push({ id: explicitMerchantId, name: c.name.trim(), phone: c.phone, email: c.email, sourceLabel: 'موكل مسجل' });
-      }
-    });
-
-    // 3. Orders can introduce an entity only when they carry an explicit merchantId.
-    orders.forEach(o => {
-      for (const [mId, lines] of getMerchantOrderGroups(o)) {
-        if (!seen.has(mId)) {
-          seen.add(mId);
-          const mName = String(lines.find(line => line.merchantName)?.merchantName || o.merchantName || mId).trim();
-          list.push({ id: mId, name: mName, phone: o.merchantBrandPhone, sourceLabel: 'موكل أوردرات' });
-        }
-      }
-    });
-
-    // 4. Historical rows are keyed strictly by merchantId; legacy name-only rows stay unassigned.
-    (settings.merchantSettlements || []).forEach(st => {
-      const mName = (st.merchantName || '').trim();
-      const mId = String(st.merchantId || '').trim();
-      if (mId && !seen.has(mId)) {
-        seen.add(mId);
-        list.push({ id: mId, name: mName || mId, sourceLabel: 'كشوف سابقة' });
-      }
+      const id = String(s.id || '').trim();
+      if (!id || !s.name || seen.has(id)) return;
+      const hasActiveManagerPlan = s.managerPlan?.status === 'active' && s.managerPlan?.planId !== 'none';
+      const hasSettledMerchantHistory = (settings.merchantSettlements || []).some(row =>
+        row.merchantId === id && ['approved', 'paid'].includes(row.status) && !row.reversedAt
+      );
+      if (!(s.merchantDirectoryEnabled || s.isMerchantPortalActive || hasActiveManagerPlan || hasSettledMerchantHistory)) return;
+      seen.add(id);
+      list.push({
+        id,
+        name: s.name.trim(),
+        phone: s.phone,
+        email: s.email || '',
+        sourceLabel: hasActiveManagerPlan ? 'باقة مدير مخصصة نشطة' : 'ملف وكيل مسجل'
+      });
     });
 
     return list;
-  }, [settings.suppliers, settings.merchantSettlements, customers, orders]);
+  }, [settings.suppliers, settings.merchantSettlements]);
 
   // Helper to check if an order belongs to a merchant (never matching buyer customerPhone/customerName)
   const doesOrderBelongToMerchant = (o: Order, merchantId: string) => {
@@ -989,6 +968,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       passcode: '0000',
       address: '',
       notes: 'موكل / صاحب بضاعة (تمت إضافته من شاشة التسويات)',
+      merchantDirectoryEnabled: true,
       defaultMarketingFeePerOrder: newPartnerDefaultMarketing > 0 ? newPartnerDefaultMarketing : undefined
     };
 

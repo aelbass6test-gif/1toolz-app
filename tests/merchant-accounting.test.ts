@@ -13,7 +13,8 @@ import {
   getMerchantOrderGroups,
   splitSettlementByOrder,
   upsertOrderSettlements,
-  cancelUnpaidOrderSettlements
+  cancelUnpaidOrderSettlements,
+  allocateMerchantWithdrawal
 } from '../utils/merchantAccounting';
 import { getProductsForMerchant, getProductsNeedingMerchantReview, getStoreOwnedOrders, isMerchantOrder, migrateLegacyProductMerchantLinks } from '../utils/merchantProducts';
 
@@ -71,6 +72,18 @@ assert.equal((explicit.products[0] as any).merchantId, undefined);
 
 assert.equal(calculateMerchantBalance('m1', [{ merchantId: 'm1', status: 'approved', netPayoutToMerchant: 300 }], []), 300);
 assert.equal(calculateMerchantBalance('m1', [{ merchantId: 'm1', status: 'approved', netPayoutToMerchant: 300 }], [{ id: 'w', merchantId: 'm1', type: 'withdrawal', amount: -100, balanceAfter: 0, date: '', notes: '' } as any]), 200);
+assert.equal(calculateMerchantBalance('m1', [{ idempotencyKey: 'same', merchantId: 'm1', status: 'approved', netPayoutToMerchant: 300 }, { idempotencyKey: 'same', merchantId: 'm1', status: 'approved', netPayoutToMerchant: 300 }] as any, [{ id: 'w', merchantId: 'm1', type: 'withdrawal', amount: -100 }, { id: 'w', merchantId: 'm1', type: 'withdrawal', amount: -100 }] as any), 200);
+const allocated = allocateMerchantWithdrawal([
+  { id: 'm1-a', merchantId: 'm1', status: 'approved', netPayoutToMerchant: 100, date: '2026-01-01' },
+  { id: 'm1-b', merchantId: 'm1', status: 'approved', netPayoutToMerchant: 100, date: '2026-01-02' },
+  { id: 'm2-a', merchantId: 'm2', status: 'approved', netPayoutToMerchant: 100, date: '2026-01-01' }
+] as any, 'm1', 150, 'withdrawal-1');
+assert.equal(allocated.allocatedAmount, 150);
+assert.equal(allocated.unappliedAmount, 0);
+assert.equal(allocated.settlements[0].status, 'paid');
+assert.equal(allocated.settlements[1].paidAmount, 50);
+assert.equal(allocated.settlements[2].paidAmount, undefined, 'a withdrawal must not affect another merchant');
+assert.equal(allocateMerchantWithdrawal(allocated.settlements, 'm1', 150, 'withdrawal-1').allocatedAmount, 0, 'same withdrawal reference must be idempotent');
 assert.equal(canPaySettlement({ status: 'approved', calculationComplete: true }, { accounts: [{ id: 'cash', name: 'Cash', type: 'safe', balance: 500, currency: 'EGP' }], transactions: [] }, 'cash', 300), true);
 assert.equal(canPaySettlement({ status: 'pending', calculationComplete: true }, { accounts: [], transactions: [] }, 'cash', 1), false);
 

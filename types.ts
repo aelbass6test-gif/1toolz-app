@@ -819,6 +819,7 @@ export interface Supplier {
   };
   transactions?: MerchantTransaction[];
   isMerchantPortalActive?: boolean;
+  merchantDirectoryEnabled?: boolean;
   subscriptionPlan?: MerchantSubscriptionConfig;
   managerPlan?: MerchantManagerConfig;
   pendingPlanRequest?: MerchantPlanChangeRequest | null;
@@ -2050,6 +2051,8 @@ export interface MerchantSettlement {
   reversalNote?: string;
   paidFromTreasuryAccountId?: string;// الخزينة التي تم الصرف منها
   paidFromTreasuryAccountName?: string;
+  paidAmount?: number; // Cumulative withdrawals allocated to this settlement; preserves partial wallet payouts.
+  paymentReferences?: Array<{ referenceId: string; amount: number; date: string }>;
   notes?: string;                   // ملاحظات التسوية
   performedBy?: string;             // المسند إليه أو القائم بالتسوية
   attachments?: string[];           // صور إيصالات التحويل النقدي البنكي/الفودافون كاش

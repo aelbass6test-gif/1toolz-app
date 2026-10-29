@@ -3610,7 +3610,6 @@ export const AppComponent = () => {
                     let currentSettings = currentStore.settings || INITIAL_SETTINGS;
                     let settingsChanged = false;
                     let nextSuppliers: any[] = Array.isArray(currentSettings.suppliers) ? [...currentSettings.suppliers] : [];
-                    let nextPartners: any[] = Array.isArray(currentSettings.partners) ? [...currentSettings.partners] : [];
                     let nextMerchantTxs: any[] = Array.isArray(currentSettings.merchantTransactions) ? [...currentSettings.merchantTransactions] : [];
 
                     const deductionTriggerStatuses = ['قيد_التنفيذ', 'تم_الارسال', 'قيد_الشحن'];
@@ -3630,13 +3629,9 @@ export const AppComponent = () => {
                         }
 
                         const mId = String(order.merchantId || '').trim();
-                        const mName = String(order.merchantName || '').trim().toLowerCase();
-                        if (!mId && !mName) return order;
+                        if (!mId) return order;
 
-                        const matchedSupIdx = nextSuppliers.findIndex(s =>
-                            (mId && String(s?.id || '').trim() === mId) ||
-                            (mName && String(s?.name || '').trim().toLowerCase() === mName)
-                        );
+                        const matchedSupIdx = nextSuppliers.findIndex(s => String(s?.id || '').trim() === mId);
                         const matchedSup = matchedSupIdx >= 0 ? nextSuppliers[matchedSupIdx] : null;
                         const mgrPlan = matchedSup?.managerPlan;
 
@@ -3650,9 +3645,7 @@ export const AppComponent = () => {
                         // Count already-consumed orders in this cycle
                         const consumedInCycle = rawNewOrders.filter((o: any) => {
                             if (!o || o.id === order.id || o.status === 'ملغي') return false;
-                            const sameMerchant =
-                                (mId && String(o.merchantId || '').trim() === mId) ||
-                                (mName && String(o.merchantName || '').trim().toLowerCase() === mName);
+                            const sameMerchant = String(o.merchantId || '').trim() === mId;
                             if (!sameMerchant) return false;
                             const sameCycle = (o.planCycleId || mgrPlan.cycleId || `MGR-${effectivePlanId}`) === effectiveCycleId;
                             return sameCycle && Boolean(o.quotaConsumedAt || o.managerFeeDeducted);
@@ -3711,13 +3704,6 @@ export const AppComponent = () => {
                                 transactions: [feeTx, ...existingTxs]
                             };
 
-                            nextPartners = nextPartners.map(pt =>
-                                (mId && String(pt?.id || '').trim() === mId) ||
-                                (mName && String(pt?.name || '').trim().toLowerCase() === mName)
-                                    ? { ...pt, balance: newBal, transactions: [feeTx, ...(pt.transactions || [])] }
-                                    : pt
-                            );
-
                             nextMerchantTxs = [feeTx, ...nextMerchantTxs.filter((tx: any) => tx.id !== deterministicTxId)];
                         }
 
@@ -3736,7 +3722,6 @@ export const AppComponent = () => {
                         currentSettings = {
                             ...currentSettings,
                             suppliers: nextSuppliers,
-                            partners: nextPartners,
                             merchantTransactions: nextMerchantTxs
                         };
                     }

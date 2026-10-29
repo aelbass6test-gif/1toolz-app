@@ -325,13 +325,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     ? directStoreData.orders
     : (localStoreData?.orders || []);
   
-  // Extract & Merge Consignment Merchants, Suppliers & Partners across live state, cloud state, and all stores
+  // Build the merchant directory only from explicit ID-bearing profiles in the active store.
   const merchants: Partner[] = useMemo(() => {
     const list: (Partner & { _storeId?: string; _fromFreshCloud?: boolean })[] = [];
 
     const upsertEntity = (s: any, defaultRole: string, sourceStoreId?: string, isFreshCloud = false) => {
       if (!s) return;
       const sId = String(s.id || '').trim();
+      if (!sId) return;
       const sName = String(s.name || '').trim();
       let sPhone = String(s.phone || s.contactPhone || s.mobile || s.phoneNumber || s.phone_number || s.payoutAccounts?.walletPhone || '').trim();
       let sEmail = String(s.email || s.contactEmail || '').trim().toLowerCase();
@@ -346,15 +347,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         if (phoneMatch) sPhone = phoneMatch[0];
       }
 
-      if (!sId && !sName && !sEmail && !sPhone) return;
-      const normName = normalizeName(sName);
-
-      const existing = list.find(item => {
-        if (sId && item.id && String(item.id).trim().toLowerCase() === sId.toLowerCase()) return true;
-        if (sId && Array.isArray(item.aliases) && item.aliases.some((a: string) => String(a).trim().toLowerCase() === sId.toLowerCase())) return true;
-        if (!sId && !item.id && normName && item.name && normalizeName(item.name) === normName) return true;
-        return false;
-      });
+      const existing = list.find(item =>
+        sId && item.id && String(item.id).trim().toLowerCase() === sId.toLowerCase() &&
+        String((item as any)._storeId || effectiveStoreId) === String(sourceStoreId || effectiveStoreId)
+      );
 
       if (existing) {
         if (!existing.email && sEmail) existing.email = sEmail;
@@ -443,7 +439,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       });
     };
 
-    const collectFromSettings = (st: any, stId?: string, ordersList?: any[], customersList?: any[], isFreshCloud = false) => {
+    const collectFromSettings = (st: any, stId?: string, isFreshCloud = false) => {
       if (!st) return;
       const rawSuppliers: any[] = Array.isArray(st.suppliers) ? st.suppliers : Object.values(st.suppliers || {});
       const rawPartners: any[] = Array.isArray(st.partners) ? st.partners : Object.values(st.partners || {});
@@ -451,90 +447,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       rawSuppliers.forEach(s => upsertEntity(s, 'موكل / مورد صاحب بضاعة', stId, isFreshCloud));
       rawPartners.forEach(p => upsertEntity(p, 'موكل / شريك', stId, isFreshCloud));
 
-      if (Array.isArray(customersList)) {
-        customersList.forEach(c => {
-          if (!c) return;
-          const isTaggedMerchant =
-            c.customerSegment === 'merchant' ||
-            (Array.isArray(c.tags) && c.tags.some((t: any) => ['موكل', 'صاحب بضاعة', 'تاجر', 'مورد', 'merchant', 'supplier'].includes(String(t).trim().toLowerCase())));
-          if (isTaggedMerchant || c.email) {
-            upsertEntity({
-              id: c.id || c.phone,
-              name: c.name,
-              phone: c.phone,
-              email: c.email,
-              role: 'موكل مسجل'
-            }, 'موكل مسجل', stId, isFreshCloud);
-          }
-        });
-      }
-
-      if (Array.isArray(ordersList)) {
-        ordersList.forEach((o: any) => {
-          const mName = (o?.merchantName || '').trim();
-          const mId = (o?.merchantId || '').trim();
-          if (mName && mId !== 'pending') {
-            upsertEntity({
-              id: mId || `m_${mName}`,
-              name: mName,
-              phone: o.merchantBrandPhone || '',
-              email: '',
-              balance: 0,
-              profitRatio: 0,
-              passcode: '0000',
-              role: 'موكل صاحب بضاعة'
-            }, 'موكل صاحب بضاعة', stId, isFreshCloud);
-          }
-        });
-      }
-
-      // NEW: Extract & merge joint merchants from product allocations (Option B)
-      const productsList = Array.isArray(st.products) ? st.products : (st.settings?.products || []);
-      if (Array.isArray(productsList)) {
-        productsList.forEach((p: any) => {
-          if (Array.isArray(p.merchantAllocations)) {
-            p.merchantAllocations.forEach((alloc: any) => {
-              if (alloc.merchantId || alloc.merchantName) {
-                upsertEntity({
-                  id: alloc.merchantId,
-                  name: alloc.merchantName,
-                  role: 'موكل مشترك'
-                }, 'موكل مشترك', stId, isFreshCloud);
-              }
-            });
-          }
-          if (Array.isArray(p.merchantIds)) {
-            p.merchantIds.forEach((mId: string) => {
-              if (mId) {
-                upsertEntity({
-                  id: mId,
-                  name: 'موكل مشترك مسجل',
-                  role: 'موكل مشترك'
-                }, 'موكل مشترك', stId, isFreshCloud);
-              }
-            });
-          }
-        });
-      }
     };
 
     // Prioritize directStoreData (freshly fetched from cloud) first so zeroed balances/transactions are authoritative
     if (directStoreData?.settings) {
-      collectFromSettings(directStoreData.settings, effectiveStoreId, directStoreData.orders, directStoreData.customers, true);
+      collectFromSettings(directStoreData.settings, effectiveStoreId, true);
     }
 
     if (localStoreData?.settings) {
-      collectFromSettings(localStoreData.settings, effectiveStoreId, localStoreData.orders, localStoreData.customers, false);
+      collectFromSettings(localStoreData.settings, effectiveStoreId, false);
     }
 
-    Object.entries(allStoresData || {}).forEach(([stId, stData]) => {
-      if (stData?.settings) {
-        collectFromSettings(stData.settings, stId, stData.orders, stData.customers, false);
-      }
-    });
-
     return list;
-  }, [localStoreData, directStoreData, allStoresData, effectiveStoreId]);
+  }, [localStoreData, directStoreData, effectiveStoreId]);
 
   const merchantAuthStorageKey = `authenticated_merchant_${effectiveStoreId || 'unknown'}`;
 
@@ -557,8 +482,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     if (!authenticatedMerchant) return null;
     const authenticatedId = String(authenticatedMerchant.id || '').trim().toLowerCase();
     if (!authenticatedId) return null;
-    const current = merchants.find(m => String(m.id || '').trim().toLowerCase() === authenticatedId);
-    if (!current) return authenticatedMerchant;
+    const current = merchants.find(m =>
+      String(m.id || '').trim().toLowerCase() === authenticatedId &&
+      String((m as any)._storeId || effectiveStoreId) === String((authenticatedMerchant as any)._storeId || effectiveStoreId)
+    );
+    if (!current) return null;
     const effectivePhone = current.phone || (current as any).contactPhone || (current as any).mobile || (current as any).phoneNumber || (current as any).phone_number || current.payoutAccounts?.walletPhone || authenticatedMerchant.phone || (authenticatedMerchant as any).contactPhone || (authenticatedMerchant as any).mobile || (authenticatedMerchant as any).phoneNumber || authenticatedMerchant.payoutAccounts?.walletPhone || '';
     return {
       ...authenticatedMerchant,
@@ -582,7 +510,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         ? current.planCyclesHistory
         : (authenticatedMerchant.planCyclesHistory || [])
     };
-  }, [authenticatedMerchant, merchants]);
+  }, [authenticatedMerchant, merchants, effectiveStoreId]);
 
   // A portal URL identifies one merchant. Never keep showing a previous browser session
   // when the URL points to another merchant or store.
@@ -1300,7 +1228,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   }) => {
     if (!liveMerchant) return false;
     const targetStore = (liveMerchant as any)._storeId || effectiveStoreId;
-    const normTargetName = normalizeName(liveMerchant.name || '');
 
     const currentSuppliers: any[] = Array.isArray(settings.suppliers) ? [...settings.suppliers] : [];
     const currentPartners: any[] = Array.isArray(settings.partners) ? [...settings.partners] : [];
@@ -1308,19 +1235,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const existingTxs = Array.isArray(liveMerchant.transactions) ? [...liveMerchant.transactions] : [];
     const nextTransactions = updates.newTransaction ? [updates.newTransaction, ...existingTxs] : existingTxs;
 
-    const targetId = String(liveMerchant.id || '').trim().toLowerCase();
-    const targetAliases = Array.isArray(liveMerchant.aliases) 
-      ? liveMerchant.aliases.map((a: string) => String(a).trim().toLowerCase()) 
-      : [];
-
-    const isMatch = (entity: any) => {
-      if (!entity) return false;
-      const entityId = String(entity.id || '').trim().toLowerCase();
-      if (entityId && (entityId === targetId || targetAliases.includes(entityId))) return true;
-      if (!entityId && !targetId && entity.name && normalizeName(entity.name) === normTargetName) return true;
-      return false;
-    };
-
+    const targetId = String(liveMerchant.id || '').trim();
+    const isMatch = (entity: any) => Boolean(entity?.id && String(entity.id).trim() === targetId);
     const applyPatch = (entity: any) => ({
       ...entity,
       ...(updates.name !== undefined ? { name: updates.name } : {}),
@@ -1351,26 +1267,6 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         return s;
       });
 
-      if (!supplierFound && liveMerchant.role?.includes('مورد')) {
-        nextSuppliers.push(applyPatch({
-          id: liveMerchant.id,
-          name: liveMerchant.name,
-          phone: liveMerchant.phone || '',
-          email: liveMerchant.email || '',
-          balance: updates.balance ?? liveMerchant.balance ?? 0,
-          transactions: nextTransactions,
-          passcode: updates.passcode ?? liveMerchant.passcode ?? '0000',
-          payoutAccounts: updates.payoutAccounts ?? liveMerchant.payoutAccounts ?? {},
-          subscriptionPlan: updates.subscriptionPlan ?? liveMerchant.subscriptionPlan,
-          managerPlan: updates.managerPlan ?? liveMerchant.managerPlan,
-          pendingPlanRequest: updates.pendingPlanRequest !== undefined ? updates.pendingPlanRequest : (liveMerchant.pendingPlanRequest ?? null),
-          planCyclesHistory: updates.planCyclesHistory ?? liveMerchant.planCyclesHistory ?? [],
-          scheduledNextPlan: updates.scheduledNextPlan !== undefined ? updates.scheduledNextPlan : (liveMerchant.scheduledNextPlan ?? null),
-          payoutFrequency: updates.payoutFrequency ?? liveMerchant.payoutFrequency ?? 'weekly',
-          weeklyPayoutDay: updates.weeklyPayoutDay ?? liveMerchant.weeklyPayoutDay ?? 1,
-          role: 'موكل / مورد صاحب بضاعة'
-        }));
-      }
 
       let partnerFound = false;
       const nextPartners = currentPartners.map(p => {
@@ -1381,11 +1277,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         return p;
       });
 
-      if (!partnerFound) {
-        nextPartners.push(applyPatch({
-          ...liveMerchant
-        }));
-      }
+      if (!supplierFound && !partnerFound) return false;
 
       // 2. Update Global Settings (Admin View)
       updateSettings((prev: any) => ({
@@ -1567,51 +1459,27 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const linkEmailToMerchantRecord = useCallback(async (merchant: Partner, emailToLink: string) => {
     const clean = emailToLink.trim().toLowerCase();
     const targetStore = (merchant as any)._storeId || effectiveStoreId;
-    const normTargetName = normalizeName(merchant.name || '');
 
     const currentSuppliers: any[] = Array.isArray(settings.suppliers) ? [...settings.suppliers] : [];
     const currentPartners: any[] = Array.isArray(settings.partners) ? [...settings.partners] : [];
 
     let supFound = false;
     const nextSuppliers = currentSuppliers.map(s => {
-      if (s && (String(s.id) === String(merchant.id) || (normTargetName && normalizeName(s.name || '') === normTargetName))) {
+      if (s && String(s.id) === String(merchant.id)) {
         supFound = true;
         return { ...s, email: clean, passcode: s.passcode || merchant.passcode || '0000' };
       }
       return s;
     });
-    if (!supFound) {
-      nextSuppliers.push({
-        id: merchant.id,
-        name: merchant.name,
-        phone: merchant.phone || '',
-        email: clean,
-        passcode: merchant.passcode || '0000',
-        balance: Number(merchant.balance) || 0,
-        transactions: merchant.transactions || []
-      });
-    }
-
     let partFound = false;
     const nextPartners = currentPartners.map(p => {
-      if (p && (String(p.id) === String(merchant.id) || (normTargetName && normalizeName(p.name || '') === normTargetName))) {
+      if (p && String(p.id) === String(merchant.id)) {
         partFound = true;
         return { ...p, email: clean, passcode: p.passcode || merchant.passcode || '0000' };
       }
       return p;
     });
-    if (!partFound) {
-      nextPartners.push({
-        id: merchant.id,
-        name: merchant.name,
-        phone: merchant.phone || '',
-        email: clean,
-        passcode: merchant.passcode || '0000',
-        balance: Number(merchant.balance) || 0,
-        profitRatio: Number(merchant.profitRatio) || 0,
-        role: merchant.role || 'موكل / مورد صاحب بضاعة'
-      });
-    }
+    if (!supFound && !partFound) return false;
 
     try {
       updateSettings({
@@ -1654,8 +1522,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         const localData = await db.getLocal(effectiveStoreId);
         if (localData?.settings) {
           const localSup = (localData.settings.suppliers || []).find((s: any) =>
+            Boolean(s?.id) && (
             (s?.email && String(s.email).trim().toLowerCase() === clean) ||
-            (s?.phone && String(s.phone).trim().toLowerCase() === clean)
+            (s?.phone && String(s.phone).trim().toLowerCase() === clean))
           );
           if (localSup) {
             return {
@@ -1671,8 +1540,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             };
           }
           const localPart = (localData.settings.partners || []).find((p: any) =>
+            Boolean(p?.id) && (
             (p?.email && String(p.email).trim().toLowerCase() === clean) ||
-            (p?.phone && String(p.phone).trim().toLowerCase() === clean)
+            (p?.phone && String(p.phone).trim().toLowerCase() === clean))
           );
           if (localPart) {
             return {
@@ -1867,16 +1737,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
     return rawOrders.filter(o => {
       const oMId = String(o.merchantId || '').trim().toLowerCase();
-
-      const matchMain = Boolean(mId && oMId === mId);
-
-      if (matchMain) return true;
-
-      // NEW: Check individual items for joint merchant association (Option B)
-      return (o.items || []).some(item => {
-        const iMId = String(item.merchantId || '').trim().toLowerCase();
-        return Boolean(mId && iMId === mId);
-      });
+      const itemIds = (o.items || []).map(item => String(item.merchantId || '').trim().toLowerCase()).filter(Boolean);
+      if (itemIds.length > 0) return itemIds.includes(mId);
+      return Boolean(mId && oMId === mId);
     });
   }, [rawOrders, liveMerchant]);
 
