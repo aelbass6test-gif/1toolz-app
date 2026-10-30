@@ -3194,6 +3194,8 @@ export interface PartnerPortalRequest {
     payoutMethod?: string;
     payoutAccount?: string;
     receiptImage?: string;
+    transferFee?: number;
+    netAmount?: number;
     transferReference?: string;
     approvedBy?: string;
     approvedAt?: string;

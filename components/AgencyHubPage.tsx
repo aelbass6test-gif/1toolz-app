@@ -264,14 +264,26 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         : (supplier?.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
 
       let transferFee = 0;
-      if (feeRate > 0) {
-        if (feeType === 'percentage') {
-          transferFee = Math.round((amt * (feeRate / 100)) * 100) / 100;
-        } else {
-          transferFee = Math.min(amt, Number(feeRate) || 0);
+      let netDisbursed = 0;
+      let totalDeductionFromMerchant = 0;
+
+      // Handle new "fee on top" logic if request comes from the new Merchant Portal
+      if ((req as any).isMerchantRequest) {
+        transferFee = typeof (req as any).transferFee === 'number' ? (req as any).transferFee : 0;
+        netDisbursed = amt;
+        totalDeductionFromMerchant = Number((amt + transferFee).toFixed(2));
+      } else {
+        // Legacy logic: Fee is deducted from the requested amount
+        if (feeRate > 0) {
+          if (feeType === 'percentage') {
+            transferFee = Math.round((amt * (feeRate / 100)) * 100) / 100;
+          } else {
+            transferFee = Math.min(amt, Number(feeRate) || 0);
+          }
         }
+        netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
+        totalDeductionFromMerchant = amt;
       }
-      const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
 
       // 1. Update request status in database
       await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
@@ -291,7 +303,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
             date: new Date().toISOString(),
             type: 'withdrawal' as const,
             amount: netDisbursed,
-            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المطلوب: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المنصرف: ${netDisbursed} ج.م]` : ''}`,
+            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المبلغ المحول: ${netDisbursed} ج.م | عمولة التحويل: ${transferFee} ج.م | إجمالي الخصم من الموكل: ${totalDeductionFromMerchant} ج.م]` : ''}`,
             fromAccountId: selectedTreasuryAccountId,
             reference: req.id,
             orderId: req.id
@@ -309,7 +321,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       const updatedSuppliers = suppliersList.map(s => {
         if (s.id === merchantId || (normName && s.name.trim() === normName)) {
           const currentBal = Number(s.balance || 0);
-          const newBal = Number((currentBal - amt).toFixed(2));
+          const newBal = Number((currentBal - totalDeductionFromMerchant).toFixed(2));
           const nowIso = new Date().toISOString();
 
           const payoutTx: any = {
@@ -319,7 +331,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
             type: 'payout',
             amount: -netDisbursed,
             date: nowIso,
-            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'} (صافي المحول - طلب #${req.id.slice(-6)})`,
+            notes: `صرف أرباح معتمد عبر ${req.payoutMethod || 'التحويل المالي'} (${(req as any).isMerchantRequest ? 'المبلغ المسحوب' : 'صافي المحول'} - طلب #${req.id.slice(-6)})`,
             balanceAfter: Number((currentBal - netDisbursed).toFixed(2)),
             referenceId: req.id
           };
@@ -331,7 +343,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
             type: 'expense',
             amount: -transferFee,
             date: nowIso,
-            notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
+            notes: `رسوم التحويل المالي لسحب المستحقات (${(req as any).isMerchantRequest ? 'عمولة إضافية' : 'خصم من المبلغ'} - طلب #${req.id.slice(-6)})`,
             balanceAfter: newBal,
             referenceId: req.id
           } : null;
@@ -351,7 +363,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         if (p.id === merchantId || (normName && p.name.trim() === normName)) {
           return {
             ...p,
-            balance: Math.max(0, (Number(p.balance) || 0) - amt)
+            balance: Math.max(0, (Number(p.balance) || 0) - totalDeductionFromMerchant)
           };
         }
         return p;
@@ -367,7 +379,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         partners: updatedPartners
       }));
 
-      inAppToast(`تم صرف مبلغ ${amt.toLocaleString()} ج.م للموكل ${req.partnerName}${transferFee > 0 ? ` (صافي التحويل: ${netDisbursed.toLocaleString()} ج.م)` : ''} واعتماد الطلب بنجاح ✅`, 'success');
+      inAppToast(`تم صرف مبلغ ${netDisbursed.toLocaleString()} ج.م للموكل ${req.partnerName}${transferFee > 0 ? ` (عمولة التحويل: ${transferFee.toLocaleString()} ج.م | إجمالي الخصم: ${totalDeductionFromMerchant.toLocaleString()} ج.م)` : ''} واعتماد الطلب بنجاح ✅`, 'success');
       setSelectedRequestForApproval(null);
       loadRequests();
     } catch (err: any) {

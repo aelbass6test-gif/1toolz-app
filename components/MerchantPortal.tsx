@@ -3083,16 +3083,20 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     const activeFeeType = payoutFrequency === 'daily' ? dailyTransferFeeType : weeklyTransferFeeType;
     const activeFeeLabelAr = payoutFrequency === 'daily' ? dailyFeeLabelAr : weeklyFeeLabelAr;
 
-    const calculateTransferFeeForAmount = (grossAmt: number, freq: 'daily' | 'weekly' = payoutFrequency) => {
-      const num = Math.max(0, Number(grossAmt) || 0);
-      if (num <= 0) return { feeAmount: 0, netAmount: 0 };
+    const calculateTransferFeeForAmount = (requestedAmt: number, freq: 'daily' | 'weekly' = payoutFrequency) => {
+      const num = Math.max(0, Number(requestedAmt) || 0);
+      if (num <= 0) return { feeAmount: 0, netAmount: 0, totalDeduction: 0 };
       const fVal = freq === 'daily' ? dailyTransferFee : weeklyTransferFee;
       const fType = freq === 'daily' ? dailyTransferFeeType : weeklyTransferFeeType;
+      
+      // The user wants the requested amount to be the "Net amount" and fee to be on top.
       const feeAmount = fType === 'percentage'
         ? Number(((num * fVal) / 100).toFixed(2))
-        : Number(Math.min(num, fVal).toFixed(2));
-      const netAmount = Math.max(0, Number((num - feeAmount).toFixed(2)));
-      return { feeAmount, netAmount };
+        : Number(fVal.toFixed(2));
+      
+      const netAmount = num; // What the merchant actually receives
+      const totalDeduction = Number((num + feeAmount).toFixed(2)); // What is taken from balance
+      return { feeAmount, netAmount, totalDeduction };
     };
 
     let unsettledDeliveredBalance = 0;
@@ -3138,9 +3142,22 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       Number((availableForWithdrawal - Math.max(0, holdingSettledBalance)).toFixed(2))
     );
 
+    // Calculate maximum net amount requestable while covering the fee on top
+    const fVal = payoutFrequency === 'daily' ? dailyTransferFee : weeklyTransferFee;
+    const fType = payoutFrequency === 'daily' ? dailyTransferFeeType : weeklyTransferFeeType;
+    
+    let maxNetRequestable = maturedWalletBalance;
+    if (fVal > 0) {
+      if (fType === 'percentage') {
+        maxNetRequestable = maturedWalletBalance / (1 + fVal / 100);
+      } else {
+        maxNetRequestable = Math.max(0, maturedWalletBalance - fVal);
+      }
+    }
+
     const cappedNextPayoutAmount = maxWeeklyPayout > 0
-      ? Math.min(maturedWalletBalance, maxWeeklyPayout)
-      : maturedWalletBalance;
+      ? Math.min(maxNetRequestable, maxWeeklyPayout)
+      : maxNetRequestable;
 
     const nextPayoutFeeCalc = calculateTransferFeeForAmount(cappedNextPayoutAmount, payoutFrequency);
 
@@ -3204,6 +3221,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         calculateTransferFeeForAmount(grossAmt, freq).feeAmount,
       nextPayoutFeeAmount: nextPayoutFeeCalc.feeAmount,
       nextPayoutNetAmount: nextPayoutFeeCalc.netAmount,
+      nextPayoutTotalDeduction: nextPayoutFeeCalc.totalDeduction,
       unsettledDeliveredBalance: Math.max(0, Number(unsettledDeliveredBalance.toFixed(2))),
       holdingSettledBalance: Math.max(0, Number(holdingSettledBalance.toFixed(2))),
       readySettledOrdersBalance: Math.max(0, Number(readySettledOrdersBalance.toFixed(2))),
@@ -3930,13 +3948,23 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       return;
     }
 
-    const { feeAmount, netAmount } = weeklyPayoutOverview.calculateTransferFeeForAmount(numAmt, weeklyPayoutOverview.payoutFrequency);
+    const { feeAmount, netAmount, totalDeduction } = weeklyPayoutOverview.calculateTransferFeeForAmount(numAmt, weeklyPayoutOverview.payoutFrequency);
+    
+    // Check if total deduction exceeds balance
+    if (totalDeduction > weeklyPayoutOverview.maturedWalletBalance) {
+      showToast(
+        `إجمالي الخصم (${totalDeduction.toLocaleString()} ج.م) شامل عمولة التحويل يتجاوز الرصيد الجاهز للسحب (${weeklyPayoutOverview.maturedWalletBalance.toLocaleString()} ج.م).`,
+        'error'
+      );
+      return;
+    }
+
     const freqLabelAr = weeklyPayoutOverview.payoutFrequency === 'daily' ? 'سحب يومي' : `سحب أسبوعي (${weeklyPayoutOverview.weeklyDayNameAr})`;
 
     setIsSubmittingRequest(true);
     try {
       const feeDetails = feeAmount > 0
-        ? ` [نظام: ${freqLabelAr} | عمولة التحويل: ${feeAmount.toLocaleString()} ج.م | صافي المستحق للتحويل: ${netAmount.toLocaleString()} ج.م]`
+        ? ` [نظام: ${freqLabelAr} | عمولة التحويل: ${feeAmount.toLocaleString()} ج.م | المبلغ الذي سيصلك: ${netAmount.toLocaleString()} ج.م | إجمالي الخصم من الرصيد: ${totalDeduction.toLocaleString()} ج.م]`
         : ` [نظام: ${freqLabelAr} | بدون عمولة تحويل]`;
       const payoutDetails = ` [طريقة الاستلام: ${payoutMethod} ${payoutAccount ? `- الحساب: ${payoutAccount}` : ''}]${feeDetails}`;
       const newReq: db.PartnerPortalRequest & {
@@ -3974,7 +4002,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       setRequestNotes('');
       showToast(
         feeAmount > 0
-          ? `تم إرسال طلب السحب (${numAmt.toLocaleString()} ج.م) — عمولة التحويل (${feeAmount.toLocaleString()} ج.م) وصافي التحويل (${netAmount.toLocaleString()} ج.م)`
+          ? `تم إرسال طلب السحب بنجاح. المبلغ الذي سيصلك: (${netAmount.toLocaleString()} ج.م) - عمولة التحويل: (${feeAmount.toLocaleString()} ج.م) - إجمالي الخصم من المحفظة: (${totalDeduction.toLocaleString()} ج.م)`
           : 'تم إرسال طلب سحب المستحقات للإدارة بنجاح وحجز المبلغ مؤقتاً لحين الاعتماد',
         'success'
       );
@@ -11239,28 +11267,31 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 </div>
 
                 {/* Live Transfer Commission & Net Payout Summary */}
-                {Number(requestAmount) > 0 && (
-                  <div className={`mt-2.5 p-3 rounded-2xl border space-y-1.5 text-[11px] font-bold ${
-                    isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-emerald-50/40 border-emerald-200/70'
-                  }`}>
-                    <div className="flex items-center justify-between text-zinc-500">
-                      <span>إجمالي المبلغ المطلوب سحبه:</span>
-                      <span className="font-mono font-black text-zinc-800 dark:text-zinc-200">{formatMoney(Number(requestAmount))}</span>
+                {Number(requestAmount) > 0 && (() => {
+                  const { feeAmount, netAmount, totalDeduction } = weeklyPayoutOverview.calculateTransferFeeForAmount(Number(requestAmount));
+                  return (
+                    <div className={`mt-2.5 p-3 rounded-2xl border space-y-1.5 text-[11px] font-bold ${
+                      isDark ? 'bg-zinc-950/80 border-zinc-800' : 'bg-emerald-50/40 border-emerald-200/70'
+                    }`}>
+                      <div className="flex items-center justify-between text-[#00ab84] dark:text-emerald-400">
+                        <span>المبلغ الذي سيصلك كاملاً:</span>
+                        <span className="font-mono font-black">{formatMoney(netAmount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-rose-500">
+                        <span>عمولة التحويل ({weeklyPayoutOverview.activeFeeLabelAr}):</span>
+                        <span className="font-mono font-black">
+                          +{formatMoney(feeAmount)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-black">
+                        <span>إجمالي الخصم من المحفظة:</span>
+                        <span className="font-mono">
+                          {formatMoney(totalDeduction)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between text-rose-500">
-                      <span>عمولة التحويل ({weeklyPayoutOverview.activeFeeLabelAr}):</span>
-                      <span className="font-mono font-black">
-                        -{formatMoney(weeklyPayoutOverview.calculateFeeForAmount(Number(requestAmount), weeklyPayoutOverview.payoutFrequency))}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800 text-[#00ab84] dark:text-emerald-400 text-xs font-black">
-                      <span>صافي المبلغ الذي سيصلك:</span>
-                      <span className="font-mono">
-                        {formatMoney(Math.max(0, Number(requestAmount) - weeklyPayoutOverview.calculateFeeForAmount(Number(requestAmount), weeklyPayoutOverview.payoutFrequency)))}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               <div>
