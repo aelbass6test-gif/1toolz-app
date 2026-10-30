@@ -2857,7 +2857,8 @@ export const updatePartnerRequestStatus = async (
     requestId: string,
     storeId: string,
     status: 'approved' | 'rejected',
-    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string },
+    merchantAuth?: { merchantId: string; passcode: string }
 ): Promise<boolean> => {
     try {
         const extraFields = cleanUndefined({
@@ -3096,7 +3097,9 @@ export const updateMerchantRequestStatus = async (
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
         const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
-            body: { action: 'admin_update', storeId, requestId, status, meta: extra }
+            body: merchantAuth
+                ? { action: 'merchant_cancel', storeId, requestId, merchantId: merchantAuth.merchantId, passcode: merchantAuth.passcode }
+                : { action: 'admin_update', storeId, requestId, status, meta: extra }
         });
         if (error || !data?.success) throw new Error(data?.error || error?.message || 'تعذر تحديث طلب السحب');
 
