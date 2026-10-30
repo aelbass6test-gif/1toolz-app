@@ -2219,30 +2219,34 @@ export const clearStoreData = async (storeId: string, targets: string[]): Promis
 };
 
 export const deleteStoreCompletely = async (storeId: string): Promise<{ success: boolean, error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'اتصال Supabase غير متاح؛ لم يتم حذف المتجر.' };
+
     try {
-        // Collections to delete
-        const collections = [
-            'orders', 'products', 'transactions', 'treasury_accounts', 'treasury_transactions', 
-            'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs', 
-            'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods', 
-            'customers', 'global_options', 'shipping_integrations', 'partners'
+        const tables = [
+            'orders', 'products', 'transactions', 'treasury_accounts', 'treasury_transactions',
+            'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs',
+            'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods',
+            'customers', 'global_options', 'shipping_integrations', 'partners', 'partner_transactions',
+            'warehouses', 'inventory_audits', 'stock_transfers', 'order_returns', 'purchase_returns',
+            'pos_sales', 'cash_holders', 'cash_handovers', 'whatsapp_templates', 'call_scripts',
+            'quotations', 'chat_messages', 'merchant_requests', 'partner_requests', 'maintenance_requests'
         ];
 
-        // Delete all documents in those collections for this store
-        for (const colName of collections) {
-            const q = query(collection(firebaseDb, colName), where('storeId', '==', storeId));
-            const snap = await getDocs(q);
-            const deleteDocs = snap.docs.map(doc => deleteDoc(doc.ref));
-            await Promise.all(deleteDocs);
+        for (const table of tables) {
+            const { error } = await supabase.from(table).delete().eq('store_id', storeId);
+            if (error && error.code !== '42P01') {
+                console.error(`[DELETE-STORE] Failed deleting ${table}:`, error);
+                return { success: false, error: `فشل حذف بيانات ${table}: ${error.message}` };
+            }
         }
 
-        // Delete the store document itself
-        const storeRef = doc(firebaseDb, 'stores_data', storeId);
-        await deleteDoc(storeRef);
+        const { error: storeError } = await supabase.from('stores_data').delete().eq('id', storeId);
+        if (storeError) return { success: false, error: `فشل حذف سجل المتجر: ${storeError.message}` };
 
         return { success: true };
     } catch (err: any) {
-        return { success: false, error: err.message };
+        return { success: false, error: err?.message || 'تعذر حذف المتجر من Supabase.' };
     }
 };
 
