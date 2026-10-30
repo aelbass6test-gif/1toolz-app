@@ -79,7 +79,7 @@ Deno.serve(async (request: Request) => {
   if (storeError || !store) return json({ success: false, error: "المتجر غير موجود." }, 404);
 
   const action = String(body.action || "create");
-  if (["update", "delete", "reset_password"].includes(action)) {
+  if (["update", "delete", "reset_password", "accept_request", "decline_request"].includes(action)) {
     const targetPhone = String(body.phone || "").trim();
     if (!targetPhone) return json({ success: false, error: "رقم الموظف مطلوب." }, 400);
     const { data: profile, error: profileError } = await admin.from("user_profiles").select("user_id").eq("phone", targetPhone).maybeSingle();
