@@ -147,3 +147,11 @@ This inventory was collected from the connected production project's catalog and
 - Partner portal code currently authenticates a partner by comparing a PIN in the browser, so the legacy `passcode` remains part of the client model for compatibility. This is not an acceptable final authentication design.
 - Important limitation: the current generic Supabase `partners.select('*')` still retrieves the database row (including its password column and the JSON details column) before the mapper strips the legacy password fields. Therefore this change reduces accidental propagation through application state but does **not** yet prevent those fields crossing the network to the browser.
 - Before enabling the Supabase read path in production, replace the generic query with a database-side safe projection that excludes password material, and move partner PIN verification to a server-side/Supabase Auth flow. Do not expose the service-role key in the browser.
+
+
+### Partner portal URL-login hardening (branch only; 2026-10-30)
+
+- Removed the effect that authenticated a partner from `pin`/`code` URL parameters or the `auto=1`/`direct=1` flags, including the implicit default-PIN path.
+- Updated the failed-PIN message so it no longer advertises `0000` as a default credential.
+- The normal partner login is still a client-side PIN comparison and its session is still stored in browser session storage. This is **not** a secure final authentication boundary; do not treat the portal as production-secure until server-side verification, authenticated sessions, and per-request authorization are implemented.
+- A read-only aggregate check of the live `public.partners` table found 9 rows and no populated legacy `password`, `passcode`, or `details.password` fields. This check returned counts only; no credential values were selected. No data was changed.
