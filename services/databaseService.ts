@@ -2687,7 +2687,7 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                const { data: sbUsers, error: sbErr } = await supabase.from('users').select('*');
+                const { data: sbUsers, error: sbErr } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate');
                 if (!sbErr && sbUsers) {
                     supabaseUsers = sbUsers.map((su: any) => ({
                         fullName: su.full_name || '',
