@@ -226,17 +226,26 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     }
   };
 
-  const handleRequestAction = (employeeId: string, action: 'accept' | 'decline') => {
-     if (action === 'accept') {
-         setSettings(s => ({ ...s, employees: s.employees.map(e => e.id === employeeId ? { ...e, status: 'active' } : e) }));
-         const employee = settings.employees.find(e => e.id === employeeId);
-         if (employee) {
-             setEditingEmployee({ ...employee, status: 'active' });
-             setIsEmployeeModalOpen(true);
-         }
-     } else {
-         setSettings(s => ({ ...s, employees: s.employees.filter(e => e.id !== employeeId) }));
-     }
+  const handleRequestAction = async (employeeId: string, action: 'accept' | 'decline') => {
+    if (!activeStoreId) return;
+    const employee = settings.employees.find(e => e.id === employeeId);
+    if (!employee) return;
+    try {
+      await invokeEmployeeAction({
+        action: action === 'accept' ? 'accept_request' : 'decline_request',
+        storeId: activeStoreId,
+        phone: employee.phone || employee.id
+      });
+      if (action === 'accept') {
+        setSettings(s => ({ ...s, employees: s.employees.map(e => e.id === employeeId ? { ...e, status: 'active' } : e) }));
+        setEditingEmployee({ ...employee, status: 'active' });
+        setIsEmployeeModalOpen(true);
+      } else {
+        setSettings(s => ({ ...s, employees: s.employees.filter(e => e.id !== employeeId) }));
+      }
+    } catch (err: any) {
+      alert(`تعذر ${action === 'accept' ? 'قبول' : 'رفض'} طلب الموظف: ${err?.message || 'خطأ غير معروف'}`);
+    }
   };
 
 
