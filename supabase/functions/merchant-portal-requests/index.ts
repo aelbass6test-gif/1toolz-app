@@ -59,12 +59,19 @@ Deno.serve(async (request: Request) => {
     let isTrustedAdmin = profile?.is_admin === true;
     // Preserve compatibility with trusted legacy administrators whose flag is
     // still stored in users until their profile has been synchronized.
-    if (!isTrustedAdmin && profile?.phone) {
-      const { data: legacyAdmin, error: legacyError } = await admin
-        .from("users").select("is_admin").eq("phone", profile.phone).maybeSingle();
+    if (!isTrustedAdmin) {
+      // Existing production admins may predate user_profiles and have no
+      // store_memberships row. Resolve the legacy admin flag by the verified
+      // Supabase Auth email when a profile/phone mapping is not present.
+      const legacyIdentityQuery = profile?.phone
+        ? admin.from("users").select("is_admin").eq("phone", profile.phone).maybeSingle()
+        : (authData.user.email && authData.user.email_confirmed_at)
+          ? admin.from("users").select("is_admin").ilike("email", authData.user.email).maybeSingle()
+          : Promise.resolve({ data: null, error: null } as any);
+      const { data: legacyAdmin, error: legacyError } = await legacyIdentityQuery;
       if (legacyError) return json({ success: false, error: "تعذر التحقق من صلاحيات الإدارة" }, 500);
       isTrustedAdmin = legacyAdmin?.is_admin === true;
-      if (isTrustedAdmin) {
+      if (isTrustedAdmin && profile) {
         await admin.from("user_profiles").update({ is_admin: true }).eq("user_id", userId);
       }
     }
