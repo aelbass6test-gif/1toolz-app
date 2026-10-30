@@ -73,8 +73,13 @@ Deno.serve(async (request: Request) => {
   // Applicants may submit only for their own authenticated phone identity.
   // The request is stored relationally, not in the store settings document.
   if (action === "submit_request") {
-    const authPhone = String(authData.user.user_metadata?.phone || "").trim();
-    if (!authPhone || authPhone !== phone) return json({ success: false, error: "رقم الهاتف لا يطابق حساب الدخول الحالي." }, 403);
+    // Do not trust user_metadata for identity: users can edit it themselves.
+    // The signup flow creates the authenticated identity using this phone-derived email.
+    const expectedAuthEmail = `${phone}@mystore-auth.app`.toLowerCase();
+    const authenticatedEmail = String(authData.user.email || "").trim().toLowerCase();
+    if (!authenticatedEmail || authenticatedEmail !== expectedAuthEmail) {
+      return json({ success: false, error: "رقم الهاتف لا يطابق هوية حساب الدخول الحالية." }, 403);
+    }
     const { data: existingMembership, error: membershipLookupError } = await admin
       .from("store_memberships").select("role").eq("store_id", storeId).eq("user_id", authData.user.id).maybeSingle();
     if (membershipLookupError) return json({ success: false, error: "تعذر التحقق من عضوية المتجر." }, 500);
