@@ -2927,7 +2927,6 @@ export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | 
             isAdmin: data.is_admin || false,
             isBanned: data.is_banned || false,
             joinDate: data.join_date || '',
-            password: data.password || '',
             defaultStoreId,
             autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
         };
@@ -2950,7 +2949,6 @@ export const updateUserInSupabase = async (user: User): Promise<{ success: boole
             join_date: user.joinDate || new Date().toISOString(),
             stores: user.stores || [],
             sites: user.sites || [],
-            password: user.password,
             default_store_id: user.defaultStoreId || null,
             auto_launch_default_store: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
         });
@@ -2996,8 +2994,7 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
                         fullName: data.fullName || '',
                         phone: docSnap.id,
                         email: data.email || '',
-                        password: data.password || '',
-                        stores: data.stores || [],
+                                    stores: data.stores || [],
                         sites: data.sites || [],
                         isAdmin: data.isAdmin || false,
                         isBanned: data.isBanned || false,
@@ -3069,7 +3066,6 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
         const userPayload = {
             fullName: user.fullName,
             email: user.email,
-            password: user.password || '',
             stores: user.stores || [],
             sites: user.sites || [],
             isAdmin: user.isAdmin || false,
