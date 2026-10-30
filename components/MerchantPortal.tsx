@@ -3254,7 +3254,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Cancel a pending withdrawal request (releases reserved funds immediately)
   const handleCancelPendingWithdrawal = async (reqId: string) => {
     try {
-      await db.updateMerchantRequestStatus(reqId, effectiveStoreId, 'rejected');
+      const cancelled = await db.updateMerchantRequestStatus(
+        reqId,
+        effectiveStoreId,
+        'rejected',
+        undefined,
+        { merchantId: String(liveMerchant?.id || ''), passcode: String(liveMerchant?.passcode || '') }
+      );
+      if (!cancelled) throw new Error('تعذر إلغاء الطلب؛ ربما تمت مراجعته بالفعل.');
       setMerchantRequestsList(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
       showToast('تم إلغاء طلب السحب المعلق وفك حجز المبلغ بنجاح', 'success');
     } catch (err: any) {
