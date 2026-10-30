@@ -2202,21 +2202,16 @@ export const clearStoreData = async (storeId: string, targets: string[]): Promis
             }
         }).flat();
 
-        const clearPromises = collectionsToClear.map(async (colName) => {
-            // Try storeId
-            let q = query(collection(firebaseDb, colName), where('storeId', '==', storeId));
-            let snap = await getDocs(q);
-            let deleteDocs = snap.docs.map(doc => deleteDoc(doc.ref));
-            
-            // Try store_id fallback
-            let q_snake = query(collection(firebaseDb, colName), where('store_id', '==', storeId));
-            let snap_snake = await getDocs(q_snake);
-            let deleteDocs_snake = snap_snake.docs.map(doc => deleteDoc(doc.ref));
-            
-            await Promise.all([...deleteDocs, ...deleteDocs_snake]);
-        });
+        const supabase = getSupabaseClient();
+        if (!supabase) return { success: false, error: 'اتصال Supabase غير متاح؛ لم يتم حذف أي بيانات.' };
 
-        await Promise.all(clearPromises);
+        for (const table of collectionsToClear) {
+            const { error } = await supabase.from(table).delete().eq('store_id', storeId);
+            if (error) {
+                console.error(`[CLEAR-STORE] Failed to clear ${table} for ${storeId}:`, error);
+                return { success: false, error: `فشل حذف بيانات ${table}: ${error.message}` };
+            }
+        }
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
