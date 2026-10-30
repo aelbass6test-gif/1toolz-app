@@ -47,7 +47,23 @@ Deno.serve(async (request: Request) => {
     .maybeSingle();
 
   if (profileError) return json({ success: false, error: "Unable to verify administrator permissions" }, 500);
-  if (!callerProfile?.is_admin) return json({ success: false, error: "Administrator permission required" }, 403);
+
+  // Existing trusted platform admins may have their flag only on the protected
+  // legacy user directory row. Authenticated clients cannot edit that flag.
+  let callerIsAdmin = Boolean(callerProfile?.is_admin);
+  if (!callerIsAdmin && callerProfile?.phone) {
+    const { data: legacyAdmin, error: legacyAdminError } = await admin
+      .from("users")
+      .select("is_admin")
+      .eq("phone", callerProfile.phone)
+      .maybeSingle();
+    if (legacyAdminError) return json({ success: false, error: "Unable to verify administrator permissions" }, 500);
+    callerIsAdmin = Boolean(legacyAdmin?.is_admin);
+    if (callerIsAdmin) {
+      await admin.from("user_profiles").update({ is_admin: true }).eq("user_id", callerData.user.id);
+    }
+  }
+  if (!callerIsAdmin) return json({ success: false, error: "Administrator permission required" }, 403);
 
   let body: Record<string, unknown>;
   try {
