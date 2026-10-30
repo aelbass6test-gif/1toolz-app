@@ -2866,6 +2866,9 @@ const toMerchantRequestView = (raw: any, legacySource: 'merchant_requests' | 'pa
     partnerId: String(raw.merchantId ?? raw.partnerId ?? ''),
     partnerName: String(raw.merchantName ?? raw.partnerName ?? ''),
     isMerchantRequest: true,
+    transferFee: raw.details?.transferFee,
+    netAmount: raw.details?.netAmount,
+    payoutFrequency: raw.details?.payoutFrequency,
     legacySource
 } as PartnerPortalRequest);
 
@@ -2912,7 +2915,30 @@ export const submitMerchantRequest = async (
 
         // merchant_requests uses the existing camelCase schema (storeId/merchantId).
         // Do not report success or cache a request until Supabase confirms persistence.
-        const payload = cleanUndefined(request) as any;
+        const payload = cleanUndefined({
+            id: request.id,
+            storeId: request.storeId,
+            type: request.type,
+            typeArabic: request.typeArabic,
+            amount: request.amount,
+            notes: request.notes,
+            date: request.date,
+            status: request.status,
+            createdAt: request.createdAt,
+            merchantId: request.merchantId,
+            merchantName: request.merchantName,
+            payoutMethod: request.payoutMethod,
+            payoutAccount: request.payoutAccount,
+            transferReference: request.transferReference,
+            refundMeta: request.refundMeta,
+            planRequestMeta: request.planRequestMeta,
+            details: {
+                transferFee: (rawReq as any).transferFee,
+                netAmount: (rawReq as any).netAmount,
+                payoutFrequency: (rawReq as any).payoutFrequency,
+                isMerchantRequest: true
+            }
+        }) as any;
         const { error } = await supabase.from('merchant_requests').upsert(payload, { onConflict: 'id' });
         if (error) {
             console.error('[MERCHANT-REQUEST] Supabase insert failed:', error.message, error.details);
@@ -2973,7 +2999,7 @@ export const updateMerchantRequestStatus = async (
         });
         const { data, error } = await supabase
             .from('merchant_requests')
-            .update({ status, updatedAt: new Date().toISOString(), ...extra })
+            .update({ status, updated_at: new Date().toISOString(), ...extra })
             .eq('id', requestId)
             .eq('storeId', storeId)
             .eq('status', 'pending')
