@@ -1302,6 +1302,7 @@ export interface Settings {
   weeklyPayoutMode?: 'auto' | 'admin_confirm'; // تحويل آلي أو بتأكيد الإدارة
   minWeeklyPayout?: number; // الحد الأدنى للسحبة الأسبوعية
   maxWeeklyPayout?: number; // الحد الأقصى للسحبة الأسبوعية
+  defaultPayoutStrategy?: 'rolling_hold' | 'batch_weekly' | 'manual_request';
   weeklyTransferFee?: number;
   weeklyTransferFeeType?: 'fixed' | 'percentage';
   dailyTransferFee?: number;
@@ -2210,6 +2211,46 @@ export interface Quotation {
   deletedAt?: string;
 }
 
+export interface PartnerPortalRequest {
+    id: string;
+    storeId: string;
+    partnerId: string;
+    partnerName: string;
+    type: 'withdrawal' | 'expense' | 'inquiry' | 'subscription_refund' | 'wallet_topup' | 'plan_change_request' | 'custom_plan_quote';
+    typeArabic?: string;
+    amount: number;
+    notes: string;
+    date?: string;
+    status: 'pending' | 'approved' | 'rejected' | 'quoted';
+    createdAt: string;
+    isMerchantRequest?: boolean;
+    payoutMethod?: string;
+    payoutAccount?: string;
+    receiptImage?: string;
+    transferReference?: string;
+    approvedBy?: string;
+    approvedAt?: string;
+    refundMeta?: {
+        targetType?: 'self_service' | 'manager';
+        planType?: 'self_service' | 'manager';
+        planId?: string;
+        planName?: string;
+        planNameAr?: string;
+        billingCycle?: string;
+        paidAmount?: number;
+        chargeFor14Days?: number;
+        charged14DaysAmount?: number;
+        chargeForActualDays?: number;
+        refundableAmount?: number;
+        refundAmount?: number;
+        daysElapsed?: number;
+        elapsedDays?: number;
+        totalCycleDays?: number;
+        totalDays?: number;
+    };
+    planRequestMeta?: any;
+}
+
 export interface StoreData {
   name?: string;
   orders: Order[];
@@ -2219,6 +2260,7 @@ export interface StoreData {
   cart: OrderItem[];
   customers: CustomerProfile[]; // Added customers to StoreData
   quotations?: Quotation[];
+  merchantRequests?: PartnerPortalRequest[];
 }
 
 export interface PlaceOrderData {
