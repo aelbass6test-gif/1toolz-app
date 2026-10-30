@@ -6,7 +6,7 @@ import {
   Send, RefreshCw, AlertCircle
 } from 'lucide-react';
 import { User } from '../types';
-import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase } from '../services/databaseService';
+import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase } from '../services/databaseService';
 import { auth } from '../services/firebaseClient';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useAuthActions } from '../src/hooks/useAuthActions';
@@ -289,11 +289,8 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         };
         const success = await createUserDoc(newUser);
         if (success) {
-          try {
-            await updateUserInSupabase(newUser);
-          } catch (e) {
-          }
-          
+          // createUserDoc persists the profile to the configured data stores.
+          // Do not perform a second independent Supabase profile upsert here.
           setUsers(prevUsers => [...prevUsers, newUser]);
           setIsLoading(false);
           
