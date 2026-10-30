@@ -766,16 +766,21 @@ function getCollectionHash(items: any[] | null | undefined): string {
 }
 
 export const ensureStoreRecordExists = async (storeId: string, storeName: string): Promise<{ success: boolean, error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase client not initialized.' };
+
     try {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('stores_data').upsert({ id: storeId, name: storeName }, { onConflict: 'id' });
-            } catch (_) {}
+        const { data, error } = await supabase.rpc('ensure_store_record_for_current_user', {
+            p_store_id: storeId,
+            p_store_name: storeName
+        });
+        if (error) return { success: false, error: error.message };
+        if (data !== true) {
+            return { success: false, error: 'المتجر موجود بالفعل ولا تملك عضوية معتمدة عليه.' };
         }
         return { success: true };
     } catch (err: any) {
-        return { success: false, error: err.message };
+        return { success: false, error: err?.message || 'تعذر إنشاء سجل المتجر أو التحقق من عضويتك.' };
     }
 };
 
