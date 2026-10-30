@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: migration-checks-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel dependency installation/type-check/build on each migration commit.
+  # Let every pushed state finish validation so the latest result is trustworthy.
+  cancel-in-progress: false
 
 jobs:
   validate:
