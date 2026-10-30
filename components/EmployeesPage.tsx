@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Settings, Employee, Permission, PERMISSIONS, User, Store } from '../types';
 import { Users, UserPlus, UserCog, Trash2, XCircle, KeyRound, AlertCircle, Check, Clock, Copy, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { createUserDoc } from '../services/databaseService';
 import { getAuthSupabaseClient } from '../services/supabaseAuthService';
 import { db } from '../services/firebaseClient';
 import { doc, setDoc } from 'firebase/firestore';
