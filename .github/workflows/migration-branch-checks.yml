@@ -28,6 +28,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-package-lock
+      - name: Merchant accounting regression tests
+        run: npm run test:merchant-accounting
+      - name: Shipping status regression tests
+        run: npm run test:shipping
       - name: Type-check
         run: npm run lint
       - name: Production build
