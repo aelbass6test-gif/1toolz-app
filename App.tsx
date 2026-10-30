@@ -1818,12 +1818,8 @@ export const AppComponent = () => {
         localStorage.setItem('theme', theme);
     }, [theme, location.pathname, isStandaloneStorefront]);
 
-    // Proactive background migration for legacy accounts when Admin loads user list
-    useEffect(() => {
-        if (currentUser?.isAdmin && users && users.length > 0) {
-            migrateLegacyUsersToAuth(users);
-        }
-    }, [currentUser, users]);
+    // Legacy Firebase account migration is disabled. Accounts must be explicitly
+    // re-enrolled into Supabase Auth; never copy plaintext legacy passwords.
 
     // Helper to wait for Firebase Auth to initialize and return the authenticated user
     const getCurrentAuthenticatedUser = (): Promise<any> => {
@@ -2074,6 +2070,8 @@ export const AppComponent = () => {
     }, []);
 
     const handleLogout = () => {
+        // Clear any Supabase session as well as the legacy Firebase-backed app session.
+        void import('./services/supabaseAuthService').then(({ signOutFromSupabase }) => signOutFromSupabase()).catch(() => {});
         setCurrentUser(null);
         setActiveStoreId(null);
         setIsEmployeeSession(false);
@@ -2197,40 +2195,10 @@ export const AppComponent = () => {
         setOtpTargetEmail('');
     };
     
-    const syncSupabaseAuth = async (user: User, password?: string, storeId?: string) => {
-        const supabase = getSupabaseClient();
-        if (!supabase || !password) return;
-        const email = user.email || `${user.phone}@mystore-auth.app`;
-        let { data } = await supabase.auth.signInWithPassword({ email, password });
-        if (!data.session) {
-            const signup = await supabase.auth.signUp({
-                email,
-                password,
-                options: { data: { phone: user.phone, full_name: user.fullName } }
-            });
-            data = signup.data;
-            if (signup.error && !signup.error.message.toLowerCase().includes('already')) {
-                console.warn('[SUPABASE AUTH] Could not create shadow session:', signup.error.message);
-                return;
-            }
-            if (!data.session) {
-                const retry = await supabase.auth.signInWithPassword({ email, password });
-                data = retry.data;
-            }
-        }
-        const supabaseUserId = data.user?.id;
-        if (!supabaseUserId) return;
-        const memberships = [
-            ...(user.stores || []).map(store => ({ user_id: supabaseUserId, store_id: store.id, role: user.isAdmin ? 'owner' : 'staff' })),
-            ...(storeId ? [{ user_id: supabaseUserId, store_id: storeId, role: 'staff' }] : [])
-        ];
-        if (memberships.length > 0) {
-            await supabase.from('store_memberships').upsert(memberships, { onConflict: 'user_id,store_id' });
-        }
-    };
+    // Supabase identity linking is intentionally server-controlled. Never create
+    // shadow accounts or grant store memberships from this client callback.
 
     const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null, password?: string) => {
-        void syncSupabaseAuth(user, password, sessionInfo?.storeId);
         setUsers(prev => {
             if (!prev.some(u => u.phone === user.phone)) {
                 return [...prev, user];
