@@ -3015,81 +3015,26 @@ export const submitMerchantRequest = async (
 
 export const getMerchantRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
     const key = `merchant_requests_${storeId}`;
-    let current: any[] = [];
-    try {
-        const cached = JSON.parse(localStorage.getItem(key) || '[]');
-        if (Array.isArray(cached)) current = cached;
-    } catch (_) {}
-
     const supabase = getSupabaseClient();
-    let remoteSuccess = false;
-
-    // --- Hostinger MySQL Priority ---
-    if (isHostingerActive()) {
-      try {
-        const res = await fetch(`/api/mysql/fetch?table=merchant_requests&storeId=${storeId}`);
-        const data = await res.json();
-        if (data.items) {
-          current = data.items;
-          remoteSuccess = true;
-          try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
-        }
-      } catch (e) {
-        console.warn('[HOSTINGER-FETCH] Merchant requests failed:', e);
-      }
+    if (!supabase) {
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
     }
 
-    if (!remoteSuccess && supabase) {
-        try {
-            const { data, error } = await supabase
-                .from('merchant_requests')
-                .select('*')
-                .eq('store_id', storeId);
-            if (!error && data) {
-                current = data;
-                remoteSuccess = true;
-                try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
-            }
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Supabase read failed:', err);
-        }
-    }
-
-    if (!remoteSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            current = snap.docs.map(d => d.data());
-            try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Error reading isolated merchant requests:', err);
-        }
-    }
-    // Backward-compatible read only: legacy merchant requests remain visible until migrated.
-    let legacy: any[] = [];
-    let legacyRemoteSuccess = false;
     try {
-        const cached = JSON.parse(localStorage.getItem(`partner_requests_${storeId}`) || '[]');
-        if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
-    } catch (_) {}
-    
-    if (!legacyRemoteSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            legacy = snap.docs.map(d => d.data()).filter(isLegacyMerchantRequest);
-            legacyRemoteSuccess = true;
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Error reading legacy merchant requests:', err);
-        }
+        const { data, error } = await supabase
+            .from('merchant_requests')
+            .select('*')
+            .eq('storeId', storeId)
+            .order('createdAt', { ascending: false });
+        if (error) throw error;
+        const requests = (data || []).map((r: any) => toMerchantRequestView(r, 'merchant_requests'));
+        try { localStorage.setItem(key, JSON.stringify(requests)); } catch (_) {}
+        return requests;
+    } catch (err) {
+        console.error('[MERCHANT-REQUEST] Supabase read failed:', err);
+        // Offline-only fallback; never treat local cache as a successful remote read.
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
     }
-    const merged = new Map<string, PartnerPortalRequest>();
-    current.forEach(r => merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests')));
-    legacy.forEach(r => {
-        const id = String(r.id || '');
-        if (!merged.has(id)) merged.set(id, toMerchantRequestView(r, 'partner_requests'));
-    });
-    return [...merged.values()].sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 };
 
 export const updateMerchantRequestStatus = async (
@@ -3098,6 +3043,9 @@ export const updateMerchantRequestStatus = async (
     status: 'approved' | 'rejected',
     meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
 ): Promise<boolean> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return false;
+
     try {
         const extra = cleanUndefined({
             ...(meta?.receiptImage ? { receiptImage: meta.receiptImage } : {}),
@@ -3105,83 +3053,27 @@ export const updateMerchantRequestStatus = async (
             ...(meta?.approvedBy ? { approvedBy: meta.approvedBy } : {}),
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
-        let updated = false;
-        if (firebaseDb) {
-            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
-            const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
-            updated = await runTransaction(firebaseDb, async transaction => {
-                const isolatedSnap = await transaction.get(isolatedRef);
-                if (isolatedSnap.exists()) {
-                    const snapData = isolatedSnap.data();
-                    if (snapData.storeId !== storeId) return false;
-                    transaction.update(isolatedRef, { status, updatedAt: new Date().toISOString(), ...extra });
-                    return true;
-                }
-                const legacySnap = await transaction.get(legacyRef);
-                if (!legacySnap.exists()) return false;
-                const legacyData = legacySnap.data();
-                if (legacyData.storeId !== storeId || !isLegacyMerchantRequest(legacyData)) return false;
-                transaction.update(legacyRef, { status, updatedAt: new Date().toISOString(), ...extra });
-                return true;
-            });
-            if (!updated) return false;
-        }
+        const { data, error } = await supabase
+            .from('merchant_requests')
+            .update({ status, updatedAt: new Date().toISOString(), ...extra })
+            .eq('id', requestId)
+            .eq('storeId', storeId)
+            .eq('status', 'pending')
+            .select('id')
+            .maybeSingle();
+        if (error) throw error;
+        if (!data?.id) return false;
 
-        if (isHostingerActive()) {
-          try {
-             await fetch('/api/mysql/sync', {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ 
-                 table: 'merchant_requests', 
-                 items: [{ id: requestId, storeId, status, updatedAt: new Date().toISOString(), ...extra }], 
-                 storeId 
-               })
-             });
-             updated = true;
-          } catch (e) {
-            console.warn('[HOSTINGER-SYNC] Status update failed:', e);
-          }
-        }
-
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                // Try updating in merchant_requests first
-                const { error: mErr } = await supabase
-                    .from('merchant_requests')
-                    .update({ status, updatedAt: new Date().toISOString(), ...extra })
-                    .eq('id', requestId)
-                    .eq('store_id', storeId);
-                
-                if (mErr) {
-                    // Fallback to partner_requests
-                    await supabase
-                        .from('partner_requests')
-                        .update({ status, updatedAt: new Date().toISOString(), ...extra })
-                        .eq('id', requestId)
-                        .eq('store_id', storeId);
-                }
-                updated = true;
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase status update failed:', err);
-            }
-        }
-
-        for (const [key, expectedCollection] of [[`merchant_requests_${storeId}`, 'merchant_requests'], [`partner_requests_${storeId}`, 'partner_requests']] as const) {
-            try {
-                const rows = JSON.parse(localStorage.getItem(key) || '[]');
-                const updatedRows = rows.map((r: any) => {
-                    const isMatch = r.id === requestId && r.storeId === storeId && r.status === 'pending' && (expectedCollection === 'merchant_requests' || isLegacyMerchantRequest(r));
-                    if (isMatch) updated = true;
-                    return isMatch ? { ...r, status, ...extra } : r;
-                });
-                localStorage.setItem(key, JSON.stringify(updatedRows));
-            } catch (_) {}
-        }
-        return updated;
+        try {
+            const key = `merchant_requests_${storeId}`;
+            const rows = JSON.parse(localStorage.getItem(key) || '[]');
+            localStorage.setItem(key, JSON.stringify(rows.map((r: any) =>
+                r.id === requestId ? { ...r, status, ...extra } : r
+            )));
+        } catch (_) {}
+        return true;
     } catch (err) {
-        console.error('[MERCHANT-REQUEST] Error updating merchant request:', err);
+        console.error('[MERCHANT-REQUEST] Supabase status update failed:', err);
         return false;
     }
 };
