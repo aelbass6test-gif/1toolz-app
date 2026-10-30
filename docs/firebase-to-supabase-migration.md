@@ -299,3 +299,12 @@ A recursive key-name/count scan of `stores_data.settings` (values were not selec
 A separate aggregate of `shipping_integrations` found one integration row with a populated `api_key`; no populated `api_secret` or account-number fields were counted. The table's current RLS policy is still public `FOR ALL` with unrestricted predicates, so its API key must be treated as exposed to anyone able to call the public Data API.
 
 No secret values were read or copied. No production data was changed. The store owner should rotate the exposed Telegram bot token and shipping provider API key through their respective providers, then re-enter replacement credentials only after the integration secrets are moved behind server-side Worker/Edge Function calls. Do not merely delete or blank these values from `stores_data.settings` before confirming the app's integration flows no longer depend on them.
+
+
+### RLS rollout blockers confirmed by full policy inventory
+
+The live catalog contains 23 public tables with permissive `FOR ALL` policies whose predicates are both `true` (including orders, customers, products, employees, partners, suppliers, transactions, shipping integrations, users, and stores_data). These policies apply to the `public` role, so the authenticated membership policies on other tables do not protect these tables.
+
+Membership coverage is incomplete: 6 store rows exist in `stores_data`, but only 4 stores have at least one `store_memberships` row; 2 stores have no membership record. The 4 membership rows link to 2 existing Supabase Auth users, with 1 owner and 3 staff roles. No orphan membership user IDs or duplicate (user, store) pairs were found.
+
+Consequently, replacing the 23 permissive policies with membership-only policies today would both break the still-Firebase/anonymous client paths and risk locking out two stores. Before the RLS cutover, every legitimate store owner must be securely mapped to a verified Supabase Auth UUID, and every active user/store relation must be reconciled. Then replace public policies table-by-table with membership/role policies and test anonymous denial, cross-store denial, owner access, staff permission boundaries, and storefront public-read exceptions.
