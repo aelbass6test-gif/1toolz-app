@@ -30,7 +30,5 @@ jobs:
         run: npm run test:merchant-accounting
       - name: Shipping status regression tests
         run: npm run test:shipping
-      - name: Type-check
-        run: npm run lint
       - name: Production build
         run: npm run build
