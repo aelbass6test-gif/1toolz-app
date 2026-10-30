@@ -228,8 +228,15 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     const merchantId = req.partnerId;
     const normName = (req.partnerName || '').trim();
 
+    let requestClaimed = false;
     try {
       setIsApproving(true);
+
+      // Claim the pending request atomically before touching any balance.
+      // A second manager attempting the same payout receives a conflict.
+      const claimed = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'processing');
+      if (!claimed) throw new Error('طلب السحب قيد المعالجة بالفعل أو تمت مراجعته من مدير آخر.');
+      requestClaimed = true;
 
       // Find supplier and calculate transfer fee
       const supplier = suppliersList.find(s => s.id === merchantId || (normName && s.name.trim() === normName));
@@ -316,6 +323,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         await db.updatePartnerSettings(activeStoreId, settings.partners || [], settings.suppliers || []);
         throw new Error('لم يتم اعتماد الطلب في قاعدة البيانات؛ تمت استعادة رصيد الموكل.');
       }
+      requestClaimed = false;
 
       // Deduct net disbursed from treasury after the request and merchant balance are saved
       if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
@@ -354,6 +362,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       setSelectedRequestForApproval(null);
       loadRequests();
     } catch (err: any) {
+      if (requestClaimed) {
+        await db.updateMerchantRequestStatus(req.id, activeStoreId, 'pending').catch(() => false);
+      }
       inAppToast('تعذر اعتماد الصرف: ' + (err.message || ''), 'error');
     } finally {
       setIsApproving(false);
