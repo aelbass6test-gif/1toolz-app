@@ -787,20 +787,33 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
     const supabase = getSupabaseClient();
     let isAuthenticated = false;
+    let isStoreMember = false;
     if (supabase) {
         try {
             const { data: authData } = await supabase.auth.getUser();
             isAuthenticated = Boolean(authData?.user);
+            if (isAuthenticated) {
+                const { data: membership } = await supabase
+                    .from('store_memberships')
+                    .select('store_id')
+                    .eq('store_id', storeId)
+                    .maybeSingle();
+                isStoreMember = Boolean(membership?.store_id);
+            }
         } catch {
             isAuthenticated = false;
+            isStoreMember = false;
         }
     }
 
-    // Never hydrate a public storefront from an admin/employee IndexedDB cache.
-    const local = isAuthenticated ? await getLocal(storeId) : null;
+    const canAccessPrivateStoreData = isAuthenticated && isStoreMember;
 
-    // Authenticated members retain offline-first behavior.
-    if (isAuthenticated && !forceRemote && local) {
+    // Never hydrate a public storefront from a private IndexedDB cache unless
+    // the current authenticated user has a verified membership for this store.
+    const local = canAccessPrivateStoreData ? await getLocal(storeId) : null;
+
+    // Verified store members retain offline-first behavior.
+    if (canAccessPrivateStoreData && !forceRemote && local) {
         if (local.settings) {
             syncSupabaseCredentials(storeId, local.settings);
         }
@@ -808,7 +821,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     }
 
     // --- Custom Hostinger MySQL Fetch Logic ---
-    if (isAuthenticated && isHostingerActive()) {
+    if (canAccessPrivateStoreData && isHostingerActive()) {
       try {
         const fetchTable = async (table: string) => {
           const res = await fetch(`/api/mysql/fetch?table=${table}&storeId=${storeId}`);
@@ -865,7 +878,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             };
 
             const fetchTable = async (table: string) => {
-                const queryTable = isAuthenticated ? table : publicStorefrontViews[table];
+                const queryTable = canAccessPrivateStoreData ? table : publicStorefrontViews[table];
                 if (!queryTable || knownMissingTables.has(table)) {
                     return [];
                 }
@@ -930,7 +943,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 fetchTable('whatsapp_templates'),
                 fetchTable('call_scripts'),
                 fetchTable('quotations'),
-                isAuthenticated
+                canAccessPrivateStoreData
                     ? supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
                     : supabase.from('public_storefronts').select('*').eq('id', storeId).maybeSingle()
             ]);
