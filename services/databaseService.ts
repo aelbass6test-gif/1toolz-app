@@ -2361,86 +2361,25 @@ let isFsQuotaExceededForUsers = false;
 let fsQuotaExceededTimestamp = 0;
 
 export const getUserByPhone = async (phone: string): Promise<User | null> => {
+    const cleanPhone = String(phone || '').trim();
+    if (!cleanPhone) return null;
+
     try {
-        const cleanPhone = (phone || '').trim();
-        if (!cleanPhone) return null;
-
-        const now = Date.now();
-        // Once Supabase is configured, identity records must never fall back to Firebase.
-        if (!isSupabaseActive() && (!isFsQuotaExceededForUsers || (now - fsQuotaExceededTimestamp > 15 * 60 * 1000))) {
-            try {
-                const userRef = doc(firebaseDb, 'users', cleanPhone);
-                const docSnap = await getDoc(userRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    isFsQuotaExceededForUsers = false;
-                    const defaultStoreId = data.defaultStoreId || data.default_store_id || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
-                    return {
-                        fullName: data.fullName || '',
-                        phone: docSnap.id,
-                        email: data.email || '',
-                                    stores: data.stores || [],
-                        sites: data.sites || [],
-                        isAdmin: data.isAdmin || false,
-                        isBanned: data.isBanned || false,
-                        joinDate: data.joinDate || '',
-                        defaultStoreId,
-                        autoLaunchDefaultStore: data.autoLaunchDefaultStore !== undefined ? data.autoLaunchDefaultStore : !!defaultStoreId
-                    };
-                }
-            } catch (fsErr: any) {
-                const msg = String(fsErr?.message || fsErr || '');
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || fsErr?.code === 'resource-exhausted') {
-                    isFsQuotaExceededForUsers = true;
-                    fsQuotaExceededTimestamp = now;
-                    // Quiet notice instead of error
-                } else {
-                    console.warn('[DATABASE-SERVICE] Notice in getUserByPhone:', msg);
-                }
-            }
-        }
-
-        // 2. Try Supabase if not found in Firestore or if Firestore quota exceeded
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,default_store_id,auto_launch_default_store').eq('phone', cleanPhone).maybeSingle();
-                if (!error && data) {
-                    const defaultStoreId = data.default_store_id || data.defaultStoreId || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
-                    const mappedUser: User = {
-                        fullName: data.full_name || '',
-                        phone: data.phone,
-                        email: data.email || '',
-                        stores: data.stores || [],
-                        sites: data.sites || [],
-                        isAdmin: data.is_admin || false,
-                        isBanned: data.is_banned || false,
-                        joinDate: data.join_date || '',
-                        defaultStoreId,
-                        autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
-                    };
-                    return mappedUser;
-                }
-            } catch (sbErr) {
-                // Quiet Supabase catch
-            }
-        }
-
-        // 3. Fallback to local session storage cache
-        try {
-            const cachedUserStr = localStorage.getItem('user_session_v4') || localStorage.getItem('currentUser');
-            if (cachedUserStr) {
-                const cached = JSON.parse(cachedUserStr);
-                if (cached && (cached.phone === cleanPhone || cached.phone === cleanPhone.replace(/^0+/, ''))) {
-                    return cached;
-                }
-            }
-        } catch {}
-
-        return null;
-    } catch (err) {
-        return null;
+        const remoteUser = await getUserByPhoneFromSupabase(cleanPhone);
+        if (remoteUser) return remoteUser;
+    } catch (error) {
+        console.warn('[DATABASE-SERVICE] Supabase user lookup failed:', error);
     }
+
+    try {
+        const cachedUserStr = localStorage.getItem('user_session_v4') || localStorage.getItem('currentUser');
+        if (cachedUserStr) {
+            const cached = JSON.parse(cachedUserStr);
+            if (cached && (cached.phone === cleanPhone || cached.phone === cleanPhone.replace(/^0+/, ''))) return cached;
+        }
+    } catch (_) {}
+
+    return null;
 };
 
 export const createUserDoc = async (user: User): Promise<boolean> => {
@@ -3291,22 +3230,8 @@ export const getMerchantAllocatedProducts = async (merchantId: string, merchantN
     const candidateIds = new Set<string>();
     if (mId) candidateIds.add(mId);
 
-    // 1. Efficient query via Firestore "products" collection
-    if (firebaseDb && mId) {
-        try {
-            const q1 = query(collection(firebaseDb, 'products'), where('merchantId', '==', mId));
-            const snap1 = await getDocs(q1);
-            snap1.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
-
-            const q2 = query(collection(firebaseDb, 'products'), where('merchantIds', 'array-contains', mId));
-            const snap2 = await getDocs(q2);
-            snap2.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
-        } catch (err) {
-            console.warn('[DB] Firestore products collection query failed:', err);
-        }
-    }
-
-    // 2. Efficient query via Supabase if active
+    // Product allocation lookup uses Supabase and store settings only.
+    // 1. Efficient query via Supabase if active
     const supabase = getSupabaseClient();
     if (supabase) {
         try {
