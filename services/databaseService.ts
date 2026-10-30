@@ -958,14 +958,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const fallbackSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === s.id || (sNameNorm && String(fs.name || '').trim().toLowerCase() === sNameNorm))
                             || (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
                         const details = s.details && typeof s.details === 'object' ? s.details : (typeof s.details === 'string' && s.details ? JSON.parse(s.details) : {});
+                        const { passcode: _legacySupplierPasscode, password: _legacySupplierPassword, ...safeSupplierDetails } = details;
+                        const { passcode: _recordSupplierPasscode, password: _recordSupplierPassword, details: _rawSupplierDetails, ...safeSupplierRecord } = s;
+                        const { passcode: _fallbackSupplierPasscode, password: _fallbackSupplierPassword, details: _fallbackSupplierDetails, ...safeFallbackSupplier } = fallbackSupplier || {};
                         return {
-                            ...fallbackSupplier,
-                            ...s,
-                            email: s.email || details.email || fallbackSupplier?.email || '',
-                            passcode: s.passcode || details.passcode || fallbackSupplier?.passcode || '0000',
-                            payoutAccounts: s.payoutAccounts || details.payoutAccounts || fallbackSupplier?.payoutAccounts || {},
-                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? details.profitRatio ?? fallbackSupplier?.profitRatio ?? 0),
-                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (fallbackSupplier?.transactions || [])
+                            ...safeFallbackSupplier,
+                            ...safeSupplierRecord,
+                            details: safeSupplierDetails,
+                            email: s.email || safeSupplierDetails.email || safeFallbackSupplier.email || '',
+                            // PIN/password credentials must never enter the browser store model.
+                            passcode: '',
+                            payoutAccounts: s.payoutAccounts || safeSupplierDetails.payoutAccounts || safeFallbackSupplier.payoutAccounts || {},
+                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? safeSupplierDetails.profitRatio ?? safeFallbackSupplier.profitRatio ?? 0),
+                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (safeFallbackSupplier.transactions || [])
                         };
                     }).filter((s: any) => !isDummyMockSupplier(s)),
                     supplyOrders: (supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || [])).map((so: any) => {
@@ -1001,18 +1006,18 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const pNameNorm = String(p.name || '').trim().toLowerCase();
                         const fallbackPartner = (storeSettings.partners || []).find((fp: any) => fp.id === p.id || (pNameNorm && String(fp.name || '').trim().toLowerCase() === pNameNorm))
                             || (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
-                        // Legacy partner passwords are not an authentication source.
-                        // Keep them (and nested details.password) out of the client-side store model.
-                        const { password: _fallbackPassword, details: _fallbackDetails, ...safeFallbackPartner } = fallbackPartner || {};
-                        const { password: _legacyPassword, details: _rawDetails, ...safePartnerRecord } = p;
+                        // Legacy partner credentials are not an authentication source.
+                        // Keep password/PIN values out of the client-side store model.
+                        const { password: _fallbackPassword, passcode: _fallbackPasscode, details: _fallbackDetails, ...safeFallbackPartner } = fallbackPartner || {};
+                        const { password: _legacyPassword, passcode: _legacyPasscode, details: _rawDetails, ...safePartnerRecord } = p;
                         const parsedDetails = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
-                        const { password: _legacyDetailsPassword, ...safeDetails } = parsedDetails;
+                        const { password: _legacyDetailsPassword, passcode: _legacyDetailsPasscode, ...safeDetails } = parsedDetails;
                         return {
                             ...safeFallbackPartner,
                             ...safePartnerRecord,
                             details: safeDetails,
                             email: p.email || safeDetails.email || safeFallbackPartner.email || '',
-                            passcode: p.passcode || safeDetails.passcode || safeFallbackPartner.passcode || '',
+                            passcode: '',
                             requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? safeDetails.requireEmailOtp ?? safeFallbackPartner.requireEmailOtp ?? true),
                             isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? safeDetails.isEmailVerified ?? safeFallbackPartner.isEmailVerified ?? false),
                             emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || safeDetails.emailVerifiedAt || safeFallbackPartner.emailVerifiedAt,
