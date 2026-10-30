@@ -40,6 +40,7 @@
 - Disabled the old sign-in fallback that compared a supplied password with the legacy Supabase profile password.
 - Removed employee-login fallback paths that read or verify legacy passwords from Supabase `users` or Firestore user documents. Employee login now requires a valid Firebase Auth identity until the full Supabase Auth cutover is implemented.
 - Removed the client-side shadow-auth flow that attempted to create Supabase users and grant store memberships during login. Membership provisioning must be performed by a trusted, authorized flow.
+- Removed the unauthenticated administrator fast-track buttons/handler from the owner login screen; admin status is no longer inferred from hard-coded phone numbers when reconstructing a missing profile.
 - Supabase sign-out is requested when the app logs out, alongside the existing application session cleanup.
 - The existing Firebase Auth sign-up/login and Firestore data path remain active pending the complete identity and data cutover.
 - The migration branch CI run after the employee-login hardening passed both TypeScript type-check and production build.
