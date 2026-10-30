@@ -208,7 +208,8 @@ export const verifySupabaseConnection = async (url: string, key: string): Promis
 // --- Hostinger MySQL Support ---
 
 export const isHostingerActive = (): boolean => {
-  return localStorage.getItem('custom_cloud_provider') === 'hostinger';
+  return typeof window !== 'undefined'
+    && window.localStorage?.getItem('custom_cloud_provider') === 'hostinger';
 };
 
 export const verifyHostingerConnection = async (): Promise<{ success: boolean; error?: string }> => {
@@ -834,19 +835,9 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
 };
 
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
-    // 1. Always attempt local fetch first for offline-first resilience
+    // Supabase/remote data must be checked before using a cached snapshot.
+    // Keep the local snapshot only as a fallback when remote reads fail.
     const local = await getLocal(storeId);
-    
-    // 2. If it's not a forced refresh, and local exists, return it immediately
-    if (!forceRemote && local) {
-        if (local.settings) {
-            syncSupabaseCredentials(storeId, local.settings);
-        }
-        if (Array.isArray(local.orders)) {
-            local.orders = local.orders.filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
-        }
-        return local;
-    }
 
     // --- Custom Hostinger MySQL Fetch Logic ---
     if (isHostingerActive()) {
@@ -1102,7 +1093,6 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     callScripts
                 },
                 orders: (() => {
-                    const cloudOrderIds = new Set((orders || []).map((o: any) => String(o?.id || '').trim()));
                     const mappedCloudOrders = (orders || []).map((o: any) => {
                         const detailsObj = o.details && typeof o.details === 'object' ? o.details : (typeof o.details === 'string' && o.details ? JSON.parse(o.details) : {});
                         const cleanTopLevel = Object.entries(o).reduce((acc: any, [key, val]) => {
@@ -1167,8 +1157,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         };
                     });
 
-                    const localOnlyOrders = (local?.orders || []).filter((lo: any) => lo && lo.id && !cloudOrderIds.has(String(lo.id).trim()));
-                    return [...mappedCloudOrders, ...localOnlyOrders].filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
+                    return mappedCloudOrders.filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
                 })(),
                 wallet: { balance: 0, transactions },
                 treasury: { 
