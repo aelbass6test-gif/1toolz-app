@@ -10,7 +10,8 @@
     "test:merchant-accounting": "tsx tests/merchant-accounting.test.ts",
     "test:shipping": "tsx tests/shipping-status.test.ts",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "audit:firebase": "node scripts/audit_firebase_references.mjs"
   },
   "dependencies": {
     "@google/genai": "^0.15.0",
