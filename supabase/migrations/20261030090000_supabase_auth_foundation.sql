@@ -80,44 +80,5 @@ create trigger user_profiles_set_updated_at
   before update on public.user_profiles
   for each row execute function public.set_updated_at();
 
--- These membership helpers are used by existing RLS policies. Pin their
--- search_path and fully qualify referenced objects to avoid object shadowing.
-create or replace function public.is_store_member(p_store_id text, p_user_id uuid default auth.uid())
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select exists (
-    select 1
-    from public.store_memberships m
-    where m.store_id = p_store_id
-      and m.user_id = p_user_id
-      and p_user_id = (select auth.uid())
-  );
-$$;
-
-create or replace function public.is_store_owner(p_store_id text)
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select exists (
-    select 1
-    from public.store_memberships m
-    where m.store_id = p_store_id
-      and m.user_id = (select auth.uid())
-      and m.role = 'owner'
-  );
-$$;
-
-revoke all on function public.is_store_member(text, uuid) from public, anon;
-revoke all on function public.is_store_owner(text) from public, anon;
-grant execute on function public.is_store_member(text, uuid) to authenticated;
-grant execute on function public.is_store_owner(text) to authenticated;
-
--- Leave the privileged event-trigger function grants unchanged in this migration;
+-- Membership helper hardening is applied in the dedicated follow-up migration.\n\n-- Leave the privileged event-trigger function grants unchanged in this migration;
 -- review and harden it separately after confirming its event-trigger dependencies.
