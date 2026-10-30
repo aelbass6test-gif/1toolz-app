@@ -119,5 +119,5 @@ revoke all on function public.is_store_owner(text) from public, anon;
 grant execute on function public.is_store_member(text, uuid) to authenticated;
 grant execute on function public.is_store_owner(text) to authenticated;
 
--- The event trigger is privileged infrastructure, not an application RPC.
-revoke all on function public.rls_auto_enable() from public, anon, authenticated;
+-- Leave the privileged event-trigger function grants unchanged in this migration;
+-- review and harden it separately after confirming its event-trigger dependencies.
