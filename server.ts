@@ -1344,7 +1344,7 @@ async function startServer() {
           const employee = employees.find((entry: any) => {
             const email = String(entry.email || "").trim().toLowerCase();
             const phone = String(entry.phone || entry.id || "").trim();
-            const digits = phone.replace(/\\D/g, "");
+            const digits = phone.replace(/\D/g, "");
             return email === inputLower || (inputDigits && digits === inputDigits) || phone === input;
           });
           if (employee) {
@@ -1365,7 +1365,7 @@ async function startServer() {
             const employee = employees.find((entry: any) => {
               const email = String(entry.email || "").trim().toLowerCase();
               const phone = String(entry.phone || entry.id || "").trim();
-              const digits = phone.replace(/\\D/g, "");
+              const digits = phone.replace(/\D/g, "");
               return email === inputLower || (inputDigits && digits === inputDigits) || phone === input;
             });
             if (employee) {
