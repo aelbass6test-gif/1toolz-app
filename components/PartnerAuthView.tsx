@@ -94,17 +94,13 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     checkBiometrics();
   }, []);
 
-  // Sync selected partner's enrolled biometrics count
+  // Biometric sign-in is intentionally not offered until credentials are
+  // verified server-side with a challenge bound to the partner account.
   useEffect(() => {
     if (selectedPartnerId) {
       const p = partners.find(item => item.id === selectedPartnerId);
       const stored = getStoredBiometrics(selectedPartnerId);
-      const count = (p?.biometricCredentials?.length || 0) + stored.length;
-      setEnrolledPartnerBioCount(count);
-      // Auto-switch to biometric if partner already has enrolled passkey on this device
-      if (count > 0 && authMode === 'otp' && !isOtpSent) {
-        setAuthMode('biometric');
-      }
+      setEnrolledPartnerBioCount((p?.biometricCredentials?.length || 0) + stored.length);
     }
   }, [selectedPartnerId, partners]);
 
@@ -583,60 +579,14 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
           </div>
         )}
 
-        {/* Tab Toggle: Biometric (Instant) vs Email OTP (High Security) vs Fast PIN */}
+        {/* Only account-bound email OTP is available during the migration.
+            PIN and browser-only biometric flows are disabled until server-side auth exists. */}
         {authMode !== 'forgot' && (
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl mb-5 text-xs font-bold gap-1">
-            <button
-              type="button"
-              onClick={() => { 
-                setAuthMode('biometric'); 
-                setAuthError(''); 
-                setIsTwoFactorActive(false);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'biometric' 
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black ring-1 ring-emerald-500/30' 
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
-              }`}
-            >
-              <Fingerprint size={16} className={authMode === 'biometric' ? 'text-[#008060] dark:text-emerald-400 animate-pulse' : ''} />
-              <span>البصمة الحيوية</span>
-              <span className="text-[9px] bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-1.5 py-0.2 rounded-md font-black">
-                ⚡ فوري
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { 
-                setAuthMode('otp'); 
-                setAuthError(''); 
-                setIsTwoFactorActive(false);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'otp' 
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black' 
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
-              }`}
-            >
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl mb-5 text-xs font-bold">
+            <div className="flex-1 py-2.5 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black flex items-center justify-center gap-1.5">
               <Mail size={15} className="text-[#008060] dark:text-emerald-400" />
               <span>كود البريد (OTP)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { 
-                setAuthMode('pin'); 
-                setAuthError(''); 
-                setIsTwoFactorActive(false);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'pin' 
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black' 
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
-              }`}
-            >
-              <Key size={15} />
-              <span>رمز PIN</span>
-            </button>
+            </div>
           </div>
         )}
 
