@@ -206,3 +206,18 @@ The empty project `lhlcwtxbmxipcesuymnr` (`Wuilt-Platform2`) was inspected and c
 - Therefore the current Supabase Auth helper code is groundwork only. New owner/employee onboarding must not be switched to Supabase until the profile table, owner bootstrap flow, membership linking, and safe store-scoped policies have been deployed and tested in a non-production environment.
 - The legacy `public.users` table contains a nullable `password` column. Application code must never select or use it for authentication. New credentials belong exclusively in `auth.users`.
 - The available empty Supabase project `lhlcwtxbmxipcesuymnr` has not been designated as staging. No schema or data was written to either connected Supabase project during this inspection.
+
+
+### Membership and legacy identity revalidation (read-only; 2026-10-30)
+
+A second read-only catalog pass was run against the connected project after the Auth action-flow changes. It confirms the following:
+
+- `public.store_memberships` currently has exactly the columns `user_id uuid NOT NULL`, `store_id text NOT NULL`, `role text NOT NULL`, and `created_at timestamptz NOT NULL`. There is no active/invitation/permission column in this table yet; employee permission enforcement therefore cannot be inferred from membership role alone.
+- The live membership policies are named `Staging users read own memberships`, `Staging owners insert non-owner memberships`, `Staging owners update non-owner memberships`, and `Staging owners delete non-owner memberships`. They allow a user to read their own rows and an existing owner to manage another user's `manager` / `staff` membership. They do not provide a safe first-owner bootstrap path, invitation acceptance, or a verified identity-linking path.
+- The live `public.stores_data` policy remains `Public Access Stores` with `FOR ALL`, `USING (true)`, and `WITH CHECK (true)`. The live `public.users` policy remains `Public Access Users` with the same unrestricted shape. These must not be mistaken for tenant isolation.
+- `public.users` has legacy profile columns including `phone`, `full_name`, `email`, `stores`, and `sites`, plus a nullable legacy `password` column. It has no `auth_user_id` link column in the inspected schema. Never read or use the password column.
+- `public.user_profiles` is still absent from the live project. The profile trigger and policies in the branch migration are not live.
+- The latest PR workflow run for HEAD `567f90c92ab8ed4e6aacd25fbea43abb935e616c` completed successfully: dependency installation, TypeScript type-check, and production build all passed. This validates compilation/build only; it does not validate runtime authentication, RLS, or data migration.
+- No production schema, policy, grant, user, membership, business data, or Cloudflare deployment was changed by this revalidation.
+
+Implementation consequence: do not wire the current employee registration UI directly to `store_memberships`. First add a reviewed, non-production invitation/claim model with verified contact ownership, an explicit membership status and permissions model, and a one-time owner bootstrap path that cannot be called by arbitrary authenticated users. The client must not be able to select its own role or attach itself to an arbitrary store. Until that is tested, keep the existing Firebase-backed flows in place and continue the migration in isolated code slices.
