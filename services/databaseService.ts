@@ -821,7 +821,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     return [];
                 }
                 try {
-                    const { data, error } = await queryClient.from(queryTable).select('*').eq('store_id', storeId);
+                    const { data, error } = await queryClient.from(queryTable).select('*').eq('storeId', storeId);
                     if (error) {
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                             knownMissingTables.add(table);
@@ -2968,6 +2968,10 @@ export const submitMerchantRequest = async (
         const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
         const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
         if (!storeId) return { success: false, error: 'Missing storeId' };
+
+        const supabase = getSupabaseClient();
+        if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير متاح. لم يتم إرسال طلب السحب.' };
+
         const nowIso = new Date().toISOString();
         const request: MerchantPortalRequest = {
             id: rawReq.id || `REQ-M-${generateUniqueOrderId('m')}`,
@@ -2979,7 +2983,7 @@ export const submitMerchantRequest = async (
             amount: Number(rawReq.amount || 0),
             notes: rawReq.notes || '',
             date: rawReq.date || nowIso,
-            status: rawReq.status || 'pending',
+            status: 'pending',
             createdAt: rawReq.createdAt || nowIso,
             ...(rawReq.payoutMethod ? { payoutMethod: rawReq.payoutMethod } : {}),
             ...(rawReq.payoutAccount ? { payoutAccount: rawReq.payoutAccount } : {}),
@@ -2987,39 +2991,21 @@ export const submitMerchantRequest = async (
             ...(rawReq.refundMeta ? { refundMeta: rawReq.refundMeta } : {}),
             ...(rawReq.planRequestMeta ? { planRequestMeta: rawReq.planRequestMeta } : {})
         };
+
+        // merchant_requests uses the existing camelCase schema (storeId/merchantId).
+        // Do not report success or cache a request until Supabase confirms persistence.
+        const payload = cleanUndefined(request) as any;
+        const { error } = await supabase.from('merchant_requests').upsert(payload, { onConflict: 'id' });
+        if (error) {
+            console.error('[MERCHANT-REQUEST] Supabase insert failed:', error.message, error.details);
+            return { success: false, error: error.message || 'تعذر حفظ طلب السحب' };
+        }
+
         try {
             const key = `merchant_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(key) || '[]');
             localStorage.setItem(key, JSON.stringify([request, ...existing.filter((r: any) => r.id !== request.id)]));
         } catch (_) {}
-        if (firebaseDb) {
-            await setDoc(doc(firebaseDb, 'merchant_requests', request.id), cleanUndefined(request));
-        }
-
-        if (isHostingerActive()) {
-          try {
-            await fetch('/api/mysql/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ table: 'merchant_requests', items: [request], storeId })
-            });
-          } catch (e) {
-            console.warn('[HOSTINGER-SYNC] Merchant request failed:', e);
-          }
-        }
-
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('merchant_requests').upsert({
-                    ...cleanUndefined(request),
-                    store_id: storeId,
-                    merchant_id: request.merchantId
-                });
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase upsert failed:', err);
-            }
-        }
         return { success: true };
     } catch (err: any) {
         console.error('[MERCHANT-REQUEST] Error submitting merchant request:', err);
