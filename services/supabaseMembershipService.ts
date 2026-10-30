@@ -24,8 +24,7 @@ export async function getCurrentUserStoreMemberships(): Promise<StoreMembership[
   if (error) {
     // Avoid logging profile, token, or row contents.
     console.error('[SUPABASE-MEMBERSHIP] Failed to load current-user memberships:', {
-      code: error.code,
-      status: error.status
+      code: error.code
     });
     throw new Error('تعذر تحميل صلاحيات المتاجر. يرجى المحاولة مرة أخرى.');
   }
