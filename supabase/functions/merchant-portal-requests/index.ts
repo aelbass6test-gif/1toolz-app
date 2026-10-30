@@ -68,8 +68,10 @@ Deno.serve(async (request: Request) => {
         await admin.from("user_profiles").update({ is_admin: true }).eq("user_id", userId);
       }
     }
-    const isStoreOwner = ["owner", "store_owner"].includes(String(membership?.role || "").toLowerCase());
-    if (!isTrustedAdmin && !isStoreOwner) {
+    const membershipRole = String(membership?.role || "").toLowerCase();
+    const canViewRequests = isTrustedAdmin || Boolean(membershipRole);
+    const canManageRequests = isTrustedAdmin || ["owner", "store_owner", "manager"].includes(membershipRole);
+    if (action === "admin_list" ? !canViewRequests : !canManageRequests) {
       return json({ success: false, error: "غير مصرح بعرض أو إدارة طلبات هذا المتجر" }, 403);
     }
 
