@@ -317,3 +317,6 @@ The Worker currently exposes carrier proxy routes under `/api/bosta/*` and `/api
 The media handler's `MEDIA_REQUIRE_AUTH=true` guard currently checks only whether an Authorization header exists; it does not validate the token or verify that the caller belongs to the store/product path being changed. An arbitrary non-empty header can pass that check.
 
 Do not treat these Worker routes as authenticated. Before using platform-level carrier secrets or allowing sensitive media writes/deletes, validate Supabase JWTs server-side and verify store membership/permissions for the exact `storeId`. Do not deploy an auth gate until the app's Supabase session is available and existing carrier/media workflows have been tested; otherwise legitimate Firebase-era traffic will break. No Worker source or Cloudflare configuration was changed in this audit.
+
+
+Auth profile schema review: removed the proposed unique index on `user_profiles.phone`. Signup metadata is user-supplied and is not proof of phone ownership; reserving an unverified phone could let someone block the legitimate owner from registering. Phone-based identity linking must wait for a server-verified phone challenge and a server-controlled verification timestamp.
