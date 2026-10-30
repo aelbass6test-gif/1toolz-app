@@ -343,9 +343,9 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         return;
       }
       
-      await handleCustomPasswordReset(userEmailToUse);
+      const resetEmailSent = await handleCustomPasswordReset(userEmailToUse);
       
-      if (!authActionsError) {
+      if (resetEmailSent) {
         setSentToEmail(userEmailToUse);
         setResetSuccess(true);
         
