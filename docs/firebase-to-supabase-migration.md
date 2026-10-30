@@ -254,3 +254,19 @@ The migration branch workflow now runs the two existing regression suites before
 This extends the gate beyond compilation and protects the existing settlement and shipping-status logic while the persistence layer is migrated. These are existing tests; no product behavior or production data was changed by this CI-only update.
 
 Cloudflare build routing was also inspected read-only: commits on branches other than `main` match the `Deploy non-production branches` trigger, whose command is `wrangler versions upload`; only `main` matches the production trigger using `wrangler deploy`. The in-flight build for commit `6725d7c` was using the non-production trigger, and the latest production deployment timestamp remained `2026-10-30T00:51:17Z` at the time of inspection. Thus the observed migration-branch build is a non-production version upload, not a production deployment.
+
+
+### Partner portal authentication hardening (branch only; 2026-10-30)
+
+The legacy partner portal had several browser-side authentication bypasses. The migration branch now applies these containment changes:
+
+- OTP sending is accepted only when the destination exactly matches the email already stored on the selected partner record. A visitor can no longer select a partner and supply a different email to receive the code.
+- OTP verification resolves the partner only by the selected partner ID plus exact normalized email match. It no longer falls back to the selected ID alone or to the only partner in the store.
+- The login screen no longer offers self-service email linking for accounts with no registered email; the store administrator must provision the email through the administrative workflow.
+- Removed the one-click “preview as admin” partner login bypass.
+- Removed browser `sessionStorage` as a source of authenticated partner identity. The portal now keeps the post-OTP selection in component memory and requires a fresh verification after reload.
+- Disabled the client-only PIN and biometric login choices in the partner login screen until server-side account-bound authentication is available; removed the development OTP display from the UI.
+
+Important limitations remain: the OTP verification endpoint currently returns a generic `valid` result rather than a signed partner/store session, partner/store data is still fetched into the browser before authentication, and the legacy partner credential fields/data model still need a server-owned replacement. Therefore this is a containment improvement, not a complete authorization boundary. Do not expose this portal as secure for production financial data until partner identity, store scope, permission checks, and data projection are enforced server-side with Supabase Auth/RLS or a verified Worker session.
+
+No production database, Worker deployment, or live partner record was changed.
