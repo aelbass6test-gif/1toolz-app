@@ -58,7 +58,8 @@ import {
     CashHolder,
     CashHandover,
     WhatsAppTemplate,
-    CallScript
+    CallScript,
+    PartnerPortalRequest
 } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 import {
