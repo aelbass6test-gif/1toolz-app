@@ -18,13 +18,13 @@ GRANT SELECT (
   default_store_id, auto_launch_default_store
 ) ON TABLE public.users TO authenticated;
 GRANT INSERT (
-  phone, full_name, email, join_date, stores, sites,
-  "fullName", "joinDate",
+  phone, full_name, email, is_admin, is_banned, join_date, stores, sites,
+  "fullName", "isAdmin", "isBanned", "joinDate",
   default_store_id, auto_launch_default_store
 ) ON TABLE public.users TO authenticated;
 GRANT UPDATE (
-  phone, full_name, email, join_date, stores, sites,
-  "fullName", "joinDate",
+  phone, full_name, email, is_admin, is_banned, join_date, stores, sites,
+  "fullName", "isAdmin", "isBanned", "joinDate",
   default_store_id, auto_launch_default_store
 ) ON TABLE public.users TO authenticated;
 
