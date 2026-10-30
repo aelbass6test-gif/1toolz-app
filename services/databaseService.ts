@@ -785,11 +785,22 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
 };
 
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
-    // 1. Always attempt local fetch first for offline-first resilience
-    const local = await getLocal(storeId);
-    
-    // 2. If it's not a forced refresh, and local exists, return it immediately
-    if (!forceRemote && local) {
+    const supabase = getSupabaseClient();
+    let isAuthenticated = false;
+    if (supabase) {
+        try {
+            const { data: authData } = await supabase.auth.getUser();
+            isAuthenticated = Boolean(authData?.user);
+        } catch {
+            isAuthenticated = false;
+        }
+    }
+
+    // Never hydrate a public storefront from an admin/employee IndexedDB cache.
+    const local = isAuthenticated ? await getLocal(storeId) : null;
+
+    // Authenticated members retain offline-first behavior.
+    if (isAuthenticated && !forceRemote && local) {
         if (local.settings) {
             syncSupabaseCredentials(storeId, local.settings);
         }
@@ -797,7 +808,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     }
 
     // --- Custom Hostinger MySQL Fetch Logic ---
-    if (isHostingerActive()) {
+    if (isAuthenticated && isHostingerActive()) {
       try {
         const fetchTable = async (table: string) => {
           const res = await fetch(`/api/mysql/fetch?table=${table}&storeId=${storeId}`);
@@ -842,15 +853,24 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     }
 
     // --- Custom Supabase Fetch Logic ---
-    const supabase = getSupabaseClient();
     if (supabase) {
         try {
+            const publicStorefrontViews: Record<string, string> = {
+                products: 'public_storefront_products',
+                collections: 'public_storefront_collections',
+                custom_pages: 'public_storefront_pages',
+                payment_methods: 'public_storefront_payment_methods',
+                reviews: 'public_storefront_reviews',
+                discount_codes: 'public_storefront_discount_codes'
+            };
+
             const fetchTable = async (table: string) => {
-                if (knownMissingTables.has(table)) {
+                const queryTable = isAuthenticated ? table : publicStorefrontViews[table];
+                if (!queryTable || knownMissingTables.has(table)) {
                     return [];
                 }
                 try {
-                    const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
+                    const { data, error } = await supabase.from(queryTable).select('*').eq('store_id', storeId);
                     if (error) {
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                             knownMissingTables.add(table);
@@ -910,7 +930,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 fetchTable('whatsapp_templates'),
                 fetchTable('call_scripts'),
                 fetchTable('quotations'),
-                supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
+                isAuthenticated
+                    ? supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
+                    : supabase.from('public_storefronts').select('*').eq('id', storeId).maybeSingle()
             ]);
 
             const storeRow = storeRowResult?.data;
