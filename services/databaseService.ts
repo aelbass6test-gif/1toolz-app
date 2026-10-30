@@ -1,6 +1,6 @@
 import { db as localDb } from '../src/lib/db';
 import { createClient } from '@supabase/supabase-js';
-import { db as firebaseDb, auth } from './firebaseClient';
+import { db as firebaseDb } from './firebaseClient';
 import { 
     collection, 
     doc, 
@@ -231,17 +231,7 @@ export const handleFirestoreError = (err: any, operation: OperationType, path: s
         error: err instanceof Error ? err.message : String(err),
         operationType: operation,
         path,
-        authInfo: {
-            userId: auth?.currentUser?.uid || null,
-            email: auth?.currentUser?.email || null,
-            emailVerified: auth?.currentUser?.emailVerified ?? null,
-            isAnonymous: auth?.currentUser?.isAnonymous ?? null,
-            tenantId: auth?.currentUser?.tenantId || null,
-            providerInfo: auth?.currentUser?.providerData?.map(provider => ({
-                providerId: provider.providerId,
-                email: provider.email
-            })) || []
-        }
+        authInfo: { provider: 'supabase-auth' }
     };
     console.error('Firestore Error: ', JSON.stringify(errInfo));
     throw new Error(JSON.stringify(errInfo));
@@ -2731,65 +2721,34 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
 
 export const saveGlobalData = async (data: { users: User[], loyaltyData: any }): Promise<{ success: boolean, error?: string }> => {
     await saveLocal('global', data);
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase client not initialized.' };
+
     try {
-        if (!auth.currentUser) {
-            console.log('[AUTH GUARD] Skipping Firestore saveGlobalData user operations because user is not authenticated.');
-            return { success: true };
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError || !authData.user) {
+            return { success: false, error: 'يجب تسجيل الدخول بحساب Supabase قبل حفظ بيانات المستخدم.' };
         }
 
-        const me = data.users.find(u => auth.currentUser?.email?.replace("@mystore-auth.app", "") === u.phone);
-        const amIAdmin = me?.isAdmin || false;
+        const phone = String(authData.user.user_metadata?.phone || '').trim();
+        if (!phone) {
+            return { success: false, error: 'رقم الهاتف غير مرتبط بهوية Supabase الحالية.' };
+        }
 
-        const savePromises = data.users.map(async (u) => {
-            if (!u.phone) return;
-            
-            // Only allow saving the current user or any user if current user is admin
-            const isMe = auth.currentUser?.email?.replace("@mystore-auth.app", "") === u.phone;
-            
-            if (!isMe && !amIAdmin) {
-                return;
-            }
+        const ownProfile = data.users.find(user => user.phone === phone);
+        if (!ownProfile) {
+            return { success: false, error: 'لم يتم العثور على ملف المستخدم الحالي ضمن البيانات.' };
+        }
 
-            const userRef = doc(firebaseDb, 'users', u.phone);
-
-            // Double check that user document already exists in Firestore before updating.
-            // This prevents creating Firestore documents for unmigrated legacy users.
-            try {
-                const docSnap = await getDoc(userRef);
-                if (!docSnap.exists()) {
-                    console.log(`[FIRESTORE] Skipping save for unmigrated legacy user ${u.phone} to avoid creating document before Firebase Auth.`);
-                    return;
-                }
-            } catch (err) {
-                // This is where the permission error happens if not handled.
-                // We've added amIAdmin check above, but keeping this try-catch for robustness.
-                console.warn(`[FIRESTORE] Failed to check document existence for user ${u.phone} before save:`, err);
-                return;
-            }
-
-            const userPayload = cleanUndefined({
-                fullName: u.fullName,
-                email: u.email,
-                stores: u.stores || [],
-                sites: u.sites || [],
-                isAdmin: u.isAdmin || false,
-                isBanned: u.isBanned || false,
-                joinDate: u.joinDate || '',
-                ownedStoreIds: (u.stores || []).map(s => s.id)
-            });
-            await setDoc(userRef, userPayload, { merge: true }).catch(err => {
-                if (err?.code === 'resource-exhausted') {
-                    throw new Error('QUOTA_EXCEEDED');
-                }
-                handleFirestoreError(err, OperationType.WRITE, `users/${u.phone}`);
-            });
-        });
-
-        await Promise.all(savePromises);
+        // Browser sessions may update only their own profile. Privileged account
+        // flags and other users' records require a trusted server-side admin flow.
+        const result = await updateUserInSupabase(ownProfile);
+        if (!result.success) return { success: false, error: result.error || 'تعذر حفظ ملف المستخدم.' };
         return { success: true };
     } catch (err: any) {
-        if (err.message === 'QUOTA_EXCEEDED') return { success: false, error: 'QUOTA_EXCEEDED' };
-        return { success: false, error: err.message };
+        console.error('[SUPABASE] Error saving authenticated user profile:', err);
+        return { success: false, error: err?.message || 'تعذر حفظ بيانات المستخدم.' };
     }
 };
 
