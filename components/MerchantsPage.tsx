@@ -946,6 +946,12 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         showToast(completion.error || 'تعذر اعتماد السحب وتحديث المحفظة. لم يتم اعتماد الطلب أو خصم الرصيد.', 'error');
         return;
       }
+      try {
+        const latestStoreData = await db.getStoreData(storeId, true);
+        if (latestStoreData?.settings) updateSettings(latestStoreData.settings as Settings);
+      } catch (refreshError) {
+        console.warn('[MERCHANT-WITHDRAWAL] Wallet was settled, but the page settings refresh failed:', refreshError);
+      }
       setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved', approvedAt: nowIso } : r));
       showToast(`تم اعتماد طلب السحب للموكل ${supplier.name} وتحديث المحفظة بشكل آمن. صافي التحويل: ${netDisbursed.toLocaleString()} ج.م`);
       return;
