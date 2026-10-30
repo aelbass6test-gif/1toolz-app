@@ -2820,7 +2820,7 @@ export const updatePartnerRequestStatus = async (
         if (!supabase) return false;
         const { data: updatedRows, error } = await supabase
             .from('partner_requests')
-            .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
+            .update({ status, updated_at: new Date().toISOString(), ...extraFields })
             .eq('id', requestId)
             .eq('storeId', storeId)
             .eq('status', 'pending')
@@ -2851,11 +2851,13 @@ export const deletePartnerRequestDoc = async (requestId: string, storeId: string
     try {
         const supabase = getSupabaseClient();
         if (!supabase) return false;
-        const { error } = await supabase.from('partner_requests').delete().eq('id', requestId).eq('storeId', storeId);
+        const { data: deletedRows, error } = await supabase.from('partner_requests').delete().eq('id', requestId).eq('storeId', storeId).select('id');
         if (error) {
             console.error('[PARTNER-REQUEST] Supabase delete failed:', error);
             return false;
         }
+
+        if (!deletedRows?.length) return false;
 
         try {
             const localKey = `partner_requests_${storeId}`;
