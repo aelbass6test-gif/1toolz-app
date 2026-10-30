@@ -73,7 +73,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     if (!activeStoreId) return;
     try {
       setRequestsLoading(true);
-      const reqs = await db.getMerchantRequests(activeStoreId);
+      const reqs = await db.getMerchantRequests(activeStoreId, { forceAdmin: true });
       setCloudRequests(reqs);
     } catch (_) {
     } finally {
