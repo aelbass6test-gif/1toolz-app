@@ -2935,30 +2935,34 @@ export const resetMerchantAccountData = async (
             localStorage.setItem(merchantLocalKey, JSON.stringify(merchantReqs.filter((r: any) => !isMerchantEntity({ id: r.merchantId, name: r.merchantName }))));
         } catch (_) {}
 
-        // 3. Clean Firestore partner_requests & orders & settings
-        if (firebaseDb) {
-            try {
-                const qReq = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-                const reqSnap = await getDocs(qReq);
-                for (const d of reqSnap.docs) {
-                    const rData = d.data();
-                    if (isMerchantEntity({ id: rData.partnerId, name: rData.partnerName }) || rData.isMerchantRequest) {
-                        await deleteDoc(d.ref).catch(() => {});
-                    }
-                }
-            } catch (_) {}
+        // 3. Clean merchant-owned requests through Supabase only.
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error('Supabase غير متاح لتنظيف طلبات الموكل.');
 
-            const qMerchantReq = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
-            const merchantReqSnap = await getDocs(qMerchantReq);
-            for (const d of merchantReqSnap.docs) {
-                const rData = d.data();
-                if (isMerchantEntity({ id: rData.merchantId, name: rData.merchantName })) {
-                    await deleteDoc(d.ref).catch(() => {});
-                }
-            }
-            if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
-                await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
-            }
+        const { data: partnerReqs, error: partnerReqError } = await supabase
+            .from('partner_requests').select('id,partnerId,partnerName,isMerchantRequest').eq('storeId', storeId);
+        if (partnerReqError) throw partnerReqError;
+        const partnerReqIds = (partnerReqs || [])
+            .filter((r: any) => isMerchantEntity({ id: r.partnerId, name: r.partnerName }) || r.isMerchantRequest)
+            .map((r: any) => r.id).filter(Boolean);
+        if (partnerReqIds.length) {
+            const { error } = await supabase.from('partner_requests').delete().eq('storeId', storeId).in('id', partnerReqIds);
+            if (error) throw error;
+        }
+
+        const { data: merchantReqs, error: merchantReqError } = await supabase
+            .from('merchant_requests').select('id,merchantId,merchantName').eq('storeId', storeId);
+        if (merchantReqError) throw merchantReqError;
+        const merchantReqIds = (merchantReqs || [])
+            .filter((r: any) => isMerchantEntity({ id: r.merchantId, name: r.merchantName }))
+            .map((r: any) => r.id).filter(Boolean);
+        if (merchantReqIds.length) {
+            const { error } = await supabase.from('merchant_requests').delete().eq('storeId', storeId).in('id', merchantReqIds);
+            if (error) throw error;
+        }
+        if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
+            const settingsResult = await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers);
+            if (settingsResult === false) throw new Error('تعذر تحديث إعدادات الشركاء بعد التنظيف.');
         }
 
         // 4. Preserve Supabase orders and financial ledgers for auditability.
