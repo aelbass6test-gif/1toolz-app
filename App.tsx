@@ -267,7 +267,7 @@ const MainLayout = ({
             const { data, error } = await supabase
                 .from('chat_messages')
                 .select('*')
-                .eq('store_id', activeStore.id);
+                .or(`store_id.eq.${activeStore.id},storeId.eq.${activeStore.id}`);
             if (error) {
                 console.warn('[Notification] Supabase chat_messages read failed:', error.message);
                 return;
@@ -289,7 +289,7 @@ const MainLayout = ({
             .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_audits' }, () => {
                 void loadAuditNotifications();
             })
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `store_id=eq.${activeStore.id}` }, () => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
                 void loadChatNotifications();
             })
             .subscribe((status: string) => {
