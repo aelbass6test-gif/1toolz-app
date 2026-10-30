@@ -38,7 +38,10 @@
 - Removed plaintext password writes to the legacy Supabase `users` table and Firestore user documents, and stopped returning the legacy Supabase password field from the phone lookup helper.
 - New sign-ups no longer include a password field in the application profile object.
 - Disabled the old sign-in fallback that compared a supplied password with the legacy Supabase profile password.
+- Removed employee-login fallback paths that read or verify legacy passwords from Supabase `users` or Firestore user documents. Employee login now requires a valid Firebase Auth identity until the full Supabase Auth cutover is implemented.
 - Removed the client-side shadow-auth flow that attempted to create Supabase users and grant store memberships during login. Membership provisioning must be performed by a trusted, authorized flow.
 - Supabase sign-out is requested when the app logs out, alongside the existing application session cleanup.
 - The existing Firebase Auth sign-up/login and Firestore data path remain active pending the complete identity and data cutover.
+- The migration branch CI run after the employee-login hardening passed both TypeScript type-check and production build.
+- The employee-login change is a security hardening step, not a completed Supabase login migration; existing employees without a Firebase Auth identity will need a separately designed, verified re-enrollment flow.
 - These helpers are a foundation only; the existing sign-up/login screens and data listeners are not yet switched over. Do not cut over production until the screens, employee flows, memberships, and data access have been migrated and tested.
