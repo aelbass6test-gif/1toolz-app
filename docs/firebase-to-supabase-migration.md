@@ -191,7 +191,7 @@ The empty project `lhlcwtxbmxipcesuymnr` (`Wuilt-Platform2`) was inspected and c
 
 - Replaced the Firebase-backed password-reset and email-verification hook with Supabase Auth APIs.
 - Added a Supabase signup-confirmation resend helper.
-- Reworked the legacy action-page route to consume Supabase PKCE callback sessions or Supabase token-hash links, and to update passwords through Supabase Auth.
+- Reworked the legacy action-page route to consume Supabase PKCE callback sessions or Supabase token-hash links, and to update passwords through Supabase Auth. Recovery and signup callbacks carry explicit `type=recovery` / `type=signup` intent so the shared callback page renders the correct flow.
 - Updated the owner password-reset UI to rely on the explicit boolean result of the reset request instead of checking stale React state.
 - This is an Auth-action slice only. The owner login, owner signup, employee login/registration, session bootstrap, and OTP/session handoff in `App.tsx` and the sign-up/employee screens still contain Firebase Auth calls.
 - The current owner sign-up path still writes user profile records through the legacy `createUserDoc` implementation. Do not switch that path to Supabase Auth until the profile/tenant membership flow is moved to the new `user_profiles` and `store_memberships` model with appropriate authorization.
