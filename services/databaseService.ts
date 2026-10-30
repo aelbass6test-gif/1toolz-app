@@ -3074,8 +3074,6 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
             email: user.email,
             stores: user.stores || [],
             sites: user.sites || [],
-            is_admin: user.isAdmin || false,
-            is_banned: user.isBanned || false,
             join_date: user.joinDate || new Date().toISOString(),
             default_store_id: user.defaultStoreId || null,
             auto_launch_default_store: user.autoLaunchDefaultStore ?? Boolean(user.defaultStoreId)
