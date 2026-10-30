@@ -2910,7 +2910,7 @@ export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | 
         return null;
     }
     try {
-        const { data, error } = await supabase.from('users').select('*').eq('phone', phone).maybeSingle();
+        const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate').eq('phone', phone).maybeSingle();
         if (error) {
             console.error('[SUPABASE] Supabase error in getUserByPhoneFromSupabase:', error);
             return null;
@@ -3021,7 +3021,7 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
+                const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate').eq('phone', cleanPhone).maybeSingle();
                 if (!error && data) {
                     const defaultStoreId = data.default_store_id || data.defaultStoreId || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
                     const mappedUser: User = {
