@@ -2750,23 +2750,14 @@ export const submitPartnerRequest = async (
             localStorage.setItem(localKey, JSON.stringify([fullRequest, ...filtered]));
         } catch (_) {}
 
-        // 2. Save directly to Firestore collection 'partner_requests'
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', reqId);
-            await setDoc(reqRef, cleanUndefined(fullRequest));
-            console.log('[PARTNER-REQUEST] Successfully saved partner request to Firestore:', reqId);
-        }
-
-        // 3. Save to Supabase if active
+        // Supabase is the sole cloud source of truth for partner requests.
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('partner_requests').upsert({
-                    ...cleanUndefined(fullRequest),
-                });
-            } catch (err) {
-                console.warn('[PARTNER-REQUEST] Supabase upsert failed:', err);
-            }
+        if (!supabase) return { success: false, error: 'اتصال Supabase غير متاح؛ تم الاحتفاظ بالطلب محلياً للمزامنة لاحقاً.' };
+
+        const { error } = await supabase.from('partner_requests').upsert(cleanUndefined(fullRequest), { onConflict: 'id' });
+        if (error) {
+            console.error('[PARTNER-REQUEST] Supabase upsert failed:', error);
+            return { success: false, error: error.message };
         }
 
         return { success: true };
@@ -2808,22 +2799,6 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
         }
     }
 
-    // 3. Fetch from Firestore (authoritative source of truth when online)
-    if (!supabaseSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            const cloudRequests = snap.docs.map(d => d.data() as PartnerPortalRequest);
-            cloudRequests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-            requests = cloudRequests;
-            try {
-                localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
-            } catch (_) {}
-        } catch (err) {
-            console.warn('[PARTNER-REQUEST] Error reading partner requests from Firestore:', err);
-        }
-    }
-
     return requests;
 };
 
@@ -2841,41 +2816,26 @@ export const updatePartnerRequestStatus = async (
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
 
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            const updated = await runTransaction(firebaseDb, async (transaction) => {
-                const snapshot = await transaction.get(reqRef);
-                if (!snapshot.exists()) return false;
-                const data = snapshot.data() as PartnerPortalRequest;
-                if (data.storeId !== storeId || data.status !== 'pending') return false;
-                transaction.update(reqRef, {
-                    status,
-                    updatedAt: new Date().toISOString(),
-                    ...extraFields
-                });
-                return true;
-            });
-            if (!updated) return false;
-        }
-
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase
-                    .from('partner_requests')
-                    .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
-                    .eq('id', requestId)
-                    .eq('storeId', storeId);
-            } catch (err) {
-                console.warn('[PARTNER-REQUEST] Supabase status update failed:', err);
-            }
+        if (!supabase) return false;
+        const { data: updatedRows, error } = await supabase
+            .from('partner_requests')
+            .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
+            .eq('id', requestId)
+            .eq('storeId', storeId)
+            .eq('status', 'pending')
+            .select('id');
+        if (error) {
+            console.error('[PARTNER-REQUEST] Supabase status update failed:', error);
+            return false;
         }
+        if (!updatedRows?.length) return false;
 
         try {
             const localKey = `partner_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
             const matchingRequest = existing.find((r: any) => r.id === requestId && r.storeId === storeId);
-            if (!firebaseDb && (!matchingRequest || matchingRequest.status !== 'pending')) return false;
+            if (!matchingRequest) return true;
             const updated = existing.map((r: any) => r.id === requestId ? { ...r, status, ...extraFields } : r);
             localStorage.setItem(localKey, JSON.stringify(updated));
         } catch (_) {}
@@ -2889,9 +2849,12 @@ export const updatePartnerRequestStatus = async (
 
 export const deletePartnerRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            await deleteDoc(reqRef);
+        const supabase = getSupabaseClient();
+        if (!supabase) return false;
+        const { error } = await supabase.from('partner_requests').delete().eq('id', requestId).eq('storeId', storeId);
+        if (error) {
+            console.error('[PARTNER-REQUEST] Supabase delete failed:', error);
+            return false;
         }
 
         try {
