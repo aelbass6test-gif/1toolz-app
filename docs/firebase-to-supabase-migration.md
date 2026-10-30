@@ -163,3 +163,12 @@ This inventory was collected from the connected production project's catalog and
 - Partner login now fails closed when no PIN is configured and tells the user to ask the store administrator to provision one. A missing PIN is no longer treated as a valid shared credential.
 - This can require an administrator to configure PINs for legacy supplier/merchant portal accounts before those accounts can sign in. This is intentional rather than preserving a universal default credential.
 - Normal PIN comparison remains client-side and is only an interim compatibility path. Server-side authentication is still required before production cutover.
+
+
+### Employee recovery and activation-code exposure hardening (branch only; 2026-10-30)
+
+- Removed activation codes from server logs and from the `/api/send-account-activation` JSON response. The code is delivered only through the configured email channel; the UI already accepts the code entered by the user.
+- Removed employee password-reset codes from server logs. If the email provider does not confirm delivery, the reset request now fails closed with HTTP 503 and the temporary reset records are cleared; the API no longer returns the code in an error message.
+- Added a maximum of five wrong employee reset-code attempts per issued code; after the limit the record is invalidated and the user must request a new code.
+- The current reset-code storage and cooldown are process-local in-memory maps, so they are not durable/shared across multiple Worker instances or restarts. A production-grade recovery flow still needs durable, rate-limited storage (or Supabase Auth recovery) and consistent identity linking.
+- This branch still has legacy Firebase employee recovery paths; this hardening does not complete the Firebase-to-Supabase identity migration.
