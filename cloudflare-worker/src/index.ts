@@ -21,6 +21,8 @@ export interface Env {
   APP_BACKEND_URL?: string;
   MEDIA_PUBLIC_ORIGIN?: string;
   MEDIA_REQUIRE_AUTH?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_PUBLISHABLE_KEY?: string;
   OTP_DB?: any;
   OTP_HASH_SECRET?: string;
   RESEND_API_KEY?: string;
@@ -92,6 +94,53 @@ function json(request: Request, env: Env, body: unknown, status = 200): Response
   return new Response(JSON.stringify(body), { status, headers: corsHeaders(request, env) });
 }
 
+async function getSupabaseUserId(request: Request, env: Env): Promise<string | null> {
+  const baseUrl = String(env.SUPABASE_URL || '').replace(/\\/$/, '');
+  const publishableKey = String(env.SUPABASE_PUBLISHABLE_KEY || '');
+  const authorization = request.headers.get('Authorization') || '';
+  if (!baseUrl || !publishableKey || !/^Bearer\\s+\\S+/i.test(authorization)) return null;
+
+  try {
+    const response = await fetch(`${baseUrl}/auth/v1/user`, {
+      headers: { apikey: publishableKey, Authorization: authorization }
+    });
+    if (!response.ok) return null;
+    const user = await response.json() as { id?: string };
+    return user?.id ? String(user.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function userHasStoreMembership(
+  request: Request,
+  env: Env,
+  userId: string,
+  storeId: string
+): Promise<boolean> {
+  const baseUrl = String(env.SUPABASE_URL || '').replace(/\\/$/, '');
+  const publishableKey = String(env.SUPABASE_PUBLISHABLE_KEY || '');
+  const authorization = request.headers.get('Authorization') || '';
+  if (!baseUrl || !publishableKey || !userId || !storeId) return false;
+
+  try {
+    const query = new URLSearchParams({
+      select: 'store_id',
+      user_id: `eq.${userId}`,
+      store_id: `eq.${storeId}`,
+      limit: '1'
+    });
+    const response = await fetch(`${baseUrl}/rest/v1/store_memberships?${query.toString()}`, {
+      headers: { apikey: publishableKey, Authorization: authorization }
+    });
+    if (!response.ok) return false;
+    const rows = await response.json() as Array<{ store_id?: string }>;
+    return Array.isArray(rows) && rows.some(row => row.store_id === storeId);
+  } catch {
+    return false;
+  }
+}
+
 function safePathPart(value: unknown, fallback: string): string {
   const cleaned = String(value || fallback).normalize('NFKC').trim().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '');
   return cleaned.slice(0, 100) || fallback;
@@ -119,8 +168,13 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
     if (!key || key.includes('..')) return json(request, env, { success: false, error: 'مسار صورة غير صالح' }, 400);
 
     if (request.method === 'DELETE') {
-      if (env.MEDIA_REQUIRE_AUTH === 'true' && !request.headers.get('authorization')) {
-        return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل حذف الصور' }, 401);
+      if (env.MEDIA_REQUIRE_AUTH === 'true') {
+        const userId = await getSupabaseUserId(request, env);
+        const storeId = key.split('/')[1] || '';
+        if (!userId) return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
+        if (!(await userHasStoreMembership(request, env, userId, storeId))) {
+          return json(request, env, { success: false, error: 'لا تملك صلاحية حذف صور هذا المتجر' }, 403);
+        }
       }
       try {
         await (env.R2_IMAGES as any).delete(key);
@@ -144,8 +198,9 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
     (url.pathname === '/api/media/delete' && (request.method === 'DELETE' || request.method === 'POST'));
 
   if (isDeleteApi) {
-    if (env.MEDIA_REQUIRE_AUTH === 'true' && !request.headers.get('authorization')) {
-      return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل حذف الصور' }, 401);
+    const mediaUserId = env.MEDIA_REQUIRE_AUTH === 'true' ? await getSupabaseUserId(request, env) : null;
+    if (env.MEDIA_REQUIRE_AUTH === 'true' && !mediaUserId) {
+      return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
     }
 
     let body: any = {};
@@ -192,6 +247,15 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       return json(request, env, { success: false, error: 'لم يتم تحديد مفتاح أو رابط صورة صالح للحذف' }, 400);
     }
 
+    if (env.MEDIA_REQUIRE_AUTH === 'true' && mediaUserId) {
+      for (const key of cleanedKeys) {
+        const storeId = key.split('/')[1] || '';
+        if (!(await userHasStoreMembership(request, env, mediaUserId, storeId))) {
+          return json(request, env, { success: false, error: 'لا تملك صلاحية حذف صور أحد المتاجر المحددة' }, 403);
+        }
+      }
+    }
+
     try {
       if (cleanedKeys.length === 1) {
         await (env.R2_IMAGES as any).delete(cleanedKeys[0]);
@@ -213,11 +277,16 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
   if (url.pathname !== '/api/media/product-images' || request.method !== 'POST') {
     return json(request, env, { success: false, error: 'مسار الوسائط غير مدعوم' }, 404);
   }
-  if (env.MEDIA_REQUIRE_AUTH === 'true' && !request.headers.get('authorization')) {
-    return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل رفع الصور' }, 401);
+  const uploadUserId = env.MEDIA_REQUIRE_AUTH === 'true' ? await getSupabaseUserId(request, env) : null;
+  if (env.MEDIA_REQUIRE_AUTH === 'true' && !uploadUserId) {
+    return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
   }
   const form = await request.formData();
   const storeId = safePathPart(form.get('storeId'), 'store');
+  if (env.MEDIA_REQUIRE_AUTH === 'true' && uploadUserId &&
+      !(await userHasStoreMembership(request, env, uploadUserId, storeId))) {
+    return json(request, env, { success: false, error: 'لا تملك صلاحية رفع صور لهذا المتجر' }, 403);
+  }
   const productId = safePathPart(form.get('productId'), 'product');
   const files = form.getAll('files').filter((item): item is File => item instanceof File);
   if (!files.length) return json(request, env, { success: false, error: 'لم يتم اختيار أي صورة' }, 400);
