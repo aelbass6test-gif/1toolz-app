@@ -1,5 +1,5 @@
 import { sendAdminAlert } from "./services/adminAlertsService";
-import { sendOtpByEmail, sendAccountActivationEmail, sendStoreCodeRecoveryEmail, sendPasswordResetEmail, updateMailConfigLocalCache } from "./services/mailService";
+import { sendOtpByEmail, sendAccountActivationEmail, sendStoreCodeRecoveryEmail, sendPasswordResetEmail } from "./services/mailService";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getRequestListener } from "@hono/node-server";
@@ -1602,87 +1602,35 @@ async function startServer() {
     }
   });
 
+  // SMTP credentials are deployment-managed secrets, never stored in Firestore
+  // or writable through an unauthenticated public endpoint.
   app.get("/api/smtp-config", async (c) => {
-    try {
-      const docSnap = await getDoc(doc(db, "settings", "smtp")).catch(() => null);
-      if (docSnap && docSnap.exists()) {
-        const data = docSnap.data();
-        return c.json({
-          configured: !!(data.user || data.resendApiKey || data.brevoApiKey),
-          provider: data.provider || 'smtp',
-          user: data.user ? `${data.user.slice(0, 3)}***@${data.user.split('@')[1] || ''}` : '',
-          host: data.host || ''
-        });
-      }
-      return c.json({ configured: false });
-    } catch (e: any) {
-      return c.json({ configured: false, error: e.message });
-    }
+    const configured = Boolean(
+      process.env.RESEND_API_KEY || process.env.BREVO_API_KEY ||
+      (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+    );
+    return c.json({
+      configured,
+      provider: process.env.MAIL_PROVIDER || (process.env.RESEND_API_KEY ? "resend" : process.env.BREVO_API_KEY ? "brevo" : "smtp"),
+      user: process.env.SMTP_USER ? `${process.env.SMTP_USER.slice(0, 3)}***` : "",
+      host: process.env.SMTP_HOST || ""
+    });
   });
 
   app.post("/api/save-smtp-config", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const { provider, host, port, user, pass, from, resendApiKey, brevoApiKey } = body;
-      
-      const configData: any = {
-        provider: provider || (user && user.includes('@gmail.com') ? 'gmail' : 'smtp'),
-        host: host || (user && user.includes('@gmail.com') ? 'smtp.gmail.com' : ''),
-        port: Number(port) || 587,
-        user: (user || '').trim(),
-        from: (from || '').trim(),
-        updatedAt: new Date().toISOString()
-      };
-
-      if (pass) {
-        configData.pass = (pass || '').trim();
-      }
-      if (resendApiKey) {
-        configData.resendApiKey = (resendApiKey || '').trim();
-      }
-      if (brevoApiKey) {
-        configData.brevoApiKey = (brevoApiKey || '').trim();
-      }
-
-      updateMailConfigLocalCache(configData);
-
-      await setDoc(doc(db, "settings", "smtp"), configData, { merge: true }).catch((err) => {
-        console.warn("[SMTP-CONFIG] Firestore write fallback:", err?.message || err);
-      });
-      return c.json({ success: true, message: "تم حفظ إعدادات خادم البريد بنجاح!" });
-    } catch (e: any) {
-      console.error("[SMTP-CONFIG] Error saving SMTP config:", e);
-      return c.json({ success: false, error: e.message }, 500);
-    }
+    return c.json({
+      success: false,
+      error: "إعدادات البريد تُدار من متغيرات البيئة الآمنة على الخادم فقط."
+    }, 410);
   });
 
+  // Prevent this public endpoint from becoming an unauthenticated mail relay.
+  // A future admin-authenticated implementation can restore test delivery.
   app.post("/api/send-test-email", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const toEmail = (body.toEmail || "").trim().toLowerCase();
-      if (!toEmail || !toEmail.includes("@")) {
-        return c.json({ success: false, error: "يرجى إدخال عنوان بريد إلكتروني صحيح للاختبار." }, 400);
-      }
-      const testCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const mailResult = await sendOtpByEmail({
-        toEmail,
-        userName: body.userName || "المسؤول / الموكل",
-        otpCode: testCode,
-        storeName: body.storeName || "بوابة الموكل"
-      });
-      if (mailResult.delivered) {
-        return c.json({ 
-          success: true, 
-          message: mailResult.note || `تم إرسال بريد الاختبار بنجاح إلى (${toEmail})! كود التحقق التجريبي هو: ${testCode}` 
-        });
-      }
-      return c.json({ 
-        success: false, 
-        error: mailResult.error || "تعذر إرسال البريد. تأكد من صحة بيانات الخادم وكلمة مرور التطبيق (App Password)." 
-      }, 400);
-    } catch (e: any) {
-      return c.json({ success: false, error: e.message || "حدث خطأ أثناء إرسال بريد الاختبار." }, 500);
-    }
+    return c.json({
+      success: false,
+      error: "اختبار البريد متوقف مؤقتاً لحين ربطه بصلاحيات مدير موثقة."
+    }, 403);
   });
 
   app.post("/api/verify-otp", async (c) => {
