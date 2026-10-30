@@ -2689,7 +2689,6 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
                     supabaseUsers = sbUsers.map((su: any) => ({
                         fullName: su.full_name || '',
                         phone: su.phone,
-                        password: su.password || '',
                         email: su.email || '',
                         stores: su.stores || [],
                         sites: su.sites || [],
