@@ -173,6 +173,7 @@ The following changes are committed on `migration/firebase-to-supabase` and the 
 - API roles cannot select the legacy `users.password` column and cannot set admin/ban flags. The app-side profile writer omits those privileged flags.
 - Added the missing `default_store_id` and `auto_launch_default_store` columns expected by the app's profile mapper.
 - Added store-membership RLS policies for operational audit, return, transaction, quotation, stock-transfer, template and request tables. MoneyHash payment rows are owner-readable only; webhook event rows remain server-only with no client policy.
+- Removed anonymous write privileges from `stores_data`; authenticated writes now require a store membership. New store creation uses a SECURITY DEFINER RPC that creates the store and its first owner membership atomically, and refuses to claim an already-existing store.
 
 Applied migration versions:
 - `20261030060149_supabase_auth_foundation`
@@ -182,6 +183,7 @@ Applied migration versions:
 - `20261030060714_prevent_user_self_promotion`
 - `20261030060720_lock_legacy_admin_flags`
 - `20261030060949_store_scoped_operational_rls`
+- `20261030061244_restrict_store_record_writes_and_bootstrap_membership`
 
 ### Current verification and release blockers
 
