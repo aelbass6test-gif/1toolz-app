@@ -287,3 +287,15 @@ Read-only review of the live helper definitions found that `is_store_member(stor
 - revokes anonymous/public function execution and grants execution to authenticated/service-role callers for RLS and trusted backend use.
 
 The connected project currently has four membership rows (one owner, three staff), with no duplicate or null membership keys. The current membership policies still do not provide a secure owner bootstrap or invitation-acceptance flow. This migration is committed to the branch only and must be exercised in a dedicated staging project before production use.
+
+
+### Additional live secret exposure findings (aggregate-only; 2026-10-30)
+
+A recursive key-name/count scan of `stores_data.settings` (values were not selected or returned) found non-empty sensitive-key entries:
+- `passcode`: 9 occurrences across 3 stores.
+- `telegramBotToken`: 1 occurrence in 1 store.
+- `apiKeyError`: 1 key name (not treated as a credential; likely an error/status field).
+
+A separate aggregate of `shipping_integrations` found one integration row with a populated `api_key`; no populated `api_secret` or account-number fields were counted. The table's current RLS policy is still public `FOR ALL` with unrestricted predicates, so its API key must be treated as exposed to anyone able to call the public Data API.
+
+No secret values were read or copied. No production data was changed. The store owner should rotate the exposed Telegram bot token and shipping provider API key through their respective providers, then re-enter replacement credentials only after the integration secrets are moved behind server-side Worker/Edge Function calls. Do not merely delete or blank these values from `stores_data.settings` before confirming the app's integration flows no longer depend on them.
