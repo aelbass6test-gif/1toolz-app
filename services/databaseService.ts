@@ -2887,81 +2887,87 @@ export const submitMerchantRequest = async (
     try {
         const isObjFirst = typeof storeIdOrObj === 'object' && storeIdOrObj !== null;
         const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
-        const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
+        const rawReq: any = isObjFirst ? storeIdOrObj : (maybeReq || {});
         if (!storeId) return { success: false, error: 'Missing storeId' };
-
         const supabase = getSupabaseClient();
-        if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير متاح. لم يتم إرسال طلب السحب.' };
+        if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير متاح' };
+        const merchantId = String(rawReq.merchantId || rawReq.partnerId || '');
+        const passcode = String(rawReq.merchantPasscode || '');
+        if (!merchantId || !passcode) return { success: false, error: 'انتهت جلسة الموكل. سجل الدخول مرة أخرى.' };
 
-        const nowIso = new Date().toISOString();
-        const request: MerchantPortalRequest = {
-            id: rawReq.id || `REQ-M-${generateUniqueOrderId('m')}`,
-            storeId,
-            merchantId: rawReq.partnerId || '',
-            merchantName: rawReq.partnerName || '',
-            type: (rawReq.type as any) || 'withdrawal',
-            typeArabic: rawReq.typeArabic || 'طلب موكل',
-            amount: Number(rawReq.amount || 0),
-            notes: rawReq.notes || '',
-            date: rawReq.date || nowIso,
-            status: 'pending',
-            createdAt: rawReq.createdAt || nowIso,
-            ...(rawReq.payoutMethod ? { payoutMethod: rawReq.payoutMethod } : {}),
-            ...(rawReq.payoutAccount ? { payoutAccount: rawReq.payoutAccount } : {}),
-            ...(rawReq.transferReference ? { transferReference: rawReq.transferReference } : {}),
-            ...(rawReq.refundMeta ? { refundMeta: rawReq.refundMeta } : {}),
-            ...(rawReq.planRequestMeta ? { planRequestMeta: rawReq.planRequestMeta } : {})
-        };
-
-        // merchant_requests uses the existing camelCase schema (storeId/merchantId).
-        // Do not report success or cache a request until Supabase confirms persistence.
-        const payload = cleanUndefined({
-            id: request.id,
-            storeId: request.storeId,
-            type: request.type,
-            typeArabic: request.typeArabic,
-            amount: request.amount,
-            notes: request.notes,
-            date: request.date,
-            status: request.status,
-            createdAt: request.createdAt,
-            merchantId: request.merchantId,
-            merchantName: request.merchantName,
-            payoutMethod: request.payoutMethod,
-            payoutAccount: request.payoutAccount,
-            transferReference: request.transferReference,
-            refundMeta: request.refundMeta,
-            planRequestMeta: request.planRequestMeta,
-            details: {
-                transferFee: (rawReq as any).transferFee,
-                netAmount: (rawReq as any).netAmount,
-                payoutFrequency: (rawReq as any).payoutFrequency,
-                isMerchantRequest: true
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: {
+                action: 'submit',
+                storeId,
+                merchantId,
+                passcode,
+                request: {
+                    amount: Number(rawReq.amount || 0),
+                    notes: String(rawReq.notes || ''),
+                    typeArabic: String(rawReq.typeArabic || 'طلب سحب مستحقات'),
+                    payoutMethod: String(rawReq.payoutMethod || ''),
+                    payoutAccount: String(rawReq.payoutAccount || ''),
+                    transferFee: Number(rawReq.transferFee || 0),
+                    netAmount: Number(rawReq.netAmount ?? rawReq.amount ?? 0),
+                    payoutFrequency: String(rawReq.payoutFrequency || '')
+                }
             }
-        }) as any;
-        const { error } = await supabase.from('merchant_requests').upsert(payload, { onConflict: 'id' });
-        if (error) {
-            console.error('[MERCHANT-REQUEST] Supabase insert failed:', error.message, error.details);
-            return { success: false, error: error.message || 'تعذر حفظ طلب السحب' };
+        });
+        if (error || !data?.success) {
+            return { success: false, error: data?.error || error?.message || 'تعذر حفظ طلب السحب' };
         }
 
+        const request = {
+            ...rawReq,
+            id: data.id,
+            storeId,
+            merchantId,
+            partnerId: merchantId,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            date: new Date().toISOString(),
+            isMerchantRequest: true
+        };
         try {
             const key = `merchant_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(key) || '[]');
             localStorage.setItem(key, JSON.stringify([request, ...existing.filter((r: any) => r.id !== request.id)]));
         } catch (_) {}
-        return { success: true };
+        return { success: true, request };
     } catch (err: any) {
         console.error('[MERCHANT-REQUEST] Error submitting merchant request:', err);
         return { success: false, error: err?.message || 'Unable to submit request' };
     }
 };
 
-export const getMerchantRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
+export const getMerchantRequests = async (storeId: string, options?: { merchantId?: string; passcode?: string; forceAdmin?: boolean }): Promise<PartnerPortalRequest[]> => {
     const key = `merchant_requests_${storeId}`;
     const supabase = getSupabaseClient();
     if (!supabase) {
         try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+    }
+
+    let merchantId = options?.merchantId || '';
+    let passcode = options?.passcode || '';
+    if (!options?.forceAdmin && (!merchantId || !passcode)) {
+        try {
+            const session = JSON.parse(localStorage.getItem(`authenticated_merchant_${storeId}`) || 'null');
+            merchantId = merchantId || String(session?.id || '');
+            passcode = passcode || String(session?.passcode || '');
+        } catch (_) {}
+    }
+
+    if (!options?.forceAdmin && merchantId && passcode) {
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: { action: 'list', storeId, merchantId, passcode }
+        });
+        if (error || !data?.success) {
+            console.error('[MERCHANT-REQUEST] Secure portal read failed:', data?.error || error?.message);
+            try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+        }
+        const requests = (data.requests || []).map((r: any) => toMerchantRequestView(r, 'merchant_requests'));
+        try { localStorage.setItem(key, JSON.stringify(requests)); } catch (_) {}
+        return requests;
     }
 
     try {
@@ -2976,7 +2982,6 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         return requests;
     } catch (err) {
         console.error('[MERCHANT-REQUEST] Supabase read failed:', err);
-        // Offline-only fallback; never treat local cache as a successful remote read.
         try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
     }
 };
