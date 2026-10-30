@@ -190,6 +190,7 @@ Applied migration versions:
 - `20261030061244_restrict_store_record_writes_and_bootstrap_membership`
 - `20261030062127_secure_chat_messages_for_supabase_auth`
 - `20261030063423_preserve_trusted_admin_flag_on_auth_enrollment`
+- `20261030063819_harden_trigger_helpers`
 
 ### Current verification and release blockers
 
