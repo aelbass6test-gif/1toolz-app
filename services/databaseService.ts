@@ -3031,7 +3031,6 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
                         isAdmin: data.is_admin || false,
                         isBanned: data.is_banned || false,
                         joinDate: data.join_date || '',
-                        password: data.password || '',
                         defaultStoreId,
                         autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
                     };
