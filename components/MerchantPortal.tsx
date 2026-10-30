@@ -3947,7 +3947,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         isMerchantRequest: true
       };
 
-      await db.submitMerchantRequest(effectiveStoreId, newReq as any);
+      const submitResult = await db.submitMerchantRequest(effectiveStoreId, newReq as any);
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'تعذر حفظ طلب السحب في قاعدة البيانات');
+      }
       setMerchantRequestsList(prev => [newReq as any, ...prev]);
       setShowRequestModal(false);
       setRequestAmount('');
