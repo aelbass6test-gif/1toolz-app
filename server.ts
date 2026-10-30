@@ -1059,11 +1059,10 @@ async function startServer() {
         toEmail: email,
         userName,
         phone,
-        activationCode: customCode,
         activationLink
       });
 
-      console.log(`[AUTH-ACTIVATION] Sent activation email to ${email} (User: ${userName}, Code: ${customCode}) -> Result:`, mailResult);
+      console.log(`[AUTH-ACTIVATION] Activation email request for ${email} (User: ${userName}) -> delivered: ${Boolean(mailResult.delivered)}`);
 
       return c.json({
         success: mailResult.success || mailResult.delivered,
@@ -1432,7 +1431,7 @@ async function startServer() {
       employeePasswordResetCooldown.set(inputLower, now);
       if (inputDigits) employeePasswordResetCooldown.set(inputDigits, now);
 
-      console.log(`[EMP-RESET] Password reset PIN generated for ${matchedPhone} / ${matchedEmail}: ${resetPin} (expires in 10m)`);
+      console.log(`[EMP-RESET] Password reset requested for ${matchedPhone} / ${matchedEmail} (expires in 10m)`);
 
       // Send password reset email
       const mailResult = await sendPasswordResetEmail({
@@ -1444,17 +1443,25 @@ async function startServer() {
       const [uName, uDomain] = matchedEmail.split("@");
       const maskedEmail = `${uName.slice(0, 2)}***@${uDomain}`;
 
+      if (!mailResult.delivered) {
+        employeePasswordResetStore.delete(matchedEmail.toLowerCase());
+        if (matchedPhone) employeePasswordResetStore.delete(matchedPhone.toLowerCase());
+        if (inputDigits) employeePasswordResetStore.delete(inputDigits);
+        return c.json({
+          success: false,
+          error: "تعذر إرسال رمز التحقق إلى البريد الإلكتروني. يرجى المحاولة لاحقاً أو التواصل مع مدير المتجر."
+        }, 503);
+      }
+
       return c.json({
         success: true,
-        delivered: mailResult.delivered,
+        delivered: true,
         recipient: maskedEmail,
         employeeName: matchedEmployeeName,
         phone: matchedPhone,
         storeId: matchedStoreId,
         cooldown: 45,
-        message: mailResult.delivered
-          ? `تم إرسال رمز التحقق الأمني (PIN) بنجاح إلى بريدك الإلكتروني (${maskedEmail}). تفقد صندوق الوارد أو الرسائل غير المرغوبة (Spam).`
-          : `تم توليد رمز التحقق الأمني (${resetPin}) بنجاح. أدخل الرمز لتعيين كلمة مرور جديدة.`
+        message: `تم إرسال رمز التحقق الأمني بنجاح إلى بريدك الإلكتروني (${maskedEmail}). تفقد صندوق الوارد أو الرسائل غير المرغوبة (Spam).`
       });
 
     } catch (err: any) {
