@@ -1321,74 +1321,87 @@ async function startServer() {
       let matchedEmail = "";
       let matchedStoreId = requestedStoreId;
 
-      // 1. Search in stores_data collection
+      // Resolve the recipient from Supabase only. This endpoint runs server-side
+      // and uses the service-role key; no browser credentials can enumerate users.
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseUrl || !serviceRoleKey) {
+        return c.json({ success: false, error: "خدمة استعادة كلمة المرور غير مهيأة." }, 503);
+      }
+      const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+      });
+
       try {
         if (requestedStoreId) {
-          const storeDocSnap = await getDoc(doc(db, "stores_data", requestedStoreId)).catch(() => null);
-          if (storeDocSnap && storeDocSnap.exists()) {
-            const employees = storeDocSnap.data()?.settings?.employees || [];
-            const emp = employees.find((e: any) => {
-              const eEmail = (e.email || "").trim().toLowerCase();
-              const ePhone = (e.phone || e.id || "").trim();
-              const ePhoneDigits = ePhone.replace(/\D/g, "");
-              return eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input;
-            });
-            if (emp) {
-              matchedEmployeeName = emp.name || matchedEmployeeName;
-              matchedPhone = emp.phone || emp.id || "";
-              matchedEmail = (emp.email || "").trim().toLowerCase();
-            }
+          const { data: storeRow, error: storeError } = await supabaseAdmin
+            .from("stores_data")
+            .select("id,settings")
+            .eq("id", requestedStoreId)
+            .maybeSingle();
+          if (storeError) throw storeError;
+          const employees = storeRow?.settings?.employees || [];
+          const employee = employees.find((entry: any) => {
+            const email = String(entry.email || "").trim().toLowerCase();
+            const phone = String(entry.phone || entry.id || "").trim();
+            const digits = phone.replace(/\\D/g, "");
+            return email === inputLower || (inputDigits && digits === inputDigits) || phone === input;
+          });
+          if (employee) {
+            matchedEmployeeName = employee.name || matchedEmployeeName;
+            matchedPhone = employee.phone || employee.id || "";
+            matchedEmail = String(employee.email || "").trim().toLowerCase();
+            matchedStoreId = storeRow.id;
           }
         }
 
-        // If not found yet, scan across all stores
         if (!matchedPhone && !matchedEmail) {
-          const storesSnap = await getDocs(collection(db, "stores_data")).catch(() => null);
-          if (storesSnap) {
-            for (const sDoc of storesSnap.docs) {
-              const employees = sDoc.data()?.settings?.employees || [];
-              const emp = employees.find((e: any) => {
-                const eEmail = (e.email || "").trim().toLowerCase();
-                const ePhone = (e.phone || e.id || "").trim();
-                const ePhoneDigits = ePhone.replace(/\D/g, "");
-                return eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input;
-              });
-              if (emp) {
-                matchedEmployeeName = emp.name || matchedEmployeeName;
-                matchedPhone = emp.phone || emp.id || "";
-                matchedEmail = (emp.email || "").trim().toLowerCase();
-                matchedStoreId = sDoc.id;
-                break;
-              }
+          const { data: storeRows, error: storesError } = await supabaseAdmin
+            .from("stores_data")
+            .select("id,settings");
+          if (storesError) throw storesError;
+          for (const storeRow of storeRows || []) {
+            const employees = storeRow?.settings?.employees || [];
+            const employee = employees.find((entry: any) => {
+              const email = String(entry.email || "").trim().toLowerCase();
+              const phone = String(entry.phone || entry.id || "").trim();
+              const digits = phone.replace(/\\D/g, "");
+              return email === inputLower || (inputDigits && digits === inputDigits) || phone === input;
+            });
+            if (employee) {
+              matchedEmployeeName = employee.name || matchedEmployeeName;
+              matchedPhone = employee.phone || employee.id || "";
+              matchedEmail = String(employee.email || "").trim().toLowerCase();
+              matchedStoreId = storeRow.id;
+              break;
             }
           }
         }
       } catch (storeErr) {
-        console.warn("[EMP-RESET] Error querying stores_data:", storeErr);
+        console.warn("[EMP-RESET] Supabase store lookup failed:", storeErr);
       }
 
-      // 2. Also check users collection in Firestore
       try {
-        if (!matchedEmail || !matchedEmail.includes("@") || matchedEmail.includes("mystore-auth.app")) {
-          const phoneKey = matchedPhone || inputDigits || input;
-          if (phoneKey) {
-            const userSnap = await getDoc(doc(db, "users", phoneKey)).catch(() => null);
-            if (userSnap && userSnap.exists()) {
-              const uData = userSnap.data();
-              if (uData.fullName && matchedEmployeeName === "الموظف العزيز") {
-                matchedEmployeeName = uData.fullName;
-              }
-              if (uData.email && uData.email.includes("@") && !uData.email.includes("mystore-auth.app")) {
-                matchedEmail = uData.email.trim().toLowerCase();
-              }
-              if (uData.phone && !matchedPhone) {
-                matchedPhone = uData.phone;
-              }
+        const phoneKey = matchedPhone || inputDigits || input;
+        if (phoneKey && (!matchedEmail || !matchedEmail.includes("@") || matchedEmail.includes("mystore-auth.app"))) {
+          const { data: userRow, error: userError } = await supabaseAdmin
+            .from("users")
+            .select("phone,full_name,email")
+            .eq("phone", phoneKey)
+            .maybeSingle();
+          if (userError) throw userError;
+          if (userRow) {
+            if (userRow.full_name && matchedEmployeeName === "الموظف العزيز") {
+              matchedEmployeeName = userRow.full_name;
             }
+            if (userRow.email && userRow.email.includes("@") && !userRow.email.includes("mystore-auth.app")) {
+              matchedEmail = userRow.email.trim().toLowerCase();
+            }
+            if (userRow.phone && !matchedPhone) matchedPhone = userRow.phone;
           }
         }
-      } catch (uErr) {
-        console.warn("[EMP-RESET] Error querying users:", uErr);
+      } catch (userErr) {
+        console.warn("[EMP-RESET] Supabase user lookup failed:", userErr);
       }
 
       // Fallback phone
