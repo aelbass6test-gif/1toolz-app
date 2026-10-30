@@ -198,13 +198,15 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   const loadMerchantRequests = useCallback(async () => {
     try {
-      const reqs = await db.getMerchantRequests(activeStoreId);
+      const reqs = await db.getMerchantRequests(activeStoreId, { forceAdmin: true });
       setRawRequests(reqs);
     } catch (_) {}
   }, [activeStoreId]);
 
   useEffect(() => {
-    loadMerchantRequests();
+    void loadMerchantRequests();
+    const interval = setInterval(() => void loadMerchantRequests(), 10000);
+    return () => clearInterval(interval);
   }, [loadMerchantRequests]);
 
   const merchantRequests = useMemo(() => {
