@@ -3082,7 +3082,7 @@ export const getMerchantRequests = async (storeId: string, options?: { merchantI
 export const updateMerchantRequestStatus = async (
     requestId: string,
     storeId: string,
-    status: 'approved' | 'rejected',
+    status: 'approved' | 'rejected' | 'processing' | 'pending',
     meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string },
     merchantAuth?: { merchantId: string; passcode: string }
 ): Promise<boolean> => {
