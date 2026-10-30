@@ -1020,7 +1020,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                             ...safePartnerRecord,
                             details: safeDetails,
                             email: p.email || safeDetails.email || safeFallbackPartner.email || '',
-                            passcode: p.passcode || safeDetails.passcode || safeFallbackPartner.passcode || '0000',
+                            passcode: p.passcode || safeDetails.passcode || safeFallbackPartner.passcode || '',
                             requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? safeDetails.requireEmailOtp ?? safeFallbackPartner.requireEmailOtp ?? true),
                             isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? safeDetails.isEmailVerified ?? safeFallbackPartner.isEmailVerified ?? false),
                             emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || safeDetails.emailVerifiedAt || safeFallbackPartner.emailVerifiedAt,
