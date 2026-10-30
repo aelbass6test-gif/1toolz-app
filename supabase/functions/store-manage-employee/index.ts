@@ -61,7 +61,7 @@ Deno.serve(async (request: Request) => {
   if (!storeId || !fullName || !phone || !email || !email.includes("@")) return json({ success: false, error: "بيانات الموظف غير مكتملة." }, 400);
   if (!/^[+0-9][0-9+() -]{5,24}$/.test(phone)) return json({ success: false, error: "رقم الهاتف غير صحيح." }, 400);
   if (mode === "create" && password.length < 8) return json({ success: false, error: "كلمة المرور يجب ألا تقل عن 8 أحرف." }, 400);
-  if (permissions.length > 40) return json({ success: false, error: "عدد الصلاحيات غير صالح." }, 400);
+  if (permissions.length > 26) return json({ success: false, error: "عدد الصلاحيات غير صالح." }, 400);
 
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -86,6 +86,36 @@ Deno.serve(async (request: Request) => {
     if (profileError) return json({ success: false, error: "تعذر التحقق من حساب الموظف." }, 500);
     if (!profile?.user_id) return json({ success: false, error: "حساب الموظف غير مربوط بهوية Supabase موثقة." }, 409);
     const targetUserId = profile.user_id;
+
+    if (action === "accept_request" || action === "decline_request") {
+      const { data: pendingEmployee, error: pendingError } = await admin
+        .from("employees").select("status").eq("store_id", storeId).eq("phone", targetPhone).maybeSingle();
+      if (pendingError) return json({ success: false, error: "تعذر قراءة طلب الموظف." }, 500);
+      if (!pendingEmployee || !["pending", "invited"].includes(String(pendingEmployee.status || ""))) {
+        return json({ success: false, error: "طلب الانضمام غير موجود أو تمت معالجته مسبقاً." }, 409);
+      }
+      const { data: currentMembership, error: currentMembershipError } = await admin
+        .from("store_memberships").select("role").eq("store_id", storeId).eq("user_id", targetUserId).maybeSingle();
+      if (currentMembershipError) return json({ success: false, error: "تعذر التحقق من عضوية الموظف." }, 500);
+      if (action === "accept_request") {
+        if (currentMembership) return json({ success: false, error: "الحساب عضو بالفعل في المتجر." }, 409);
+        const { error: insertMembershipError } = await admin.from("store_memberships").insert({
+          store_id: storeId, user_id: targetUserId, role: "staff"
+        });
+        if (insertMembershipError) return json({ success: false, error: "تعذر تفعيل عضوية الموظف." }, 400);
+        const { error: activateError } = await admin.from("employees").update({ status: "active" }).eq("store_id", storeId).eq("phone", targetPhone);
+        if (activateError) {
+          await admin.from("store_memberships").delete().eq("store_id", storeId).eq("user_id", targetUserId);
+          return json({ success: false, error: "تعذر تحديث حالة الطلب؛ تم التراجع عن العضوية." }, 500);
+        }
+        return json({ success: true });
+      }
+      if (currentMembership) return json({ success: false, error: "لا يمكن رفض الطلب بعد إنشاء عضوية فعلية." }, 409);
+      const { error: declineError } = await admin.from("employees").delete().eq("store_id", storeId).eq("phone", targetPhone);
+      if (declineError) return json({ success: false, error: "تعذر رفض طلب الموظف." }, 400);
+      return json({ success: true });
+    }
+
     const { data: membership, error: membershipError } = await admin.from("store_memberships").select("role").eq("store_id", storeId).eq("user_id", targetUserId).maybeSingle();
     if (membershipError) return json({ success: false, error: "تعذر التحقق من عضوية الموظف." }, 500);
     if (!membership || membership.role === "owner") return json({ success: false, error: "الموظف غير موجود أو لا يمكن تعديل المالك." }, 404);
