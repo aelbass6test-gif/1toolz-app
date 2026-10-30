@@ -277,65 +277,10 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               }
             }
             
-            // 2. Original Migration Logic (Legacy users)
-            if (legacyUser) {
-              const storedPassword = legacyUser.password;
-              if (storedPassword === userPassword) {
-                if (userPassword.length < 6) {
-                  setUserError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                  setIsLoading(false);
-                  return;
-                }
-                
-                // Use real email if available, otherwise generated one
-                const emailToCreate = legacyUser.email || firebaseEmail;
-
-                const migratedUser: User = {
-                  ...legacyUser,
-                  migrationStatus: 'migrated',
-                  migratedAt: new Date().toISOString(),
-                  legacyVerified: true
-                };
-
-                try {
-                  await createUserWithEmailAndPassword(auth, emailToCreate, userPassword);
-                  await createUserDoc(migratedUser);
-                  onPasswordSuccess(migratedUser, userPassword);
-                } catch (createErr: any) {
-                  if (createErr.code === 'auth/email-already-in-use') {
-                    try {
-                      // Try signing in with BOTH potential emails
-                      try {
-                        await signInWithEmailAndPassword(auth, emailToCreate, userPassword);
-                      } catch (signInErr: any) {
-                        if (emailToCreate !== firebaseEmail) {
-                          await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                        } else {
-                          throw signInErr;
-                        }
-                      }
-                      
-                      const existingFsUser = await getUserByPhone(userPhone.trim());
-                      if (!existingFsUser) {
-                        await createUserDoc(migratedUser);
-                      }
-                      onPasswordSuccess(migratedUser, userPassword);
-                    } catch (signInErr: any) {
-                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
-                      } else {
-                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
-                      }
-                      setIsLoading(false);
-                    }
-                  } else {
-                    setUserError('فشل إنشاء حساب المصادقة.');
-                    setIsLoading(false);
-                  }
-                }
-                return;
-              }
-            }
+            // Legacy password records are no longer accepted for automatic account migration.
+            setUserError('يلزم إعادة تعيين كلمة المرور أو إنشاء بيانات دخول جديدة قبل نقل الحساب إلى نظام الدخول الجديد.');
+            setIsLoading(false);
+            return;
           } catch (migrationErr) {
           }
         }
