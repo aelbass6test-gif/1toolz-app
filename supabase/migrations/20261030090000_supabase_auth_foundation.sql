@@ -94,8 +94,9 @@ as $$
     from public.store_memberships m
     where m.store_id = p_store_id
       and m.user_id = p_user_id
+      and p_user_id = (select auth.uid())
   );
-$$;
+$;
 
 create or replace function public.is_store_owner(p_store_id text)
 returns boolean
