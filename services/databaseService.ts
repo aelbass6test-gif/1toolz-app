@@ -2891,7 +2891,7 @@ export const updatePartnerRequestStatus = async (
                     .from('partner_requests')
                     .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
                     .eq('id', requestId)
-                    .eq('store_id', storeId);
+                    .eq('storeId', storeId);
             } catch (err) {
                 console.warn('[PARTNER-REQUEST] Supabase status update failed:', err);
             }
