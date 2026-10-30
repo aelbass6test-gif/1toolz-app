@@ -5,9 +5,10 @@ import {
   resendSupabaseSignupConfirmation
 } from '../../services/supabaseAuthService';
 
-const getAuthActionRedirect = (): string => {
-  if (typeof window === 'undefined') return 'https://abdomedi.com/auth/action';
-  return new URL('/auth/action', window.location.origin).toString();
+const getAuthActionRedirect = (type: 'recovery' | 'signup'): string => {
+  const path = `/auth/action?type=${type}`;
+  if (typeof window === 'undefined') return `https://abdomedi.com${path}`;
+  return new URL(path, window.location.origin).toString();
 };
 
 const getFriendlyAuthError = (err: any, fallback: string): string => {
@@ -38,7 +39,7 @@ export const useAuthActions = () => {
     setError(null);
     setSuccess(null);
     try {
-      await requestSupabasePasswordReset(email, getAuthActionRedirect());
+      await requestSupabasePasswordReset(email, getAuthActionRedirect('recovery'));
       setSuccess('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني بنجاح.');
       return true;
     } catch (err: any) {
@@ -61,7 +62,7 @@ export const useAuthActions = () => {
         setSuccess('البريد الإلكتروني مؤكد بالفعل.');
         return true;
       }
-      await resendSupabaseSignupConfirmation(user.email, getAuthActionRedirect());
+      await resendSupabaseSignupConfirmation(user.email, getAuthActionRedirect('signup'));
       setSuccess('تم إرسال رابط تفعيل الحساب إلى بريدك الإلكتروني بنجاح.');
       return true;
     } catch (err: any) {
