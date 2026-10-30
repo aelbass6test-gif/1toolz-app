@@ -157,11 +157,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
 
     const trimmedPhone = userPhone.trim();
 
-    const firebaseEmail = `${trimmedPhone}@mystore-auth.app`;
+    const authEmail = `${trimmedPhone}@mystore-auth.app`;
 
     if (isLoginView) {
       try {
-        await signInWithSupabase(firebaseEmail, userPassword);
+        await signInWithSupabase(authEmail, userPassword);
         let foundUser = await getUserByPhone(trimmedPhone);
         if (!foundUser) {
           // Reconstruct user gracefully from auth session if Firestore quota was exhausted
@@ -265,7 +265,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       }
       
       try {
-        const emailToUse = firebaseEmail;
+        const emailToUse = authEmail;
         await signUpWithSupabase({ email: emailToUse, password: userPassword, displayName: fullName.trim(), phone: userPhone.trim() });
         
         const newUser: User = { 
