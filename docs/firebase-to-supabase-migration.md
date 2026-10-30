@@ -90,3 +90,32 @@ This inventory was collected from the connected production project's catalog and
 - `stores_data` stores broad settings in JSONB while operational entities also have normalized tables. The migration must document a single source of truth per entity and avoid dual-write races.
 - The legacy `users` table is not an authentication authority. Do not select its password field, do not authenticate against it, and do not map `is_admin` to Supabase Auth app metadata without a trusted server-side verification step.
 
+
+
+## Application and Cloudflare cutover audit (2026-10-30)
+
+### Application data layer
+
+- `services/databaseService.ts` still imports Firebase Auth/Firestore and the Firestore SDK directly. The current scan found roughly 145 Firestore API call sites and 40 Supabase `.from(...)` query sites in this service; it remains a dual-backend service, not a Supabase-only data layer.
+- `getStoreData` still contains Firestore collection reads and local-cache fallback paths. `saveStoreData` still contains Firestore document writes, reconciliation and deletion safeguards. Do not replace these with a simple upsert: the current service has hybrid embedded/normalized records, anti-data-loss checks, and offline behavior that must be preserved or deliberately redesigned.
+- Owner sign-in and registration in `components/SignUpPage.tsx` still use Firebase Auth. The employee login callback in `App.tsx` also still uses Firebase Auth. The legacy Supabase password comparison fallback has been removed from employee login, but this does not yet constitute a Supabase Auth login cutover.
+- `src/hooks/useAuthActions.ts` still uses Firebase password-reset and email-verification functions. Password recovery, account activation, and OTP must be migrated as one identity lifecycle, not only the login form.
+- Employee registration and the employee invite/approval lifecycle still rely on Firebase-backed application callbacks and store settings. The Supabase Auth user UUID must be linked to an approved membership before store access is granted.
+- The current sign-up flow also contains a legacy Supabase email lookup for account recovery. This lookup is profile metadata only and must never be used as proof of identity or as a password fallback.
+
+### Cloudflare Worker
+
+- The checked-in `cloudflare-worker/src/otp.ts` implements OTP challenge storage, expiry, attempt limits, and provider usage controls using a D1 binding (`OTP_DB`) and Worker secrets such as `OTP_HASH_SECRET` and email provider keys. Keep these secrets server-side.
+- The Worker has a configured Supabase WhatsApp webhook endpoint and accepts credentials through Worker environment/configuration paths. Verify the deployed Worker bindings and secret names before changing any integration; do not print or copy secret values into the repository or browser.
+- No Supabase service-role key reference was found in the inspected Worker entrypoint. A future privileged Supabase API must be implemented with a server-only secret binding and strict per-operation authorization; do not assume the current OTP Worker already supplies Supabase admin functionality.
+- Keep OTP delivery and identity verification behavior working during the migration. Do not replace D1 OTP state with a new backend until equivalent expiry, retry, abuse throttling, provider failover, and replay protections are tested.
+
+### Safe implementation order
+
+1. Introduce a single canonical Supabase session provider and route both owner and employee login through it, while retaining the existing Firebase path until the replacement is feature-complete.
+2. Add a trusted account-linking/invitation flow: verify phone/email ownership, create or locate the Auth identity, then attach the correct store membership. Never auto-grant owner based on client metadata or legacy `is_admin`.
+3. Move password reset, email verification, OTP completion, logout, and session restoration to the same identity provider.
+4. Replace the database service by domain slices (catalog/storefront, orders/customers, inventory/purchasing, finance, messaging), preserving local cache, idempotency, conflict resolution, and explicit deletion semantics.
+5. Add and test Realtime subscriptions only after the corresponding RLS policies are in place.
+6. Remove Firebase SDK/configuration and Firestore data only after a repository-wide import/API scan shows no live usage and all staging smoke tests pass.
+
