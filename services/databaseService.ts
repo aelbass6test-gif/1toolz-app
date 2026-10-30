@@ -3121,6 +3121,41 @@ export const updateMerchantRequestStatus = async (
     }
 };
 
+export const completeMerchantWithdrawal = async (
+    requestId: string,
+    storeId: string,
+    transferFee: number,
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+): Promise<{ success: boolean; error?: string; balanceAfter?: number }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase connection unavailable' };
+    try {
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: {
+                action: 'admin_complete_withdrawal',
+                storeId,
+                requestId,
+                transferFee,
+                meta: cleanUndefined(meta || {})
+            }
+        });
+        if (error || !data?.success) {
+            return { success: false, error: data?.error || error?.message || 'تعذر اعتماد السحب وتحديث المحفظة' };
+        }
+        try {
+            const key = `merchant_requests_${storeId}`;
+            const rows = JSON.parse(localStorage.getItem(key) || '[]');
+            localStorage.setItem(key, JSON.stringify(rows.map((r: any) =>
+                r.id === requestId ? { ...r, status: 'approved', ...meta } : r
+            )));
+        } catch (_) {}
+        return { success: true, balanceAfter: Number(data.balanceAfter) };
+    } catch (err: any) {
+        console.error('[MERCHANT-WITHDRAWAL] Atomic completion failed:', err);
+        return { success: false, error: err?.message || 'تعذر اعتماد السحب' };
+    }
+};
+
 export const deleteMerchantRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
         let found = false;
