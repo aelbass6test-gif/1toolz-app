@@ -2298,117 +2298,20 @@ export const AppComponent = () => {
         const firebaseEmail = `${authPhone}@mystore-auth.app`;
         console.log('[AUTH] Login attempt for phone:', authPhone, isOwnerSession ? '(Owner Mode)' : '(Employee Mode)');
         try {
-             await signInWithEmailAndPassword(auth, firebaseEmail, password);
-             console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
+            await signInWithEmailAndPassword(auth, firebaseEmail, password);
+            console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
         } catch (err: any) {
-             const isUserNotFoundOrInvalid = err?.code === 'auth/user-not-found' || 
-                                            err?.code === 'auth/invalid-credential' || 
-                                            err?.message?.includes('user-not-found') || 
-                                            err?.message?.includes('invalid-credential');
-             if (isUserNotFoundOrInvalid) {
-                  console.log('[MIGRATION] Employee Auth failed. Checking Supabase for custom email or legacy account:', authPhone);
-                  // Search ONLY in Supabase for user
-                  const legacyUser = await db.getUserByPhoneFromSupabase(authPhone);
-                  
-                  if (legacyUser) {
-                      // 1. Check if they have a CUSTOM email
-                      if (legacyUser.email && legacyUser.email !== firebaseEmail) {
-                          console.log('[AUTH] Found custom email for employee in Supabase, trying login with:', legacyUser.email);
-                          try {
-                              await signInWithEmailAndPassword(auth, legacyUser.email, password);
-                              console.log('[AUTH] Firebase Auth custom email login successful for employee:', authPhone);
-                              return; // Success
-                          } catch (secondErr: any) {
-                              console.log('[AUTH] Custom email login failed for employee:', secondErr.code);
-                              // Continue to legacy check
-                          }
-                      }
-
-                      console.log('[MIGRATION] Legacy user found in Supabase. Verifying old password...');
-                      const storedPassword = legacyUser.password;
-                      if (storedPassword === password) {
-                          // Check if old password meets security length requirement (>= 6)
-                          if (password.length < 6) {
-                              console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy employee login:', authPhone);
-                              throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                          }
-                          
-                          // Use real email if available, otherwise generated one
-                          const emailToCreate = legacyUser.email || firebaseEmail;
-                          
-                          const migratedLegacyUser: User = {
-                              ...legacyUser,
-                              migrationStatus: 'migrated',
-                              migratedAt: new Date().toISOString(),
-                              legacyVerified: true
-                          };
-
-                          try {
-                              console.log('[MIGRATION] Creating Firebase Auth account for legacy employee:', authPhone, 'using email:', emailToCreate);
-                              await createUserWithEmailAndPassword(auth, emailToCreate, password);
-                              console.log('[MIGRATION] Creating Firestore user doc for legacy employee:', authPhone);
-                              await db.createUserDoc(migratedLegacyUser);
-                          } catch (createErr: any) {
-                              if (createErr.code === 'auth/email-already-in-use') {
-                                  console.log('[MIGRATION] Firebase Auth account already exists for legacy employee, attempting sign-in...');
-                                  try {
-                                      // Try signing in with BOTH potential emails
-                                      try {
-                                          await signInWithEmailAndPassword(auth, emailToCreate, password);
-                                      } catch (signInErr: any) {
-                                          if (emailToCreate !== firebaseEmail) {
-                                              await signInWithEmailAndPassword(auth, firebaseEmail, password);
-                                          } else {
-                                              throw signInErr;
-                                          }
-                                      }
-                                      // If sign-in succeeds now, ensure Firestore doc exists
-                                      console.log('[MIGRATION] Sign-in successful for existing account, checking Firestore doc...');
-                                      const existingFsUser = await db.getUserByPhone(authPhone);
-                                      if (!existingFsUser) {
-                                          await db.createUserDoc(migratedLegacyUser);
-                                      }
-                                  } catch (signInErr: any) {
-                                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                                          console.warn('[MIGRATION] Existing account found but password mismatch for legacy employee:', authPhone);
-                                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                                      }
-                                      console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
-                                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                                  }
-                              } else {
-                                  console.error('[MIGRATION] On-the-fly signup failed for legacy employee:', createErr);
-                                  if (createErr.code === 'auth/weak-password') {
-                                      throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                                  }
-                                  throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                              }
-                          }
-                      } else {
-                          console.log('[MIGRATION] Legacy password mismatch for employee:', authPhone);
-                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                      }
-                  } else {
-                      console.log('[MIGRATION] Legacy user not found in Supabase for employee:', authPhone);
-                      const fsUser = await db.getUserByPhone(authPhone);
-                      if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
-                          console.log('[AUTH] Employee password verified from Firestore record:', authPhone);
-                      } else {
-                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                      }
-                  }
-             } else {
-                  if (err.code === 'auth/network-request-failed') {
-                      throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-                  }
-                  console.error('[AUTH] Employee login Firebase Auth failure:', err);
-                  const fsUser = await db.getUserByPhone(authPhone);
-                  if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
-                      console.log('[AUTH] Employee password verified from Firestore record (post-reset):', authPhone);
-                  } else {
-                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                  }
-             }
+            if (err?.code === 'auth/network-request-failed') {
+                throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+            }
+            if (err?.code === 'auth/user-not-found' ||
+                err?.code === 'auth/invalid-credential' ||
+                err?.code === 'auth/wrong-password' ||
+                err?.code === 'auth/invalid-email') {
+                throw new Error("بيانات الدخول غير صحيحة أو الحساب لم يتم تفعيله بعد. استخدم استعادة كلمة المرور أو تواصل مع مدير المتجر لإعادة تفعيل الحساب.");
+            }
+            console.error('[AUTH] Employee login failed:', err);
+            throw new Error("تعذر تسجيل الدخول حاليًا. حاول مرة أخرى أو تواصل مع الدعم.");
         }
 
         const targetUser = (isOwnerSession && recognizedOwnerUser) ? recognizedOwnerUser : await db.getUserByPhone(authPhone);
