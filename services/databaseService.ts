@@ -3037,7 +3037,20 @@ export const getMerchantRequests = async (storeId: string, options?: { merchantI
         } catch (_) {}
     }
 
-    if (!options?.forceAdmin && merchantId && passcode) {
+    if (options?.forceAdmin) {
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: { action: 'admin_list', storeId }
+        });
+        if (error || !data?.success) {
+            console.error('[MERCHANT-REQUEST] Admin read failed:', data?.error || error?.message);
+            throw new Error(data?.error || error?.message || 'تعذر تحميل طلبات السحب للإدارة');
+        }
+        const requests = (data.requests || []).map((r: any) => toMerchantRequestView(r, 'merchant_requests'));
+        try { localStorage.setItem(key, JSON.stringify(requests)); } catch (_) {}
+        return requests;
+    }
+
+    if (merchantId && passcode) {
         const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
             body: { action: 'list', storeId, merchantId, passcode }
         });
@@ -3082,16 +3095,10 @@ export const updateMerchantRequestStatus = async (
             ...(meta?.approvedBy ? { approvedBy: meta.approvedBy } : {}),
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
-        const { data, error } = await supabase
-            .from('merchant_requests')
-            .update({ status, updated_at: new Date().toISOString(), ...extra })
-            .eq('id', requestId)
-            .eq('storeId', storeId)
-            .eq('status', 'pending')
-            .select('id')
-            .maybeSingle();
-        if (error) throw error;
-        if (!data?.id) return false;
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: { action: 'admin_update', storeId, requestId, status, meta: extra }
+        });
+        if (error || !data?.success) throw new Error(data?.error || error?.message || 'تعذر تحديث طلب السحب');
 
         try {
             const key = `merchant_requests_${storeId}`;
