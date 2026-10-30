@@ -156,3 +156,39 @@ A read-only repository scanner is available as `npm run audit:firebase` in [scri
 - Informational mode is expected to report remaining Firebase dependencies during migration and does not fail CI.
 - The `--strict` mode exits non-zero while any detected Firebase reference remains. Enable this as a release gate only after the final domain cutovers are complete.
 - The scanner is a safety net, not proof by itself. Review generated code, package/config files, server routes, scripts, Cloudflare Worker code, and dynamic imports manually before Firebase retirement.
+
+
+## Implemented cutover progress (2026-10-30)
+
+The following changes are committed on `migration/firebase-to-supabase` and the SQL migrations listed below have been applied to project `kwirhppfowzqshltmoga`:
+
+- Owner sign-in and owner registration in `components/SignUpPage.tsx` now call Supabase Auth.
+- Employee sign-in and employee registration in `App.tsx` now call Supabase Auth.
+- Password-authentication imports were removed from the app shell and owner sign-in page. Firestore remains in use for non-auth application domains.
+- `getUserByPhone` no longer queries Firestore when the deployment Supabase client is active.
+- `createUserDoc` now persists the user directory profile to Supabase only; it no longer writes a duplicate Firebase user document.
+- `useLiveCollaboration` now uses the Supabase Auth UUID and listens for Supabase session changes instead of reading Firebase Auth state.
+- `public.users` no longer has an anonymous/public all-access policy. RLS limits reads and writes to the authenticated user's phone profile (or a trusted admin profile).
+- API roles cannot select the legacy `users.password` column and cannot set admin/ban flags. The app-side profile writer omits those privileged flags.
+- Added the missing `default_store_id` and `auto_launch_default_store` columns expected by the app's profile mapper.
+- Added store-membership RLS policies for operational audit, return, transaction, quotation, stock-transfer, template and request tables. MoneyHash payment rows are owner-readable only; webhook event rows remain server-only with no client policy.
+
+Applied migration versions:
+- `20261030060149_supabase_auth_foundation`
+- `20261030060205_revoke_public_rls_event_trigger`
+- `20261030060212_harden_store_membership_helpers`
+- `20261030060634_secure_supabase_user_directory`
+- `20261030060714_prevent_user_self_promotion`
+- `20261030060720_lock_legacy_admin_flags`
+- `20261030060949_store_scoped_operational_rls`
+
+### Current verification and release blockers
+
+- Verified: `public.users` has RLS enabled and four scoped policies; there are no public-role policies.
+- Verified: neither `anon` nor `authenticated` can select the legacy password column; authenticated users cannot update admin flags.
+- Verified: the Supabase security advisor now reports no RLS-enabled/no-policy tables except `moneyhash_webhook_events`, which is intentionally server-only.
+- Remaining advisor warnings: the two `SECURITY DEFINER` membership predicates are callable by authenticated users because RLS policies depend on them; leaked-password protection is disabled and must be enabled in Supabase Auth settings.
+- The Supabase Auth signup flow currently uses the existing phone-derived alias (`phone@mystore-auth.app`) while the app sends its separate activation email. Supabase Auth email confirmation must be disabled for this alias-based password flow, or replaced with a server-side Admin API bootstrap after verified activation. Do not assume this dashboard setting is configured until tested.
+- Store membership data currently covers only four of six existing stores. Do not remove the public `stores_data` compatibility policy or claim the dashboard cutover is complete until owner claims/memberships are reconciled and storefront public data is separated from private store settings.
+- Firestore is still an active dependency for stores_data, orders, products, employees, finance, inventory, chat, storefront domain lookup, server routes, and other modules. Firebase SDK/config removal is explicitly not complete.
+- A full production build/typecheck and browser end-to-end test have not yet been run in this environment. The branch must pass `npm run lint`, `npm run build`, `npm run test:supabase-membership`, and the relevant owner/employee/storefront workflows before deployment.
