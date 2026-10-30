@@ -1,14 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Store, StoreData, Employee, Permission, PERMISSIONS, Transaction, WithdrawRequest, Settings } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
-import { createUserDoc } from '../services/databaseService';
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import firebaseConfig from '../firebase-applet-config.json';
-
-const secondaryApp = getApps().find(app => app.name === "SecondaryAppForAdmin") 
-    || initializeApp(firebaseConfig, "SecondaryAppForAdmin");
-const secondaryAuth = getAuth(secondaryApp);
+import { getSupabaseClient } from '../services/databaseService';
 import { 
     Users, Store as StoreIcon, Activity, Search, ShieldAlert, LogIn, Ban, CheckCircle, 
     Lock, Unlock, LayoutDashboard, TrendingUp, MessageSquare, Send, UserPlus, Clock, 
@@ -679,31 +672,24 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         return;
     }
 
-    const firebaseEmail = `${newUserData.phone.trim()}@mystore-auth.app`;
-    
     try {
-        await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, newUserData.password || 'password123');
-        await secondaryAuth.signOut();
-    } catch (err: any) {
-        setAddUserError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
-        return;
-    }
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !session) throw new Error('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
 
-    const newUser: User = {
-        fullName: newUserData.fullName,
-        phone: newUserData.phone.trim(),
-        email: newUserData.email,
-        isAdmin: newUserData.isAdmin,
-        isBanned: false,
-        joinDate: new Date().toISOString(),
-        stores: []
-    };
-
-    const success = await createUserDoc(newUser);
-    if (!success) {
-        setAddUserError('فشل في إنشاء وثيقة المستخدم في قاعدة البيانات.');
-        return;
-    }
+        const { data, error } = await supabase.functions.invoke('admin-create-user', {
+            body: {
+                fullName: newUserData.fullName.trim(),
+                phone: newUserData.phone.trim(),
+                email: newUserData.email.trim(),
+                password: newUserData.password || 'password123',
+                isAdmin: newUserData.isAdmin
+            }
+        });
+        if (error) throw error;
+        if (!data?.success || !data.user) throw new Error(data?.error || 'تعذر إنشاء الحساب.');
+        const newUser: User = data.user;
 
     const updatedUsersList = [...users, newUser];
     setUsers(updatedUsersList);
