@@ -1,30 +1,31 @@
-import { 
-  sendPasswordResetEmail, 
-  sendEmailVerification, 
-  ActionCodeSettings 
-} from 'firebase/auth';
-import { auth } from '../../services/firebaseClient';
 import { useState } from 'react';
+import {
+  getSupabaseAuthUser,
+  requestSupabasePasswordReset,
+  resendSupabaseSignupConfirmation
+} from '../../services/supabaseAuthService';
 
-/**
- * إعدادات الـ Action Code للتحويل إلى الرابط المخصص
- */
-const actionCodeSettings: ActionCodeSettings = {
-  // الرابط الذي سيتم توجيه المستخدم إليه بعد الضغط على لينك الإيميل
-  url: 'https://abdomedi.com/auth/action',
-  // يجب أن يكون true لضمان معالجة الكود داخل التطبيق
-  handleCodeInApp: true,
-  // اختياري: إذا كان لديك تطبيق موبايل وتريد فتحه مباشرة
-  /*
-  iOS: {
-    bundleId: 'com.abdomedi.ios'
-  },
-  android: {
-    packageName: 'com.abdomedi.android',
-    installApp: true,
-    minimumVersion: '12'
-  },
-  */
+const getAuthActionRedirect = (): string => {
+  if (typeof window === 'undefined') return 'https://abdomedi.com/auth/action';
+  return new URL('/auth/action', window.location.origin).toString();
+};
+
+const getFriendlyAuthError = (err: any, fallback: string): string => {
+  const message = String(err?.message || '');
+  const code = String(err?.code || '');
+  if (/rate limit|too many requests/i.test(message) || code.includes('over_email_send_rate_limit')) {
+    return 'تم إجراء محاولات كثيرة. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.';
+  }
+  if (/invalid email/i.test(message) || code.includes('invalid_email')) {
+    return 'عنوان البريد الإلكتروني غير صالح.';
+  }
+  if (/user not found/i.test(message)) {
+    return 'تعذر العثور على حساب مرتبط بهذا البريد الإلكتروني.';
+  }
+  if (/session|not authenticated/i.test(message)) {
+    return 'انتهت جلسة الدخول. يرجى تسجيل الدخول مرة أخرى.';
+  }
+  return fallback;
 };
 
 export const useAuthActions = () => {
@@ -32,62 +33,41 @@ export const useAuthActions = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  /**
-   * إرسال بريد إعادة تعيين كلمة المرور
-   */
-  const handleCustomPasswordReset = async (email: string) => {
+  const handleCustomPasswordReset = async (email: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
     setSuccess(null);
-    
     try {
-      await sendPasswordResetEmail(auth, email, actionCodeSettings);
+      await requestSupabasePasswordReset(email, getAuthActionRedirect());
       setSuccess('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني بنجاح.');
+      return true;
     } catch (err: any) {
-      console.error('Password Reset Error:', err);
-      switch (err.code) {
-        case 'auth/user-not-found':
-          setError('عذراً، لا يوجد حساب مسجل بهذا البريد الإلكتروني.');
-          break;
-        case 'auth/invalid-email':
-          setError('عنوان البريد الإلكتروني غير صالح.');
-          break;
-        case 'auth/too-many-requests':
-          setError('لقد قمت بمحاولات كثيرة جداً. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.');
-          break;
-        default:
-          setError('حدث خطأ أثناء محاولة إرسال البريد. يرجى المحاولة لاحقاً.');
-      }
+      console.error('Supabase Password Reset Error:', err);
+      setError(getFriendlyAuthError(err, 'حدث خطأ أثناء إرسال رابط الاستعادة. يرجى المحاولة لاحقاً.'));
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
-  /**
-   * إرسال بريد تفعيل الحساب للمستخدم الحالي
-   */
-  const handleCustomEmailVerification = async () => {
-    if (!auth.currentUser) {
-      setError('يجب تسجيل الدخول أولاً لإرسال بريد التفعيل.');
-      return;
-    }
-
+  const handleCustomEmailVerification = async (): Promise<boolean> => {
     setLoading(true);
     setError(null);
     setSuccess(null);
-
     try {
-      await sendEmailVerification(auth.currentUser, actionCodeSettings);
-      setSuccess('تم إرسال رابط تفعيل الحساب إلى بريدك الإلكتروني بنجاح.');
-    } catch (err: any) {
-      console.error('Email Verification Error:', err);
-      switch (err.code) {
-        case 'auth/too-many-requests':
-          setError('لقد طلبت بريداً إلكترونياً بالفعل. يرجى التحقق من صندوق الوارد أو المحاولة لاحقاً.');
-          break;
-        default:
-          setError('حدث خطأ أثناء محاولة إرسال بريد التفعيل.');
+      const user = await getSupabaseAuthUser();
+      if (!user?.email) throw new Error('يجب تسجيل الدخول أولاً لإرسال بريد التفعيل.');
+      if (user.email_confirmed_at) {
+        setSuccess('البريد الإلكتروني مؤكد بالفعل.');
+        return true;
       }
+      await resendSupabaseSignupConfirmation(user.email, getAuthActionRedirect());
+      setSuccess('تم إرسال رابط تفعيل الحساب إلى بريدك الإلكتروني بنجاح.');
+      return true;
+    } catch (err: any) {
+      console.error('Supabase Email Verification Error:', err);
+      setError(getFriendlyAuthError(err, 'حدث خطأ أثناء إرسال رسالة التفعيل.'));
+      return false;
     } finally {
       setLoading(false);
     }
