@@ -225,7 +225,7 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
         setOrderToConfirm(orderToAdd);
     };
 
-    const handleConfirmAddOrder = () => {
+    const handleConfirmAddOrder = async () => {
         if (!orderToConfirm) return;
         const orderToAdd = orderToConfirm;
         
