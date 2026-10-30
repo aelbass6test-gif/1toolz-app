@@ -228,3 +228,17 @@ Implementation consequence: do not wire the current employee registration UI dir
 - Removed browser-console messages that printed employee/owner phone numbers during employee-portal sign-in, and removed the success log that repeated the authenticated phone number.
 - This is a privacy hardening change only; Firebase remains the active credential provider for this login path until the Supabase Auth identity-linking and membership cutover is complete.
 - No account data or production configuration was changed.
+
+
+### Security advisor recheck (read-only; 2026-10-30 04:22 UTC)
+
+A fresh security/performance advisor pass confirms the production warnings are still present; the branch-only SQL hardening has not been deployed:
+
+- Security advisor still reports 17 RLS-enabled tables with no policies, a mutable search path on `public.set_updated_at()`, and public/anonymous execution of the SECURITY DEFINER event-trigger helper `public.rls_auto_enable()`.
+- The two membership helper functions, `is_store_member(text, uuid)` and `is_store_owner(text)`, are SECURITY DEFINER and executable by authenticated users because they are used by RLS expressions. Keep their implementation narrowly scoped and pinned to an empty search path; do not add any privileged provisioning behavior to them.
+- Supabase Auth leaked-password protection is still disabled. Enable it in the Auth security settings as a separate reviewed configuration change before broad user onboarding.
+- Performance advisor reports 10 foreign keys without covering indexes, including the `store_memberships.store_id` foreign key. These should be reviewed with query plans and table size before adding indexes; do not make speculative production index changes during the authentication cutover.
+- The branch migration `20261030120000_harden_trigger_helpers.sql` addresses the two trigger-helper warnings but remains unapplied. It does not address the 17 missing-policy tables or the Auth leaked-password setting.
+- No production changes were made during this advisor recheck.
+
+Reference guidance: [RLS enabled without policies](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [mutable function search path](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable), [SECURITY DEFINER function exposure](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable), and [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
