@@ -41,7 +41,7 @@ export const fetchMigrationOverview = async (): Promise<{
     // 1. Load users from Supabase (Legacy)
     if (supabase) {
         try {
-            const { data, error } = await supabase.from('users').select('*');
+            const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate');
             if (!error && Array.isArray(data)) {
                 data.forEach((item: any) => {
                     if (item.phone) {
