@@ -228,19 +228,9 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   }, [storeName]);
 
   // Authentication State
-  const [authenticatedPartner, setAuthenticatedPartner] = useState<Partner | null>(() => {
-    try {
-      const saved = sessionStorage.getItem(`partner_portal_auth_${effectiveStoreId}`);
-      if (!saved) return null;
-      const parsed = JSON.parse(saved);
-      const requestedId = String(urlPartnerId || '').trim().toLowerCase();
-      const savedId = String(parsed?.id || '').trim().toLowerCase();
-      if (requestedId && requestedId !== savedId) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  });
+  // Keep the verified partner only in component memory. Browser storage is editable
+  // by the visitor and must never be accepted as proof of partner identity.
+  const [authenticatedPartner, setAuthenticatedPartner] = useState<Partner | null>(null);
 
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>(() => {
     if (urlPartnerId) return urlPartnerId;
@@ -312,7 +302,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const authenticatedId = String(authenticatedPartner.id || '').trim();
     if (!authenticatedId) return null;
     const current = partners.find(p => String(p.id || '').trim() === authenticatedId);
-    return current || authenticatedPartner;
+    return current || null;
   }, [authenticatedPartner, partners]);
 
   useEffect(() => {
@@ -320,7 +310,6 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const currentId = String(authenticatedPartner?.id || '').trim().toLowerCase();
     if (requestedId && currentId && requestedId !== currentId) {
       setAuthenticatedPartner(null);
-      try { sessionStorage.removeItem(`partner_portal_auth_${effectiveStoreId}`); } catch {}
     }
   }, [urlPartnerId, authenticatedPartner?.id, effectiveStoreId]);
 
@@ -330,13 +319,6 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const role = (livePartner.role || '').toLowerCase();
     return role.includes('موكل') || role.includes('مورد') || role.includes('بضاعة') || role.includes('supplier') || role.includes('merchant');
   }, [modeFromPath, livePartner]);
-
-  // Sync fresh partner data with session storage
-  useEffect(() => {
-    if (livePartner && effectiveStoreId) {
-      sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(livePartner));
-    }
-  }, [livePartner, effectiveStoreId]);
 
   // Partner Portal Permissions
   const portalPerms = useMemo(() => {
@@ -1417,7 +1399,6 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         updateSettings={updateSettings}
         onAuthenticated={(p) => {
           setAuthenticatedPartner(p);
-          sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(p));
         }}
         showToast={showToast}
         portalMode={modeFromPath}
