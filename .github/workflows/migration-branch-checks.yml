@@ -28,6 +28,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-package-lock
+      - name: Inventory remaining Firebase references (informational until cutover)
+        run: npm run audit:firebase
       - name: Merchant accounting regression tests
         run: npm run test:merchant-accounting
       - name: Shipping status regression tests
