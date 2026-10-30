@@ -155,3 +155,11 @@ This inventory was collected from the connected production project's catalog and
 - Updated the failed-PIN message so it no longer advertises `0000` as a default credential.
 - The normal partner login is still a client-side PIN comparison and its session is still stored in browser session storage. This is **not** a secure final authentication boundary; do not treat the portal as production-secure until server-side verification, authenticated sessions, and per-request authorization are implemented.
 - A read-only aggregate check of the live `public.partners` table found 9 rows and no populated legacy `password`, `passcode`, or `details.password` fields. This check returned counts only; no credential values were selected. No data was changed.
+
+
+### Partner default-PIN removal (branch only; 2026-10-30)
+
+- Removed the implicit `0000` PIN from synthesized supplier/merchant partner entries and from database hydration.
+- Partner login now fails closed when no PIN is configured and tells the user to ask the store administrator to provision one. A missing PIN is no longer treated as a valid shared credential.
+- This can require an administrator to configure PINs for legacy supplier/merchant portal accounts before those accounts can sign in. This is intentional rather than preserving a universal default credential.
+- Normal PIN comparison remains client-side and is only an interim compatibility path. Server-side authentication is still required before production cutover.
