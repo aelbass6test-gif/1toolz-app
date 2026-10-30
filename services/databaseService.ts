@@ -734,6 +734,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     .from('store_memberships')
                     .select('store_id')
                     .eq('store_id', storeId)
+                    .eq('user_id', authData.user.id)
                     .maybeSingle();
                 isStoreMember = Boolean(membership?.store_id);
             }
