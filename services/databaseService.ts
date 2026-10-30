@@ -1,26 +1,11 @@
 import { db as localDb } from '../src/lib/db';
 import { createClient } from '@supabase/supabase-js';
-import { db as firebaseDb } from './firebaseClient';
-import { 
-    collection, 
-    doc, 
-    setDoc, 
-    getDoc, 
-    getDocs, 
-    updateDoc,
-    deleteDoc, 
-    query, 
-    where, 
-    onSnapshot,
-    runTransaction,
-    setLogLevel
-} from 'firebase/firestore';
-
+// Firebase persistence has been removed from this service. Retain the
+// compatibility flag exports while older UI components finish migrating.
 let isFirestoreQuotaExhausted = false;
 
 export const markFirestoreQuotaExhausted = () => {
     isFirestoreQuotaExhausted = true;
-    try { setLogLevel('error'); } catch (_) {}
 };
 
 export const getIsFirestoreQuotaExhausted = () => isFirestoreQuotaExhausted;
