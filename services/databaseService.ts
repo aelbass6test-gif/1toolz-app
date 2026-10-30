@@ -2336,34 +2336,7 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
     }
 
     try {
-        const queryUsers = collection(firebaseDb, 'users');
-        let dbUsers: User[] = [];
-        let hasPermission = true;
-        try {
-            const snap = await getDocs(queryUsers);
-            dbUsers = snap.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    fullName: data.fullName || '',
-                    phone: doc.id,
-                    email: data.email || '',
-                    stores: data.stores || [],
-                    sites: data.sites || [],
-                    isAdmin: data.isAdmin || false,
-                    isBanned: data.isBanned || false,
-                    joinDate: data.joinDate || ''
-                };
-            });
-        } catch (err: any) {
-            if (err?.code === 'permission-denied') {
-                hasPermission = false;
-                console.warn('[DATABASE-SERVICE] Permission denied fetching users. Returning empty users list (expected for non-admins).');
-            } else {
-                handleFirestoreError(err, OperationType.LIST, 'users');
-                throw err;
-            }
-        }
-
+        const dbUsers: User[] = [];
         let supabaseUsers: User[] = [];
         const supabase = getSupabaseClient();
         if (supabase) {
@@ -2393,12 +2366,11 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
 
         const mergedUsersMap = new Map<string, User>();
         localUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
-        dbUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
         supabaseUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
 
         const finalUsers = Array.from(mergedUsersMap.values());
 
-        // Note: We no longer auto-create or auto-upload unauthenticated users into Firestore to comply with security rules and Auth requirements.
+        // User records are read only from Supabase; local cache is retained for offline recovery.
 
         const globalData = { users: finalUsers, loyaltyData: {} } as { users: User[], loyaltyData: any };
         await saveLocal('global', globalData);
@@ -3564,28 +3536,6 @@ export const syncIncrementalStoreData = async (
         }
     }
 
-    if (firebaseDb) {
-        try {
-            const qOrders = query(
-                collection(firebaseDb, 'orders'),
-                where('store_id', '==', cleanStoreId),
-                where('updatedAt', '>', lastSyncIsoTimestamp)
-            );
-            const snapOrders = await getDocs(qOrders);
-            updatedOrders = snapOrders.docs.map(d => d.data() as Order);
-
-            const qReqs = query(
-                collection(firebaseDb, 'partner_requests'),
-                where('storeId', '==', cleanStoreId),
-                where('createdAt', '>', lastSyncIsoTimestamp)
-            );
-            const snapReqs = await getDocs(qReqs);
-            updatedPartnerRequests = snapReqs.docs.map(d => d.data() as PartnerPortalRequest);
-        } catch (err) {
-            console.warn('[INCREMENTAL-SYNC] Firestore incremental sync error:', err);
-        }
-    }
-
     return { updatedOrders, updatedPartnerRequests, timestamp: currentIso };
 };
 
@@ -3611,22 +3561,8 @@ export const getAllStoresSettings = async (): Promise<Record<string, any>> => {
         }
     }
 
-    // 2. Fallback to Firestore
-    if (firebaseDb) {
-        try {
-            const snap = await getDocs(collection(firebaseDb, 'stores_data'));
-            snap.forEach(doc => {
-                const data = doc.data();
-                if (data?.settings && !results[doc.id]) {
-                    results[doc.id] = data.settings;
-                }
-            });
-        } catch (err) {
-            console.warn('[DB] Error fetching all stores settings from Firestore:', err);
-        }
-    }
+    // 2. Local Dexie IndexedDB remains the offline recovery source.
 
-    // 3. Fallback to local Dexie IndexedDB
     try {
         if (localDb && localDb.settings) {
             const allLocal = await localDb.settings.toArray();
