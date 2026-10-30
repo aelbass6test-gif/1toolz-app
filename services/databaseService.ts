@@ -896,6 +896,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 try {
                     const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
                     if (error) {
+                        // Orders are business-critical: never convert a failed read into an empty
+                        // list, because the caller would persist that empty list over the local cache.
+                        if (table === 'orders') {
+                            console.error('[SUPABASE-FETCH] Critical orders read failed; preserving existing data:', error);
+                            throw error;
+                        }
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                             knownMissingTables.add(table);
                             try {
@@ -910,6 +916,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     return data || [];
                 } catch (fetchErr: any) {
                     console.warn(`[SUPABASE-FETCH] Could not fetch ${table}:`, fetchErr?.message || fetchErr);
+                    if (table === 'orders') throw fetchErr;
                     return [];
                 }
             };
@@ -1203,7 +1210,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             await saveLocal(storeId, fullData);
             return fullData;
         } catch (e) {
-            console.error('Supabase fetch failed, falling back to local/Firestore', e);
+            console.error('[SUPABASE-FETCH] Remote store read failed; returning the last local snapshot without overwriting it:', e);
+            // Supabase is the configured source of truth. A failed read is not an empty
+            // result and must never fall through to legacy Firebase data.
+            return local;
         }
     }
 
