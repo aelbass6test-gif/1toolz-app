@@ -75,7 +75,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       setRequestsLoading(true);
       const reqs = await db.getMerchantRequests(activeStoreId, { forceAdmin: true });
       setCloudRequests(reqs);
-    } catch (_) {
+    } catch (err) {
+      console.error('[AGENCY-HUB] Failed to load merchant withdrawal requests:', err);
+      setCloudRequests([]);
     } finally {
       setRequestsLoading(false);
     }
@@ -83,9 +85,16 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
 
   useEffect(() => {
     loadRequests();
-    const interval = setInterval(loadRequests, 20000);
-    return () => clearInterval(interval);
-  }, [loadRequests]);
+    const interval = setInterval(loadRequests, 10000);
+    const unsubscribe = db.subscribeToStoreRealtimeOptimized(activeStoreId, {
+      tables: ['merchant_requests'],
+      onUpdate: () => { void loadRequests(); }
+    });
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
+  }, [activeStoreId, loadRequests]);
 
   const suppliersList: Supplier[] = useMemo(() => {
     const suppliers = Array.isArray(settings.suppliers) ? settings.suppliers : Object.values(settings.suppliers || {});
