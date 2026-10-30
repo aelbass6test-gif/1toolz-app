@@ -7,9 +7,7 @@ import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
 import { db as firebaseDb } from './services/firebaseClient';
 import { getSupabaseClient } from './services/databaseService';
-import { signInWithSupabase, signUpWithSupabase, getSupabaseAuthUser } from './services/supabaseAuthService';
-import { getApps, initializeApp } from 'firebase/app';
-import firebaseConfig from './firebase-applet-config.json';
+import { signInWithSupabase, signUpWithSupabase } from './services/supabaseAuthService';
 import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
 import { verifyPasswordSecure } from './utils/syncIntegrity';
@@ -1820,9 +1818,6 @@ export const AppComponent = () => {
 
     // Legacy Firebase account migration is disabled. Accounts must be explicitly
     // re-enrolled into Supabase Auth; never copy plaintext legacy passwords.
-
-    // Supabase Auth is the sole password-authentication provider.
-    const getCurrentAuthenticatedUser = () => getSupabaseAuthUser();
 
     // Legacy password-based background account migration has been removed.
 
