@@ -822,7 +822,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     return [];
                 }
                 try {
-                    const { data, error } = await queryClient.from(queryTable).select('*').eq('storeId', storeId);
+                    const storeIdColumn = table === 'employees' ? 'store_id' : 'storeId';
+                    const { data, error } = await queryClient.from(queryTable).select('*').eq(storeIdColumn, storeId);
                     if (error) {
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                             knownMissingTables.add(table);
@@ -954,7 +955,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     reviews: reviews.length > 0 ? reviews : (storeSettings.reviews || local?.settings?.reviews || []),
                     abandonedCarts: abandonedCarts.length > 0 ? abandonedCarts : (storeSettings.abandonedCarts || local?.settings?.abandonedCarts || []),
                     activityLogs: activityLogs.length > 0 ? activityLogs : (storeSettings.activityLogs || local?.settings?.activityLogs || []),
-                    employees: employees.length > 0 ? employees : (storeSettings.employees || local?.settings?.employees || []),
+                    employees: employees.length > 0 ? employees.map((employee: any) => ({ ...employee, id: employee.id || employee.phone, phone: employee.phone || employee.id })) : (storeSettings.employees || local?.settings?.employees || []),
                     discountCodes: discountCodes.length > 0 ? discountCodes : (storeSettings.discountCodes || local?.settings?.discountCodes || []),
                     collections: collectionsList.length > 0 ? collectionsList : (storeSettings.collections || local?.settings?.collections || []),
                     customPages: customPages.length > 0 ? customPages : (storeSettings.customPages || local?.settings?.customPages || []),
