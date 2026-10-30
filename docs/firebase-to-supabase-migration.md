@@ -242,3 +242,15 @@ A fresh security/performance advisor pass confirms the production warnings are s
 - No production changes were made during this advisor recheck.
 
 Reference guidance: [RLS enabled without policies](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [mutable function search path](https://supabase.com/docs/guides/database/database-linter?lint=0011_function_search_path_mutable), [SECURITY DEFINER function exposure](https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable), and [leaked password protection](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
+
+
+### Migration CI regression coverage (branch only; 2026-10-30)
+
+The migration branch workflow now runs the two existing regression suites before type-check/build:
+
+- `npm run test:merchant-accounting`
+- `npm run test:shipping`
+
+This extends the gate beyond compilation and protects the existing settlement and shipping-status logic while the persistence layer is migrated. These are existing tests; no product behavior or production data was changed by this CI-only update.
+
+Cloudflare build routing was also inspected read-only: commits on branches other than `main` match the `Deploy non-production branches` trigger, whose command is `wrangler versions upload`; only `main` matches the production trigger using `wrangler deploy`. The in-flight build for commit `6725d7c` was using the non-production trigger, and the latest production deployment timestamp remained `2026-10-30T00:51:17Z` at the time of inspection. Thus the observed migration-branch build is a non-production version upload, not a production deployment.
