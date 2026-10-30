@@ -45,3 +45,48 @@
 - The migration branch CI run after the employee-login hardening passed both TypeScript type-check and production build.
 - The employee-login change is a security hardening step, not a completed Supabase login migration; existing employees without a Firebase Auth identity will need a separately designed, verified re-enrollment flow.
 - These helpers are a foundation only; the existing sign-up/login screens and data listeners are not yet switched over. Do not cut over production until the screens, employee flows, memberships, and data access have been migrated and tested.
+
+
+## Production schema and access-control inventory (read-only audit, 2026-10-30)
+
+This inventory was collected from the connected production project's catalog and Supabase security advisors. It is documentation only; no production policy or schema was changed.
+
+### Current policy findings
+
+- 23 tables have a permissive `public` policy granting `ALL` with `USING (true)` and `WITH CHECK (true)`. This is not an acceptable final access model:
+  `abandoned_carts`, `activity_logs`, `chat_messages`, `collections`, `custom_pages`, `customers`, `discount_codes`, `documents`, `employees`, `global_options`, `orders`, `partner_transactions`, `partners`, `payment_methods`, `products`, `reviews`, `shipping_integrations`, `stores_data`, `suppliers`, `supply_orders`, `transactions`, `users`, `warehouses`.
+- 17 tables have RLS enabled but no policies. Authenticated client access is therefore blocked until deliberate policies are added:
+  `call_scripts`, `customer_transactions`, `inventory_audits`, `merchant_requests`, `moneyhash_payments`, `moneyhash_webhook_events`, `order_returns`, `partner_requests`, `pos_sales`, `purchase_returns`, `quotations`, `shared_audits`, `stock_audit_requests`, `stock_transfers`, `supplier_transactions`, `whatsapp_templates`, `withdrawal_requests`.
+- Finance tables already have authenticated membership-scoped policies: `cash_handovers`, `cash_holders`, `treasury_accounts`, `treasury_transactions`. These policies still need role-level review before the new employee permission model is finalized.
+- `store_memberships` currently supports self-read and owner-managed membership writes. Existing rows cannot be safely mapped to Supabase Auth identities until identity linking is designed and verified.
+- The security advisor also flags `public.rls_auto_enable()` as callable by anon and authenticated users, and `public.set_updated_at()` as having a mutable search_path. Do not expose or invoke the former as an application RPC. Review its event-trigger dependency before changing grants. Pin the latter's search_path in a separately tested migration.
+
+### Target authorization matrix (design baseline; not yet implemented)
+
+| Data scope | Public storefront | Authenticated store owner | Authenticated employee | Trusted server |
+|---|---|---|---|---|
+| Published products, collections, public pages, shipping/payment display config | Read published fields only | CRUD within own store | Read; writes only when explicit permission allows | Full scoped operations when required |
+| Orders, customers, carts, reviews, discounts | Narrow public create/read flows only; no unrestricted table access | CRUD within own store | Only assigned operational actions | Webhooks and privileged workflows |
+| Employees and store memberships | No access | Manage non-owner members of own store; never self-promote to owner | Read own membership/profile only | Invitation acceptance and controlled provisioning |
+| Transactions, treasury, cash, payouts, withdrawals | No access | Finance permissions for own store | Explicit finance permission only | Payment processor/webhook reconciliation |
+| Suppliers, purchasing, inventory, warehouses, POS, returns | No access | Manage own store | Role/permission-scoped operations | Integrations and scheduled reconciliation |
+| WhatsApp, chat, activity logs, shared audits | No access | Own-store access | Only assigned/support permissions | Webhook ingestion and system audit writes |
+| Global users, platform options, admin operations, payment secrets/events | No access | No platform-wide access | No platform-wide access | Server-only; explicit platform-admin authorization |
+
+### Required policy implementation rules
+
+1. Every tenant-owned row must be scoped by canonical `store_id` and an authenticated `store_memberships` row. Never trust a client-supplied store ID without membership verification.
+2. Separate SELECT, INSERT, UPDATE, and DELETE policies. Avoid broad `FOR ALL` policies where roles have different permissions.
+3. Public storefront access must use narrowly scoped published-data views or policies; never grant public access to customer, employee, order, finance, integration-secret, or admin records.
+4. Employee access must check both active membership and the explicit permission for the requested operation. A generic membership check is not sufficient for finance, refunds, payouts, employee management, or settings.
+5. Membership provisioning and owner/admin assignment must run through a trusted server-side path. A user must never be able to assign themselves a privileged role by editing their own row.
+6. Service-role credentials must remain server-side in Cloudflare Worker secrets. Never ship them in Vite variables or browser bundles.
+7. Test both positive and negative cases: own-store allowed, other-store denied, inactive membership denied, role-restricted write denied, anonymous sensitive read/write denied.
+8. Apply policy changes only after all corresponding app reads/writes have moved off Firestore and the staging tests prove no storefront or back-office outage.
+
+### Data-model caveats found during the audit
+
+- Several operational tables retain both snake_case and camelCase compatibility columns (for example `store_id` and `storeId`). RLS must use the canonical, non-null tenant key and writes must normalize to it; do not build policies that allow either key to be caller-controlled.
+- `stores_data` stores broad settings in JSONB while operational entities also have normalized tables. The migration must document a single source of truth per entity and avoid dual-write races.
+- The legacy `users` table is not an authentication authority. Do not select its password field, do not authenticate against it, and do not map `is_admin` to Supabase Auth app metadata without a trusted server-side verification step.
+
