@@ -2,8 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { MessageSquare, X, Send, User, Users, ChevronLeft, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User as UserType, ChatMessage, Employee } from '../types';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc, query, where, onSnapshot, orderBy, doc, updateDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { getSupabaseClient } from '../services/databaseService';
 
 interface FloatingChatProps {
     currentUser: UserType | null;
@@ -17,7 +16,6 @@ export interface FloatingChatHandles {
     toggle: () => void;
 }
 
-import { isSupabaseActive } from '../services/databaseService';
 
 const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({ currentUser, storeOwner, activeStoreId, employees, onlineUsers }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -78,101 +76,98 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
     }, []);
 
     useEffect(() => {
-        if (!activeChat || !currentUser || !activeStoreId || isSupabaseActive()) {
+        if (!activeChat || !currentUser || !activeStoreId) {
+            setMessages([]);
+            return;
+        }
+        const supabase = getSupabaseClient();
+        if (!supabase) {
             setMessages([]);
             return;
         }
 
-        const q = query(
-            collection(db, 'chat_messages'),
-            where('storeId', '==', activeStoreId),
-            orderBy('createdAt', 'asc')
-        );
-
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const allMsgs = snapshot.docs.map(docSnap => {
-                const data = docSnap.data();
-                return {
-                    id: docSnap.id,
-                    store_id: data.storeId || '',
-                    sender_id: data.senderId || '',
-                    receiver_id: data.receiverId || '',
-                    content: data.content || '',
-                    is_read: data.isRead || false,
-                    is_file: data.isFile || false,
-                    created_at: data.createdAt?.seconds ? new Date(data.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-                } as ChatMessage;
-            });
-
-            // Client side filtering for active sender/receiver pairing to avoid complex composite Firestore indexes
-            const filtered = allMsgs.filter(msg => {
-                if (activeChat.id === 'team') {
-                    return msg.receiver_id === 'general';
-                } else {
-                    return (
-                        (msg.sender_id === currentUser.phone && msg.receiver_id === activeChat.id) ||
-                        (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.phone)
-                    );
-                }
-            });
-
+        let disposed = false;
+        const loadMessages = async () => {
+            const { data, error } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .eq('store_id', activeStoreId)
+                .order('created_at', { ascending: true });
+            if (error) {
+                console.error('[FloatingChat] Supabase load error:', error);
+                return;
+            }
+            if (disposed) return;
+            const allMsgs = (data || []).map((row: any) => ({
+                id: String(row.id),
+                store_id: row.store_id || row.storeId || '',
+                sender_id: row.sender_id || row.senderId || '',
+                receiver_id: row.receiver_id || row.receiverId || '',
+                content: row.content || '',
+                is_read: row.is_read ?? row.isRead ?? false,
+                is_file: row.isFile ?? false,
+                created_at: row.created_at || row.createdAt || new Date().toISOString()
+            } as ChatMessage));
+            const filtered = allMsgs.filter(msg => activeChat.id === 'team'
+                ? msg.receiver_id === 'general'
+                : ((msg.sender_id === currentUser.phone && msg.receiver_id === activeChat.id)
+                    || (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.phone)));
             setMessages(filtered);
 
-            // Trigger system notifications
-            if (filtered.length > 0) {
-                const lastMsg = filtered[filtered.length - 1];
-                if (lastMsg.sender_id !== currentUser.phone && Notification.permission === 'granted') {
-                    new Notification(`رسالة جديدة من ${activeChat.name}`, {
-                        body: lastMsg.is_file ? 'الملف المرفق' : lastMsg.content,
-                    });
+            const unread = filtered.filter(msg => msg.receiver_id === currentUser.phone && !msg.is_read);
+            if (unread.length) {
+                const ids = unread.map(msg => Number(msg.id)).filter(Number.isFinite);
+                if (ids.length) {
+                    const { error: readError } = await supabase
+                        .from('chat_messages')
+                        .update({ is_read: true, isRead: true })
+                        .in('id', ids)
+                        .eq('store_id', activeStoreId)
+                        .eq('receiver_id', currentUser.phone);
+                    if (readError) console.warn('[FloatingChat] Mark-read failed:', readError);
                 }
             }
+        };
 
-            // Mark as read in batch
-            const unreadDocs = snapshot.docs.filter(docSnap => {
-                const data = docSnap.data();
-                return data.receiverId === currentUser.phone && !data.isRead;
-            });
-
-            if (unreadDocs.length > 0) {
-                const batch = writeBatch(db);
-                unreadDocs.forEach(docSnap => {
-                    batch.update(docSnap.ref, { isRead: true });
-                });
-                await batch.commit().catch(err => console.warn('Failed to mark read:', err));
-            }
-        }, (error) => {
-            const msg = String(error?.message || error);
-            if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
-                console.warn('[FloatingChat] Firestore quota reached. Working offline/cached.');
-            } else {
-                console.warn('[FloatingChat] Chat message subscription notice:', msg);
-            }
-        });
-
+        void loadMessages();
+        const channel = supabase
+            .channel(`chat-${activeStoreId}-${activeChat.id}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'chat_messages',
+                filter: `store_id=eq.${activeStoreId}`
+            }, () => { void loadMessages(); })
+            .subscribe();
         return () => {
-            unsubscribe();
+            disposed = true;
+            void supabase.removeChannel(channel);
         };
     }, [activeChat, currentUser, activeStoreId]);
 
     const handleSendMessage = async () => {
         if (!message.trim() || !activeChat || !currentUser || !activeStoreId) return;
-
-        const content = message;
+        const content = message.trim();
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
         setMessage('');
-
-        try {
-            await addDoc(collection(db, 'chat_messages'), {
-                storeId: activeStoreId,
-                senderId: currentUser.phone,
-                receiverId: activeChat.id === 'team' ? 'general' : activeChat.id,
-                content: content,
-                isRead: false,
-                isFile: false,
-                createdAt: new Date()
-            });
-        } catch (err) {
-            console.error('Error sending message:', err);
+        const receiverId = activeChat.id === 'team' ? 'general' : activeChat.id;
+        const { error } = await supabase.from('chat_messages').insert([{
+            store_id: activeStoreId,
+            storeId: activeStoreId,
+            sender_id: currentUser.phone,
+            senderId: currentUser.phone,
+            receiver_id: receiverId,
+            receiverId,
+            content,
+            is_read: false,
+            isRead: false,
+            isFile: false,
+            created_at: new Date().toISOString(),
+            createdAt: new Date().toISOString()
+        }]);
+        if (error) {
+            console.error('Error sending message:', error);
             setMessage(content);
         }
     };
@@ -181,31 +176,35 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0 || !activeChat || !currentUser || !activeStoreId) return;
-
         const file = e.target.files[0];
-        
-        // Use FileReader to convert file to Base64
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64Url = event.target?.result as string;
             if (!base64Url) return;
-
-            try {
-                await addDoc(collection(db, 'chat_messages'), {
-                    storeId: activeStoreId,
-                    senderId: currentUser.phone,
-                    receiverId: activeChat.id === 'team' ? 'general' : activeChat.id,
-                    content: base64Url,
-                    isRead: false,
-                    isFile: true,
-                    createdAt: new Date()
-                });
-            } catch (messageError) {
-                console.error('Error sending file message:', messageError);
-            }
+            const supabase = getSupabaseClient();
+            if (!supabase) return;
+            const receiverId = activeChat.id === 'team' ? 'general' : activeChat.id;
+            const now = new Date().toISOString();
+            const { error } = await supabase.from('chat_messages').insert([{
+                store_id: activeStoreId,
+                storeId: activeStoreId,
+                sender_id: currentUser.phone,
+                senderId: currentUser.phone,
+                receiver_id: receiverId,
+                receiverId,
+                content: base64Url,
+                is_read: false,
+                isRead: false,
+                isFile: true,
+                created_at: now,
+                createdAt: now
+            }]);
+            if (error) console.error('Error sending file message:', error);
         };
         reader.readAsDataURL(file);
+        e.target.value = '';
     };
+
 
     return (
         <>

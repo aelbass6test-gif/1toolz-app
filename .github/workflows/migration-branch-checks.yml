@@ -1,0 +1,51 @@
+name: Migration branch checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [migration/firebase-to-supabase]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-checks-${{ github.ref }}
+  # Do not cancel dependency installation/type-check/build on each migration commit.
+  # Let every pushed state finish validation so the latest result is trustworthy.
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-package-lock
+      - name: Inventory remaining Firebase references (informational until cutover)
+        run: npm run audit:firebase
+      - name: Merchant accounting regression tests
+        run: npm run test:merchant-accounting
+      - name: Shipping status regression tests
+        run: npm run test:shipping
+      - name: Supabase membership authorization boundary tests
+        run: npm run test:supabase-membership
+      - name: Type-check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Upload production build for Cloudflare preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1toolz-app-cloudflare-build
+          path: |
+            dist/
+            cloudflare-worker/dist/
+          if-no-files-found: error
+          retention-days: 3

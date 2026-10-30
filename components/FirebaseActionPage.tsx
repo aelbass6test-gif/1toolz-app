@@ -1,128 +1,117 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { 
-  verifyPasswordResetCode, 
-  confirmPasswordReset, 
-  applyActionCode,
-  Auth
-} from 'firebase/auth';
-import { auth } from '../services/firebaseClient';
+import {
+  getSupabaseSession,
+  updateSupabasePassword,
+  verifySupabaseEmailOtp
+} from '../services/supabaseAuthService';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  CheckCircle2, 
-  AlertCircle, 
-  Loader2, 
-  Lock, 
-  Eye, 
-  EyeOff, 
+import {
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Lock,
+  Eye,
+  EyeOff,
   Mail,
   ArrowRight,
   ShieldCheck
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
-type Mode = 'resetPassword' | 'verifyEmail' | 'recoverEmail' | null;
+type Mode = 'resetPassword' | 'verifyEmail' | null;
 
 export default function FirebaseActionPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
-  const mode = searchParams.get('mode') as Mode;
-  const oobCode = searchParams.get('oobCode');
-  const apiKey = searchParams.get('apiKey');
-  
+
+  const typeParam = searchParams.get('type') || searchParams.get('mode');
+  const mode: Mode =
+    typeParam === 'recovery' || typeParam === 'resetPassword'
+      ? 'resetPassword'
+      : typeParam === 'signup' || typeParam === 'email' || typeParam === 'verifyEmail'
+        ? 'verifyEmail'
+        : null;
+  const tokenHash = searchParams.get('token_hash');
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
-  
-  // Password Reset State
+
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
-    console.log('Action Page Loaded:', { mode, hasCode: !!oobCode, hasApiKey: !!apiKey });
-
-    if (!mode || !oobCode) {
-      setError('رابط غير صالح. يرجى التأكد من الرابط المرسل إليك في البريد الإلكتروني.');
-      setLoading(false);
-      return;
-    }
-
+    let active = true;
     const handleAction = async () => {
       try {
-        if (mode === 'resetPassword') {
-          const userEmail = await verifyPasswordResetCode(auth, oobCode);
-          setEmail(userEmail);
-          setLoading(false);
-        } else if (mode === 'verifyEmail') {
-          await applyActionCode(auth, oobCode);
-          setSuccess(true);
-          setLoading(false);
-          triggerConfetti();
-        } else {
-          setError('نوع العملية غير مدعوم حالياً.');
-          setLoading(false);
+        if (!mode) {
+          throw new Error('نوع الرابط غير معروف. يرجى طلب رابط جديد من صفحة تسجيل الدخول.');
         }
+
+        // Supabase PKCE links exchange the ?code= parameter automatically
+        // through detectSessionInUrl. Token-hash links are verified explicitly.
+        if (tokenHash) {
+          const otpType = typeParam === 'recovery' ? 'recovery' : 'signup';
+          const user = await verifySupabaseEmailOtp(tokenHash, otpType);
+          if (!active) return;
+          setEmail(user.email || null);
+          if (mode === 'verifyEmail') {
+            setSuccess(true);
+            triggerConfetti();
+          }
+          setLoading(false);
+          return;
+        }
+
+        const session = await getSupabaseSession();
+        if (!active) return;
+        if (!session?.user) {
+          throw new Error('الرابط منتهي أو غير صالح أو تم استخدامه من قبل. اطلب رابطاً جديداً.');
+        }
+        setEmail(session.user.email || null);
+        if (mode === 'verifyEmail') {
+          setSuccess(true);
+          triggerConfetti();
+        }
+        setLoading(false);
       } catch (err: any) {
-        console.error('Firebase Action Error:', err);
-        handleFirebaseError(err.code);
+        if (!active) return;
+        console.error('Supabase Auth Action Error:', err);
+        setError(err?.message || 'تعذر التحقق من الرابط. يرجى طلب رابط جديد.');
         setLoading(false);
       }
     };
 
-    handleAction();
-  }, [mode, oobCode]);
-
-  const handleFirebaseError = (code: string) => {
-    switch (code) {
-      case 'auth/expired-action-code':
-        setError('انتهت صلاحية هذا الرابط. يرجى طلب رابط جديد.');
-        break;
-      case 'auth/invalid-action-code':
-        setError('هذا الرابط غير صالح أو سبق استخدامه بالفعل.');
-        break;
-      case 'auth/user-disabled':
-        setError('هذا الحساب تم تعطيله.');
-        break;
-      case 'auth/user-not-found':
-        setError('لم يتم العثور على المستخدم المرتبط بهذا الرابط.');
-        break;
-      case 'auth/weak-password':
-        setError('كلمة المرور ضعيفة جداً. يجب أن تتكون من 6 أحرف على الأقل.');
-        break;
-      default:
-        setError('حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.');
-    }
-  };
+    void handleAction();
+    return () => { active = false; };
+  }, [mode, tokenHash, typeParam]);
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!oobCode) return;
-    
-    if (newPassword.length < 6) {
-      setError('يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.');
+
+    if (newPassword.length < 8) {
+      setError('يجب أن تتكون كلمة المرور من 8 أحرف على الأقل.');
       return;
     }
-    
     if (newPassword !== confirmPassword) {
-      setError('كلمات المرور غير متطابقة.');
+      setError('كلمتا المرور غير متطابقتين.');
       return;
     }
 
     setResetting(true);
     setError(null);
-    
     try {
-      await confirmPasswordReset(auth, oobCode, newPassword);
+      await updateSupabasePassword(newPassword);
       setSuccess(true);
-      setResetting(false);
       triggerConfetti();
     } catch (err: any) {
-      console.error('Confirm Reset Error:', err);
-      handleFirebaseError(err.code);
+      console.error('Supabase Password Update Error:', err);
+      setError(err?.message || 'تعذر تحديث كلمة المرور. يرجى طلب رابط استعادة جديد.');
+    } finally {
       setResetting(false);
     }
   };

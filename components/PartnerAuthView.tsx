@@ -64,13 +64,11 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
 
   // OTP login & Password reset state
   const [otpTargetEmail, setOtpTargetEmail] = useState('');
-  const [customEmailInput, setCustomEmailInput] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
-  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
 
   // 2FA state (when PIN login triggers required OTP)
   const [isTwoFactorActive, setIsTwoFactorActive] = useState(false);
@@ -97,17 +95,13 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     checkBiometrics();
   }, []);
 
-  // Sync selected partner's enrolled biometrics count
+  // Biometric sign-in is intentionally not offered until credentials are
+  // verified server-side with a challenge bound to the partner account.
   useEffect(() => {
     if (selectedPartnerId) {
       const p = partners.find(item => item.id === selectedPartnerId);
       const stored = getStoredBiometrics(selectedPartnerId);
-      const count = (p?.biometricCredentials?.length || 0) + stored.length;
-      setEnrolledPartnerBioCount(count);
-      // Auto-switch to biometric if partner already has enrolled passkey on this device
-      if (count > 0 && authMode === 'otp' && !isOtpSent) {
-        setAuthMode('biometric');
-      }
+      setEnrolledPartnerBioCount((p?.biometricCredentials?.length || 0) + stored.length);
     }
   }, [selectedPartnerId, partners]);
 
@@ -127,8 +121,7 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
       if (p) {
         if (p.email) {
           setOtpTargetEmail(p.email);
-          setCustomEmailInput(p.email);
-        } else {
+            } else {
           setOtpTargetEmail('');
         }
       }
@@ -177,20 +170,19 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
       return;
     }
 
-    const partner = partners.find(p => 
-      p.email?.toLowerCase() === cleanEmail || 
-      p.id === selectedPartnerId
+    const partner = partners.find(p =>
+      p.id === selectedPartnerId &&
+      String(p.email || '').trim().toLowerCase() === cleanEmail
     );
 
-    if (isForReset && !partner) {
-      setAuthError('لم يتم العثور على حساب شريك مسجل بهذا البريد الإلكتروني');
+    if (!partner) {
+      setAuthError('يجب استخدام البريد الإلكتروني المسجل مسبقًا على الحساب المحدد. إذا لم يكن للحساب بريد، اطلب من إدارة المتجر ربطه والتحقق منه أولاً.');
       return;
     }
 
     setIsSendingOtp(true);
     setAuthError('');
     setAuthSuccess('');
-    setDevOtpCode(null);
 
     try {
       const res = await fetch('/api/send-otp', {
@@ -209,10 +201,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
         setIsOtpSent(true);
         setOtpCooldown(60);
         setOtpTargetEmail(cleanEmail);
-
-        if (data.debugCode) {
-          setDevOtpCode(data.debugCode);
-        }
 
         if (isForReset) {
           setResetPartner(partner || null);
@@ -264,36 +252,19 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
 
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.valid) {
-        // Find matching partner
-        let partner = partners.find(p => 
-          p.email?.toLowerCase() === cleanEmail || 
-          p.id === selectedPartnerId
+        const partner = partners.find(p =>
+          p.id === selectedPartnerId &&
+          String(p.email || '').trim().toLowerCase() === cleanEmail
         );
 
-        if (!partner && selectedPartnerId) {
-          partner = partners.find(p => p.id === selectedPartnerId);
+        if (!partner) {
+          setAuthError('البريد الذي تم التحقق منه غير مرتبط بالحساب المحدد. لم يتم تسجيل الدخول.');
+          return;
         }
 
-        if (!partner && partners.length === 1) {
-          partner = partners[0];
-        }
-
-        if (partner) {
-          // Update partner verification and login timestamp
-          const updatedPartner: Partner = {
-            ...partner,
-            email: cleanEmail,
-            isEmailVerified: true,
-            emailVerifiedAt: new Date().toISOString(),
-            lastLoginAt: new Date().toISOString()
-          };
-
-          await persistPartnerUpdate(updatedPartner);
-          onAuthenticated(updatedPartner);
-          showToast(`أهلاً بك يا ${updatedPartner.name}! تم التحقق بنجاح والدخول الآمن للبوابة المالية`, 'success');
-        } else {
-          setAuthError('تم التحقق من الرمز بنجاح ولكن لم يتم العثور على حساب شريك مرتبط بهذا البريد.');
-        }
+        // Do not rewrite partner credentials/profile data from the browser after OTP.
+        onAuthenticated(partner);
+        showToast(`أهلاً بك يا ${partner.name}! تم التحقق من البريد المسجل بنجاح`, 'success');
       } else {
         setAuthError(data.message || data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية. يرجى التأكد وإعادة المحاولة.');
       }
@@ -305,64 +276,10 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     }
   };
 
-  // 3. Handle PIN / Password Login (with 2FA enforcement check)
+  // PIN login is disabled: client-delivered partner records cannot safely verify secrets.
   const handlePinLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
-
-    let partner = partners.find(p => p.id === selectedPartnerId);
-    if (!partner && loginInput) {
-      const cleanInput = loginInput.trim().toLowerCase();
-      partner = partners.find(p => 
-        p.email?.toLowerCase() === cleanInput || 
-        p.phone?.replace(/\D/g, '') === cleanInput.replace(/\D/g, '') ||
-        p.name.toLowerCase() === cleanInput
-      );
-    }
-
-    if (!partner) {
-      setAuthError('يرجى تحديد حساب الشريك أو إدخال البريد الإلكتروني/الهاتف المسجل');
-      return;
-    }
-
-    const correctPin = String(partner.passcode || '0000').trim();
-    const correctPassword = partner.password ? String(partner.password).trim() : null;
-    const enteredPin = pinCode.trim();
-    const enteredPass = password.trim();
-
-    const isPinMatch = enteredPin && (enteredPin === correctPin || enteredPin === '0000');
-    const isPassMatch = enteredPass && (enteredPass === correctPassword || enteredPass === correctPin);
-
-    if (isPinMatch || isPassMatch || (!enteredPass && enteredPin === correctPin)) {
-      // Check if 2FA (Email OTP) is required for this partner or whole store
-      const requiresEmailOtp = Boolean(
-        partner.requireEmailOtp || 
-        settings?.enforcePartnerOtp ||
-        partner.email
-      );
-
-      if (requiresEmailOtp && partner.email) {
-        // Enforce 2FA: Trigger OTP send and prompt for the code
-        setSelectedPartnerId(partner.id);
-        setOtpTargetEmail(partner.email);
-        setIsTwoFactorActive(true);
-        setAuthMode('otp');
-        handleSendOtp(partner.email);
-        showToast('تم التحقق من كلمة المرور. لإتمام الدخول الأمني، يرجى إدخال رمز OTP المرسل لبريدك.', 'success');
-      } else {
-        // Direct login
-        const updatedPartner: Partner = {
-          ...partner,
-          lastLoginAt: new Date().toISOString()
-        };
-        persistPartnerUpdate(updatedPartner);
-        onAuthenticated(updatedPartner);
-        showToast(`أهلاً بك يا ${partner.name} في بوابتك المالية`, 'success');
-      }
-    } else {
-      setAuthError('رمز PIN أو كلمة المرور غير صحيحة. يمكنك الدخول عبر كود البريد (OTP) أو استرجاع الرمز.');
-    }
+    setAuthError('تسجيل الدخول برمز PIN متوقف مؤقتًا لحين نقل التحقق إلى الخادم. استخدم كود البريد المسجل.');
   };
 
   // 4. Verify OTP for Password Reset
@@ -400,97 +317,15 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     }
   };
 
-  // 5. Save New Password / PIN
+  // A client-side OTP must not authorize writing a new plaintext PIN/password to store data.
   const handleSaveNewPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.trim().length < 4) {
-      setAuthError('كلمة المرور / الرمز الجديد يجب أن يتكون من 4 أرقام أو أحرف على الأقل');
-      return;
-    }
-    if (!resetPartner) return;
-
-    try {
-      const updatedPartner: Partner = {
-        ...resetPartner,
-        passcode: newPassword.trim(),
-        password: newPassword.trim(),
-        isEmailVerified: true,
-        emailVerifiedAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString()
-      };
-
-      await persistPartnerUpdate(updatedPartner);
-      onAuthenticated(updatedPartner);
-      showToast('تم استرجاع وتحديث كلمة السر بنجاح! تم تسجيل دخولك للبوابة', 'success');
-    } catch (err: any) {
-      setAuthError('حدث خطأ أثناء حفظ كلمة السر: ' + err.message);
-    }
+    setAuthError('تغيير رمز الدخول متوقف مؤقتًا لحين ربط استعادة الحساب بمصادقة الخادم.');
   };
 
-  // 6. WebAuthn Biometric Authentication Handler
-  const handleBiometricLogin = async (targetPartner?: Partner) => {
-    const partnerToAuth = targetPartner || activePartner;
-    if (!partnerToAuth) {
-      setAuthError('يرجى اختيار حساب الشريك أولاً للتحقق من البصمة البيومترية.');
-      return;
-    }
-
-    setAuthError('');
-    setAuthSuccess('');
-    setIsScanningBiometric(true);
-
-    try {
-      const storedCreds = getStoredBiometrics(partnerToAuth.id);
-      const combinedCreds = [
-        ...(partnerToAuth.biometricCredentials || []),
-        ...storedCreds
-      ];
-
-      const result = await authenticateBiometricCredential(
-        combinedCreds.length > 0 ? combinedCreds : undefined,
-        storeName || 'بوابة الشركاء'
-      );
-
-      if (result.success) {
-        setBiometricScanSuccess(true);
-        const credId = result.credentialId || 'passkey_' + Date.now();
-        let currentBioCreds = [...(partnerToAuth.biometricCredentials || [])];
-
-        if (combinedCreds.length === 0) {
-          const autoCred: BiometricCredentialRecord = {
-            id: credId,
-            rawId: credId,
-            name: biometricDeviceName,
-            createdAt: new Date().toISOString(),
-            lastUsedAt: new Date().toISOString(),
-            algorithm: 'SHA256/WebCryptoPasskey',
-            transports: ['internal'],
-          };
-          saveStoredBiometric(partnerToAuth.id, autoCred, false);
-          currentBioCreds = [autoCred, ...currentBioCreds];
-        }
-
-        const updatedPartner: Partner = {
-          ...partnerToAuth,
-          biometricCredentials: currentBioCreds,
-          lastLoginAt: new Date().toISOString(),
-          allowBiometricAuth: true
-        };
-        await persistPartnerUpdate(updatedPartner);
-
-        showToast(`✨ تم التحقق من البصمة البيومترية بنجاح! مرحباً ${partnerToAuth.name}`, 'success');
-        setTimeout(() => {
-          onAuthenticated(updatedPartner);
-        }, 500);
-      } else {
-        setAuthError(result.error || 'فشل التحقق من البصمة الحيوية. يرجى المحاولة مرة أخرى أو استخدام كود البريد OTP.');
-      }
-    } catch (err: any) {
-      console.error('Biometric auth error:', err);
-      setAuthError('حدث خطأ أثناء فحص البصمة: ' + (err.message || ''));
-    } finally {
-      setIsScanningBiometric(false);
-    }
+  // Browser-only biometric state is not a server-verified authentication factor.
+  const handleBiometricLogin = async (_targetPartner?: Partner) => {
+    setAuthError('تسجيل الدخول بالبصمة متوقف مؤقتًا لحين تفعيل مفاتيح مرور موثقة من الخادم.');
   };
 
   // 7. Enroll Device Biometric With PIN Verification
@@ -609,60 +444,14 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
           </div>
         )}
 
-        {/* Tab Toggle: Biometric (Instant) vs Email OTP (High Security) vs Fast PIN */}
+        {/* Only account-bound email OTP is available during the migration.
+            PIN and browser-only biometric flows are disabled until server-side auth exists. */}
         {authMode !== 'forgot' && (
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl mb-5 text-xs font-bold gap-1">
-            <button
-              type="button"
-              onClick={() => { 
-                setAuthMode('biometric'); 
-                setAuthError(''); 
-                setIsTwoFactorActive(false);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'biometric' 
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black ring-1 ring-emerald-500/30' 
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
-              }`}
-            >
-              <Fingerprint size={16} className={authMode === 'biometric' ? 'text-[#008060] dark:text-emerald-400 animate-pulse' : ''} />
-              <span>البصمة الحيوية</span>
-              <span className="text-[9px] bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-1.5 py-0.2 rounded-md font-black">
-                ⚡ فوري
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { 
-                setAuthMode('otp'); 
-                setAuthError(''); 
-                setIsTwoFactorActive(false);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'otp' 
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black' 
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
-              }`}
-            >
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl mb-5 text-xs font-bold">
+            <div className="flex-1 py-2.5 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black flex items-center justify-center gap-1.5">
               <Mail size={15} className="text-[#008060] dark:text-emerald-400" />
               <span>كود البريد (OTP)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => { 
-                setAuthMode('pin'); 
-                setAuthError(''); 
-                setIsTwoFactorActive(false);
-              }}
-              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                authMode === 'pin' 
-                  ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs font-black' 
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400'
-              }`}
-            >
-              <Key size={15} />
-              <span>رمز PIN</span>
-            </button>
+            </div>
           </div>
         )}
 
@@ -882,7 +671,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                             setSelectedPartnerId(p.id);
                             if (p.email) {
                               setOtpTargetEmail(p.email);
-                              setCustomEmailInput(p.email);
                             } else {
                               setOtpTargetEmail('');
                             }
@@ -929,7 +717,7 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                     {activePartner.email ? (
                       <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1">
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
-                          سيتم إرسال كود التحقق الأمني إلى البريد المسجل:
+                          سيتم إرسال كود التحقق الأمني إلى البريد المسجل مسبقًا:
                         </div>
                         <div className="text-xs font-black text-slate-900 dark:text-white font-mono flex items-center gap-2">
                           <Mail size={14} className="text-[#008060]" />
@@ -940,28 +728,18 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                       <div className="space-y-2 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60">
                         <div className="flex items-center gap-1.5 text-xs font-black text-amber-800 dark:text-amber-300">
                           <AlertCircle size={15} />
-                          <span>ربط بريد إلكتروني بحسابك:</span>
+                          <span>الحساب يحتاج ربط بريد موثّق</span>
                         </div>
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                          لم يتم تسجيل بريد إلكتروني لحسابك بعد. أدخل بريدك الإلكتروني الآن لربطه وتأكيده بكود التحقق لمرة واحدة:
+                          لا يمكن ربط بريد جديد من شاشة الدخول. اطلب من إدارة المتجر تسجيل البريد والتحقق منه أولاً.
                         </p>
-                        <input
-                          type="email"
-                          value={customEmailInput}
-                          onChange={(e) => {
-                            setCustomEmailInput(e.target.value);
-                            setOtpTargetEmail(e.target.value);
-                          }}
-                          placeholder="partner@example.com"
-                          className="w-full bg-white dark:bg-slate-850 py-2.5 px-3.5 rounded-xl border border-amber-300 dark:border-amber-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-600"
-                        />
                       </div>
                     )}
 
                     <button
                       type="button"
-                      onClick={() => handleSendOtp(activePartner.email || customEmailInput)}
-                      disabled={isSendingOtp || (!activePartner.email && !customEmailInput)}
+                      onClick={() => handleSendOtp(activePartner.email || '')}
+                      disabled={isSendingOtp || !activePartner.email}
                       className="w-full py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-700/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                       {isSendingOtp ? (
@@ -977,18 +755,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                       )}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onAuthenticated(activePartner);
-                        showToast(`تم تسجيل الدخول الفوري لحساب الموكل: ${activePartner.name}`, 'success');
-                      }}
-                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border border-slate-200 dark:border-slate-700"
-                      title="الدخول الفوري لمعاينة البوابة والمحفظة والأوردرات كمسؤول"
-                    >
-                      <Sparkles size={14} className="text-amber-500" />
-                      <span>دخول تجريبي فوري (معاينة كمسؤول) 🚀</span>
-                    </button>
                   </div>
                 ) : (
                   <p className="text-center text-xs text-slate-400 py-2 font-medium">
@@ -1010,23 +776,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                     تم إرسال كود لمرة واحدة إلى: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{maskEmail(otpTargetEmail)}</span>
                   </p>
                 </div>
-
-                {/* Dev Mode Simulation Code Card */}
-                {devOtpCode && (
-                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
-                      <Sparkles size={16} className="text-indigo-600" />
-                      <span>رمز الاختبار في بيئة التطوير: <strong className="font-mono font-black text-sm">{devOtpCode}</strong></span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setOtpCode(devOtpCode)}
-                      className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-bold hover:bg-indigo-700 cursor-pointer"
-                    >
-                      تعبئة الرمز
-                    </button>
-                  </div>
-                )}
 
                 <div>
                   <input

@@ -1,26 +1,11 @@
 import { db as localDb } from '../src/lib/db';
 import { createClient } from '@supabase/supabase-js';
-import { db as firebaseDb, auth } from './firebaseClient';
-import { 
-    collection, 
-    doc, 
-    setDoc, 
-    getDoc, 
-    getDocs, 
-    updateDoc,
-    deleteDoc, 
-    query, 
-    where, 
-    onSnapshot,
-    runTransaction,
-    setLogLevel
-} from 'firebase/firestore';
-
+// Firebase persistence has been removed from this service. Retain the
+// compatibility flag exports while older UI components finish migrating.
 let isFirestoreQuotaExhausted = false;
 
 export const markFirestoreQuotaExhausted = () => {
     isFirestoreQuotaExhausted = true;
-    try { setLogLevel('error'); } catch (_) {}
 };
 
 export const getIsFirestoreQuotaExhausted = () => isFirestoreQuotaExhausted;
@@ -58,8 +43,10 @@ import {
     CashHolder,
     CashHandover,
     WhatsAppTemplate,
-    CallScript
+    CallScript,
+    PartnerPortalRequest
 } from '../types';
+export type { PartnerPortalRequest } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 import {
     shouldDeleteCloudRecord,
@@ -74,6 +61,7 @@ const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 
 // --- Supabase Custom Connection ---
 let supabaseSingleton: any = null;
+let publicSupabaseSingleton: any = null;
 const syncFingerprints = new Map<string, string>();
 
 const defaultMissingColumns = [
@@ -121,87 +109,111 @@ try {
 
 const knownMissingTables = new Set<string>(['quotations', ...storedMissingTables]);
 
-export const syncSupabaseCredentials = (storeId: string, settings: any) => {
-    if (typeof window === 'undefined') return;
-    const activeStoreId = localStorage.getItem('lastActiveStoreId');
-    if (!activeStoreId || activeStoreId === storeId) {
-        const localUrl = localStorage.getItem('custom_cloud_url');
-        const localKey = localStorage.getItem('custom_cloud_anon_key');
-        
-        if (settings) {
-            if (settings.supabaseUrl && settings.supabaseAnonKey) {
-                if (localUrl !== settings.supabaseUrl || localKey !== settings.supabaseAnonKey) {
-                    console.log(`[SUPABASE-SYNC] Syncing custom cloud credentials for store ${storeId} to localStorage...`);
-                    localStorage.setItem('custom_cloud_url', settings.supabaseUrl);
-                    localStorage.setItem('custom_cloud_anon_key', settings.supabaseAnonKey);
-                }
-            } else if (localUrl && localKey) {
-                // If localStorage already has credentials, attach them to settings object so it persists
-                console.log(`[SUPABASE-SYNC] Attaching stored custom cloud credentials to store settings...`);
-                settings.supabaseUrl = localUrl;
-                settings.supabaseAnonKey = localKey;
+/**
+ * Legacy per-store Supabase credentials are intentionally ignored.
+ * All tenants must use the single deployment-configured Supabase project.
+ * Kept as a no-op while old callers are removed from store hydration.
+ */
+export const syncSupabaseCredentials = (_storeId: string, _settings: any) => {
+    // Deliberately no-op: never persist tenant-provided database URLs or keys.
+};
+
+export const getSupabasePublicClient = () => {
+    if (typeof window === 'undefined') return null;
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+    const envKey =
+        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
+    if (!envUrl || !envKey || !/^https:\/\//.test(envUrl)) {
+        publicSupabaseSingleton = null;
+        return null;
+    }
+    if (publicSupabaseSingleton && publicSupabaseSingleton.__url === envUrl && publicSupabaseSingleton.__key === envKey) {
+        return publicSupabaseSingleton;
+    }
+    try {
+        const client = createClient(envUrl, envKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false
             }
-        }
+        });
+        (client as any).__url = envUrl;
+        (client as any).__key = envKey;
+        publicSupabaseSingleton = client;
+        return client;
+    } catch (e) {
+        console.error('Failed to initialize the public Supabase client', e);
+        return null;
     }
 };
 
 export const getSupabaseClient = () => {
     if (typeof window === 'undefined') return null;
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
-    const url = localStorage.getItem('custom_cloud_url') || envUrl;
-    const key = localStorage.getItem('custom_cloud_anon_key') || envKey;
-    
-    if (url && key && url.startsWith('http')) {
-        // Reuse existing client if credentials haven't changed
-        if (supabaseSingleton && supabaseSingleton.__url === url && supabaseSingleton.__key === key) {
-            return supabaseSingleton;
-        }
-        try {
-            const client = createClient(url, key);
-            // Attach URL/Key for comparison in next calls
-            (client as any).__url = url;
-            (client as any).__key = key;
-            supabaseSingleton = client;
-            return supabaseSingleton;
-        } catch (e) {
-            console.error('Failed to init custom Supabase client', e);
-            return null;
-        }
+    const envKey =
+        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
+
+    if (!envUrl || !envKey || !/^https:\/\//.test(envUrl)) {
+        supabaseSingleton = null;
+        return null;
     }
-    supabaseSingleton = null;
-    return null;
+
+    if (supabaseSingleton && supabaseSingleton.__url === envUrl && supabaseSingleton.__key === envKey) {
+        return supabaseSingleton;
+    }
+
+    try {
+        const client = createClient(envUrl, envKey, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: true,
+                flowType: 'pkce'
+            }
+        });
+        (client as any).__url = envUrl;
+        (client as any).__key = envKey;
+        supabaseSingleton = client;
+        return supabaseSingleton;
+    } catch (e) {
+        console.error('Failed to initialize the deployment Supabase client', e);
+        return null;
+    }
 };
 
 export const isSupabaseActive = (): boolean => {
+    if (typeof window === 'undefined') return false;
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
-    const hasUrl = !!localStorage.getItem('custom_cloud_url') || !!envUrl;
-    const hasKey = !!localStorage.getItem('custom_cloud_anon_key') || !!envKey;
-    return hasUrl && hasKey;
+    const envKey =
+        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
+    return !!envUrl && !!envKey && /^https:\/\//.test(envUrl);
 };
 
 /**
- * Pings the Supabase endpoint to verify credentials
+ * Verify only the deployment-configured Supabase project.
+ * The URL/key arguments remain for compatibility with legacy settings screens,
+ * but tenant-provided credentials are never instantiated or accepted.
  */
-export const verifySupabaseConnection = async (url: string, key: string): Promise<{ success: boolean; error?: string }> => {
+export const verifySupabaseConnection = async (_url?: string, _key?: string): Promise<{ success: boolean; error?: string }> => {
+    const client = getSupabaseClient();
+    if (!client) {
+        return { success: false, error: 'Supabase deployment environment variables are not configured.' };
+    }
     try {
-        const client = createClient(url, key);
-        // Try to select from a common table or just a health check
-        // Note: Even if table doesn't exist, if we get a 404 or something from the client
-        // it means we reached the server. A 401/403 means bad key.
         const { error } = await client.from('stores_data').select('id').limit(1);
-        
         if (error) {
-            // If the table doesn't exist yet, it's still a success in terms of CONNECTION (the key/url are valid)
-            if (error.code === 'PGRST116' || error.message.includes('relation "stores_data" does not exist')) {
-                return { success: true };
-            }
             return { success: false, error: error.message };
         }
         return { success: true };
     } catch (e: any) {
-        return { success: false, error: e.message };
+        return { success: false, error: e?.message || 'Unable to reach the configured Supabase project.' };
     }
 };
 
@@ -237,17 +249,7 @@ export const handleFirestoreError = (err: any, operation: OperationType, path: s
         error: err instanceof Error ? err.message : String(err),
         operationType: operation,
         path,
-        authInfo: {
-            userId: auth?.currentUser?.uid || null,
-            email: auth?.currentUser?.email || null,
-            emailVerified: auth?.currentUser?.emailVerified ?? null,
-            isAnonymous: auth?.currentUser?.isAnonymous ?? null,
-            tenantId: auth?.currentUser?.tenantId || null,
-            providerInfo: auth?.currentUser?.providerData?.map(provider => ({
-                providerId: provider.providerId,
-                email: provider.email
-            })) || []
-        }
+        authInfo: { provider: 'supabase-auth' }
     };
     console.error('Firestore Error: ', JSON.stringify(errInfo));
     throw new Error(JSON.stringify(errInfo));
@@ -599,6 +601,23 @@ const recordExplicitDeletion = (key: string) => {
  * to ensure complete permanent deletion ("من جذوره") with zero accidental resurrection.
  */
 export const deleteStoreItem = async (storeId: string, collectionName: string, itemId: string): Promise<boolean> => {
+    const allowedCollections = new Set([
+        'products', 'orders', 'transactions', 'treasury_accounts', 'treasury_transactions',
+        'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs',
+        'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods',
+        'customers', 'global_options', 'shipping_integrations', 'partners',
+        'partner_transactions', 'warehouses', 'inventory_audits', 'stock_transfers',
+        'order_returns', 'purchase_returns', 'pos_sales', 'cash_holders',
+        'cash_handovers', 'whatsapp_templates', 'call_scripts', 'quotations'
+    ]);
+    if (!allowedCollections.has(collectionName)) {
+        console.warn(`[deleteStoreItem] Rejected unsupported table: ${collectionName}`);
+        return false;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return false;
+
     try {
         const rawId = String(itemId);
         const docId = rawId.startsWith(storeId + '_') ? rawId : `${storeId}_${rawId}`;
@@ -616,152 +635,38 @@ export const deleteStoreItem = async (storeId: string, collectionName: string, i
         }
         delete LAST_SYNCED_HASHES[hashKey];
 
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from(collectionName).delete().or(`id.eq.${docId},id.eq.${rawId}`);
-                if (collectionName === 'orders') {
-                    await supabase.from('orders').delete().or(`order_number.eq.${rawId},orderNumber.eq.${rawId}`);
-                }
-            } catch (_) {}
-        }
+        const ids = Array.from(new Set([docId, rawId]));
+        const { error } = await supabase
+            .from(collectionName)
+            .delete()
+            .eq('store_id', storeId)
+            .in('id', ids);
+        if (error) throw error;
 
-        if (firebaseDb) {
-            const docRef = doc(firebaseDb, collectionName, docId);
-            await deleteDoc(docRef).catch(() => {});
-
-            if (docId !== rawId) {
-                const rawDocRef = doc(firebaseDb, collectionName, rawId);
-                await deleteDoc(rawDocRef).catch(() => {});
+        const localData = await getLocal(storeId);
+        if (localData) {
+            if (collectionName === 'orders' && Array.isArray(localData.orders)) {
+                localData.orders = localData.orders.filter((o: any) => {
+                    const id = String(o?.id || '');
+                    const number = String(o?.orderNumber || '');
+                    return !ids.includes(id) && !ids.includes(number);
+                });
             }
-
-            // CRITICAL: If deleting an order, purge it from the stores_data embedded array as well!
-            if (collectionName === 'orders') {
-                const storeDocRef = doc(firebaseDb, 'stores_data', storeId);
-                getDoc(storeDocRef).then(snap => {
-                    if (snap.exists()) {
-                        const sData = snap.data();
-                        if (Array.isArray(sData?.orders)) {
-                            const filteredOrders = sData.orders.filter((o: any) => {
-                                const oId = String(o?.id || '');
-                                const oNum = String(o?.orderNumber || '');
-                                return oId !== rawId && oId !== docId && oNum !== rawId && oNum !== docId;
-                            });
-                            if (filteredOrders.length !== sData.orders.length) {
-                                updateDoc(storeDocRef, { orders: filteredOrders }).catch(() => {});
-                            }
-                        }
-                    }
-                }).catch(() => {});
-            }
-
-            // CRITICAL: If deleting a supplier or partner, purge from stores_data settings & embedded arrays
             if (collectionName === 'suppliers' || collectionName === 'partners') {
-                const storeDocRef = doc(firebaseDb, 'stores_data', storeId);
-                getDoc(storeDocRef).then(snap => {
-                    if (snap.exists()) {
-                        const sData = snap.data();
-                        const sSettings = sData?.settings || {};
-                        let updated = false;
-                        const newPayload: any = {};
-
-                        if (collectionName === 'suppliers') {
-                            if (Array.isArray(sData?.suppliers)) {
-                                const filtered = sData.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                                if (filtered.length !== sData.suppliers.length) {
-                                    newPayload.suppliers = filtered;
-                                    updated = true;
-                                }
-                            }
-                            if (Array.isArray(sSettings?.suppliers)) {
-                                const filtered = sSettings.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                                if (filtered.length !== sSettings.suppliers.length) {
-                                    newPayload.settings = { ...(newPayload.settings || sSettings), suppliers: filtered };
-                                    updated = true;
-                                }
-                            }
-                        }
-
-                        if (collectionName === 'partners') {
-                            if (Array.isArray(sData?.partners)) {
-                                const filtered = sData.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                                if (filtered.length !== sData.partners.length) {
-                                    newPayload.partners = filtered;
-                                    updated = true;
-                                }
-                            }
-                            if (Array.isArray(sSettings?.partners)) {
-                                const filtered = sSettings.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                                if (filtered.length !== sSettings.partners.length) {
-                                    newPayload.settings = { ...(newPayload.settings || sSettings), partners: filtered };
-                                    updated = true;
-                                }
-                            }
-                        }
-
-                        if (updated) {
-                            updateDoc(storeDocRef, newPayload).catch(() => {});
-                        }
-                    }
-                }).catch(() => {});
+                const key = collectionName;
+                if (Array.isArray(localData.settings?.[key])) {
+                    localData.settings[key] = localData.settings[key].filter((item: any) => !ids.includes(String(item?.id || '')));
+                }
+                if (Array.isArray((localData as any)[key])) {
+                    (localData as any)[key] = (localData as any)[key].filter((item: any) => !ids.includes(String(item?.id || '')));
+                }
             }
-        }
-
-        // Immediately update localStorage so offline/memory caches never resurrect it
-        if (collectionName === 'orders') {
-            getLocal(storeId).then(localData => {
-                if (localData && Array.isArray(localData.orders)) {
-                    const beforeCount = localData.orders.length;
-                    localData.orders = localData.orders.filter((o: any) => {
-                        const oId = String(o?.id || '');
-                        const oNum = String(o?.orderNumber || '');
-                        return oId !== rawId && oId !== docId && oNum !== rawId && oNum !== docId;
-                    });
-                    if (localData.orders.length !== beforeCount) {
-                        saveLocal(storeId, localData).catch(() => {});
-                    }
-                }
-            }).catch(() => {});
-        }
-
-        if (collectionName === 'suppliers' || collectionName === 'partners') {
-            getLocal(storeId).then(localData => {
-                if (localData) {
-                    let changed = false;
-                    if (collectionName === 'suppliers') {
-                        if (Array.isArray(localData.settings?.suppliers)) {
-                            const before = localData.settings.suppliers.length;
-                            localData.settings.suppliers = localData.settings.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                            if (localData.settings.suppliers.length !== before) changed = true;
-                        }
-                        if (Array.isArray(localData.suppliers)) {
-                            const before = localData.suppliers.length;
-                            localData.suppliers = localData.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                            if (localData.suppliers.length !== before) changed = true;
-                        }
-                    }
-                    if (collectionName === 'partners') {
-                        if (Array.isArray(localData.settings?.partners)) {
-                            const before = localData.settings.partners.length;
-                            localData.settings.partners = localData.settings.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                            if (localData.settings.partners.length !== before) changed = true;
-                        }
-                        if (Array.isArray(localData.partners)) {
-                            const before = localData.partners.length;
-                            localData.partners = localData.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                            if (localData.partners.length !== before) changed = true;
-                        }
-                    }
-                    if (changed) {
-                        saveLocal(storeId, localData).catch(() => {});
-                    }
-                }
-            }).catch(() => {});
+            await saveLocal(storeId, localData);
         }
 
         return true;
     } catch (e) {
-        console.error(`[deleteStoreItem] Error deleting item ${itemId} from ${collectionName}:`, e);
+        console.error(`[deleteStoreItem] Supabase delete failed for ${collectionName}/${itemId}:`, e);
         return false;
     }
 };
@@ -782,25 +687,56 @@ function getCollectionHash(items: any[] | null | undefined): string {
 }
 
 export const ensureStoreRecordExists = async (storeId: string, storeName: string): Promise<{ success: boolean, error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase client not initialized.' };
+
     try {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('stores_data').upsert({ id: storeId, name: storeName }, { onConflict: 'id' });
-            } catch (_) {}
+        const { data, error } = await supabase.rpc('ensure_store_record_for_current_user', {
+            p_store_id: storeId,
+            p_store_name: storeName
+        });
+        if (error) return { success: false, error: error.message };
+        if (data !== true) {
+            return { success: false, error: 'المتجر موجود بالفعل ولا تملك عضوية معتمدة عليه.' };
         }
         return { success: true };
     } catch (err: any) {
-        return { success: false, error: err.message };
+        return { success: false, error: err?.message || 'تعذر إنشاء سجل المتجر أو التحقق من عضويتك.' };
     }
 };
 
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
-    // 1. Always attempt local fetch first for offline-first resilience
-    const local = await getLocal(storeId);
-    
-    // 2. If it's not a forced refresh, and local exists, return it immediately
-    if (!forceRemote && local) {
+    const supabase = getSupabaseClient();
+    const publicSupabase = getSupabasePublicClient();
+    let isAuthenticated = false;
+    let isStoreMember = false;
+    if (supabase) {
+        try {
+            const { data: authData } = await supabase.auth.getUser();
+            isAuthenticated = Boolean(authData?.user);
+            if (isAuthenticated) {
+                const { data: membership } = await supabase
+                    .from('store_memberships')
+                    .select('store_id')
+                    .eq('store_id', storeId)
+                    .eq('user_id', authData.user.id)
+                    .maybeSingle();
+                isStoreMember = Boolean(membership?.store_id);
+            }
+        } catch {
+            isAuthenticated = false;
+            isStoreMember = false;
+        }
+    }
+
+    const canAccessPrivateStoreData = isAuthenticated && isStoreMember;
+
+    // Never hydrate a public storefront from a private IndexedDB cache unless
+    // the current authenticated user has a verified membership for this store.
+    const local = canAccessPrivateStoreData ? await getLocal(storeId) : null;
+
+    // Verified store members retain offline-first behavior.
+    if (canAccessPrivateStoreData && !forceRemote && local) {
         if (local.settings) {
             syncSupabaseCredentials(storeId, local.settings);
         }
@@ -808,7 +744,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     }
 
     // --- Custom Hostinger MySQL Fetch Logic ---
-    if (isHostingerActive()) {
+    if (canAccessPrivateStoreData && isHostingerActive()) {
       try {
         const fetchTable = async (table: string) => {
           const res = await fetch(`/api/mysql/fetch?table=${table}&storeId=${storeId}`);
@@ -853,15 +789,26 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     }
 
     // --- Custom Supabase Fetch Logic ---
-    const supabase = getSupabaseClient();
-    if (supabase) {
+    const queryClient = canAccessPrivateStoreData ? supabase : publicSupabase;
+    if (queryClient) {
         try {
+            const publicStorefrontViews: Record<string, string> = {
+                products: 'public_storefront_products',
+                collections: 'public_storefront_collections',
+                custom_pages: 'public_storefront_pages',
+                payment_methods: 'public_storefront_payment_methods',
+                reviews: 'public_storefront_reviews',
+                discount_codes: 'public_storefront_discount_codes'
+            };
+
             const fetchTable = async (table: string) => {
-                if (knownMissingTables.has(table)) {
+                const queryTable = canAccessPrivateStoreData ? table : publicStorefrontViews[table];
+                if (!queryTable || knownMissingTables.has(table)) {
                     return [];
                 }
                 try {
-                    const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
+                    const storeIdColumn = table === 'employees' ? 'store_id' : 'storeId';
+                    const { data, error } = await queryClient.from(queryTable).select('*').eq(storeIdColumn, storeId);
                     if (error) {
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                             knownMissingTables.add(table);
@@ -921,7 +868,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 fetchTable('whatsapp_templates'),
                 fetchTable('call_scripts'),
                 fetchTable('quotations'),
-                supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
+                canAccessPrivateStoreData
+                    ? queryClient.from('stores_data').select('*').eq('id', storeId).maybeSingle()
+                    : queryClient.from('public_storefronts').select('*').eq('id', storeId).maybeSingle()
             ]);
 
             const storeRow = storeRowResult?.data;
@@ -964,14 +913,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const fallbackSupplier = (storeSettings.suppliers || []).find((fs: any) => fs.id === s.id || (sNameNorm && String(fs.name || '').trim().toLowerCase() === sNameNorm))
                             || (local?.settings?.suppliers || []).find((ls: any) => ls.id === s.id || (sNameNorm && String(ls.name || '').trim().toLowerCase() === sNameNorm));
                         const details = s.details && typeof s.details === 'object' ? s.details : (typeof s.details === 'string' && s.details ? JSON.parse(s.details) : {});
+                        const { passcode: _legacySupplierPasscode, password: _legacySupplierPassword, ...safeSupplierDetails } = details;
+                        const { passcode: _recordSupplierPasscode, password: _recordSupplierPassword, details: _rawSupplierDetails, ...safeSupplierRecord } = s;
+                        const { passcode: _fallbackSupplierPasscode, password: _fallbackSupplierPassword, details: _fallbackSupplierDetails, ...safeFallbackSupplier } = fallbackSupplier || {};
                         return {
-                            ...fallbackSupplier,
-                            ...s,
-                            email: s.email || details.email || fallbackSupplier?.email || '',
-                            passcode: s.passcode || details.passcode || fallbackSupplier?.passcode || '0000',
-                            payoutAccounts: s.payoutAccounts || details.payoutAccounts || fallbackSupplier?.payoutAccounts || {},
-                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? details.profitRatio ?? fallbackSupplier?.profitRatio ?? 0),
-                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (fallbackSupplier?.transactions || [])
+                            ...safeFallbackSupplier,
+                            ...safeSupplierRecord,
+                            details: safeSupplierDetails,
+                            email: s.email || safeSupplierDetails.email || safeFallbackSupplier.email || '',
+                            // PIN/password credentials must never enter the browser store model.
+                            passcode: '',
+                            payoutAccounts: s.payoutAccounts || safeSupplierDetails.payoutAccounts || safeFallbackSupplier.payoutAccounts || {},
+                            profitRatio: Number(s.profitRatio ?? s.profit_ratio ?? safeSupplierDetails.profitRatio ?? safeFallbackSupplier.profitRatio ?? 0),
+                            transactions: Array.isArray(s.transactions) && s.transactions.length > 0 ? s.transactions : (safeFallbackSupplier.transactions || [])
                         };
                     }).filter((s: any) => !isDummyMockSupplier(s)),
                     supplyOrders: (supplyOrders.length > 0 ? supplyOrders : (storeSettings.supplyOrders || local?.settings?.supplyOrders || [])).map((so: any) => {
@@ -986,7 +940,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     reviews: reviews.length > 0 ? reviews : (storeSettings.reviews || local?.settings?.reviews || []),
                     abandonedCarts: abandonedCarts.length > 0 ? abandonedCarts : (storeSettings.abandonedCarts || local?.settings?.abandonedCarts || []),
                     activityLogs: activityLogs.length > 0 ? activityLogs : (storeSettings.activityLogs || local?.settings?.activityLogs || []),
-                    employees: employees.length > 0 ? employees : (storeSettings.employees || local?.settings?.employees || []),
+                    employees: employees.length > 0 ? employees.map((employee: any) => ({ ...employee, id: employee.id || employee.phone, phone: employee.phone || employee.id })) : (storeSettings.employees || local?.settings?.employees || []),
                     discountCodes: discountCodes.length > 0 ? discountCodes : (storeSettings.discountCodes || local?.settings?.discountCodes || []),
                     collections: collectionsList.length > 0 ? collectionsList : (storeSettings.collections || local?.settings?.collections || []),
                     customPages: customPages.length > 0 ? customPages : (storeSettings.customPages || local?.settings?.customPages || []),
@@ -1007,22 +961,27 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const pNameNorm = String(p.name || '').trim().toLowerCase();
                         const fallbackPartner = (storeSettings.partners || []).find((fp: any) => fp.id === p.id || (pNameNorm && String(fp.name || '').trim().toLowerCase() === pNameNorm))
                             || (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
-                        const details = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
+                        // Legacy partner credentials are not an authentication source.
+                        // Keep password/PIN values out of the client-side store model.
+                        const { password: _fallbackPassword, passcode: _fallbackPasscode, details: _fallbackDetails, ...safeFallbackPartner } = fallbackPartner || {};
+                        const { password: _legacyPassword, passcode: _legacyPasscode, details: _rawDetails, ...safePartnerRecord } = p;
+                        const parsedDetails = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
+                        const { password: _legacyDetailsPassword, passcode: _legacyDetailsPasscode, ...safeDetails } = parsedDetails;
                         return {
-                            ...fallbackPartner,
-                            ...p,
-                            email: p.email || details.email || fallbackPartner?.email || '',
-                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || '0000',
-                            password: p.password || details.password || fallbackPartner?.password || '',
-                            requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? details.requireEmailOtp ?? fallbackPartner?.requireEmailOtp ?? true),
-                            isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? details.isEmailVerified ?? fallbackPartner?.isEmailVerified ?? false),
-                            emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || details.emailVerifiedAt || fallbackPartner?.emailVerifiedAt,
-                            lastLoginAt: p.lastLoginAt || p.last_login_at || details.lastLoginAt || fallbackPartner?.lastLoginAt,
-                            permissions: p.permissions || details.permissions || fallbackPartner?.permissions || {},
-                            portalPermissions: p.portalPermissions || details.portalPermissions || fallbackPartner?.portalPermissions || {},
-                            payoutAccounts: p.payoutAccounts || details.payoutAccounts || fallbackPartner?.payoutAccounts || {},
-                            biometricCredentials: p.biometricCredentials || details.biometricCredentials || fallbackPartner?.biometricCredentials || [],
-                            allowBiometricAuth: Boolean(p.allowBiometricAuth ?? details.allowBiometricAuth ?? fallbackPartner?.allowBiometricAuth ?? false)
+                            ...safeFallbackPartner,
+                            ...safePartnerRecord,
+                            details: safeDetails,
+                            email: p.email || safeDetails.email || safeFallbackPartner.email || '',
+                            passcode: '',
+                            requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? safeDetails.requireEmailOtp ?? safeFallbackPartner.requireEmailOtp ?? true),
+                            isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? safeDetails.isEmailVerified ?? safeFallbackPartner.isEmailVerified ?? false),
+                            emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || safeDetails.emailVerifiedAt || safeFallbackPartner.emailVerifiedAt,
+                            lastLoginAt: p.lastLoginAt || p.last_login_at || safeDetails.lastLoginAt || safeFallbackPartner.lastLoginAt,
+                            permissions: p.permissions || safeDetails.permissions || safeFallbackPartner.permissions || {},
+                            portalPermissions: p.portalPermissions || safeDetails.portalPermissions || safeFallbackPartner.portalPermissions || {},
+                            payoutAccounts: p.payoutAccounts || safeDetails.payoutAccounts || safeFallbackPartner.payoutAccounts || {},
+                            biometricCredentials: p.biometricCredentials || safeDetails.biometricCredentials || safeFallbackPartner.biometricCredentials || [],
+                            allowBiometricAuth: Boolean(p.allowBiometricAuth ?? safeDetails.allowBiometricAuth ?? safeFallbackPartner.allowBiometricAuth ?? false)
                         };
                     }),
                     partnerTransactions: partnerTransactions.length > 0 ? partnerTransactions : (storeSettings.partnerTransactions || local?.settings?.partnerTransactions || []),
@@ -1128,7 +1087,13 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     const localOnlyOrders = (local?.orders || []).filter((lo: any) => lo && lo.id && !cloudOrderIds.has(String(lo.id).trim()));
                     return [...mappedCloudOrders, ...localOnlyOrders];
                 })(),
-                wallet: { balance: 0, transactions },
+                wallet: {
+                    balance: Number(storeSettings.wallet_balance ?? 0),
+                    transactions,
+                    withdrawRequests: Array.isArray(storeSettings.withdraw_requests) ? storeSettings.withdraw_requests : [],
+                    settings: storeSettings.wallet_settings || undefined,
+                    supplyBalance: Number(storeSettings.supply_balance ?? 0)
+                },
                 treasury: { 
                     accounts: (treasuryAccounts || []).map((acc: any) => ({
                         ...acc,
@@ -1176,313 +1141,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         }
     }
 
-    // 3. Fallback to Firestore cloud database (ensures external users & partner portal can load data)
-    if (firebaseDb) {
-        try {
-            const storeRef = doc(firebaseDb, 'stores_data', storeId);
-            const snap = await WITH_TIMEOUT(getDoc(storeRef), 8000);
-            if (snap.exists()) {
-                const cloudData = snap.data();
-                const storeSettings = cloudData?.settings || {};
-
-                const customization = {
-                    ...(INITIAL_SETTINGS.customization || {}),
-                    ...(storeSettings.customization || {})
-                };
-                if (!customization.pageSections || customization.pageSections.length === 0) {
-                    customization.pageSections = INITIAL_SETTINGS.customization.pageSections;
-                }
-
-                const fullData: StoreData = {
-                    settings: {
-                        ...INITIAL_SETTINGS,
-                        ...storeSettings,
-                        customization,
-                        storeName: storeSettings.storeName || cloudData?.name || local?.settings?.storeName || 'المتجر',
-                        products: await (async () => {
-                            const embeddedProducts = storeSettings.products || local?.settings?.products || [];
-                            try {
-                                const productsSnap = await getDocs(query(collection(firebaseDb, 'products'), where('storeId', '==', storeId)));
-                                if (productsSnap.empty) return embeddedProducts;
-                                
-                                const colProducts = productsSnap.docs.map(d => ({ 
-                                    id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, 
-                                    ...d.data() 
-                                }));
-                                
-                                const merged = [...colProducts];
-                                const colIds = new Set(colProducts.map((p: any) => p.id));
-                                embeddedProducts.forEach((p: any) => { if (!colIds.has(p.id)) merged.push(p); });
-
-                                return merged.map((cp: any) => {
-                                    const details = (cp.details && typeof cp.details === 'object') ? cp.details : {};
-                                    const localProd = local?.settings?.products?.find((lp: any) => lp.id === cp.id);
-                                    const mergedThumbnail = cp.thumbnail || details.thumbnail || localProd?.thumbnail || (Array.isArray(cp.images) && cp.images[0]) || (Array.isArray(details.images) && details.images[0]) || (localProd?.images && localProd.images[0]) || '';
-                                    const candidateImages = (Array.isArray(cp.images) && cp.images.length > 0) ? cp.images : (Array.isArray(details.images) && details.images.length > 0) ? details.images : (localProd?.images && localProd.images.length > 0) ? localProd.images : (mergedThumbnail ? [mergedThumbnail] : []);
-                                    return { ...details, ...(localProd || {}), ...cp, thumbnail: mergedThumbnail, images: candidateImages };
-                                });
-                            } catch { return embeddedProducts; }
-                        })(),
-                        suppliers: await (async () => {
-                            const embedded = sanitizeSuppliersList(storeSettings.suppliers || local?.settings?.suppliers || []);
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                const validDocs: any[] = [];
-                                for (const d of snap.docs) {
-                                    const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                                    const data = d.data();
-                                    const item = { id: rawId, ...data };
-                                    if (isDummyMockSupplier(item)) {
-                                        deleteDoc(d.ref).catch(() => {});
-                                        recordExplicitDeletion(`${storeId}_suppliers_${d.id}`);
-                                        recordExplicitDeletion(`${storeId}_suppliers_${rawId}`);
-                                        continue;
-                                    }
-                                    const isExplicitlyDeleted =
-                                        EXPLICIT_DELETED_IDS.has(`${storeId}_suppliers_${d.id}`) ||
-                                        EXPLICIT_DELETED_IDS.has(`${storeId}_suppliers_${rawId}`) ||
-                                        EXPLICIT_DELETED_IDS.has(d.id) ||
-                                        EXPLICIT_DELETED_IDS.has(rawId);
-                                    if (!isExplicitlyDeleted) {
-                                        validDocs.push(item);
-                                    }
-                                }
-                                return sanitizeSuppliersList(validDocs);
-                            } catch { return embedded; }
-                        })(),
-                        supplyOrders: await (async () => {
-                            const embedded = storeSettings.supplyOrders || local?.settings?.supplyOrders || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'supply_orders'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        reviews: await (async () => {
-                            const embedded = storeSettings.reviews || local?.settings?.reviews || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'reviews'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        abandonedCarts: await (async () => {
-                            const embedded = storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'abandoned_carts'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        activityLogs: await (async () => {
-                            const embedded = storeSettings.activityLogs || local?.settings?.activityLogs || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'activity_logs'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        employees: await (async () => {
-                            const embedded = storeSettings.employees || local?.settings?.employees || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'employees'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.split('_').pop(), ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        discountCodes: await (async () => {
-                            const embedded = storeSettings.discountCodes || local?.settings?.discountCodes || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'discount_codes'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        collections: await (async () => {
-                            const embedded = storeSettings.collections || local?.settings?.collections || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'collections'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        customPages: await (async () => {
-                            const embedded = storeSettings.customPages || local?.settings?.customPages || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'custom_pages'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        paymentMethods: await (async () => {
-                            const embedded = storeSettings.paymentMethods || local?.settings?.paymentMethods || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'payment_methods'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        globalOptions: await (async () => {
-                            const embedded = storeSettings.globalOptions || local?.settings?.globalOptions || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'global_options'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        shippingIntegrations: await (async () => {
-                            const embedded = storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'shipping_integrations'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        partners: await (async () => {
-                            const embedded = storeSettings.partners || local?.settings?.partners || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        partnerTransactions: await (async () => {
-                            const embedded = storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        warehouses: await (async () => {
-                            const embedded = storeSettings.warehouses || local?.settings?.warehouses || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'warehouses'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        inventoryAudits: await (async () => {
-                            const embedded = storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'inventory_audits'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        stockTransfers: await (async () => {
-                            const embedded = storeSettings.stockTransfers || local?.settings?.stockTransfers || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'stock_transfers'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        orderReturns: await (async () => {
-                            const embedded = storeSettings.orderReturns || local?.settings?.orderReturns || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'order_returns'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        purchaseReturns: await (async () => {
-                            const embedded = storeSettings.purchaseReturns || local?.settings?.purchaseReturns || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        posSales: await (async () => {
-                            const embedded = storeSettings.posSales || local?.settings?.posSales || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'pos_sales'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        cashHolders: await (async () => {
-                            const embedded = storeSettings.cashHolders || local?.settings?.cashHolders || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ ...d.data(), userId: d.id.split('_').pop() }));
-                            } catch { return embedded; }
-                        })(),
-                        cashHandovers: await (async () => {
-                            const embedded = storeSettings.cashHandovers || local?.settings?.cashHandovers || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'cash_handovers'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
-                        })(),
-                        whatsappTemplates: await (async () => {
-                            const embedded = storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || [];
-                            try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'whatsapp_templates'), where('storeId', '==', storeId)));
-                                if (snap.empty) return embedded;
-                                return snap.docs.map(d => {
-                                    const data = d.data();
-                                    const details = (data.details && typeof data.details === 'object') ? data.details : {};
-                                    return { id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...data, ...details };
-                                });
-                            } catch { return embedded; }
-                        })(),
-                        callScripts: storeSettings.callScripts || local?.settings?.callScripts || []
-                    },
-                    orders: await (async () => {
-                        const embeddedOrders = cloudData?.orders || local?.orders || [];
-                        try {
-                            let ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('storeId', '==', storeId)));
-                            if (ordersSnap.empty) {
-                                ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId)));
-                            }
-                            const colOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-                            const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders, EXPLICIT_DELETED_IDS);
-                            return reconciled.mergedOrders;
-                        } catch {
-                            return embeddedOrders;
-                        }
-                    })(),
-                    wallet: await (async () => {
-                        const baseWallet = cloudData?.wallet || local?.wallet || { balance: storeSettings.wallet_balance || 0, transactions: [] };
-                        try {
-                            const snap = await getDocs(query(collection(firebaseDb, 'transactions'), where('storeId', '==', storeId)));
-                            if (snap.empty) return baseWallet;
-                            const txs = snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            return { ...baseWallet, transactions: txs };
-                        } catch { return baseWallet; }
-                    })(),
-                    treasury: await (async () => {
-                        const baseTreasury = cloudData?.treasury || local?.treasury || { accounts: [], transactions: [] };
-                        try {
-                            const [accSnap, txSnap] = await Promise.all([
-                                getDocs(query(collection(firebaseDb, 'treasury_accounts'), where('storeId', '==', storeId))),
-                                getDocs(query(collection(firebaseDb, 'treasury_transactions'), where('storeId', '==', storeId)))
-                            ]);
-                            return {
-                                accounts: accSnap.empty ? baseTreasury.accounts : accSnap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() })),
-                                transactions: txSnap.empty ? baseTreasury.transactions : txSnap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }))
-                            };
-                        } catch { return baseTreasury; }
-                    })(),
-                    cart: [],
-                    customers: cloudData?.customers || local?.customers || [],
-                    quotations: cloudData?.quotations || local?.quotations || []
-                };
-
-                await saveLocal(storeId, fullData);
-                return fullData;
-            }
-        } catch (firestoreErr) {
-            console.warn('[FIRESTORE-FETCH] Could not fetch store from Firestore:', firestoreErr);
-        }
-    }
-
-    return local;
+    // Firebase is intentionally not a data source after the Supabase cutover.
+    // Keep a verified member's local cache only when the remote read fails.
+    return canAccessPrivateStoreData ? local : null;
 };
 
 export const saveStoreData = async (store: Store, data: StoreData): Promise<{ success: boolean, error?: string }> => {
@@ -1604,6 +1265,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             // 2. Synchronize Users only when user list actually changes (Fingerprinted)
             const localGlobal = await getLocal('global');
             const usersList = localGlobal?.users || [];
+            const usersFingerprint = JSON.stringify(usersList);
             const usersFingerprintKey = 'global:users_sync';
             if (syncFingerprints.get(usersFingerprintKey) !== usersFingerprint) {
                 // Map users to relational format
@@ -2399,244 +2061,14 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         }
     }
 
-    const operationId = generateUniqueOrderId('sync');
-    const failedCollections: string[] = [];
-    const conflicts: Array<{
-        collection: string;
-        docId: string;
-        reason: string;
-        cloudUpdatedAt?: string;
-        localUpdatedAt?: string;
-    }> = [];
-    let reconciledCloudOrders: any[] = data.orders || [];
-
-    try {
-        await ensureStoreRecordExists(store.id, store.name);
-
-        const syncCollection = async (collectionName: string, rawStateItems: any[], idField = 'id') => {
-            try {
-                const stateItems = Array.isArray(rawStateItems) ? rawStateItems : (rawStateItems && typeof rawStateItems === 'object' ? Object.values(rawStateItems) : []);
-                const hashKey = `${store.id}_${collectionName}`;
-                const currentHash = getCollectionHash(stateItems);
-                if (LAST_SYNCED_HASHES[hashKey] === currentHash) {
-                    return;
-                }
-
-                let snap = await getDocs(query(collection(firebaseDb, collectionName), where('storeId', '==', store.id)));
-                if (snap.empty) {
-                    snap = await getDocs(query(collection(firebaseDb, collectionName), where('store_id', '==', store.id)));
-                }
-                
-                const existingDbDocs = snap.docs.map(doc => ({ _ref: doc.ref, id: doc.id, ...doc.data() }) as any);
-                const existingDocsMap = new Map<string, any>(existingDbDocs.map(doc => [doc.id as string, doc]));
-
-                if (collectionName === 'orders') {
-                    const rec = reconcileDualOrderSources(store.id, stateItems, existingDbDocs, EXPLICIT_DELETED_IDS);
-                    reconciledCloudOrders = rec.mergedOrders;
-                }
-
-                const conflictStrategy = ((typeof window !== 'undefined' ? localStorage.getItem('syncConflictStrategy') : 'last_write_wins') || 'last_write_wins') as 'last_write_wins' | 'cloud_wins' | 'local_wins';
-
-                let collectionHadWriteError = false;
-
-                const upsertPromises = stateItems.map(async (item) => {
-                    const baseId = String(item[idField] || item.phone || item.id);
-                    const docId = baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
-                    const docRef = doc(firebaseDb, collectionName, docId);
-                    
-                    const existingDoc = existingDocsMap.get(docId);
-                    const nowISO = new Date().toISOString();
-
-                    const decision = evaluateRecordUpsert({
-                        localItem: item,
-                        existingCloudDoc: existingDoc,
-                        conflictStrategy,
-                        nowISO
-                    });
-
-                    if (decision.isConflict) {
-                        conflicts.push({
-                            collection: collectionName,
-                            docId,
-                            reason: decision.conflictReason || 'CONFLICT',
-                            cloudUpdatedAt: existingDoc?.updatedAt,
-                            localUpdatedAt: item?.updatedAt
-                        });
-                    }
-
-                    if (decision.shouldUpdateCloud) {
-                        const payload = cleanUndefined({ ...decision.itemToWrite, storeId: store.id, store_id: store.id });
-                        await setDoc(docRef, payload, { merge: true }).catch(err => {
-                            collectionHadWriteError = true;
-                            if (err?.code === 'resource-exhausted') {
-                                throw new Error('QUOTA_EXCEEDED');
-                            }
-                            handleFirestoreError(err, OperationType.WRITE, `${collectionName}/${docId}`);
-                        });
-                    }
-                });
-
-                const isMassDeletionRisk = (stateItems.length === 0 && existingDbDocs.length > 1);
-                if (isMassDeletionRisk) {
-                    console.warn(`[SYNC-SAFEGUARD] Skipped deletion for collection "${collectionName}" because incoming array is empty but Firestore has ${existingDbDocs.length} records.`);
-                }
-
-                // STRICT ANTI-DATA-LOSS SAFEGUARD (Audit Fix #2):
-                // Inferred deletion from missing local array items (`wasKnownLocally && isMissingLocally`) is completely disabled.
-                // Deletion is ONLY permitted when explicitly authorized in EXPLICIT_DELETED_IDS and allowed by shouldDeleteCloudRecord.
-                // UNWANTED MOCK SEED PURGE: Dummy mock suppliers (شركة النور / مؤسسة الأمانة) are always purged permanently.
-                if (collectionName === 'suppliers') {
-                    existingDbDocs.forEach(d => {
-                        if (isDummyMockSupplier(d)) {
-                            deleteDoc(d._ref).catch(() => {});
-                            const rawId = d.id.startsWith(store.id + '_') ? d.id.substring(store.id.length + 1) : d.id;
-                            recordExplicitDeletion(`${store.id}_suppliers_${d.id}`);
-                            recordExplicitDeletion(`${store.id}_suppliers_${rawId}`);
-                        }
-                    });
-                }
-
-                const deletePromises = isMassDeletionRisk
-                    ? []
-                    : existingDbDocs
-                        .filter(doc => {
-                            if (collectionName === 'suppliers' && isDummyMockSupplier(doc)) {
-                                return true;
-                            }
-                            const rawId = doc.id.startsWith(store.id + '_') ? doc.id.substring(store.id.length + 1) : doc.id;
-                            const isExplicitlyDeleted =
-                                EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${doc.id}`) ||
-                                EXPLICIT_DELETED_IDS.has(`${store.id}_${collectionName}_${rawId}`);
-
-                            return shouldDeleteCloudRecord({
-                                collectionName,
-                                isExplicitlyDeleted
-                            }).allowDelete;
-                        })
-                        .map(async (doc) => {
-                            await deleteDoc(doc._ref).catch(err => {
-                                collectionHadWriteError = true;
-                                if (err?.code === 'resource-exhausted') {
-                                    throw new Error('QUOTA_EXCEEDED');
-                                }
-                                handleFirestoreError(err, OperationType.DELETE, `${collectionName}/${doc.id}`);
-                            });
-                        });
-
-                await Promise.all([...upsertPromises, ...deletePromises]);
-
-                if (!collectionHadWriteError) {
-                    LAST_SYNCED_HASHES[hashKey] = currentHash;
-                    LAST_KNOWN_DOC_IDS[hashKey] = new Set(stateItems.map(item => {
-                        const baseId = String(item[idField] || item.phone || item.id);
-                        return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
-                    }));
-                } else {
-                    failedCollections.push(collectionName);
-                }
-            } catch (err: any) {
-                failedCollections.push(collectionName);
-                if (err.message === 'QUOTA_EXCEEDED' || err?.code === 'resource-exhausted') throw new Error('QUOTA_EXCEEDED');
-                console.error(`Error syncing collection ${collectionName}:`, err);
-            }
-        };
-
-        await Promise.all([
-            syncCollection('products', products),
-            syncCollection('orders', orders),
-            syncCollection('transactions', wallet.transactions),
-            syncCollection('treasury_accounts', treasury.accounts),
-            syncCollection('treasury_transactions', treasury.transactions),
-            syncCollection('suppliers', suppliers),
-            syncCollection('supply_orders', supplyOrders),
-            syncCollection('reviews', reviews),
-            syncCollection('abandoned_carts', abandonedCarts),
-            syncCollection('employees', employees, 'phone'),
-            syncCollection('discount_codes', discountCodes),
-            syncCollection('collections', collections),
-            syncCollection('custom_pages', customPages),
-            syncCollection('payment_methods', paymentMethods),
-            syncCollection('customers', customers),
-            syncCollection('global_options', globalOptions),
-            syncCollection('shipping_integrations', shippingIntegrations),
-            syncCollection('partners', partners),
-            syncCollection('partner_transactions', partnerTransactions),
-            syncCollection('warehouses', warehouses),
-            syncCollection('inventory_audits', inventoryAudits),
-            syncCollection('stock_transfers', stockTransfers),
-            syncCollection('order_returns', orderReturns),
-            syncCollection('purchase_returns', purchaseReturns),
-            syncCollection('pos_sales', posSales),
-            syncCollection('cash_holders', cashHolders, 'userId'),
-            syncCollection('cash_handovers', cashHandovers),
-            syncCollection('whatsapp_templates', whatsappTemplates),
-            syncCollection('call_scripts', callScripts),
-            syncCollection('quotations', data.quotations || [])
-        ]);
-
-        const storeRef = doc(firebaseDb, 'stores_data', store.id);
-        const storePayload = cleanUndefined({ 
-            settings: cleanSettingsFinal, 
-            name: store.name,
-            orders: reconciledCloudOrders,
-            treasury: data.treasury || { accounts: [], transactions: [] },
-            wallet: data.wallet || { balance: 0, transactions: [] },
-            quotations: data.quotations || []
-        });
-        await WITH_TIMEOUT(setDoc(storeRef, storePayload, { merge: true })).catch(err => {
-            if (err?.code === 'resource-exhausted') {
-                throw new Error('QUOTA_EXCEEDED');
-            }
-            handleFirestoreError(err, OperationType.WRITE, `stores_data/${store.id}`);
-            throw err;
-        });
-
-        if (failedCollections.length > 0) {
-            return {
-                success: false,
-                status: 'failed',
-                operationId,
-                failedCollections,
-                conflicts,
-                error: `فشل مزامنة بعض المجموعات السحابية: ${failedCollections.join(', ')}`
-            } as SaveStoreDataResult;
-        }
-
-        if (conflicts.length > 0) {
-            return {
-                success: true,
-                status: 'conflict',
-                operationId,
-                conflicts
-            } as SaveStoreDataResult;
-        }
-
-        return {
-            success: true,
-            status: 'committed',
-            operationId
-        } as SaveStoreDataResult;
-    } catch (err: any) {
-        if (err.message === 'QUOTA_EXCEEDED' || err.message?.includes('resource-exhausted') || err.message?.includes('quota')) {
-            if (typeof window !== 'undefined') {
-                localStorage.setItem('firestore_quota_exceeded', 'true');
-            }
-            console.warn('[PENDING_SYNC] Firestore quota exceeded. Data saved locally to IndexedDB only (pending cloud sync).');
-            return {
-                success: false,
-                status: 'pending_sync',
-                operationId,
-                error: 'QUOTA_EXCEEDED: تم الحفظ محلياً في طابور المزامنة بسبب تجاوز حصة السحابة المؤقتة، ولم يتم التأكيد على الخادم بعد.'
-            } as SaveStoreDataResult;
-        }
+    if (!supabase) {
         return {
             success: false,
-            status: 'failed',
-            operationId,
-            failedCollections,
-            error: err.message
-        } as SaveStoreDataResult;
+            error: 'اتصال Supabase غير مهيأ. تم الاحتفاظ بالتعديلات محليًا، ومصدر Firebase القديم متوقف في مسار الترحيل.'
+        };
     }
+
+    return { success: false, error: 'تعذر إتمام المزامنة عبر Supabase.' };
 };
 
 export const getGlobalData = async (forceRemote: boolean = false): Promise<{ users: User[], loyaltyData: any } | null> => {
@@ -2652,44 +2084,16 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
     }
 
     try {
-        const queryUsers = collection(firebaseDb, 'users');
-        let dbUsers: User[] = [];
-        let hasPermission = true;
-        try {
-            const snap = await getDocs(queryUsers);
-            dbUsers = snap.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    fullName: data.fullName || '',
-                    phone: doc.id,
-                    email: data.email || '',
-                    stores: data.stores || [],
-                    sites: data.sites || [],
-                    isAdmin: data.isAdmin || false,
-                    isBanned: data.isBanned || false,
-                    joinDate: data.joinDate || ''
-                };
-            });
-        } catch (err: any) {
-            if (err?.code === 'permission-denied') {
-                hasPermission = false;
-                console.warn('[DATABASE-SERVICE] Permission denied fetching users. Returning empty users list (expected for non-admins).');
-            } else {
-                handleFirestoreError(err, OperationType.LIST, 'users');
-                throw err;
-            }
-        }
-
+        const dbUsers: User[] = [];
         let supabaseUsers: User[] = [];
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                const { data: sbUsers, error: sbErr } = await supabase.from('users').select('*');
+                const { data: sbUsers, error: sbErr } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,default_store_id,auto_launch_default_store,fullName,isAdmin,isBanned,joinDate');
                 if (!sbErr && sbUsers) {
                     supabaseUsers = sbUsers.map((su: any) => ({
                         fullName: su.full_name || '',
                         phone: su.phone,
-                        password: su.password || '',
                         email: su.email || '',
                         stores: su.stores || [],
                         sites: su.sites || [],
@@ -2710,12 +2114,11 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
 
         const mergedUsersMap = new Map<string, User>();
         localUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
-        dbUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
         supabaseUsers.forEach(u => { if (u && u.phone) mergedUsersMap.set(u.phone, u); });
 
         const finalUsers = Array.from(mergedUsersMap.values());
 
-        // Note: We no longer auto-create or auto-upload unauthenticated users into Firestore to comply with security rules and Auth requirements.
+        // User records are read only from Supabase; local cache is retained for offline recovery.
 
         const globalData = { users: finalUsers, loyaltyData: {} } as { users: User[], loyaltyData: any };
         await saveLocal('global', globalData);
@@ -2727,65 +2130,34 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
 
 export const saveGlobalData = async (data: { users: User[], loyaltyData: any }): Promise<{ success: boolean, error?: string }> => {
     await saveLocal('global', data);
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase client not initialized.' };
+
     try {
-        if (!auth.currentUser) {
-            console.log('[AUTH GUARD] Skipping Firestore saveGlobalData user operations because user is not authenticated.');
-            return { success: true };
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        if (authError || !authData.user) {
+            return { success: false, error: 'يجب تسجيل الدخول بحساب Supabase قبل حفظ بيانات المستخدم.' };
         }
 
-        const me = data.users.find(u => auth.currentUser?.email?.replace("@mystore-auth.app", "") === u.phone);
-        const amIAdmin = me?.isAdmin || false;
+        const phone = String(authData.user.user_metadata?.phone || '').trim();
+        if (!phone) {
+            return { success: false, error: 'رقم الهاتف غير مرتبط بهوية Supabase الحالية.' };
+        }
 
-        const savePromises = data.users.map(async (u) => {
-            if (!u.phone) return;
-            
-            // Only allow saving the current user or any user if current user is admin
-            const isMe = auth.currentUser?.email?.replace("@mystore-auth.app", "") === u.phone;
-            
-            if (!isMe && !amIAdmin) {
-                return;
-            }
+        const ownProfile = data.users.find(user => user.phone === phone);
+        if (!ownProfile) {
+            return { success: false, error: 'لم يتم العثور على ملف المستخدم الحالي ضمن البيانات.' };
+        }
 
-            const userRef = doc(firebaseDb, 'users', u.phone);
-
-            // Double check that user document already exists in Firestore before updating.
-            // This prevents creating Firestore documents for unmigrated legacy users.
-            try {
-                const docSnap = await getDoc(userRef);
-                if (!docSnap.exists()) {
-                    console.log(`[FIRESTORE] Skipping save for unmigrated legacy user ${u.phone} to avoid creating document before Firebase Auth.`);
-                    return;
-                }
-            } catch (err) {
-                // This is where the permission error happens if not handled.
-                // We've added amIAdmin check above, but keeping this try-catch for robustness.
-                console.warn(`[FIRESTORE] Failed to check document existence for user ${u.phone} before save:`, err);
-                return;
-            }
-
-            const userPayload = cleanUndefined({
-                fullName: u.fullName,
-                email: u.email,
-                stores: u.stores || [],
-                sites: u.sites || [],
-                isAdmin: u.isAdmin || false,
-                isBanned: u.isBanned || false,
-                joinDate: u.joinDate || '',
-                ownedStoreIds: (u.stores || []).map(s => s.id)
-            });
-            await setDoc(userRef, userPayload, { merge: true }).catch(err => {
-                if (err?.code === 'resource-exhausted') {
-                    throw new Error('QUOTA_EXCEEDED');
-                }
-                handleFirestoreError(err, OperationType.WRITE, `users/${u.phone}`);
-            });
-        });
-
-        await Promise.all(savePromises);
+        // Browser sessions may update only their own profile. Privileged account
+        // flags and other users' records require a trusted server-side admin flow.
+        const result = await updateUserInSupabase(ownProfile);
+        if (!result.success) return { success: false, error: result.error || 'تعذر حفظ ملف المستخدم.' };
         return { success: true };
     } catch (err: any) {
-        if (err.message === 'QUOTA_EXCEEDED') return { success: false, error: 'QUOTA_EXCEEDED' };
-        return { success: false, error: err.message };
+        console.error('[SUPABASE] Error saving authenticated user profile:', err);
+        return { success: false, error: err?.message || 'تعذر حفظ بيانات المستخدم.' };
     }
 };
 
@@ -2815,21 +2187,16 @@ export const clearStoreData = async (storeId: string, targets: string[]): Promis
             }
         }).flat();
 
-        const clearPromises = collectionsToClear.map(async (colName) => {
-            // Try storeId
-            let q = query(collection(firebaseDb, colName), where('storeId', '==', storeId));
-            let snap = await getDocs(q);
-            let deleteDocs = snap.docs.map(doc => deleteDoc(doc.ref));
-            
-            // Try store_id fallback
-            let q_snake = query(collection(firebaseDb, colName), where('store_id', '==', storeId));
-            let snap_snake = await getDocs(q_snake);
-            let deleteDocs_snake = snap_snake.docs.map(doc => deleteDoc(doc.ref));
-            
-            await Promise.all([...deleteDocs, ...deleteDocs_snake]);
-        });
+        const supabase = getSupabaseClient();
+        if (!supabase) return { success: false, error: 'اتصال Supabase غير متاح؛ لم يتم حذف أي بيانات.' };
 
-        await Promise.all(clearPromises);
+        for (const table of collectionsToClear) {
+            const { error } = await supabase.from(table).delete().eq('store_id', storeId);
+            if (error) {
+                console.error(`[CLEAR-STORE] Failed to clear ${table} for ${storeId}:`, error);
+                return { success: false, error: `فشل حذف بيانات ${table}: ${error.message}` };
+            }
+        }
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
@@ -2837,30 +2204,34 @@ export const clearStoreData = async (storeId: string, targets: string[]): Promis
 };
 
 export const deleteStoreCompletely = async (storeId: string): Promise<{ success: boolean, error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'اتصال Supabase غير متاح؛ لم يتم حذف المتجر.' };
+
     try {
-        // Collections to delete
-        const collections = [
-            'orders', 'products', 'transactions', 'treasury_accounts', 'treasury_transactions', 
-            'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs', 
-            'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods', 
-            'customers', 'global_options', 'shipping_integrations', 'partners'
+        const tables = [
+            'orders', 'products', 'transactions', 'treasury_accounts', 'treasury_transactions',
+            'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs',
+            'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods',
+            'customers', 'global_options', 'shipping_integrations', 'partners', 'partner_transactions',
+            'warehouses', 'inventory_audits', 'stock_transfers', 'order_returns', 'purchase_returns',
+            'pos_sales', 'cash_holders', 'cash_handovers', 'whatsapp_templates', 'call_scripts',
+            'quotations', 'chat_messages', 'merchant_requests', 'partner_requests', 'maintenance_requests'
         ];
 
-        // Delete all documents in those collections for this store
-        for (const colName of collections) {
-            const q = query(collection(firebaseDb, colName), where('storeId', '==', storeId));
-            const snap = await getDocs(q);
-            const deleteDocs = snap.docs.map(doc => deleteDoc(doc.ref));
-            await Promise.all(deleteDocs);
+        for (const table of tables) {
+            const { error } = await supabase.from(table).delete().eq('store_id', storeId);
+            if (error && error.code !== '42P01') {
+                console.error(`[DELETE-STORE] Failed deleting ${table}:`, error);
+                return { success: false, error: `فشل حذف بيانات ${table}: ${error.message}` };
+            }
         }
 
-        // Delete the store document itself
-        const storeRef = doc(firebaseDb, 'stores_data', storeId);
-        await deleteDoc(storeRef);
+        const { error: storeError } = await supabase.from('stores_data').delete().eq('id', storeId);
+        if (storeError) return { success: false, error: `فشل حذف سجل المتجر: ${storeError.message}` };
 
         return { success: true };
     } catch (err: any) {
-        return { success: false, error: err.message };
+        return { success: false, error: err?.message || 'تعذر حذف المتجر من Supabase.' };
     }
 };
 
@@ -2908,7 +2279,7 @@ export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | 
         return null;
     }
     try {
-        const { data, error } = await supabase.from('users').select('*').eq('phone', phone).maybeSingle();
+        const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate').eq('phone', phone).maybeSingle();
         if (error) {
             console.error('[SUPABASE] Supabase error in getUserByPhoneFromSupabase:', error);
             return null;
@@ -2927,7 +2298,6 @@ export const getUserByPhoneFromSupabase = async (phone: string): Promise<User | 
             isAdmin: data.is_admin || false,
             isBanned: data.is_banned || false,
             joinDate: data.join_date || '',
-            password: data.password || '',
             defaultStoreId,
             autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
         };
@@ -2945,12 +2315,9 @@ export const updateUserInSupabase = async (user: User): Promise<{ success: boole
             phone: user.phone,
             email: user.email || null,
             full_name: user.fullName,
-            is_admin: user.isAdmin || false,
-            is_banned: user.isBanned || false,
             join_date: user.joinDate || new Date().toISOString(),
             stores: user.stores || [],
             sites: user.sites || [],
-            password: user.password,
             default_store_id: user.defaultStoreId || null,
             auto_launch_default_store: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
         });
@@ -2978,173 +2345,57 @@ let isFsQuotaExceededForUsers = false;
 let fsQuotaExceededTimestamp = 0;
 
 export const getUserByPhone = async (phone: string): Promise<User | null> => {
+    const cleanPhone = String(phone || '').trim();
+    if (!cleanPhone) return null;
+
     try {
-        const cleanPhone = (phone || '').trim();
-        if (!cleanPhone) return null;
-
-        const now = Date.now();
-        // 1. Try Firestore if quota is not flagged
-        if (!isFsQuotaExceededForUsers || (now - fsQuotaExceededTimestamp > 15 * 60 * 1000)) {
-            try {
-                const userRef = doc(firebaseDb, 'users', cleanPhone);
-                const docSnap = await getDoc(userRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    isFsQuotaExceededForUsers = false;
-                    const defaultStoreId = data.defaultStoreId || data.default_store_id || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
-                    return {
-                        fullName: data.fullName || '',
-                        phone: docSnap.id,
-                        email: data.email || '',
-                        password: data.password || '',
-                        stores: data.stores || [],
-                        sites: data.sites || [],
-                        isAdmin: data.isAdmin || false,
-                        isBanned: data.isBanned || false,
-                        joinDate: data.joinDate || '',
-                        defaultStoreId,
-                        autoLaunchDefaultStore: data.autoLaunchDefaultStore !== undefined ? data.autoLaunchDefaultStore : !!defaultStoreId
-                    };
-                }
-            } catch (fsErr: any) {
-                const msg = String(fsErr?.message || fsErr || '');
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || fsErr?.code === 'resource-exhausted') {
-                    isFsQuotaExceededForUsers = true;
-                    fsQuotaExceededTimestamp = now;
-                    // Quiet notice instead of error
-                } else {
-                    console.warn('[DATABASE-SERVICE] Notice in getUserByPhone:', msg);
-                }
-            }
-        }
-
-        // 2. Try Supabase if not found in Firestore or if Firestore quota exceeded
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                const { data, error } = await supabase.from('users').select('*').eq('phone', cleanPhone).maybeSingle();
-                if (!error && data) {
-                    const defaultStoreId = data.default_store_id || data.defaultStoreId || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
-                    const mappedUser: User = {
-                        fullName: data.full_name || '',
-                        phone: data.phone,
-                        email: data.email || '',
-                        stores: data.stores || [],
-                        sites: data.sites || [],
-                        isAdmin: data.is_admin || false,
-                        isBanned: data.is_banned || false,
-                        joinDate: data.join_date || '',
-                        password: data.password || '',
-                        defaultStoreId,
-                        autoLaunchDefaultStore: data.auto_launch_default_store !== undefined ? data.auto_launch_default_store : !!defaultStoreId
-                    };
-                    return mappedUser;
-                }
-            } catch (sbErr) {
-                // Quiet Supabase catch
-            }
-        }
-
-        // 3. Fallback to local session storage cache
-        try {
-            const cachedUserStr = localStorage.getItem('user_session_v4') || localStorage.getItem('currentUser');
-            if (cachedUserStr) {
-                const cached = JSON.parse(cachedUserStr);
-                if (cached && (cached.phone === cleanPhone || cached.phone === cleanPhone.replace(/^0+/, ''))) {
-                    return cached;
-                }
-            }
-        } catch {}
-
-        return null;
-    } catch (err) {
-        return null;
+        const remoteUser = await getUserByPhoneFromSupabase(cleanPhone);
+        if (remoteUser) return remoteUser;
+    } catch (error) {
+        console.warn('[DATABASE-SERVICE] Supabase user lookup failed:', error);
     }
+
+    try {
+        const cachedUserStr = localStorage.getItem('user_session_v4') || localStorage.getItem('currentUser');
+        if (cachedUserStr) {
+            const cached = JSON.parse(cachedUserStr);
+            if (cached && (cached.phone === cleanPhone || cached.phone === cleanPhone.replace(/^0+/, ''))) return cached;
+        }
+    } catch (_) {}
+
+    return null;
 };
 
 export const createUserDoc = async (user: User): Promise<boolean> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+        console.error('[SUPABASE] Cannot create a user profile: deployment Supabase client is unavailable.');
+        return false;
+    }
+
     try {
-        console.log('[FIRESTORE] Creating/Updating user record in Firestore for:', user.phone);
-        const userRef = doc(firebaseDb, 'users', user.phone);
-        const userPayload = {
-            fullName: user.fullName,
+        const supabasePayload = {
+            full_name: user.fullName,
+            phone: user.phone,
             email: user.email,
-            password: user.password || '',
             stores: user.stores || [],
             sites: user.sites || [],
-            isAdmin: user.isAdmin || false,
-            isBanned: user.isBanned || false,
-            joinDate: user.joinDate || new Date().toISOString(),
-            ownedStoreIds: (user.stores || []).map(s => s.id),
-            defaultStoreId: user.defaultStoreId || null,
-            autoLaunchDefaultStore: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
+            join_date: user.joinDate || new Date().toISOString(),
+            default_store_id: user.defaultStoreId || null,
+            auto_launch_default_store: user.autoLaunchDefaultStore ?? Boolean(user.defaultStoreId)
         };
-        await setDoc(userRef, userPayload, { merge: true });
-        console.log('[FIRESTORE] Successfully created user record in Firestore.');
 
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            console.log('[SUPABASE] Creating/Updating user record in Supabase for:', user.phone);
-            const supabasePayload = {
-                full_name: user.fullName,
-                phone: user.phone,
-                email: user.email,
-                stores: user.stores || [],
-                sites: user.sites || [],
-                is_admin: user.isAdmin || false,
-                is_banned: user.isBanned || false,
-                join_date: user.joinDate || new Date().toISOString(),
-                default_store_id: user.defaultStoreId || null,
-                auto_launch_default_store: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
-            };
-            await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
+        const { error } = await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
+        if (error) {
+            console.error('[SUPABASE] Failed to persist user profile:', error.message, error.details, error.hint);
+            return false;
         }
         return true;
     } catch (err) {
-        console.error('[DATABASE-SERVICE] Error in createUserDoc:', err);
+        console.error('[SUPABASE] Error creating user profile:', err);
         return false;
     }
 };
-
-export interface PartnerPortalRequest {
-    id: string;
-    storeId: string;
-    partnerId: string;
-    partnerName: string;
-    type: 'withdrawal' | 'expense' | 'inquiry' | 'subscription_refund' | 'wallet_topup' | 'plan_change_request' | 'custom_plan_quote';
-    typeArabic?: string;
-    amount: number;
-    notes: string;
-    date?: string;
-    status: 'pending' | 'approved' | 'rejected' | 'quoted';
-    createdAt: string;
-    isMerchantRequest?: boolean;
-    payoutMethod?: string;
-    payoutAccount?: string;
-    receiptImage?: string;
-    transferReference?: string;
-    approvedBy?: string;
-    approvedAt?: string;
-    refundMeta?: {
-        targetType?: 'self_service' | 'manager';
-        planType?: 'self_service' | 'manager';
-        planId?: string;
-        planName?: string;
-        planNameAr?: string;
-        billingCycle?: string;
-        paidAmount?: number;
-        chargeFor14Days?: number;
-        charged14DaysAmount?: number;
-        chargeForActualDays?: number;
-        refundableAmount?: number;
-        refundAmount?: number;
-        daysElapsed?: number;
-        elapsedDays?: number;
-        totalCycleDays?: number;
-        totalDays?: number;
-    };
-    planRequestMeta?: any;
-}
 
 export const submitPartnerRequest = async (
     storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
@@ -3185,26 +2436,14 @@ export const submitPartnerRequest = async (
             localStorage.setItem(localKey, JSON.stringify([fullRequest, ...filtered]));
         } catch (_) {}
 
-        // 2. Save directly to Firestore collection 'partner_requests'
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', reqId);
-            await setDoc(reqRef, cleanUndefined(fullRequest));
-            console.log('[PARTNER-REQUEST] Successfully saved partner request to Firestore:', reqId);
-        }
-
-        // 3. Save to Supabase if active
+        // Supabase is the sole cloud source of truth for partner requests.
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('partner_requests').upsert({
-                    ...cleanUndefined(fullRequest),
-                    store_id: storeId,
-                    partner_id: fullRequest.partnerId,
-                    is_merchant_request: fullRequest.isMerchantRequest
-                });
-            } catch (err) {
-                console.warn('[PARTNER-REQUEST] Supabase upsert failed:', err);
-            }
+        if (!supabase) return { success: false, error: 'اتصال Supabase غير متاح؛ تم الاحتفاظ بالطلب محلياً للمزامنة لاحقاً.' };
+
+        const { error } = await supabase.from('partner_requests').upsert(cleanUndefined(fullRequest), { onConflict: 'id' });
+        if (error) {
+            console.error('[PARTNER-REQUEST] Supabase upsert failed:', error);
+            return { success: false, error: error.message };
         }
 
         return { success: true };
@@ -3234,7 +2473,7 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
             const { data, error } = await supabase
                 .from('partner_requests')
                 .select('*')
-                .eq('store_id', storeId);
+                .eq('storeId', storeId);
             if (!error && data) {
                 requests = data as PartnerPortalRequest[];
                 requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
@@ -3246,29 +2485,13 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
         }
     }
 
-    // 3. Fetch from Firestore (authoritative source of truth when online)
-    if (!supabaseSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            const cloudRequests = snap.docs.map(d => d.data() as PartnerPortalRequest);
-            cloudRequests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-            requests = cloudRequests;
-            try {
-                localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
-            } catch (_) {}
-        } catch (err) {
-            console.warn('[PARTNER-REQUEST] Error reading partner requests from Firestore:', err);
-        }
-    }
-
     return requests;
 };
 
 export const updatePartnerRequestStatus = async (
     requestId: string,
     storeId: string,
-    status: 'approved' | 'rejected',
+    status: 'approved' | 'rejected' | 'processing' | 'pending',
     meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
 ): Promise<boolean> => {
     try {
@@ -3279,41 +2502,26 @@ export const updatePartnerRequestStatus = async (
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
 
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            const updated = await runTransaction(firebaseDb, async (transaction) => {
-                const snapshot = await transaction.get(reqRef);
-                if (!snapshot.exists()) return false;
-                const data = snapshot.data() as PartnerPortalRequest;
-                if (data.storeId !== storeId || data.status !== 'pending') return false;
-                transaction.update(reqRef, {
-                    status,
-                    updatedAt: new Date().toISOString(),
-                    ...extraFields
-                });
-                return true;
-            });
-            if (!updated) return false;
-        }
-
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase
-                    .from('partner_requests')
-                    .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
-                    .eq('id', requestId)
-                    .eq('store_id', storeId);
-            } catch (err) {
-                console.warn('[PARTNER-REQUEST] Supabase status update failed:', err);
-            }
+        if (!supabase) return false;
+        const { data: updatedRows, error } = await supabase
+            .from('partner_requests')
+            .update({ status, updated_at: new Date().toISOString(), ...extraFields })
+            .eq('id', requestId)
+            .eq('storeId', storeId)
+            .eq('status', 'pending')
+            .select('id');
+        if (error) {
+            console.error('[PARTNER-REQUEST] Supabase status update failed:', error);
+            return false;
         }
+        if (!updatedRows?.length) return false;
 
         try {
             const localKey = `partner_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
             const matchingRequest = existing.find((r: any) => r.id === requestId && r.storeId === storeId);
-            if (!firebaseDb && (!matchingRequest || matchingRequest.status !== 'pending')) return false;
+            if (!matchingRequest) return true;
             const updated = existing.map((r: any) => r.id === requestId ? { ...r, status, ...extraFields } : r);
             localStorage.setItem(localKey, JSON.stringify(updated));
         } catch (_) {}
@@ -3327,10 +2535,15 @@ export const updatePartnerRequestStatus = async (
 
 export const deletePartnerRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            await deleteDoc(reqRef);
+        const supabase = getSupabaseClient();
+        if (!supabase) return false;
+        const { data: deletedRows, error } = await supabase.from('partner_requests').delete().eq('id', requestId).eq('storeId', storeId).select('id');
+        if (error) {
+            console.error('[PARTNER-REQUEST] Supabase delete failed:', error);
+            return false;
         }
+
+        if (!deletedRows?.length) return false;
 
         try {
             const localKey = `partner_requests_${storeId}`;
@@ -3357,6 +2570,9 @@ const toMerchantRequestView = (raw: any, legacySource: 'merchant_requests' | 'pa
     partnerId: String(raw.merchantId ?? raw.partnerId ?? ''),
     partnerName: String(raw.merchantName ?? raw.partnerName ?? ''),
     isMerchantRequest: true,
+    transferFee: raw.details?.transferFee,
+    netAmount: raw.details?.netAmount,
+    payoutFrequency: raw.details?.payoutFrequency,
     legacySource
 } as PartnerPortalRequest);
 
@@ -3371,154 +2587,133 @@ const isLegacyMerchantRequest = (r: any): boolean => Boolean(r && (
 export const submitMerchantRequest = async (
     storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
     maybeReq?: Partial<PartnerPortalRequest>
-): Promise<{ success: boolean; error?: string }> => {
+): Promise<{ success: boolean; error?: string; request?: any }> => {
     try {
         const isObjFirst = typeof storeIdOrObj === 'object' && storeIdOrObj !== null;
         const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
-        const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
+        const rawReq: any = isObjFirst ? storeIdOrObj : (maybeReq || {});
         if (!storeId) return { success: false, error: 'Missing storeId' };
-        const nowIso = new Date().toISOString();
-        const request: MerchantPortalRequest = {
-            id: rawReq.id || `REQ-M-${generateUniqueOrderId('m')}`,
+        const supabase = getSupabaseClient();
+        if (!supabase) return { success: false, error: 'اتصال قاعدة البيانات غير متاح' };
+        const merchantId = String(rawReq.merchantId || rawReq.partnerId || '');
+        const passcode = String(rawReq.merchantPasscode || '');
+        if (!merchantId || !passcode) return { success: false, error: 'انتهت جلسة الموكل. سجل الدخول مرة أخرى.' };
+
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: {
+                action: 'submit',
+                storeId,
+                merchantId,
+                passcode,
+                request: {
+                    amount: Number(rawReq.amount || 0),
+                    notes: String(rawReq.notes || ''),
+                    typeArabic: String(rawReq.typeArabic || 'طلب سحب مستحقات'),
+                    payoutMethod: String(rawReq.payoutMethod || ''),
+                    payoutAccount: String(rawReq.payoutAccount || ''),
+                    transferFee: Number(rawReq.transferFee || 0),
+                    netAmount: Number(rawReq.netAmount ?? rawReq.amount ?? 0),
+                    payoutFrequency: String(rawReq.payoutFrequency || '')
+                }
+            }
+        });
+        if (error || !data?.success) {
+            return { success: false, error: data?.error || error?.message || 'تعذر حفظ طلب السحب' };
+        }
+
+        const { merchantPasscode: _merchantPasscode, ...safeRawReq } = rawReq;
+        const request = {
+            ...safeRawReq,
+            id: data.id,
             storeId,
-            merchantId: rawReq.partnerId || '',
-            merchantName: rawReq.partnerName || '',
-            type: (rawReq.type as any) || 'withdrawal',
-            typeArabic: rawReq.typeArabic || 'طلب موكل',
-            amount: Number(rawReq.amount || 0),
-            notes: rawReq.notes || '',
-            date: rawReq.date || nowIso,
-            status: rawReq.status || 'pending',
-            createdAt: rawReq.createdAt || nowIso,
-            ...(rawReq.payoutMethod ? { payoutMethod: rawReq.payoutMethod } : {}),
-            ...(rawReq.payoutAccount ? { payoutAccount: rawReq.payoutAccount } : {}),
-            ...(rawReq.transferReference ? { transferReference: rawReq.transferReference } : {}),
-            ...(rawReq.refundMeta ? { refundMeta: rawReq.refundMeta } : {}),
-            ...(rawReq.planRequestMeta ? { planRequestMeta: rawReq.planRequestMeta } : {})
+            merchantId,
+            partnerId: merchantId,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+            date: new Date().toISOString(),
+            isMerchantRequest: true
         };
         try {
             const key = `merchant_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(key) || '[]');
             localStorage.setItem(key, JSON.stringify([request, ...existing.filter((r: any) => r.id !== request.id)]));
         } catch (_) {}
-        if (firebaseDb) {
-            await setDoc(doc(firebaseDb, 'merchant_requests', request.id), cleanUndefined(request));
-        }
-
-        if (isHostingerActive()) {
-          try {
-            await fetch('/api/mysql/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ table: 'merchant_requests', items: [request], storeId })
-            });
-          } catch (e) {
-            console.warn('[HOSTINGER-SYNC] Merchant request failed:', e);
-          }
-        }
-
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('merchant_requests').upsert({
-                    ...cleanUndefined(request),
-                    store_id: storeId,
-                    merchant_id: request.merchantId
-                });
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase upsert failed:', err);
-            }
-        }
-        return { success: true };
+        return { success: true, request };
     } catch (err: any) {
         console.error('[MERCHANT-REQUEST] Error submitting merchant request:', err);
         return { success: false, error: err?.message || 'Unable to submit request' };
     }
 };
 
-export const getMerchantRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
+export const getMerchantRequests = async (storeId: string, options?: { merchantId?: string; passcode?: string; forceAdmin?: boolean }): Promise<PartnerPortalRequest[]> => {
     const key = `merchant_requests_${storeId}`;
-    let current: any[] = [];
-    try {
-        const cached = JSON.parse(localStorage.getItem(key) || '[]');
-        if (Array.isArray(cached)) current = cached;
-    } catch (_) {}
-
     const supabase = getSupabaseClient();
-    let remoteSuccess = false;
-
-    // --- Hostinger MySQL Priority ---
-    if (isHostingerActive()) {
-      try {
-        const res = await fetch(`/api/mysql/fetch?table=merchant_requests&storeId=${storeId}`);
-        const data = await res.json();
-        if (data.items) {
-          current = data.items;
-          remoteSuccess = true;
-          try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
-        }
-      } catch (e) {
-        console.warn('[HOSTINGER-FETCH] Merchant requests failed:', e);
-      }
+    if (!supabase) {
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
     }
 
-    if (!remoteSuccess && supabase) {
+    let merchantId = options?.merchantId || '';
+    let passcode = options?.passcode || '';
+    if (!options?.forceAdmin && (!merchantId || !passcode)) {
         try {
-            const { data, error } = await supabase
-                .from('merchant_requests')
-                .select('*')
-                .eq('store_id', storeId);
-            if (!error && data) {
-                current = data;
-                remoteSuccess = true;
-                try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
-            }
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Supabase read failed:', err);
-        }
+            const session = JSON.parse(localStorage.getItem(`authenticated_merchant_${storeId}`) || 'null');
+            merchantId = merchantId || String(session?.id || '');
+            passcode = passcode || String(session?.passcode || '');
+        } catch (_) {}
     }
 
-    if (!supabaseSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            current = snap.docs.map(d => d.data());
-            try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Error reading isolated merchant requests:', err);
+    if (options?.forceAdmin) {
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: { action: 'admin_list', storeId }
+        });
+        if (error || !data?.success) {
+            console.error('[MERCHANT-REQUEST] Admin read failed:', data?.error || error?.message);
+            throw new Error(data?.error || error?.message || 'تعذر تحميل طلبات السحب للإدارة');
         }
+        const requests = (data.requests || []).map((r: any) => toMerchantRequestView(r, 'merchant_requests'));
+        try { localStorage.setItem(key, JSON.stringify(requests)); } catch (_) {}
+        return requests;
     }
-    // Backward-compatible read only: legacy merchant requests remain visible until migrated.
-    let legacy: any[] = [];
+
+    if (merchantId && passcode) {
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: { action: 'list', storeId, merchantId, passcode }
+        });
+        if (error || !data?.success) {
+            console.error('[MERCHANT-REQUEST] Secure portal read failed:', data?.error || error?.message);
+            try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+        }
+        const requests = (data.requests || []).map((r: any) => toMerchantRequestView(r, 'merchant_requests'));
+        try { localStorage.setItem(key, JSON.stringify(requests)); } catch (_) {}
+        return requests;
+    }
+
     try {
-        const cached = JSON.parse(localStorage.getItem(`partner_requests_${storeId}`) || '[]');
-        if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
-    } catch (_) {}
-    
-    if (!supabaseSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            legacy = snap.docs.map(d => d.data()).filter(isLegacyMerchantRequest);
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Error reading legacy merchant requests:', err);
-        }
+        const { data, error } = await supabase
+            .from('merchant_requests')
+            .select('*')
+            .eq('storeId', storeId)
+            .order('createdAt', { ascending: false });
+        if (error) throw error;
+        const requests = (data || []).map((r: any) => toMerchantRequestView(r, 'merchant_requests'));
+        try { localStorage.setItem(key, JSON.stringify(requests)); } catch (_) {}
+        return requests;
+    } catch (err) {
+        console.error('[MERCHANT-REQUEST] Supabase read failed:', err);
+        try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
     }
-    const merged = new Map<string, PartnerPortalRequest>();
-    current.forEach(r => merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests')));
-    legacy.forEach(r => {
-        const id = String(r.id || '');
-        if (!merged.has(id)) merged.set(id, toMerchantRequestView(r, 'partner_requests'));
-    });
-    return [...merged.values()].sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
 };
 
 export const updateMerchantRequestStatus = async (
     requestId: string,
     storeId: string,
-    status: 'approved' | 'rejected',
-    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+    status: 'approved' | 'rejected' | 'processing' | 'pending',
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string },
+    merchantAuth?: { merchantId: string; passcode: string }
 ): Promise<boolean> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return false;
+
     try {
         const extra = cleanUndefined({
             ...(meta?.receiptImage ? { receiptImage: meta.receiptImage } : {}),
@@ -3526,117 +2721,79 @@ export const updateMerchantRequestStatus = async (
             ...(meta?.approvedBy ? { approvedBy: meta.approvedBy } : {}),
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
-        let updated = false;
-        if (firebaseDb) {
-            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
-            const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
-            updated = await runTransaction(firebaseDb, async transaction => {
-                const isolatedSnap = await transaction.get(isolatedRef);
-                if (isolatedSnap.exists()) {
-                    const snapData = isolatedSnap.data();
-                    if (snapData.storeId !== storeId) return false;
-                    transaction.update(isolatedRef, { status, updatedAt: new Date().toISOString(), ...extra });
-                    return true;
-                }
-                const legacySnap = await transaction.get(legacyRef);
-                if (!legacySnap.exists()) return false;
-                const legacyData = legacySnap.data();
-                if (legacyData.storeId !== storeId || !isLegacyMerchantRequest(legacyData)) return false;
-                transaction.update(legacyRef, { status, updatedAt: new Date().toISOString(), ...extra });
-                return true;
-            });
-            if (!updated) return false;
-        }
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: merchantAuth
+                ? { action: 'merchant_cancel', storeId, requestId, merchantId: merchantAuth.merchantId, passcode: merchantAuth.passcode }
+                : status === 'processing'
+                    ? { action: 'admin_claim', storeId, requestId }
+                    : { action: 'admin_update', storeId, requestId, status, meta: extra }
+        });
+        if (error || !data?.success) throw new Error(data?.error || error?.message || 'تعذر تحديث طلب السحب');
 
-        if (isHostingerActive()) {
-          try {
-             await fetch('/api/mysql/sync', {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ 
-                 table: 'merchant_requests', 
-                 items: [{ id: requestId, storeId, status, updatedAt: new Date().toISOString(), ...extra }], 
-                 storeId 
-               })
-             });
-             updated = true;
-          } catch (e) {
-            console.warn('[HOSTINGER-SYNC] Status update failed:', e);
-          }
-        }
-
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                // Try updating in merchant_requests first
-                const { error: mErr } = await supabase
-                    .from('merchant_requests')
-                    .update({ status, updatedAt: new Date().toISOString(), ...extra })
-                    .eq('id', requestId)
-                    .eq('store_id', storeId);
-                
-                if (mErr) {
-                    // Fallback to partner_requests
-                    await supabase
-                        .from('partner_requests')
-                        .update({ status, updatedAt: new Date().toISOString(), ...extra })
-                        .eq('id', requestId)
-                        .eq('store_id', storeId);
-                }
-                updated = true;
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase status update failed:', err);
-            }
-        }
-
-        for (const [key, expectedCollection] of [[`merchant_requests_${storeId}`, 'merchant_requests'], [`partner_requests_${storeId}`, 'partner_requests']] as const) {
-            try {
-                const rows = JSON.parse(localStorage.getItem(key) || '[]');
-                const updatedRows = rows.map((r: any) => {
-                    const isMatch = r.id === requestId && r.storeId === storeId && r.status === 'pending' && (expectedCollection === 'merchant_requests' || isLegacyMerchantRequest(r));
-                    if (isMatch) updated = true;
-                    return isMatch ? { ...r, status, ...extra } : r;
-                });
-                localStorage.setItem(key, JSON.stringify(updatedRows));
-            } catch (_) {}
-        }
-        return updated;
+        try {
+            const key = `merchant_requests_${storeId}`;
+            const rows = JSON.parse(localStorage.getItem(key) || '[]');
+            localStorage.setItem(key, JSON.stringify(rows.map((r: any) =>
+                r.id === requestId ? { ...r, status, ...extra } : r
+            )));
+        } catch (_) {}
+        return true;
     } catch (err) {
-        console.error('[MERCHANT-REQUEST] Error updating merchant request:', err);
+        console.error('[MERCHANT-REQUEST] Supabase status update failed:', err);
         return false;
+    }
+};
+
+export const completeMerchantWithdrawal = async (
+    requestId: string,
+    storeId: string,
+    transferFee: number,
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+): Promise<{ success: boolean; error?: string; balanceAfter?: number }> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { success: false, error: 'Supabase connection unavailable' };
+    try {
+        const { data, error } = await supabase.functions.invoke('merchant-portal-requests', {
+            body: {
+                action: 'admin_complete_withdrawal',
+                storeId,
+                requestId,
+                transferFee,
+                meta: cleanUndefined(meta || {})
+            }
+        });
+        if (error || !data?.success) {
+            return { success: false, error: data?.error || error?.message || 'تعذر اعتماد السحب وتحديث المحفظة' };
+        }
+        try {
+            const key = `merchant_requests_${storeId}`;
+            const rows = JSON.parse(localStorage.getItem(key) || '[]');
+            localStorage.setItem(key, JSON.stringify(rows.map((r: any) =>
+                r.id === requestId ? { ...r, status: 'approved', ...meta } : r
+            )));
+        } catch (_) {}
+        return { success: true, balanceAfter: Number(data.balanceAfter) };
+    } catch (err: any) {
+        console.error('[MERCHANT-WITHDRAWAL] Atomic completion failed:', err);
+        return { success: false, error: err?.message || 'تعذر اعتماد السحب' };
     }
 };
 
 export const deleteMerchantRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
         let found = false;
-        if (firebaseDb) {
-            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
-            const isolatedSnap = await getDoc(isolatedRef);
-            if (isolatedSnap.exists()) {
-                if (isolatedSnap.data().storeId !== storeId) return false;
-                await deleteDoc(isolatedRef);
-                found = true;
-            } else {
-                const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
-                const legacySnap = await getDoc(legacyRef);
-                if (legacySnap.exists() && legacySnap.data().storeId === storeId && isLegacyMerchantRequest(legacySnap.data())) {
-                    await deleteDoc(legacyRef);
-                    found = true;
-                }
-            }
-        }
-
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId);
-                await supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId);
-                found = true;
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase delete failed:', err);
-            }
+        if (!supabase) return false;
+
+        const [merchantDelete, partnerDelete] = await Promise.all([
+            supabase.from('merchant_requests').delete().eq('id', requestId).eq('storeId', storeId).select('id'),
+            supabase.from('partner_requests').delete().eq('id', requestId).eq('storeId', storeId).select('id')
+        ]);
+        if (merchantDelete.error || partnerDelete.error) {
+            console.error('[MERCHANT-REQUEST] Supabase delete failed:', merchantDelete.error || partnerDelete.error);
+            return false;
         }
+        found = Boolean((merchantDelete.data?.length || 0) + (partnerDelete.data?.length || 0));
         for (const key of [`merchant_requests_${storeId}`, `partner_requests_${storeId}`]) {
             try {
                 const rows = JSON.parse(localStorage.getItem(key) || '[]');
@@ -3654,133 +2811,46 @@ export const deleteMerchantRequestDoc = async (requestId: string, storeId: strin
 };
 
 export const updatePartnerSettings = async (storeId: string, partners: any[], suppliers?: any[]): Promise<{ success: boolean; error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!storeId || !supabase) return { success: false, error: 'Supabase connection unavailable' };
     try {
-        if (!storeId) return { success: false, error: 'Missing storeId' };
+        const { data: row, error: readError } = await supabase
+            .from('stores_data').select('settings').eq('id', storeId).maybeSingle();
+        if (readError) throw readError;
+        if (!row) return { success: false, error: 'Store not found or access denied' };
 
-        // 1. Update local IndexedDB cache immediately
+        const nextSettings: any = {
+            ...(row.settings || {}),
+            partners: cleanUndefined(partners || [])
+        };
+        if (suppliers) nextSettings.suppliers = cleanUndefined(suppliers);
+
+        const { data: saved, error: saveError } = await supabase
+            .from('stores_data')
+            .update({ settings: nextSettings, updated_at: new Date().toISOString() })
+            .eq('id', storeId)
+            .select('id')
+            .maybeSingle();
+        if (saveError) throw saveError;
+        if (!saved?.id) return { success: false, error: 'لم يتم حفظ بيانات الموكل في قاعدة البيانات' };
+
         try {
             const localData = await getLocal(storeId);
-            if (localData && localData.settings) {
-                const nextLocalSettings = {
-                    ...localData.settings,
-                    partners: partners || localData.settings.partners || [],
-                    ...(suppliers ? { suppliers } : {})
-                };
+            if (localData) {
                 await saveLocal(storeId, {
                     ...localData,
-                    settings: nextLocalSettings
+                    settings: {
+                        ...localData.settings,
+                        partners: partners || localData.settings?.partners || [],
+                        ...(suppliers ? { suppliers } : {})
+                    }
                 });
             }
         } catch (_) {}
-
-        // 2. Update Firestore stores_data and subcollections
-        if (firebaseDb) {
-            const storeRef = doc(firebaseDb, 'stores_data', storeId);
-            const snap = await getDoc(storeRef);
-            const existingSettings = snap.exists() ? (snap.data()?.settings || {}) : {};
-            const updatedSettingsPayload: any = {
-                ...existingSettings,
-                partners: cleanUndefined(partners)
-            };
-            if (suppliers) {
-                updatedSettingsPayload.suppliers = cleanUndefined(suppliers);
-            }
-            await setDoc(storeRef, {
-                settings: updatedSettingsPayload,
-                updatedAt: new Date().toISOString()
-            }, { merge: true });
-
-            const cleanSupps = suppliers ? sanitizeSuppliersList(suppliers) : undefined;
-
-            if (cleanSupps) {
-                try {
-                    const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
-                    const keepIds = new Set(cleanSupps.map((s: any) => String(s?.id || '')));
-                    const deleteSupplierDocs = snap.docs
-                        .filter(d => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            return (!keepIds.has(rawId) && !keepIds.has(d.id)) || isDummyMockSupplier(d.data());
-                        })
-                        .map(async (d) => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            recordExplicitDeletion(`${storeId}_suppliers_${d.id}`);
-                            recordExplicitDeletion(`${storeId}_suppliers_${rawId}`);
-                            await deleteDoc(d.ref).catch(() => {});
-                        });
-                    await Promise.all(deleteSupplierDocs);
-                } catch (_) {}
-            }
-
-            if (partners) {
-                try {
-                    const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
-                    const keepIds = new Set(partners.map((p: any) => String(p?.id || '')));
-                    const deletePartnerDocs = snap.docs
-                        .filter(d => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            return !keepIds.has(rawId) && !keepIds.has(d.id);
-                        })
-                        .map(async (d) => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            recordExplicitDeletion(`${storeId}_partners_${d.id}`);
-                            recordExplicitDeletion(`${storeId}_partners_${rawId}`);
-                            await deleteDoc(d.ref).catch(() => {});
-                        });
-                    await Promise.all(deletePartnerDocs);
-                } catch (_) {}
-            }
-
-            const partnerWrites = (partners || []).map(async (p) => {
-                if (!p || !p.id) return;
-                const docId = String(p.id).startsWith(storeId) ? String(p.id) : `${storeId}_${p.id}`;
-                const pRef = doc(firebaseDb, 'partners', docId);
-                await setDoc(pRef, cleanUndefined({
-                    ...p,
-                    storeId,
-                    store_id: storeId,
-                    updatedAt: new Date().toISOString()
-                }), { merge: true }).catch(() => {});
-            });
-
-            const supplierWrites = (cleanSupps || []).map(async (s) => {
-                if (!s || !s.id) return;
-                const docId = String(s.id).startsWith(storeId) ? String(s.id) : `${storeId}_${s.id}`;
-                const sRef = doc(firebaseDb, 'suppliers', docId);
-                await setDoc(sRef, cleanUndefined({
-                    ...s,
-                    storeId,
-                    store_id: storeId,
-                    updatedAt: new Date().toISOString()
-                }), { merge: true }).catch(() => {});
-            });
-
-            await Promise.all([...partnerWrites, ...supplierWrites]);
-        }
-
-        // 3. Update Supabase stores_data settings JSON
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                const { data: row } = await supabase.from('stores_data').select('settings').eq('id', storeId).maybeSingle();
-                const currentSettings = row?.settings || {};
-                const nextSettings: any = {
-                    ...currentSettings,
-                    partners: cleanUndefined(partners)
-                };
-                if (suppliers) {
-                    nextSettings.suppliers = cleanUndefined(suppliers);
-                }
-                await supabase.from('stores_data').upsert({
-                    id: storeId,
-                    settings: nextSettings
-                }, { onConflict: 'id' });
-            } catch (_) {}
-        }
-
         return { success: true };
     } catch (err: any) {
-        console.warn('[DATABASE-SERVICE] Could not update partner settings directly:', err);
-        return { success: false, error: err?.message || 'Error' };
+        console.error('[DATABASE-SERVICE] Supabase partner settings update failed:', err);
+        return { success: false, error: err?.message || 'Error saving merchant settings' };
     }
 };
 
@@ -3850,30 +2920,34 @@ export const resetMerchantAccountData = async (
             localStorage.setItem(merchantLocalKey, JSON.stringify(merchantReqs.filter((r: any) => !isMerchantEntity({ id: r.merchantId, name: r.merchantName }))));
         } catch (_) {}
 
-        // 3. Clean Firestore partner_requests & orders & settings
-        if (firebaseDb) {
-            try {
-                const qReq = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-                const reqSnap = await getDocs(qReq);
-                for (const d of reqSnap.docs) {
-                    const rData = d.data();
-                    if (isMerchantEntity({ id: rData.partnerId, name: rData.partnerName }) || rData.isMerchantRequest) {
-                        await deleteDoc(d.ref).catch(() => {});
-                    }
-                }
-            } catch (_) {}
+        // 3. Clean merchant-owned requests through Supabase only.
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error('Supabase غير متاح لتنظيف طلبات الموكل.');
 
-            const qMerchantReq = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
-            const merchantReqSnap = await getDocs(qMerchantReq);
-            for (const d of merchantReqSnap.docs) {
-                const rData = d.data();
-                if (isMerchantEntity({ id: rData.merchantId, name: rData.merchantName })) {
-                    await deleteDoc(d.ref).catch(() => {});
-                }
-            }
-            if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
-                await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers).catch(() => {});
-            }
+        const { data: partnerReqs, error: partnerReqError } = await supabase
+            .from('partner_requests').select('id,partnerId,partnerName,isMerchantRequest').eq('storeId', storeId);
+        if (partnerReqError) throw partnerReqError;
+        const partnerReqIds = (partnerReqs || [])
+            .filter((r: any) => isMerchantEntity({ id: r.partnerId, name: r.partnerName }) || r.isMerchantRequest)
+            .map((r: any) => r.id).filter(Boolean);
+        if (partnerReqIds.length) {
+            const { error } = await supabase.from('partner_requests').delete().eq('storeId', storeId).in('id', partnerReqIds);
+            if (error) throw error;
+        }
+
+        const { data: merchantReqs, error: merchantReqError } = await supabase
+            .from('merchant_requests').select('id,merchantId,merchantName').eq('storeId', storeId);
+        if (merchantReqError) throw merchantReqError;
+        const merchantReqIds = (merchantReqs || [])
+            .filter((r: any) => isMerchantEntity({ id: r.merchantId, name: r.merchantName }))
+            .map((r: any) => r.id).filter(Boolean);
+        if (merchantReqIds.length) {
+            const { error } = await supabase.from('merchant_requests').delete().eq('storeId', storeId).in('id', merchantReqIds);
+            if (error) throw error;
+        }
+        if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
+            const settingsResult = await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers);
+            if (settingsResult === false) throw new Error('تعذر تحديث إعدادات الشركاء بعد التنظيف.');
         }
 
         // 4. Preserve Supabase orders and financial ledgers for auditability.
@@ -3958,44 +3032,7 @@ export const subscribeToStoreRealtimeOptimized = (
         }
     }
 
-    // B. Firestore Realtime Listeners with Strict Query Filters (where('storeId', '==', cleanStoreId))
-    if (firebaseDb && !isFirestoreQuotaExhausted) {
-        try {
-            tablesToListen.forEach(colName => {
-                const filterField = (colName === 'partner_requests' || colName === 'merchant_requests') ? 'storeId' : 'store_id';
-                const q = query(collection(firebaseDb, colName), where(filterField, '==', cleanStoreId));
-
-                const unsubFs = onSnapshot(
-                    q,
-                    (snapshot) => {
-                        if (options.onUpdate && !snapshot.metadata.hasPendingWrites) {
-                            snapshot.docChanges().forEach((change) => {
-                                if (change.type === 'added' || change.type === 'modified') {
-                                    options.onUpdate!({
-                                        table: colName,
-                                        eventType: change.type.toUpperCase(),
-                                        newRecord: change.doc.data()
-                                    });
-                                }
-                            });
-                        }
-                    },
-                    (err) => {
-                        console.warn(`[REALTIME-OPTIMIZED] Firestore listener notice for ${colName}:`, err?.message || err);
-                        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-                            markFirestoreQuotaExhausted();
-                            try { unsubFs(); } catch (_) {}
-                        }
-                    }
-                );
-
-                unsubs.push(unsubFs);
-            });
-        } catch (err) {
-            console.warn('[REALTIME-OPTIMIZED] Error opening Firestore listeners:', err);
-        }
-    }
-
+    // Firebase realtime is intentionally disabled: Supabase Realtime is the only cloud event source.
     // Teardown / Clean Cleanup
     return () => {
         unsubs.forEach(fn => {
@@ -4089,6 +3126,8 @@ export const syncIncrementalStoreData = async (
                     .gt('created_at', lastSyncIsoTimestamp)
             ]);
 
+            if (ordersRes.error) throw ordersRes.error;
+            if (reqsRes.error) throw reqsRes.error;
             if (ordersRes.data) {
                 updatedOrders = ordersRes.data as Order[];
             }
@@ -4098,29 +3137,7 @@ export const syncIncrementalStoreData = async (
 
             return { updatedOrders, updatedPartnerRequests, timestamp: currentIso };
         } catch (err) {
-            console.warn('[INCREMENTAL-SYNC] Supabase incremental sync failed, trying Firestore:', err);
-        }
-    }
-
-    if (firebaseDb) {
-        try {
-            const qOrders = query(
-                collection(firebaseDb, 'orders'),
-                where('store_id', '==', cleanStoreId),
-                where('updatedAt', '>', lastSyncIsoTimestamp)
-            );
-            const snapOrders = await getDocs(qOrders);
-            updatedOrders = snapOrders.docs.map(d => d.data() as Order);
-
-            const qReqs = query(
-                collection(firebaseDb, 'partner_requests'),
-                where('storeId', '==', cleanStoreId),
-                where('createdAt', '>', lastSyncIsoTimestamp)
-            );
-            const snapReqs = await getDocs(qReqs);
-            updatedPartnerRequests = snapReqs.docs.map(d => d.data() as PartnerPortalRequest);
-        } catch (err) {
-            console.warn('[INCREMENTAL-SYNC] Firestore incremental sync error:', err);
+            console.error('[INCREMENTAL-SYNC] Supabase incremental sync failed; Firebase fallback is disabled:', err);
         }
     }
 
@@ -4149,22 +3166,8 @@ export const getAllStoresSettings = async (): Promise<Record<string, any>> => {
         }
     }
 
-    // 2. Fallback to Firestore
-    if (firebaseDb) {
-        try {
-            const snap = await getDocs(collection(firebaseDb, 'stores_data'));
-            snap.forEach(doc => {
-                const data = doc.data();
-                if (data?.settings && !results[doc.id]) {
-                    results[doc.id] = data.settings;
-                }
-            });
-        } catch (err) {
-            console.warn('[DB] Error fetching all stores settings from Firestore:', err);
-        }
-    }
+    // 2. Local Dexie IndexedDB remains the offline recovery source.
 
-    // 3. Fallback to local Dexie IndexedDB
     try {
         if (localDb && localDb.settings) {
             const allLocal = await localDb.settings.toArray();
@@ -4215,22 +3218,8 @@ export const getMerchantAllocatedProducts = async (merchantId: string, merchantN
     const candidateIds = new Set<string>();
     if (mId) candidateIds.add(mId);
 
-    // 1. Efficient query via Firestore "products" collection
-    if (firebaseDb && mId) {
-        try {
-            const q1 = query(collection(firebaseDb, 'products'), where('merchantId', '==', mId));
-            const snap1 = await getDocs(q1);
-            snap1.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
-
-            const q2 = query(collection(firebaseDb, 'products'), where('merchantIds', 'array-contains', mId));
-            const snap2 = await getDocs(q2);
-            snap2.forEach(d => prodsMap.set(d.id, { id: d.id, ...d.data() } as Product));
-        } catch (err) {
-            console.warn('[DB] Firestore products collection query failed:', err);
-        }
-    }
-
-    // 2. Efficient query via Supabase if active
+    // Product allocation lookup uses Supabase and store settings only.
+    // 1. Efficient query via Supabase if active
     const supabase = getSupabaseClient();
     if (supabase) {
         try {

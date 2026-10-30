@@ -1,5 +1,5 @@
 import { sendAdminAlert } from "./services/adminAlertsService";
-import { sendOtpByEmail, sendAccountActivationEmail, sendStoreCodeRecoveryEmail, sendPasswordResetEmail, updateMailConfigLocalCache } from "./services/mailService";
+import { sendOtpByEmail, sendAccountActivationEmail, sendStoreCodeRecoveryEmail, sendPasswordResetEmail } from "./services/mailService";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getRequestListener } from "@hono/node-server";
@@ -10,7 +10,7 @@ import { createServer as createViteServer } from "vite";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
-import { db, auth } from "./services/firebaseClient";
+import { db } from "./services/firebaseClient";
 import { doc, getDoc, setDoc, getDocs, collection, query, where, limit } from "firebase/firestore";
 
 import { trimTrailingSlash } from "hono/trailing-slash";
@@ -1059,17 +1059,15 @@ async function startServer() {
         toEmail: email,
         userName,
         phone,
-        activationCode: customCode,
         activationLink
       });
 
-      console.log(`[AUTH-ACTIVATION] Sent activation email to ${email} (User: ${userName}, Code: ${customCode}) -> Result:`, mailResult);
+      console.log(`[AUTH-ACTIVATION] Activation email request for ${email} (User: ${userName}) -> delivered: ${Boolean(mailResult.delivered)}`);
 
       return c.json({
         success: mailResult.success || mailResult.delivered,
         delivered: mailResult.delivered,
         recipient: mailResult.recipient || email,
-        activationCode: customCode,
         note: mailResult.note,
         error: mailResult.error
       });
@@ -1289,6 +1287,7 @@ async function startServer() {
     employeeName: string;
     createdAt: number;
     expiresAt: number;
+    attempts: number;
   }
   const employeePasswordResetStore = new Map<string, EmployeeResetRecord>();
   const employeePasswordResetCooldown = new Map<string, number>();
@@ -1322,74 +1321,87 @@ async function startServer() {
       let matchedEmail = "";
       let matchedStoreId = requestedStoreId;
 
-      // 1. Search in stores_data collection
+      // Resolve the recipient from Supabase only. This endpoint runs server-side
+      // and uses the service-role key; no browser credentials can enumerate users.
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseUrl || !serviceRoleKey) {
+        return c.json({ success: false, error: "خدمة استعادة كلمة المرور غير مهيأة." }, 503);
+      }
+      const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+      });
+
       try {
         if (requestedStoreId) {
-          const storeDocSnap = await getDoc(doc(db, "stores_data", requestedStoreId)).catch(() => null);
-          if (storeDocSnap && storeDocSnap.exists()) {
-            const employees = storeDocSnap.data()?.settings?.employees || [];
-            const emp = employees.find((e: any) => {
-              const eEmail = (e.email || "").trim().toLowerCase();
-              const ePhone = (e.phone || e.id || "").trim();
-              const ePhoneDigits = ePhone.replace(/\D/g, "");
-              return eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input;
-            });
-            if (emp) {
-              matchedEmployeeName = emp.name || matchedEmployeeName;
-              matchedPhone = emp.phone || emp.id || "";
-              matchedEmail = (emp.email || "").trim().toLowerCase();
-            }
+          const { data: storeRow, error: storeError } = await supabaseAdmin
+            .from("stores_data")
+            .select("id,settings")
+            .eq("id", requestedStoreId)
+            .maybeSingle();
+          if (storeError) throw storeError;
+          const employees = storeRow?.settings?.employees || [];
+          const employee = employees.find((entry: any) => {
+            const email = String(entry.email || "").trim().toLowerCase();
+            const phone = String(entry.phone || entry.id || "").trim();
+            const digits = phone.replace(/\D/g, "");
+            return email === inputLower || (inputDigits && digits === inputDigits) || phone === input;
+          });
+          if (employee) {
+            matchedEmployeeName = employee.name || matchedEmployeeName;
+            matchedPhone = employee.phone || employee.id || "";
+            matchedEmail = String(employee.email || "").trim().toLowerCase();
+            matchedStoreId = storeRow.id;
           }
         }
 
-        // If not found yet, scan across all stores
         if (!matchedPhone && !matchedEmail) {
-          const storesSnap = await getDocs(collection(db, "stores_data")).catch(() => null);
-          if (storesSnap) {
-            for (const sDoc of storesSnap.docs) {
-              const employees = sDoc.data()?.settings?.employees || [];
-              const emp = employees.find((e: any) => {
-                const eEmail = (e.email || "").trim().toLowerCase();
-                const ePhone = (e.phone || e.id || "").trim();
-                const ePhoneDigits = ePhone.replace(/\D/g, "");
-                return eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input;
-              });
-              if (emp) {
-                matchedEmployeeName = emp.name || matchedEmployeeName;
-                matchedPhone = emp.phone || emp.id || "";
-                matchedEmail = (emp.email || "").trim().toLowerCase();
-                matchedStoreId = sDoc.id;
-                break;
-              }
+          const { data: storeRows, error: storesError } = await supabaseAdmin
+            .from("stores_data")
+            .select("id,settings");
+          if (storesError) throw storesError;
+          for (const storeRow of storeRows || []) {
+            const employees = storeRow?.settings?.employees || [];
+            const employee = employees.find((entry: any) => {
+              const email = String(entry.email || "").trim().toLowerCase();
+              const phone = String(entry.phone || entry.id || "").trim();
+              const digits = phone.replace(/\D/g, "");
+              return email === inputLower || (inputDigits && digits === inputDigits) || phone === input;
+            });
+            if (employee) {
+              matchedEmployeeName = employee.name || matchedEmployeeName;
+              matchedPhone = employee.phone || employee.id || "";
+              matchedEmail = String(employee.email || "").trim().toLowerCase();
+              matchedStoreId = storeRow.id;
+              break;
             }
           }
         }
       } catch (storeErr) {
-        console.warn("[EMP-RESET] Error querying stores_data:", storeErr);
+        console.warn("[EMP-RESET] Supabase store lookup failed:", storeErr);
       }
 
-      // 2. Also check users collection in Firestore
       try {
-        if (!matchedEmail || !matchedEmail.includes("@") || matchedEmail.includes("mystore-auth.app")) {
-          const phoneKey = matchedPhone || inputDigits || input;
-          if (phoneKey) {
-            const userSnap = await getDoc(doc(db, "users", phoneKey)).catch(() => null);
-            if (userSnap && userSnap.exists()) {
-              const uData = userSnap.data();
-              if (uData.fullName && matchedEmployeeName === "الموظف العزيز") {
-                matchedEmployeeName = uData.fullName;
-              }
-              if (uData.email && uData.email.includes("@") && !uData.email.includes("mystore-auth.app")) {
-                matchedEmail = uData.email.trim().toLowerCase();
-              }
-              if (uData.phone && !matchedPhone) {
-                matchedPhone = uData.phone;
-              }
+        const phoneKey = matchedPhone || inputDigits || input;
+        if (phoneKey && (!matchedEmail || !matchedEmail.includes("@") || matchedEmail.includes("mystore-auth.app"))) {
+          const { data: userRow, error: userError } = await supabaseAdmin
+            .from("users")
+            .select("phone,full_name,email")
+            .eq("phone", phoneKey)
+            .maybeSingle();
+          if (userError) throw userError;
+          if (userRow) {
+            if (userRow.full_name && matchedEmployeeName === "الموظف العزيز") {
+              matchedEmployeeName = userRow.full_name;
             }
+            if (userRow.email && userRow.email.includes("@") && !userRow.email.includes("mystore-auth.app")) {
+              matchedEmail = userRow.email.trim().toLowerCase();
+            }
+            if (userRow.phone && !matchedPhone) matchedPhone = userRow.phone;
           }
         }
-      } catch (uErr) {
-        console.warn("[EMP-RESET] Error querying users:", uErr);
+      } catch (userErr) {
+        console.warn("[EMP-RESET] Supabase user lookup failed:", userErr);
       }
 
       // Fallback phone
@@ -1422,7 +1434,8 @@ async function startServer() {
         storeId: matchedStoreId,
         employeeName: matchedEmployeeName,
         createdAt: now,
-        expiresAt
+        expiresAt,
+        attempts: 0
       };
 
       // Store by both phone and email keys
@@ -1432,7 +1445,7 @@ async function startServer() {
       employeePasswordResetCooldown.set(inputLower, now);
       if (inputDigits) employeePasswordResetCooldown.set(inputDigits, now);
 
-      console.log(`[EMP-RESET] Password reset PIN generated for ${matchedPhone} / ${matchedEmail}: ${resetPin} (expires in 10m)`);
+      console.log(`[EMP-RESET] Password reset requested for ${matchedPhone} / ${matchedEmail} (expires in 10m)`);
 
       // Send password reset email
       const mailResult = await sendPasswordResetEmail({
@@ -1444,17 +1457,25 @@ async function startServer() {
       const [uName, uDomain] = matchedEmail.split("@");
       const maskedEmail = `${uName.slice(0, 2)}***@${uDomain}`;
 
+      if (!mailResult.delivered) {
+        employeePasswordResetStore.delete(matchedEmail.toLowerCase());
+        if (matchedPhone) employeePasswordResetStore.delete(matchedPhone.toLowerCase());
+        if (inputDigits) employeePasswordResetStore.delete(inputDigits);
+        return c.json({
+          success: false,
+          error: "تعذر إرسال رمز التحقق إلى البريد الإلكتروني. يرجى المحاولة لاحقاً أو التواصل مع مدير المتجر."
+        }, 503);
+      }
+
       return c.json({
         success: true,
-        delivered: mailResult.delivered,
+        delivered: true,
         recipient: maskedEmail,
         employeeName: matchedEmployeeName,
         phone: matchedPhone,
         storeId: matchedStoreId,
         cooldown: 45,
-        message: mailResult.delivered
-          ? `تم إرسال رمز التحقق الأمني (PIN) بنجاح إلى بريدك الإلكتروني (${maskedEmail}). تفقد صندوق الوارد أو الرسائل غير المرغوبة (Spam).`
-          : `تم توليد رمز التحقق الأمني (${resetPin}) بنجاح. أدخل الرمز لتعيين كلمة مرور جديدة.`
+        message: `تم إرسال رمز التحقق الأمني بنجاح إلى بريدك الإلكتروني (${maskedEmail}). تفقد صندوق الوارد أو الرسائل غير المرغوبة (Spam).`
       });
 
     } catch (err: any) {
@@ -1502,52 +1523,66 @@ async function startServer() {
         }, 400);
       }
 
+      if (record.attempts >= 5) {
+        employeePasswordResetStore.delete(inputLower);
+        if (inputDigits) employeePasswordResetStore.delete(inputDigits);
+        if (record.email) employeePasswordResetStore.delete(record.email.toLowerCase());
+        return c.json({
+          success: false,
+          error: "تم تجاوز عدد المحاولات المسموح. يرجى طلب رمز تحقق جديد."
+        }, 429);
+      }
+
       if (record.code !== code) {
+        record.attempts += 1;
         return c.json({
           success: false,
           error: "رمز التحقق المدخل غير صحيح. تأكد من الرمز المرسل إلى بريدك."
         }, 400);
       }
 
-      // Update password in Firebase Authentication directly without storing password hashes in Firestore
+      // Password resets are performed only through the Supabase Auth Admin API.
+      // The service-role key is server-only and must never be exposed to the browser.
       const authPhone = record.phone || inputDigits || input;
-      const firebaseEmail = record.email || `${authPhone}@mystore-auth.app`;
-      const firebaseApiKey = "AIzaSyDe0wW1dG5lQph7u2SJoilpIjMRdm80hDo";
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!supabaseUrl || !serviceRoleKey) {
+        return c.json({
+          success: false,
+          error: "خدمة تحديث كلمة المرور غير مهيأة. يرجى التواصل مع الدعم الفني."
+        }, 503);
+      }
 
       try {
-        // Use Firebase Auth Identity Toolkit to update credentials
-        const updateRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${firebaseApiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: firebaseEmail,
-            password: newPassword,
-            returnSecureToken: false
-          })
+        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+          auth: { autoRefreshToken: false, persistSession: false }
         });
-        const updateData = await updateRes.json().catch(() => ({}));
-        if (updateData?.error?.message?.includes("EMAIL_NOT_FOUND")) {
-          // If user account wasn't in Firebase Auth yet, provision in Firebase Auth
-          await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseApiKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: firebaseEmail,
-              password: newPassword,
-              returnSecureToken: false
-            })
-          });
+        const { data: profile, error: profileError } = await supabaseAdmin
+          .from('user_profiles')
+          .select('user_id')
+          .eq('phone', authPhone)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+        if (!profile?.user_id) {
+          return c.json({
+            success: false,
+            error: "لا يوجد حساب Supabase موثق مرتبط برقم الهاتف. يجب إعادة تسجيل الحساب أولاً."
+          }, 404);
         }
 
-        // Update Firestore user record with metadata only (NO password stored in Firestore)
-        const userRef = doc(db, "users", authPhone);
-        await setDoc(userRef, {
-          lastPasswordReset: new Date().toISOString(),
-          authProvider: "firebase"
-        }, { merge: true });
-        console.log(`[EMP-RESET] Successfully updated credentials in Firebase Auth for user ${firebaseEmail}`);
-      } catch (authErr) {
-        console.warn("[EMP-RESET] Error updating Firebase Auth credentials:", authErr);
+        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+          profile.user_id,
+          { password: newPassword }
+        );
+        if (updateError) throw updateError;
+      } catch (authErr: any) {
+        console.error("[EMP-RESET] Supabase Auth password update failed:", authErr);
+        return c.json({
+          success: false,
+          error: "تعذر تحديث كلمة المرور حالياً. يرجى المحاولة لاحقاً."
+        }, 503);
       }
 
       // Clean up reset store
@@ -1567,87 +1602,35 @@ async function startServer() {
     }
   });
 
+  // SMTP credentials are deployment-managed secrets, never stored in Firestore
+  // or writable through an unauthenticated public endpoint.
   app.get("/api/smtp-config", async (c) => {
-    try {
-      const docSnap = await getDoc(doc(db, "settings", "smtp")).catch(() => null);
-      if (docSnap && docSnap.exists()) {
-        const data = docSnap.data();
-        return c.json({
-          configured: !!(data.user || data.resendApiKey || data.brevoApiKey),
-          provider: data.provider || 'smtp',
-          user: data.user ? `${data.user.slice(0, 3)}***@${data.user.split('@')[1] || ''}` : '',
-          host: data.host || ''
-        });
-      }
-      return c.json({ configured: false });
-    } catch (e: any) {
-      return c.json({ configured: false, error: e.message });
-    }
+    const configured = Boolean(
+      process.env.RESEND_API_KEY || process.env.BREVO_API_KEY ||
+      (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+    );
+    return c.json({
+      configured,
+      provider: process.env.MAIL_PROVIDER || (process.env.RESEND_API_KEY ? "resend" : process.env.BREVO_API_KEY ? "brevo" : "smtp"),
+      user: process.env.SMTP_USER ? `${process.env.SMTP_USER.slice(0, 3)}***` : "",
+      host: process.env.SMTP_HOST || ""
+    });
   });
 
   app.post("/api/save-smtp-config", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const { provider, host, port, user, pass, from, resendApiKey, brevoApiKey } = body;
-      
-      const configData: any = {
-        provider: provider || (user && user.includes('@gmail.com') ? 'gmail' : 'smtp'),
-        host: host || (user && user.includes('@gmail.com') ? 'smtp.gmail.com' : ''),
-        port: Number(port) || 587,
-        user: (user || '').trim(),
-        from: (from || '').trim(),
-        updatedAt: new Date().toISOString()
-      };
-
-      if (pass) {
-        configData.pass = (pass || '').trim();
-      }
-      if (resendApiKey) {
-        configData.resendApiKey = (resendApiKey || '').trim();
-      }
-      if (brevoApiKey) {
-        configData.brevoApiKey = (brevoApiKey || '').trim();
-      }
-
-      updateMailConfigLocalCache(configData);
-
-      await setDoc(doc(db, "settings", "smtp"), configData, { merge: true }).catch((err) => {
-        console.warn("[SMTP-CONFIG] Firestore write fallback:", err?.message || err);
-      });
-      return c.json({ success: true, message: "تم حفظ إعدادات خادم البريد بنجاح!" });
-    } catch (e: any) {
-      console.error("[SMTP-CONFIG] Error saving SMTP config:", e);
-      return c.json({ success: false, error: e.message }, 500);
-    }
+    return c.json({
+      success: false,
+      error: "إعدادات البريد تُدار من متغيرات البيئة الآمنة على الخادم فقط."
+    }, 410);
   });
 
+  // Prevent this public endpoint from becoming an unauthenticated mail relay.
+  // A future admin-authenticated implementation can restore test delivery.
   app.post("/api/send-test-email", async (c) => {
-    try {
-      const body = await c.req.json().catch(() => ({}));
-      const toEmail = (body.toEmail || "").trim().toLowerCase();
-      if (!toEmail || !toEmail.includes("@")) {
-        return c.json({ success: false, error: "يرجى إدخال عنوان بريد إلكتروني صحيح للاختبار." }, 400);
-      }
-      const testCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const mailResult = await sendOtpByEmail({
-        toEmail,
-        userName: body.userName || "المسؤول / الموكل",
-        otpCode: testCode,
-        storeName: body.storeName || "بوابة الموكل"
-      });
-      if (mailResult.delivered) {
-        return c.json({ 
-          success: true, 
-          message: mailResult.note || `تم إرسال بريد الاختبار بنجاح إلى (${toEmail})! كود التحقق التجريبي هو: ${testCode}` 
-        });
-      }
-      return c.json({ 
-        success: false, 
-        error: mailResult.error || "تعذر إرسال البريد. تأكد من صحة بيانات الخادم وكلمة مرور التطبيق (App Password)." 
-      }, 400);
-    } catch (e: any) {
-      return c.json({ success: false, error: e.message || "حدث خطأ أثناء إرسال بريد الاختبار." }, 500);
-    }
+    return c.json({
+      success: false,
+      error: "اختبار البريد متوقف مؤقتاً لحين ربطه بصلاحيات مدير موثقة."
+    }, 403);
   });
 
   app.post("/api/verify-otp", async (c) => {

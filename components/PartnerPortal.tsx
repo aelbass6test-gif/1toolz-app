@@ -185,7 +185,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
             email: s.email || '',
             balance: s.balance || 0,
             profitRatio: 50,
-            passcode: '0000',
+            passcode: '',
             role: 'موكل / مورد بضاعة'
           });
         }
@@ -205,7 +205,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
             email: '',
             balance: 0,
             profitRatio: o.merchantProfitSharePercent || 50,
-            passcode: '0000',
+            passcode: '',
             role: 'موكل صاحب بضاعة'
           });
         }
@@ -228,19 +228,9 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   }, [storeName]);
 
   // Authentication State
-  const [authenticatedPartner, setAuthenticatedPartner] = useState<Partner | null>(() => {
-    try {
-      const saved = sessionStorage.getItem(`partner_portal_auth_${effectiveStoreId}`);
-      if (!saved) return null;
-      const parsed = JSON.parse(saved);
-      const requestedId = String(urlPartnerId || '').trim().toLowerCase();
-      const savedId = String(parsed?.id || '').trim().toLowerCase();
-      if (requestedId && requestedId !== savedId) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  });
+  // Keep the verified partner only in component memory. Browser storage is editable
+  // by the visitor and must never be accepted as proof of partner identity.
+  const [authenticatedPartner, setAuthenticatedPartner] = useState<Partner | null>(null);
 
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>(() => {
     if (urlPartnerId) return urlPartnerId;
@@ -303,37 +293,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     checkBiometrics();
   }, []);
 
-  // Auto-login if PIN is provided in URL or if partner has default '0000' and auto=1
-  useEffect(() => {
-    const urlPin = searchParams.get('pin') || searchParams.get('code') || '';
-    const autoLogin = searchParams.get('auto') === '1' || searchParams.get('direct') === '1';
-
-    if (!authenticatedPartner && partners.length > 0 && urlPartnerId) {
-      const requestedId = String(urlPartnerId).trim().toLowerCase();
-      const match = partners.find(p => {
-        const id = String(p.id || '').trim().toLowerCase();
-        return id === requestedId || id === `part_${requestedId}` || requestedId === `part_${id}`;
-      });
-
-      if (match) {
-        setSelectedPartnerId(match.id);
-        const requiresEmailOtp = Boolean(match.requireEmailOtp || (settings as any)?.enforcePartnerOtp);
-        if (requiresEmailOtp) {
-          // Strict security: require Email OTP verification, do not auto-login via URL params
-          return;
-        }
-
-        const correctPin = String(match.passcode || '0000').trim();
-        if (urlPin && urlPin.trim() === correctPin) {
-          setAuthenticatedPartner(match);
-          sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(match));
-        } else if (autoLogin && (!match.passcode || match.passcode === '0000')) {
-          setAuthenticatedPartner(match);
-          sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(match));
-        }
-      }
-    }
-  }, [partners, urlPartnerId, searchParams, authenticatedPartner, effectiveStoreId]);
+  // Partner authentication must never be established from URL parameters.
+  // URL PINs and default-PIN auto-login are intentionally disabled.
 
   // Keep authenticated partner synced with fresh partners list
   const livePartner = useMemo(() => {
@@ -341,7 +302,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const authenticatedId = String(authenticatedPartner.id || '').trim();
     if (!authenticatedId) return null;
     const current = partners.find(p => String(p.id || '').trim() === authenticatedId);
-    return current || authenticatedPartner;
+    return current || null;
   }, [authenticatedPartner, partners]);
 
   useEffect(() => {
@@ -349,7 +310,6 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const currentId = String(authenticatedPartner?.id || '').trim().toLowerCase();
     if (requestedId && currentId && requestedId !== currentId) {
       setAuthenticatedPartner(null);
-      try { sessionStorage.removeItem(`partner_portal_auth_${effectiveStoreId}`); } catch {}
     }
   }, [urlPartnerId, authenticatedPartner?.id, effectiveStoreId]);
 
@@ -359,13 +319,6 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     const role = (livePartner.role || '').toLowerCase();
     return role.includes('موكل') || role.includes('مورد') || role.includes('بضاعة') || role.includes('supplier') || role.includes('merchant');
   }, [modeFromPath, livePartner]);
-
-  // Sync fresh partner data with session storage
-  useEffect(() => {
-    if (livePartner && effectiveStoreId) {
-      sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(livePartner));
-    }
-  }, [livePartner, effectiveStoreId]);
 
   // Partner Portal Permissions
   const portalPerms = useMemo(() => {
@@ -450,8 +403,13 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       return;
     }
 
-    const correctPin = String(partner.passcode || '0000').trim();
+    const correctPin = String(partner.passcode || '').trim();
     const enteredPin = pinCode.trim();
+
+    if (!correctPin) {
+      setAuthError('لم يتم إعداد رمز دخول لهذا الحساب بعد. يرجى التواصل مع إدارة المتجر لتعيين رمز آمن.');
+      return;
+    }
 
     if (enteredPin === correctPin) {
       setAuthenticatedPartner(partner);
@@ -459,7 +417,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       setPinCode('');
       showToast(`أهلاً بك يا ${partner.name} في بوابتك المالية`, 'success');
     } else {
-      setAuthError('رمز المرور (PIN) غير صحيح. الرمز الافتراضي هو 0000 أو اسأل الإدارة');
+      setAuthError('رمز المرور (PIN) غير صحيح. يرجى التواصل مع إدارة المتجر');
     }
   };
 
@@ -1441,7 +1399,6 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         updateSettings={updateSettings}
         onAuthenticated={(p) => {
           setAuthenticatedPartner(p);
-          sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(p));
         }}
         showToast={showToast}
         portalMode={modeFromPath}

@@ -116,7 +116,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
   const loadCloudRequests = useCallback(async () => {
     if (!storeId) return;
     try {
-      const reqs = await db.getMerchantRequests(storeId);
+      const reqs = await db.getMerchantRequests(storeId, { forceAdmin: true });
       setCloudRequests(reqs);
     } catch (_) {}
   }, [storeId]);
@@ -867,12 +867,15 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       return;
     }
 
-    const statusUpdated = await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
-    if (!statusUpdated) {
-      showToast('تعذر اعتماد الطلب؛ ربما تمت معالجته من شاشة أخرى. حدّث القائمة وحاول مجدداً.', 'error');
-      return;
+    const isMerchantWithdrawal = req.type === 'withdrawal' || req.type == null;
+    if (!isMerchantWithdrawal) {
+      const statusUpdated = await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
+      if (!statusUpdated) {
+        showToast('تعذر اعتماد الطلب؛ ربما تمت معالجته من شاشة أخرى. حدّث القائمة وحاول مجدداً.', 'error');
+        return;
+      }
+      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
     }
-    setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     // Calculate configured transfer fee (weekly / daily)
     const isDaily = (req as any).payoutFrequency === 'daily' || supplier.payoutFrequency === 'daily';
@@ -931,6 +934,28 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     } : null;
 
     const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
+
+    if (isMerchantWithdrawal) {
+      const completion = await db.completeMerchantWithdrawal(req.id, storeId, transferFee, {
+        approvedBy: 'الإدارة',
+        approvedAt: nowIso,
+        transferReference: (req as any).transferReference || '',
+        receiptImage: (req as any).receiptImage || ''
+      });
+      if (!completion.success) {
+        showToast(completion.error || 'تعذر اعتماد السحب وتحديث المحفظة. لم يتم اعتماد الطلب أو خصم الرصيد.', 'error');
+        return;
+      }
+      try {
+        const latestStoreData = await db.getStoreData(storeId, true);
+        if (latestStoreData?.settings) updateSettings(latestStoreData.settings as Settings);
+      } catch (refreshError) {
+        console.warn('[MERCHANT-WITHDRAWAL] Wallet was settled, but the page settings refresh failed:', refreshError);
+      }
+      setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved', approvedAt: nowIso } : r));
+      showToast(`تم اعتماد طلب السحب للموكل ${supplier.name} وتحديث المحفظة بشكل آمن. صافي التحويل: ${netDisbursed.toLocaleString()} ج.م`);
+      return;
+    }
 
     await syncMerchantUpdates(
       supplier.id,

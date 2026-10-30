@@ -1,14 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { User, Store, StoreData, Employee, Permission, PERMISSIONS, Transaction, WithdrawRequest, Settings } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
-import { createUserDoc } from '../services/databaseService';
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import firebaseConfig from '../firebase-applet-config.json';
-
-const secondaryApp = getApps().find(app => app.name === "SecondaryAppForAdmin") 
-    || initializeApp(firebaseConfig, "SecondaryAppForAdmin");
-const secondaryAuth = getAuth(secondaryApp);
+import { getSupabaseClient } from '../services/databaseService';
 import { 
     Users, Store as StoreIcon, Activity, Search, ShieldAlert, LogIn, Ban, CheckCircle, 
     Lock, Unlock, LayoutDashboard, TrendingUp, MessageSquare, Send, UserPlus, Clock, 
@@ -411,6 +404,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   const [newUserData, setNewUserData] = useState({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
   const [addUserError, setAddUserError] = useState('');
 
+  useEffect(() => {
+    let active = true;
+    const loadAdminUsers = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data, error } = await supabase.functions.invoke('admin-list-users');
+      if (!active) return;
+      if (error || !data?.success) {
+        console.warn('[ADMIN] Supabase user directory load failed:', error || data?.error);
+        return;
+      }
+      setUsers(Array.isArray(data.users) ? data.users : []);
+    };
+    void loadAdminUsers();
+    return () => { active = false; };
+  }, [setUsers]);
+
   // States for Adding New Store
   const [showAddStoreModal, setShowAddStoreModal] = useState(false);
   const [newStoreData, setNewStoreData] = useState({ name: '', url: '', ownerPhone: '', specialization: 'عام' });
@@ -601,31 +611,36 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   }, [users, searchTerm]);
 
   const handleDeleteUser = async (user: User) => {
-    const ok = await inAppConfirm(`هل أنت متأكد من حذف المستخدم ${user.fullName} وجميع متاجره؟ هذا الإجراء لا يمكن التراجع عنه.`, {
-      title: 'حذف مستخدم وجميع متاجره',
-      type: 'danger',
-      confirmText: 'نعم، حذف المستخدم نهائياً',
-      cancelText: 'إلغاء'
-    });
+    const ok = await inAppConfirm(
+      `هل أنت متأكد من حذف حساب ${user.fullName} وإلغاء عضويته من المتاجر؟ ستظل بيانات المتاجر محفوظة ولن تُحذف تلقائياً.`,
+      {
+        title: 'حذف حساب المستخدم',
+        type: 'danger',
+        confirmText: 'حذف الحساب',
+        cancelText: 'إلغاء'
+      }
+    );
     if (!ok) return;
 
     try {
-        await db.deleteUserCompletely(user);
-        
-        // Remove from local state
-        const updatedUsers = users.filter(u => u.phone !== user.phone);
-        setUsers(updatedUsers);
-        
-        // Update global users list in Firebase
-        await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
-        
-        await inAppAlert(`تم حذف المستخدم ${user.fullName} وجميع متاجره بنجاح.`, { type: 'success' });
-    } catch (e: any) {
-        await inAppAlert(`خطأ أثناء حذف المستخدم: ${e.message}`, { type: 'error' });
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Supabase client not initialized.');
+      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: { phone: user.phone }
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'تعذر حذف الحساب.');
+      setUsers(users.filter(existing => existing.phone !== user.phone));
+      await inAppAlert(`تم حذف حساب ${user.fullName} وإلغاء عضوياته. بيانات المتاجر محفوظة.`, { type: 'success' });
+    } catch (err: any) {
+      await inAppAlert(`تعذر حذف الحساب: ${err?.message || 'خطأ غير معروف'}`, { type: 'error' });
     }
   };
-  
+
   const toggleUserBan = async (phone: string) => {
+    const target = users.find(user => user.phone === phone);
+    if (!target) return;
+    const nextIsBanned = !target.isBanned;
     const ok = await inAppConfirm("هل أنت متأكد من تغيير حالة حظر هذا المستخدم؟", {
       title: 'تغيير حالة حظر المستخدم',
       type: 'warning',
@@ -633,12 +648,18 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
       cancelText: 'تراجع'
     });
     if (!ok) return;
-    const updated = users.map(u => u.phone === phone ? { ...u, isBanned: !u.isBanned } : u);
-    setUsers(updated);
+
     try {
-        await db.saveGlobalData({ users: updated, loyaltyData: {} });
-    } catch (e) {
-        await inAppAlert("فشل تحديث السيرفر العام لمستخدم.", { type: 'error' });
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Supabase client not initialized.');
+      const { data, error } = await supabase.functions.invoke('admin-update-user', {
+        body: { phone, isBanned: nextIsBanned }
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'تعذر تحديث حالة المستخدم.');
+      setUsers(users.map(user => user.phone === phone ? data.user : user));
+    } catch (err: any) {
+      await inAppAlert(err?.message || "فشل تحديث حالة المستخدم عبر Supabase.", { type: 'error' });
     }
   };
 
@@ -667,53 +688,47 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddUserError('');
-    if (!newUserData.fullName || !newUserData.phone || !newUserData.email) {
-        setAddUserError('يجب تعبئة حقول الاسم والهاتف والبريد الإلكتروني.');
-        return;
+    if (!newUserData.fullName.trim() || !newUserData.phone.trim() || !newUserData.email.trim()) {
+      setAddUserError('يجب تعبئة حقول الاسم والهاتف والبريد الإلكتروني.');
+      return;
     }
-    
-    // Check duplication
+    if (newUserData.password.length < 8) {
+      setAddUserError('كلمة المرور يجب ألا تقل عن 8 أحرف.');
+      return;
+    }
+
     const phoneExists = users.some(u => u.phone.trim() === newUserData.phone.trim());
     if (phoneExists) {
-        setAddUserError('هذا الرقم مسجل مسبقاً لمستخدم آخر.');
-        return;
+      setAddUserError('هذا الرقم مسجل مسبقاً لمستخدم آخر.');
+      return;
     }
 
-    const firebaseEmail = `${newUserData.phone.trim()}@mystore-auth.app`;
-    
     try {
-        await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, newUserData.password || 'password123');
-        await secondaryAuth.signOut();
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) throw new Error('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+
+      const { data, error } = await supabase.functions.invoke('admin-create-user', {
+        body: {
+          fullName: newUserData.fullName.trim(),
+          phone: newUserData.phone.trim(),
+          email: newUserData.email.trim(),
+          password: newUserData.password,
+          isAdmin: newUserData.isAdmin
+        }
+      });
+      if (error) throw error;
+      if (!data?.success || !data.user) throw new Error(data?.error || 'تعذر إنشاء الحساب.');
+
+      const newUser: User = data.user;
+      setUsers([...users, newUser]);
+      setShowAddUserModal(false);
+      setNewUserData({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
+      alert('تم إنشاء حساب المستخدم بنجاح عبر Supabase Auth.');
     } catch (err: any) {
-        setAddUserError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
-        return;
-    }
-
-    const newUser: User = {
-        fullName: newUserData.fullName,
-        phone: newUserData.phone.trim(),
-        email: newUserData.email,
-        isAdmin: newUserData.isAdmin,
-        isBanned: false,
-        joinDate: new Date().toISOString(),
-        stores: []
-    };
-
-    const success = await createUserDoc(newUser);
-    if (!success) {
-        setAddUserError('فشل في إنشاء وثيقة المستخدم في قاعدة البيانات.');
-        return;
-    }
-
-    const updatedUsersList = [...users, newUser];
-    setUsers(updatedUsersList);
-
-    try {
-        setShowAddUserModal(false);
-        setNewUserData({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
-        alert('تم تسجيل التاجر/المستخدم الجديد بنجاح على خادم المنصة الرئيسي.');
-    } catch (e: any) {
-        setAddUserError(`خطأ أثناء الحفظ بالسيرفر السحابي: ${e.message}`);
+      console.error('[ADMIN] Supabase user provisioning failed:', err);
+      setAddUserError(err?.message || 'تعذر إنشاء الحساب. تأكد من صلاحيات المدير وإعدادات Supabase.');
     }
   };
 
@@ -743,17 +758,6 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         currency: 'ج.م'
     };
 
-    // Update global users list
-    const updatedUsers = users.map(u => {
-        if (u.phone === selectedOwner.phone) {
-            return {
-                ...u,
-                stores: [...(u.stores || []), newStoreObj]
-            };
-        }
-        return u;
-    });
-
     // Default template data for the store
     const newStoreDataPayload: StoreData = {
         orders: [],
@@ -773,10 +777,19 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
     };
 
     try {
-        // Save store config document
+        // Create the store record, then assign the selected owner through a
+        // privileged Supabase function (the browser cannot grant memberships).
         await db.saveStoreData(newStoreObj, newStoreDataPayload);
-        // Save global user index changes
-        await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error('Supabase client not initialized.');
+        const { data: ownerResult, error: ownerError } = await supabase.functions.invoke('admin-add-store-owner', {
+            body: { ownerPhone: selectedOwner.phone, store: newStoreObj }
+        });
+        if (ownerError) throw ownerError;
+        if (!ownerResult?.success) throw new Error(ownerResult?.error || 'تعذر تعيين مالك المتجر.');
+        const updatedUsers = users.map(user => user.phone === selectedOwner.phone
+            ? { ...user, stores: ownerResult.stores || [...(user.stores || []), newStoreObj] }
+            : user);
 
         // Update react state
         setUsers(updatedUsers);

@@ -1,35 +1,22 @@
-import { db } from '../../services/firebaseClient';
-import { collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { getSupabaseClient } from '../../services/databaseService';
 
 export async function syncMaintenanceStatus(orderNumber: string, orderStatus: string) {
     if (!orderNumber) return;
 
-    const maintenanceQuery = query(collection(db, 'maintenance_requests'), where("orderNumber", "==", orderNumber));
-    const maintenanceRequests = await getDocs(maintenanceQuery);
+    const statusMap: Record<string, string> = {
+        'تم_الارسال': 'in_repair',
+        'جاري_المراجعة': 'received',
+        'سحب_للصيانة': 'received',
+        'تم_توصيلها': 'delivered'
+    };
+    const nextStatus = statusMap[orderStatus];
+    if (!nextStatus) return;
 
-    maintenanceRequests.docs.forEach(async (doc) => {
-        let maintenanceStatus: string | null = null;
-        
-        switch (orderStatus) {
-            case 'تم_الارسال':
-                maintenanceStatus = 'in_repair';
-                break;
-            case 'جاري_المراجعة':
-                maintenanceStatus = 'received';
-                break;
-            case 'سحب_للصيانة':
-                maintenanceStatus = 'received';
-                break;
-            case 'تم_توصيلها':
-                maintenanceStatus = 'delivered';
-                break;
-            // Add more mappings as needed
-            default:
-                break;
-        }
+    const client = getSupabaseClient();
+    if (!client) throw new Error('Supabase client is unavailable; maintenance status was not synchronized.');
 
-        if (maintenanceStatus) {
-            await updateDoc(doc.ref, { status: maintenanceStatus });
-        }
-    });                
+    const { error } = await client.from('maintenance_requests')
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq('order_number', orderNumber);
+    if (error) throw error;
 }

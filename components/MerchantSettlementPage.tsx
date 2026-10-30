@@ -185,6 +185,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   
   // Merchant Incoming Payout Requests
   const [rawRequests, setRawRequests] = useState<db.PartnerPortalRequest[]>([]);
+  const [requestsLoadError, setRequestsLoadError] = useState<string>('');
   const [requestsFilterStatus, setRequestsFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   const activeStoreId = useMemo(() => {
@@ -198,13 +199,19 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
   const loadMerchantRequests = useCallback(async () => {
     try {
-      const reqs = await db.getMerchantRequests(activeStoreId);
+      const reqs = await db.getMerchantRequests(activeStoreId, { forceAdmin: true });
       setRawRequests(reqs);
-    } catch (_) {}
+      setRequestsLoadError('');
+    } catch (error: any) {
+      console.error('[MERCHANT-ADMIN] Failed to load withdrawal requests:', error);
+      setRequestsLoadError(error?.message || 'تعذر تحميل طلبات السحب. تحقق من صلاحيات الإدارة واتصال قاعدة البيانات.');
+    }
   }, [activeStoreId]);
 
   useEffect(() => {
-    loadMerchantRequests();
+    void loadMerchantRequests();
+    const interval = setInterval(() => void loadMerchantRequests(), 10000);
+    return () => clearInterval(interval);
   }, [loadMerchantRequests]);
 
   const merchantRequests = useMemo(() => {
@@ -309,7 +316,22 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return;
       }
 
-      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved');
+      const customClaimed = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'processing');
+      if (!customClaimed) {
+        inAppToast('تعذر استلام طلب الباقة؛ ربما يعالجه مدير آخر.', 'error');
+        await loadMerchantRequests();
+        return;
+      }
+      const customApproved = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
+        approvedBy: currentUser?.fullName || 'الإدارة',
+        approvedAt: new Date().toISOString()
+      });
+      if (!customApproved) {
+        await db.updateMerchantRequestStatus(req.id, activeStoreId, 'pending');
+        await loadMerchantRequests();
+        inAppToast('تعذر اعتماد طلب الباقة؛ أُعيد إلى قائمة الانتظار.', 'error');
+        return;
+      }
       setRawRequests(prev => prev.map(r => (r.id === req.id ? { ...r, status: 'approved' } : r)));
 
       const nowIso = new Date().toISOString();
@@ -492,12 +514,29 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         settings.merchantSettlements || [], req.partnerId, amount, req.id, paidNowIso
       );
 
+      // Atomically claim the pending request before marking it approved.
+      // This prevents concurrent managers from paying the same withdrawal twice.
+      const claimed = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'processing');
+      if (!claimed) {
+        inAppToast('لم يتم استلام الطلب؛ ربما يعالجه مدير آخر بالفعل. حدّث القائمة.', 'error');
+        await loadMerchantRequests();
+        return;
+      }
       const statusUpdated = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
         receiptImage: cleanImg,
-        transferReference: cleanRef
+        transferReference: cleanRef,
+        approvedBy: currentUser?.fullName || 'الإدارة',
+        approvedAt: new Date().toISOString()
       });
       if (!statusUpdated) {
-        inAppToast('لم يتم اعتماد الطلب؛ ربما عولج بالفعل من شاشة أخرى. حدّث القائمة.', 'error');
+        const released = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'pending');
+        await loadMerchantRequests();
+        inAppToast(
+          released
+            ? 'لم يكتمل الاعتماد؛ أُعيد الطلب إلى الانتظار وظل المبلغ محجوزاً.'
+            : 'تعذر إكمال الاعتماد أو تحرير الحجز تلقائياً؛ الطلب ما زال قيد المعالجة ويحتاج مراجعة الإدارة.',
+          'error'
+        );
         return;
       }
       setRawRequests(prev => prev.map(r => r.id === req.id ? {
@@ -4435,19 +4474,19 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       {activeTab === 'requests' && (
         <div className="space-y-6">
           {/* Header Banner */}
-          <div className="bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border border-amber-500/30 rounded-3xl p-6 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+          <div className="bg-gradient-to-l from-emerald-50 via-white to-amber-50 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60 rounded-3xl p-6 text-slate-900 dark:text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black text-2xl shadow-lg shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-2xl shadow-md shadow-emerald-600/20 shrink-0">
                 <Coins size={24} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-black text-base text-white">طلبات سحب المستحقات الواردة من الموكلين</h3>
-                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-900">
                     {merchantRequests.length} طلب إجمالي
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
                   مراجعة طلبات السحب المالية والمصروفات المقدمة من الموكلين وأصحاب البضائع بالأمانة، مع إمكانية الاعتماد والتحويل المباشر لحساباتهم.
                 </p>
               </div>
@@ -4455,7 +4494,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
             <button
               onClick={loadMerchantRequests}
-              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-amber-500/30 whitespace-nowrap shadow-sm"
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-emerald-700 whitespace-nowrap shadow-sm shadow-emerald-600/20"
             >
               <RefreshCw size={14} />
               <span>تحديث الطلبات</span>
@@ -4622,7 +4661,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             {merchantRequests.filter(r => requestsFilterStatus === 'all' || r.status === requestsFilterStatus).length === 0 ? (
               <div className="py-16 text-center text-slate-400 space-y-2">
                 <Coins size={36} className="mx-auto opacity-30" />
-                <p className="font-bold text-xs">لا توجد طلبات سحب مستحقات متطابقة مع التصفية الحالية</p>
+                {requestsLoadError ? (
+                  <p className="font-bold text-xs text-rose-600">{requestsLoadError}</p>
+                ) : (
+                  <p className="font-bold text-xs">لا توجد طلبات سحب مستحقات متطابقة مع التصفية الحالية</p>
+                )}
+                <button type="button" onClick={() => void loadMerchantRequests()} className="mt-2 rounded-lg border px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">إعادة تحميل الطلبات</button>
               </div>
             ) : (
               <div className="overflow-x-auto">

@@ -2,16 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Settings, Employee, Permission, PERMISSIONS, User, Store } from '../types';
 import { Users, UserPlus, UserCog, Trash2, XCircle, KeyRound, AlertCircle, Check, Clock, Copy, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { createUserDoc } from '../services/databaseService';
-import { db } from '../services/firebaseClient';
-import { doc, setDoc } from 'firebase/firestore';
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import firebaseConfig from '../firebase-applet-config.json';
-
-const secondaryApp = getApps().find(app => app.name === "SecondaryAppForEmployees") 
-    || initializeApp(firebaseConfig, "SecondaryAppForEmployees");
-const secondaryAuth = getAuth(secondaryApp);
+import { getAuthSupabaseClient } from '../services/supabaseAuthService';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -67,14 +58,25 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
+  const invokeEmployeeAction = async (body: Record<string, unknown>) => {
+    const { data, error } = await getAuthSupabaseClient().functions.invoke('store-manage-employee', { body });
+    if (error) {
+      const context = (error as any)?.context;
+      let message = (error as any)?.message || 'تعذر تنفيذ العملية.';
+      try {
+        const payload = context && typeof context.json === 'function' ? await context.json() : null;
+        if (payload?.error) message = payload.error;
+      } catch {}
+      throw new Error(message);
+    }
+    if (!data?.success) throw new Error(data?.error || 'تعذر تنفيذ العملية.');
+    return data;
+  };
+
   const handleOwnerResetEmployeePassword = async (emp: Employee, newPass: string) => {
-    const phone = (emp.phone || emp.id).trim();
     try {
-      const userRef = doc(db, 'users', phone);
-      await setDoc(userRef, { password: newPass, lastPasswordReset: new Date().toISOString() }, { merge: true });
-      
-      setUsers(prev => prev.map(u => u.phone === phone ? { ...u, password: newPass } : u));
-      setResetPasswordCredentials({ phone, pass: newPass });
+      await invokeEmployeeAction({ action: 'reset_password', storeId: activeStoreId, phone: emp.phone || emp.id, password: newPass });
+      setResetPasswordCredentials({ phone: emp.phone || emp.id, pass: newPass });
       setEmployeeToResetPassword(null);
     } catch (err: any) {
       alert(`فشل تعيين كلمة المرور: ${err.message}`);
@@ -87,183 +89,163 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
   );
 
   const handleSaveEmployee = async (employeeData: Omit<Employee, 'id'> & { id?: string; phone?: string }) => {
-    if (!employeeData.id) return;
+    if (!employeeData.id || !activeStoreId) return;
     setEditEmployeeError('');
-
     const originalEmployee = settings.employees.find(e => e.id === employeeData.id);
-    const newPhone = employeeData.phone?.trim() || employeeData.id;
-
-    if (newPhone !== employeeData.id) {
-        if (settings.employees.some(e => e.id === newPhone)) {
-            setEditEmployeeError('رقم الهاتف الجديد مستخدم بالفعل لموظف آخر.');
-            return;
-        }
+    const phone = employeeData.id;
+    if ((employeeData.phone?.trim() || phone) !== phone) {
+      setEditEmployeeError('تغيير رقم الهاتف متوقف مؤقتاً لحماية ربط حساب الدخول والعضويات.');
+      return;
     }
-
-    if (originalEmployee && originalEmployee.email !== employeeData.email) {
-        if (users.some(u => u.email === employeeData.email && u.phone !== employeeData.id)) {
-            setEditEmployeeError('هذا البريد الإلكتروني مستخدم بالفعل لحساب آخر.');
-            return;
-        }
+    if (users.some(u => u.email?.toLowerCase() === employeeData.email?.toLowerCase() && u.phone !== phone)) {
+      setEditEmployeeError('هذا البريد الإلكتروني مستخدم بالفعل لحساب آخر.');
+      return;
     }
-
-    let tempPassword = '';
-    if (newPhone !== employeeData.id) {
-        tempPassword = Math.random().toString(36).slice(-8);
-        const firebaseEmail = `${newPhone}@mystore-auth.app`;
-        try {
-            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, tempPassword);
-            await secondaryAuth.signOut();
-        } catch (err: any) {
-            if (err.code !== 'auth/email-already-in-use') {
-                setEditEmployeeError(`فشل في إنشاء حساب المصادقة الجديد: ${err.message}`);
-                return;
-            }
-        }
-
-        const newUser: User = { 
-            fullName: employeeData.name, 
-            phone: newPhone, 
-            email: employeeData.email, 
-            joinDate: new Date().toISOString() 
-        };
-        const success = await createUserDoc(newUser);
-        if (!success) {
-            setEditEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
-            return;
-        }
-
-        setUsers(prev => {
-            const filtered = prev.filter(u => u.phone !== employeeData.id);
-            return [...filtered, newUser];
-        });
-    } else {
-        setUsers(prevUsers => prevUsers.map(u => {
-            if (u.phone === employeeData.id) {
-                const updatedUser: User = { 
-                    ...u, 
-                    fullName: employeeData.name,
-                    email: employeeData.email,
-                };
-                return updatedUser;
-            }
-            return u;
-        }));
+    try {
+      await invokeEmployeeAction({
+        action: 'update',
+        storeId: activeStoreId,
+        phone,
+        fullName: employeeData.name,
+        email: employeeData.email,
+        permissions: employeeData.permissions || [],
+        membershipRole: employeeData.permissions?.includes('TEAM_MANAGE') ? 'manager' : 'staff'
+      });
+      const updatedEmployee: Employee = { ...(employeeData as Employee), id: phone, phone };
+      setSettings(s => ({ ...s, employees: s.employees.map(e => e.id === phone ? updatedEmployee : e) }));
+      setUsers(prev => prev.map(u => u.phone === phone ? { ...u, fullName: employeeData.name, email: employeeData.email } : u));
+      setIsEmployeeModalOpen(false);
+      setEditingEmployee(null);
+    } catch (err: any) {
+      setEditEmployeeError(err?.message || 'تعذر حفظ بيانات الموظف.');
     }
-
-    const updatedEmployee: Employee = {
-        ...(employeeData as Employee),
-        id: newPhone,
-        phone: newPhone
-    };
-
-    setSettings(s => ({
-        ...s,
-        employees: s.employees.map(e => e.id === employeeData.id ? updatedEmployee : e)
-    }));
-
-    if (newPhone !== employeeData.id) {
-        setNewEmployeeCredentials({ phone: newPhone, pass: tempPassword });
-    }
-
-    setIsEmployeeModalOpen(false);
-    setEditingEmployee(null);
   };
 
-  const handleDeleteEmployee = () => {
-    if (!employeeToDelete) return;
-    setSettings(s => ({ ...s, employees: s.employees.filter(e => e.id !== employeeToDelete.id) }));
-    setUsers(prevUsers => prevUsers.filter(u => u.phone !== employeeToDelete.id));
-    setEmployeeToDelete(null);
+  const handleDeleteEmployee = async () => {
+    if (!employeeToDelete || !activeStoreId) return;
+    try {
+      await invokeEmployeeAction({ action: 'delete', storeId: activeStoreId, phone: employeeToDelete.phone || employeeToDelete.id });
+      setSettings(s => ({ ...s, employees: s.employees.filter(e => e.id !== employeeToDelete.id) }));
+      // Do not remove the global user: they may have memberships in other stores.
+      setEmployeeToDelete(null);
+    } catch (err: any) {
+      alert(`تعذر حذف الموظف: ${err?.message || 'خطأ غير معروف'}`);
+    }
   };
-  
+
   const handleAddEmployee = async (data: { name: string; phone: string; email: string; password: string; roleKey: string; commissionType: 'fixed' | 'percentage'; commissionValue: number; }) => {
     setAddEmployeeError('');
     setNewEmployeeCredentials(null);
 
-    const initialPermissions = ROLES[data.roleKey]?.permissions || [];
-
-    if (settings.employees.some(e => e.id === data.phone)) {
-        setAddEmployeeError('هذا الموظف مضاف بالفعل في هذا المتجر.');
-        return;
+    if (!activeStoreId) {
+      setAddEmployeeError('لم يتم تحديد المتجر الحالي.');
+      return;
     }
 
-    const userByPhone = users.find(u => u.phone === data.phone);
+    const initialPermissions = ROLES[data.roleKey]?.permissions || [];
+    const phone = data.phone.trim();
+    const email = data.email.trim().toLowerCase();
 
-    if (userByPhone) {
-        alert(`تم العثور على حساب للمستخدم "${userByPhone.fullName}". سيتم إضافته كموظف في هذا المتجر بالدور المحدد.`);
-        const newEmployee: Employee = { 
-          id: userByPhone.phone, 
-          phone: userByPhone.phone, 
-          name: userByPhone.fullName, 
-          email: userByPhone.email, 
-          permissions: initialPermissions, 
-          status: 'active',
-          commissionType: data.commissionType || 'fixed',
-          commissionValue: Number(data.commissionValue) || 0,
-          balance: 0,
-          commissionTransactions: []
-        };
-        setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
-        setIsAddEmployeeModalOpen(false);
-    } else {
-        const userByEmail = users.find(u => u.email === data.email);
-        if (userByEmail) {
-            setAddEmployeeError('هذا البريد الإلكتروني مسجل لحساب آخر.');
-            return;
+    if (settings.employees.some(e => e.id === phone || e.phone === phone)) {
+      setAddEmployeeError('هذا الموظف مضاف بالفعل في هذا المتجر.');
+      return;
+    }
+
+    const userByPhone = users.find(u => u.phone === phone);
+    const userByEmail = users.find(u => u.email?.toLowerCase() === email && u.phone !== phone);
+    if (userByEmail) {
+      setAddEmployeeError('هذا البريد الإلكتروني مسجل لحساب آخر.');
+      return;
+    }
+
+    if (!userByPhone && (!data.password || data.password.length < 8)) {
+      setAddEmployeeError('يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.');
+      return;
+    }
+
+    try {
+      const { data: result, error } = await getAuthSupabaseClient().functions.invoke('store-manage-employee', {
+        body: {
+          mode: userByPhone ? 'link' : 'create',
+          storeId: activeStoreId,
+          fullName: userByPhone?.fullName || data.name.trim(),
+          phone,
+          email: userByPhone?.email || email,
+          password: userByPhone ? undefined : data.password,
+          permissions: initialPermissions,
+          membershipRole: data.roleKey === 'FULL_MANAGER' ? 'manager' : 'staff'
         }
+      });
 
-        if (!data.password || data.password.length < 8) {
-            setAddEmployeeError('يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.');
-            return;
-        }
-
-        const firebaseEmail = `${data.phone.trim()}@mystore-auth.app`;
+      if (error) {
+        const context = (error as any)?.context;
+        let message = (error as any)?.message || 'تعذر إضافة الموظف.';
         try {
-            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, data.password);
-            await secondaryAuth.signOut();
-        } catch (err: any) {
-            setAddEmployeeError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
-            return;
-        }
+          const payload = context && typeof context.json === 'function' ? await context.json() : null;
+          if (payload?.error) message = payload.error;
+        } catch {}
+        throw new Error(message);
+      }
+      if (!result?.success) throw new Error(result?.error || 'تعذر حفظ عضوية الموظف.');
 
-        const newUser: User = { fullName: data.name, phone: data.phone, email: data.email, joinDate: new Date().toISOString() };
-        const success = await createUserDoc(newUser);
-        if (!success) {
-            setAddEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
-            return;
-        }
+      const employeeName = userByPhone?.fullName || data.name.trim();
+      const employeeEmail = userByPhone?.email || email;
+      const newEmployee: Employee = {
+        id: phone,
+        phone,
+        name: employeeName,
+        email: employeeEmail,
+        permissions: initialPermissions,
+        status: 'active',
+        commissionType: data.commissionType || 'fixed',
+        commissionValue: Number(data.commissionValue) || 0,
+        balance: 0,
+        commissionTransactions: []
+      };
 
-        setUsers(prev => [...prev, newUser]);
-        const newEmployee: Employee = { 
-          id: data.phone, 
-          phone: data.phone, 
-          name: data.name, 
-          email: data.email, 
-          permissions: initialPermissions, 
-          status: 'active',
-          commissionType: data.commissionType || 'fixed',
-          commissionValue: Number(data.commissionValue) || 0,
-          balance: 0,
-          commissionTransactions: []
+      setSettings(s => ({
+        ...s,
+        employees: [...(s.employees || []).filter(e => e.id !== phone), newEmployee]
+      }));
+
+      if (!userByPhone) {
+        const newUser: User = {
+          fullName: employeeName,
+          phone,
+          email: employeeEmail,
+          joinDate: new Date().toISOString()
         };
-        setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
-        setNewEmployeeCredentials({ phone: data.phone, pass: data.password });
-        setIsAddEmployeeModalOpen(false);
+        setUsers(prev => [...prev.filter(u => u.phone !== phone), newUser]);
+        setNewEmployeeCredentials({ phone, pass: data.password });
+      }
+
+      setIsAddEmployeeModalOpen(false);
+    } catch (err: any) {
+      console.error('[EMPLOYEE-PROVISIONING] Supabase request failed:', err);
+      setAddEmployeeError(err?.message || 'تعذر إضافة الموظف. حاول مرة أخرى.');
     }
   };
-  
-  const handleRequestAction = (employeeId: string, action: 'accept' | 'decline') => {
-     if (action === 'accept') {
-         setSettings(s => ({ ...s, employees: s.employees.map(e => e.id === employeeId ? { ...e, status: 'active' } : e) }));
-         const employee = settings.employees.find(e => e.id === employeeId);
-         if (employee) {
-             setEditingEmployee({ ...employee, status: 'active' });
-             setIsEmployeeModalOpen(true);
-         }
-     } else {
-         setSettings(s => ({ ...s, employees: s.employees.filter(e => e.id !== employeeId) }));
-     }
+
+  const handleRequestAction = async (employeeId: string, action: 'accept' | 'decline') => {
+    if (!activeStoreId) return;
+    const employee = settings.employees.find(e => e.id === employeeId);
+    if (!employee) return;
+    try {
+      await invokeEmployeeAction({
+        action: action === 'accept' ? 'accept_request' : 'decline_request',
+        storeId: activeStoreId,
+        phone: employee.phone || employee.id
+      });
+      if (action === 'accept') {
+        setSettings(s => ({ ...s, employees: s.employees.map(e => e.id === employeeId ? { ...e, status: 'active' } : e) }));
+        setEditingEmployee({ ...employee, status: 'active' });
+        setIsEmployeeModalOpen(true);
+      } else {
+        setSettings(s => ({ ...s, employees: s.employees.filter(e => e.id !== employeeId) }));
+      }
+    } catch (err: any) {
+      alert(`تعذر ${action === 'accept' ? 'قبول' : 'رفض'} طلب الموظف: ${err?.message || 'خطأ غير معروف'}`);
+    }
   };
 
 

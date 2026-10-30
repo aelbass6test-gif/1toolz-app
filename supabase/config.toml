@@ -1,0 +1,2 @@
+[functions.merchant-portal-requests]
+verify_jwt = false

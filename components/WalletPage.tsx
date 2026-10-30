@@ -173,62 +173,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         });
       });
 
-      if (updatedRequests.length === 0) {
-        const sampleRequests: WithdrawRequest[] = [
-          {
-            id: 'WR-7281',
-            amount: 5000,
-            fee: 50,
-            netAmount: 4950,
-            date: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
-            method: 'bank',
-            status: 'accepted',
-            details: JSON.stringify({
-              bankName: 'البنك الأهلي المصري',
-              accountHolder: 'عبدالرحمن أحمد',
-              accountNumber: 'EG12000300019283748591023'
-            })
-          },
-          {
-            id: 'WR-9104',
-            amount: 2500,
-            fee: 25,
-            netAmount: 2475,
-            date: new Date(Date.now() - 3600000 * 18).toISOString(),
-            method: 'instapay',
-            status: 'pending',
-            details: JSON.stringify({
-              instapayId: 'abdo@instapay'
-            })
-          },
-          {
-            id: 'WR-5512',
-            amount: 1500,
-            fee: 15,
-            netAmount: 1485,
-            date: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-            method: 'wallet',
-            status: 'accepted',
-            details: JSON.stringify({
-              mobileNumber: '01019283746',
-              walletType: 'فودافون كاش'
-            })
-          },
-          {
-            id: 'WR-3942',
-            amount: 800,
-            fee: 8,
-            netAmount: 792,
-            date: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-            method: 'treasury',
-            status: 'rejected',
-            details: JSON.stringify({
-              rejectReason: 'تجاوز الحد اليومي للخزينة الفرعية'
-            })
-          }
-        ];
-        updatedRequests = sampleRequests;
-      }
+      // Never inject demo withdrawal requests into a real wallet.
+      // An empty list means there are no persisted requests.
 
       setWallet(prev => ({
         ...prev,

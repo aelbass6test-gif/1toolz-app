@@ -41,7 +41,7 @@ export const fetchMigrationOverview = async (): Promise<{
     // 1. Load users from Supabase (Legacy)
     if (supabase) {
         try {
-            const { data, error } = await supabase.from('users').select('*');
+            const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate');
             if (!error && Array.isArray(data)) {
                 data.forEach((item: any) => {
                     if (item.phone) {
@@ -161,7 +161,7 @@ export const safeMigrateSingleUser = async (phone: string): Promise<{ success: b
             return { success: false, message: 'قاعدة البيانات القديمة غير متصلة.' };
         }
 
-        const { data: legacyUser, error } = await supabase.from('users').select('*').eq('phone', phone).maybeSingle();
+        const { data: legacyUser, error } = await supabase.from('users').select('phone, full_name, email, is_admin, is_banned, join_date, stores, sites').eq('phone', phone).maybeSingle();
         if (error || !legacyUser) {
             return { success: false, message: 'لم يتم العثور على المستخدم في المسار القديم.' };
         }
@@ -178,7 +178,6 @@ export const safeMigrateSingleUser = async (phone: string): Promise<{ success: b
             fullName: legacyUser.full_name || legacyUser.fullName || existingData.fullName || '',
             phone: legacyUser.phone,
             email: legacyUser.email || existingData.email || '',
-            password: legacyUser.password || existingData.password || '',
             isAdmin: Boolean(legacyUser.is_admin || legacyUser.isAdmin || existingData.isAdmin),
             isBanned: Boolean(legacyUser.is_banned || legacyUser.isBanned || existingData.isBanned),
             joinDate: legacyUser.join_date || legacyUser.joinDate || existingData.joinDate || new Date().toISOString(),

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { auth } from '../../services/firebaseClient';
 import { getSupabaseClient } from '../../services/databaseService';
 import { SharedAudit, SharedAuditPresence } from '../../types';
 
@@ -8,8 +7,27 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
     const [lockedItems, setLockedItems] = useState<Record<string, { userId: string; userName: string; lockedAt: string }>>({});
     const [auditData, setAuditData] = useState<SharedAudit | null>(null);
 
-    const currentUserId = auth.currentUser?.uid || 'anonymous';
+    const [currentUserId, setCurrentUserId] = useState<string>('anonymous');
     const lastLockedItemRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
+        let active = true;
+
+        void supabase.auth.getUser().then(({ data, error }) => {
+            if (active && !error) setCurrentUserId(data.user?.id || 'anonymous');
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setCurrentUserId(session?.user?.id || 'anonymous');
+        });
+
+        return () => {
+            active = false;
+            subscription.unsubscribe();
+        };
+    }, []);
 
     useEffect(() => {
         if (!auditId) return;

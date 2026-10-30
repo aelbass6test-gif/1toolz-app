@@ -5,11 +5,9 @@ import { Loader2 } from 'lucide-react';
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
-import { db as firebaseDb, auth } from './services/firebaseClient';
+import { db as firebaseDb } from './services/firebaseClient';
 import { getSupabaseClient } from './services/databaseService';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
-import { getApps, initializeApp } from 'firebase/app';
-import firebaseConfig from './firebase-applet-config.json';
+import { signInWithSupabase, signUpWithSupabase } from './services/supabaseAuthService';
 import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
 import { verifyPasswordSecure } from './utils/syncIntegrity';
@@ -235,66 +233,74 @@ const MainLayout = ({
             return;
         }
 
-        let unsubAudit: (() => void) | undefined;
-        let unsubChat: (() => void) | undefined;
-
-        try {
-            const qAudit = query(
-                collection(firebaseDb, 'shared_audits'),
-                where('storeId', '==', activeStore.id)
-            );
-            unsubAudit = onSnapshot(qAudit, (snapshot) => {
-                const list: any[] = [];
-                snapshot.forEach(docSnap => {
-                    list.push({ id: docSnap.id, ...docSnap.data() });
-                });
-                setSharedAudits(list);
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    console.warn('[Notification] Firestore quota reached for shared_audits. Using cached data seamlessly.');
-                    try { if (unsubAudit) unsubAudit(); } catch (_) {}
-                } else {
-                    console.warn('[Notification] shared_audits notice:', msg);
-                }
-            });
-        } catch (e) {
-            console.warn('[Notification] shared_audits subscription notice:', e);
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            setSharedAudits([]);
+            setChatMessages([]);
+            console.warn('[Notification] Supabase client is unavailable; migrated notification feeds are paused.');
+            return;
         }
 
-        try {
-            const qChat = query(
-                collection(firebaseDb, 'chat_messages'),
-                where('storeId', '==', activeStore.id)
-            );
-            unsubChat = onSnapshot(qChat, (snapshot) => {
-                const list: any[] = [];
-                snapshot.forEach(docSnap => {
-                    const d = docSnap.data();
-                    list.push({
-                        id: docSnap.id,
-                        senderId: d.senderId,
-                        receiverId: d.receiverId,
-                        content: d.content,
-                        createdAt: d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-                    });
-                });
-                setChatMessages(list);
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    console.warn('[Notification] Firestore quota reached for chat_messages. Using cached data seamlessly.');
-                    try { if (unsubChat) unsubChat(); } catch (_) {}
-                } else {
-                    console.warn('[Notification] chat_messages notice:', msg);
+        let disposed = false;
+        const loadAuditNotifications = async () => {
+            const { data, error } = await supabase
+                .from('shared_audits')
+                .select('*')
+                .or(`storeid.eq.${activeStore.id},store_id.eq.${activeStore.id}`);
+            if (error) {
+                console.warn('[Notification] Supabase shared_audits read failed:', error.message);
+                return;
+            }
+            if (!disposed) setSharedAudits((data || []).map((row: any) => ({
+                ...row,
+                storeId: row.storeid || row.store_id,
+                warehouseId: row.warehouseid || row.warehouse_id,
+                warehouseName: row.warehousename,
+                createdAt: row.createdat || row.created_at,
+                submittedAt: row.submittedat || row.submitted_at,
+                rejectedAt: row.rejectedat || row.rejected_at,
+                rejectReason: row.rejectreason || row.reject_reason
+            })));
+        };
+
+        const loadChatNotifications = async () => {
+            const { data, error } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .or(`store_id.eq.${activeStore.id},storeId.eq.${activeStore.id}`);
+            if (error) {
+                console.warn('[Notification] Supabase chat_messages read failed:', error.message);
+                return;
+            }
+            if (!disposed) setChatMessages((data || []).map((row: any) => ({
+                id: String(row.id),
+                senderId: row.sender_id || row.senderId,
+                receiverId: row.receiver_id || row.receiverId,
+                content: row.content,
+                createdAt: row.created_at || row.createdAt || new Date().toISOString()
+            })));
+        };
+
+        void loadAuditNotifications();
+        void loadChatNotifications();
+
+        const channel = supabase
+            .channel(`app-notifications-${activeStore.id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_audits' }, () => {
+                void loadAuditNotifications();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
+                void loadChatNotifications();
+            })
+            .subscribe((status: string) => {
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    console.warn('[Notification] Supabase realtime status:', status);
                 }
             });
-        } catch (e) {
-            console.warn('[Notification] chat_messages subscription notice:', e);
-        }
+
         return () => {
-            if (unsubAudit) unsubAudit();
-            if (unsubChat) unsubChat();
+            disposed = true;
+            void supabase.removeChannel(channel);
         };
     }, [activeStore?.id]);
 
@@ -869,35 +875,37 @@ const OwnerLayoutWrapper = ({
             setAllPartnerRequests([]);
             return;
         }
-        let legacy: db.PartnerPortalRequest[] = [];
-        let merchants: db.PartnerPortalRequest[] = [];
-        const publish = () => {
-            const mappedMerchants = merchants.map(r => ({
-                ...r,
-                partnerId: String((r as any).merchantId || ''),
-                partnerName: String((r as any).merchantName || ''),
-                isMerchantRequest: true
-            } as db.PartnerPortalRequest));
-            setAllPartnerRequests([...legacy, ...mappedMerchants]);
+        let alive = true;
+        const publish = async () => {
+            try {
+                const [legacy, merchants] = await Promise.all([
+                    db.getPartnerRequests(activeStoreId),
+                    db.getMerchantRequests(activeStoreId, { forceAdmin: true })
+                ]);
+                if (!alive) return;
+                const mappedMerchants = merchants.map(r => ({
+                    ...r,
+                    partnerId: String((r as any).merchantId || r.partnerId || ''),
+                    partnerName: String((r as any).merchantName || r.partnerName || ''),
+                    isMerchantRequest: true
+                } as db.PartnerPortalRequest));
+                setAllPartnerRequests([...legacy, ...mappedMerchants]);
+            } catch (e) {
+                console.warn('[Notification] Supabase request refresh failed:', e);
+            }
         };
-        const unsubs: Array<() => void> = [];
-        try {
-            const legacyQuery = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', activeStoreId));
-            unsubs.push(onSnapshot(legacyQuery, snapshot => {
-                legacy = [];
-                snapshot.forEach(docSnap => legacy.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
-                publish();
-            }));
-            const merchantQuery = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', activeStoreId));
-            unsubs.push(onSnapshot(merchantQuery, snapshot => {
-                merchants = [];
-                snapshot.forEach(docSnap => merchants.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
-                publish();
-            }));
-        } catch (e) {
-            console.warn('[Notification] request subscriptions error:', e);
-        }
-        return () => unsubs.forEach(unsub => unsub());
+
+        void publish();
+        const supabase = getSupabaseClient();
+        const channel = supabase?.channel(`store-requests-${activeStoreId}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partner_requests' }, () => void publish())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'merchant_requests' }, () => void publish())
+            .subscribe();
+
+        return () => {
+            alive = false;
+            if (supabase && channel) void supabase.removeChannel(channel);
+        };
     }, [activeStoreId]);
 
     const pendingRequestsCounts = useMemo(() => {
@@ -1818,70 +1826,10 @@ export const AppComponent = () => {
         localStorage.setItem('theme', theme);
     }, [theme, location.pathname, isStandaloneStorefront]);
 
-    // Proactive background migration for legacy accounts when Admin loads user list
-    useEffect(() => {
-        if (currentUser?.isAdmin && users && users.length > 0) {
-            migrateLegacyUsersToAuth(users);
-        }
-    }, [currentUser, users]);
+    // Legacy Firebase account migration is disabled. Accounts must be explicitly
+    // re-enrolled into Supabase Auth; never copy plaintext legacy passwords.
 
-    // Helper to wait for Firebase Auth to initialize and return the authenticated user
-    const getCurrentAuthenticatedUser = (): Promise<any> => {
-        return new Promise((resolve) => {
-            const unsubscribe = auth.onAuthStateChanged((user) => {
-                unsubscribe();
-                resolve(user);
-            });
-        });
-    };
-
-    // Background migration for legacy accounts using a secondary auth instance
-    const getMigrationAuth = () => {
-        const migrationApp = getApps().find(app => app.name === "MigrationApp") 
-            || initializeApp(firebaseConfig, "MigrationApp");
-        return getAuth(migrationApp);
-    };
-
-    const migrateLegacyUsersToAuth = async (usersToMigrate: User[]) => {
-        try {
-            const mAuth = getMigrationAuth();
-            console.log(`[MIGRATION] Starting background migration check for ${usersToMigrate.length} users...`);
-            // Run sequentially in the background to avoid rate limits
-            for (const user of usersToMigrate) {
-                if (!user.phone) continue;
-                const password = user.password;
-                if (!password) {
-                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: No legacy password stored in legacy database.`);
-                    continue;
-                }
-                if (password.length < 6) {
-                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: Password is shorter than 6 characters (does not meet Firebase Auth security requirements).`);
-                    continue;
-                }
-                
-                // Use real email if available, otherwise generated one
-                const email = (user.email && user.email.includes('@') && !user.email.includes('mystore-auth.app'))
-                    ? user.email
-                    : `${user.phone.trim()}@mystore-auth.app`;
-                
-                try {
-                    await createUserWithEmailAndPassword(mAuth, email, password);
-                    console.log(`[MIGRATION] Successfully created Firebase Auth account for legacy user ${user.phone}.`);
-                } catch (err: any) {
-                    if (err.code === 'auth/email-already-in-use') {
-                        // Already exists, skip
-                    } else if (err.code === 'auth/operation-not-allowed') {
-                        console.error('[MIGRATION] Email/Password provider is not enabled in Firebase project! Please enable it in the console.');
-                        break; // Stop if provider is disabled to avoid spamming errors
-                    } else {
-                        console.error(`[MIGRATION] Error migrating user ${user.phone}:`, err);
-                    }
-                }
-            }
-        } catch (migrationErr) {
-            console.error('[MIGRATION] Fatal migration error:', migrationErr);
-        }
-    };
+    // Legacy password-based background account migration has been removed.
 
     const loadData = async () => {
         setIsInitialLoad(true);
@@ -1922,50 +1870,42 @@ export const AppComponent = () => {
             let foundStoreId: string | null = previewId;
             
             if (!foundStoreId && !isExactMainDomain) {
-                // 1. HIGH-PERFORMANCE DIRECT LOOKUP IN STORES_DATA COLLECTION
-                // This bypasses Firebase Auth guest list restriction and quota issues
+                // Resolve storefront domains through the restricted public projection.
+                // The view exposes only storefront-safe settings and never raw stores_data.
                 try {
-                    console.log('[STOREFRONT-LOOKUP] Attempting direct stores_data query for:', host);
-                    
+                    const publicClient = db.getSupabasePublicClient();
+                    if (!publicClient) {
+                        throw new Error('Supabase public client is not configured.');
+                    }
+
+                    const findStoreBySetting = async (setting: string, value: string) => {
+                        const { data, error } = await publicClient
+                            .from('public_storefronts')
+                            .select('id')
+                            .filter(`settings->>${setting}`, 'eq', value)
+                            .limit(1);
+                        if (error) throw error;
+                        return data?.[0]?.id || null;
+                    };
+
                     if (host.endsWith('.abdomedi.com')) {
                         const sub = host.split('.')[0].toLowerCase();
                         if (sub && sub !== 'www' && sub !== 'app' && sub !== 'fallback') {
-                            const qSub = query(collection(firebaseDb, 'stores_data'), where('settings.subdomain', '==', sub));
-                            const subSnap = await getDocs(qSub);
-                            if (!subSnap.empty) {
-                                foundStoreId = subSnap.docs[0].id;
-                                console.log('[STOREFRONT-LOOKUP] Matched store ID via subdomain query:', foundStoreId);
-                            }
-                        }
-                    }
-                    
-                    if (!foundStoreId) {
-                        const qCD = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', hostNoWww));
-                        const cdSnap = await getDocs(qCD);
-                        if (!cdSnap.empty) {
-                            foundStoreId = cdSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customDomain query:', foundStoreId);
+                            foundStoreId = await findStoreBySetting('subdomain', sub);
                         }
                     }
 
                     if (!foundStoreId) {
-                        const qCAD = query(collection(firebaseDb, 'stores_data'), where('settings.customAppDomain', '==', hostNoWww));
-                        const cadSnap = await getDocs(qCAD);
-                        if (!cadSnap.empty) {
-                            foundStoreId = cadSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customAppDomain query:', foundStoreId);
-                        }
+                        foundStoreId = await findStoreBySetting('customDomain', hostNoWww);
                     }
-
+                    if (!foundStoreId) {
+                        foundStoreId = await findStoreBySetting('customAppDomain', hostNoWww);
+                    }
                     if (!foundStoreId && host !== hostNoWww) {
-                        const qCDHost = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', host));
-                        const cdHostSnap = await getDocs(qCDHost);
-                        if (!cdHostSnap.empty) {
-                            foundStoreId = cdHostSnap.docs[0].id;
-                        }
+                        foundStoreId = await findStoreBySetting('customDomain', host);
                     }
                 } catch (lookupErr) {
-                    console.error('[STOREFRONT-LOOKUP] Error in direct stores_data lookup:', lookupErr);
+                    console.error('[STOREFRONT-LOOKUP] Supabase public storefront lookup failed:', lookupErr);
                 }
             }
             
@@ -2074,6 +2014,8 @@ export const AppComponent = () => {
     }, []);
 
     const handleLogout = () => {
+        // Clear any Supabase session as well as the legacy Firebase-backed app session.
+        void import('./services/supabaseAuthService').then(({ signOutFromSupabase }) => signOutFromSupabase()).catch(() => {});
         setCurrentUser(null);
         setActiveStoreId(null);
         setIsEmployeeSession(false);
@@ -2197,40 +2139,10 @@ export const AppComponent = () => {
         setOtpTargetEmail('');
     };
     
-    const syncSupabaseAuth = async (user: User, password?: string, storeId?: string) => {
-        const supabase = getSupabaseClient();
-        if (!supabase || !password) return;
-        const email = user.email || `${user.phone}@mystore-auth.app`;
-        let { data } = await supabase.auth.signInWithPassword({ email, password });
-        if (!data.session) {
-            const signup = await supabase.auth.signUp({
-                email,
-                password,
-                options: { data: { phone: user.phone, full_name: user.fullName } }
-            });
-            data = signup.data;
-            if (signup.error && !signup.error.message.toLowerCase().includes('already')) {
-                console.warn('[SUPABASE AUTH] Could not create shadow session:', signup.error.message);
-                return;
-            }
-            if (!data.session) {
-                const retry = await supabase.auth.signInWithPassword({ email, password });
-                data = retry.data;
-            }
-        }
-        const supabaseUserId = data.user?.id;
-        if (!supabaseUserId) return;
-        const memberships = [
-            ...(user.stores || []).map(store => ({ user_id: supabaseUserId, store_id: store.id, role: user.isAdmin ? 'owner' : 'staff' })),
-            ...(storeId ? [{ user_id: supabaseUserId, store_id: storeId, role: 'staff' }] : [])
-        ];
-        if (memberships.length > 0) {
-            await supabase.from('store_memberships').upsert(memberships, { onConflict: 'user_id,store_id' });
-        }
-    };
+    // Supabase identity linking is intentionally server-controlled. Never create
+    // shadow accounts or grant store memberships from this client callback.
 
     const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null, password?: string) => {
-        void syncSupabaseAuth(user, password, sessionInfo?.storeId);
         setUsers(prev => {
             if (!prev.some(u => u.phone === user.phone)) {
                 return [...prev, user];
@@ -2373,120 +2285,18 @@ export const AppComponent = () => {
         }
 
         const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
-        const firebaseEmail = `${authPhone}@mystore-auth.app`;
-        console.log('[AUTH] Login attempt for phone:', authPhone, isOwnerSession ? '(Owner Mode)' : '(Employee Mode)');
+        const authEmail = `${authPhone}@mystore-auth.app`;
         try {
-             await signInWithEmailAndPassword(auth, firebaseEmail, password);
-             console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
+            await signInWithSupabase(authEmail, password);
         } catch (err: any) {
-             const isUserNotFoundOrInvalid = err?.code === 'auth/user-not-found' || 
-                                            err?.code === 'auth/invalid-credential' || 
-                                            err?.message?.includes('user-not-found') || 
-                                            err?.message?.includes('invalid-credential');
-             if (isUserNotFoundOrInvalid) {
-                  console.log('[MIGRATION] Employee Auth failed. Checking Supabase for custom email or legacy account:', authPhone);
-                  // Search ONLY in Supabase for user
-                  const legacyUser = await db.getUserByPhoneFromSupabase(authPhone);
-                  
-                  if (legacyUser) {
-                      // 1. Check if they have a CUSTOM email
-                      if (legacyUser.email && legacyUser.email !== firebaseEmail) {
-                          console.log('[AUTH] Found custom email for employee in Supabase, trying login with:', legacyUser.email);
-                          try {
-                              await signInWithEmailAndPassword(auth, legacyUser.email, password);
-                              console.log('[AUTH] Firebase Auth custom email login successful for employee:', authPhone);
-                              return; // Success
-                          } catch (secondErr: any) {
-                              console.log('[AUTH] Custom email login failed for employee:', secondErr.code);
-                              // Continue to legacy check
-                          }
-                      }
-
-                      console.log('[MIGRATION] Legacy user found in Supabase. Verifying old password...');
-                      const storedPassword = legacyUser.password;
-                      if (storedPassword === password) {
-                          // Check if old password meets security length requirement (>= 6)
-                          if (password.length < 6) {
-                              console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy employee login:', authPhone);
-                              throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                          }
-                          
-                          // Use real email if available, otherwise generated one
-                          const emailToCreate = legacyUser.email || firebaseEmail;
-                          
-                          const migratedLegacyUser: User = {
-                              ...legacyUser,
-                              migrationStatus: 'migrated',
-                              migratedAt: new Date().toISOString(),
-                              legacyVerified: true
-                          };
-
-                          try {
-                              console.log('[MIGRATION] Creating Firebase Auth account for legacy employee:', authPhone, 'using email:', emailToCreate);
-                              await createUserWithEmailAndPassword(auth, emailToCreate, password);
-                              console.log('[MIGRATION] Creating Firestore user doc for legacy employee:', authPhone);
-                              await db.createUserDoc(migratedLegacyUser);
-                          } catch (createErr: any) {
-                              if (createErr.code === 'auth/email-already-in-use') {
-                                  console.log('[MIGRATION] Firebase Auth account already exists for legacy employee, attempting sign-in...');
-                                  try {
-                                      // Try signing in with BOTH potential emails
-                                      try {
-                                          await signInWithEmailAndPassword(auth, emailToCreate, password);
-                                      } catch (signInErr: any) {
-                                          if (emailToCreate !== firebaseEmail) {
-                                              await signInWithEmailAndPassword(auth, firebaseEmail, password);
-                                          } else {
-                                              throw signInErr;
-                                          }
-                                      }
-                                      // If sign-in succeeds now, ensure Firestore doc exists
-                                      console.log('[MIGRATION] Sign-in successful for existing account, checking Firestore doc...');
-                                      const existingFsUser = await db.getUserByPhone(authPhone);
-                                      if (!existingFsUser) {
-                                          await db.createUserDoc(migratedLegacyUser);
-                                      }
-                                  } catch (signInErr: any) {
-                                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                                          console.warn('[MIGRATION] Existing account found but password mismatch for legacy employee:', authPhone);
-                                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                                      }
-                                      console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
-                                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                                  }
-                              } else {
-                                  console.error('[MIGRATION] On-the-fly signup failed for legacy employee:', createErr);
-                                  if (createErr.code === 'auth/weak-password') {
-                                      throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                                  }
-                                  throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                              }
-                          }
-                      } else {
-                          console.log('[MIGRATION] Legacy password mismatch for employee:', authPhone);
-                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                      }
-                  } else {
-                      console.log('[MIGRATION] Legacy user not found in Supabase for employee:', authPhone);
-                      const fsUser = await db.getUserByPhone(authPhone);
-                      if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
-                          console.log('[AUTH] Employee password verified from Firestore record:', authPhone);
-                      } else {
-                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                      }
-                  }
-             } else {
-                  if (err.code === 'auth/network-request-failed') {
-                      throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-                  }
-                  console.error('[AUTH] Employee login Firebase Auth failure:', err);
-                  const fsUser = await db.getUserByPhone(authPhone);
-                  if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
-                      console.log('[AUTH] Employee password verified from Firestore record (post-reset):', authPhone);
-                  } else {
-                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                  }
-             }
+            if (err?.code === 'fetch_error' || /network/i.test(String(err?.message || ''))) {
+                throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+            }
+            if (['invalid_credentials','user_not_found','invalid_email'].includes(String(err?.code || '')) || /invalid login credentials/i.test(String(err?.message || ''))) {
+                throw new Error("بيانات الدخول غير صحيحة أو الحساب لم يتم تفعيله بعد. استخدم استعادة كلمة المرور أو تواصل مع مدير المتجر لإعادة تفعيل الحساب.");
+            }
+            console.error('[AUTH] Employee login failed:', err);
+            throw new Error("تعذر تسجيل الدخول حاليًا. حاول مرة أخرى أو تواصل مع الدعم.");
         }
 
         const targetUser = (isOwnerSession && recognizedOwnerUser) ? recognizedOwnerUser : await db.getUserByPhone(authPhone);
@@ -2495,7 +2305,6 @@ export const AppComponent = () => {
         }
 
         if (isOwnerSession) {
-            console.log('[AUTH] Owner recognized on portal. Starting full Owner session for:', targetUser.fullName);
             startOtpFlow(targetUser, null, password);
         } else {
             startOtpFlow(targetUser, { isEmployee: true, storeId: storeId }, password);
@@ -2504,66 +2313,64 @@ export const AppComponent = () => {
 
     const handleEmployeeRegisterRequest = async (data: EmployeeRegisterRequestData) => {
         const { fullName, phone, password, storeId, email } = data;
-        
-        let storeData = allStoresData[storeId];
-        if (!storeData) {
-            const data = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
-            if (data) {
-                const sanitizedData = sanitizeData(data);
-                setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedData }));
-                storeData = sanitizedData;
-            } else {
-                 throw new Error("لا يمكن تحميل بيانات المتجر.");
-            }
-        }
-        if (storeData.settings.employees.some(e => e.id === phone)) {
-            throw new Error("لديك بالفعل طلب انضمام معلق أو أنت موظف في هذا المتجر.");
-        }
+        const normalizedPhone = phone.trim();
+        const normalizedEmail = email.trim().toLowerCase();
 
-        const firebaseEmail = `${phone.trim()}@mystore-auth.app`;
+        const storeData = allStoresData[storeId] || await db.getStoreData(storeId, true) as StoreData | null;
+        if (!storeData) throw new Error("كود المتجر غير صحيح أو لا يمكن تحميل بياناته.");
+
+        // Register the applicant's Supabase identity first; the server validates
+        // that the request is submitted by that same authenticated phone.
+        let authUser;
         try {
-            const userCred = await createUserWithEmailAndPassword(auth, firebaseEmail, password);
-            if (!userCred.user) {
-                throw new Error("فشل إنشاء حساب المصادقة.");
-            }
+            authUser = await signUpWithSupabase({
+                email: `${normalizedPhone}@mystore-auth.app`,
+                password,
+                displayName: fullName,
+                phone: normalizedPhone
+            });
         } catch (err: any) {
-            if (err.code === 'auth/email-already-in-use') {
+            if (['user_already_exists', 'email_exists'].includes(String(err?.code || '')) || /already registered/i.test(String(err?.message || ''))) {
                 throw new Error("هذا الرقم مسجل بالفعل في نظام المصادقة.");
             }
-            throw new Error("حدث خطأ أثناء التسجيل.");
+            throw new Error(err?.message || "حدث خطأ أثناء إنشاء حساب الموظف.");
+        }
+        if (!authUser) throw new Error("فشل إنشاء حساب المصادقة.");
+
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("إعدادات Supabase غير متاحة.");
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !sessionData.session) {
+            throw new Error("الحساب اتعمل لكن جلسة التسجيل غير متاحة. راجع إعداد تأكيد البريد في Supabase Auth قبل إرسال طلب الانضمام.");
         }
 
-        const newUser: User = { fullName, phone, email, joinDate: new Date().toISOString() };
-        const success = await db.createUserDoc(newUser);
-        if (!success) {
-            throw new Error("فشل إنشاء حساب الموظف في قاعدة البيانات.");
+        const newUser: User = { fullName, phone: normalizedPhone, email: normalizedEmail, joinDate: new Date().toISOString() };
+        const { data: requestResult, error: requestError } = await supabase.functions.invoke('store-manage-employee', {
+            body: {
+                action: 'submit_request',
+                storeId,
+                fullName,
+                phone: normalizedPhone,
+                email: normalizedEmail
+            }
+        });
+        if (requestError || !requestResult?.success) {
+            const serverMessage = requestResult?.error || (requestError as any)?.message;
+            throw new Error(serverMessage || "تعذر حفظ طلب الانضمام.");
         }
-        setUsers(prev => [...prev, newUser]);
 
-        const newEmployee: Employee = { id: phone, name: fullName, email, permissions: [], status: 'pending' };
-        
+        setUsers(prev => [...prev.filter(user => user.phone !== normalizedPhone), newUser]);
         const updatedStoreData: StoreData = {
             ...storeData,
             settings: {
                 ...storeData.settings,
-                employees: [...storeData.settings.employees, newEmployee]
+                employees: [
+                    ...(storeData.settings.employees || []).filter(employee => employee.phone !== normalizedPhone && employee.id !== normalizedPhone),
+                    { id: normalizedPhone, phone: normalizedPhone, name: fullName, email: normalizedEmail, permissions: [], status: 'pending' }
+                ]
             }
         };
-
-        setAllStoresData(p => ({
-            ...p, 
-            [storeId]: updatedStoreData
-        }));
-
-        await db.saveStoreData({
-            id: storeId,
-            name: (storeData.settings as any).storeName || storeId,
-            specialization: '',
-            language: 'ar',
-            currency: 'EGP',
-            url: '',
-            creationDate: new Date().toISOString()
-        }, updatedStoreData);
+        setAllStoresData(prev => ({ ...prev, [storeId]: updatedStoreData }));
     };
 
     const handleStoreCreated = (newStore: Store, initialCustomization?: any, initialSettingsOverride?: any) => {

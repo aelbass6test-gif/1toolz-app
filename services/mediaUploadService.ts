@@ -1,4 +1,4 @@
-import { auth } from './firebaseClient';
+import { getSupabaseClient } from './databaseService';
 
 export interface ProductImageUploadResult {
   key: string;
@@ -123,10 +123,11 @@ export async function uploadProductImages(
     form.append('files', file, file.name);
   }
 
-  await auth.authStateReady();
-  const firebaseUser = auth.currentUser;
-  const accessToken = await firebaseUser?.getIdToken();
-  if (!accessToken) throw new Error('يجب تسجيل الدخول قبل رفع الصور');
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) throw new Error('يجب تسجيل الدخول بحساب Supabase قبل رفع الصور.');
+  const accessToken = session.access_token;
   const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
 
   const primaryUrl = `${mediaApiBase()}/api/media/product-images`;
@@ -189,13 +190,14 @@ export async function deleteProductImages(imageUrlsOrKeys: string[]): Promise<bo
 
   if (!keys.length) return false;
 
-  await auth.authStateReady();
-  const firebaseUser = auth.currentUser;
-  const accessToken = await firebaseUser?.getIdToken().catch(() => null);
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) throw new Error('يجب تسجيل الدخول بحساب Supabase قبل حذف الصور.');
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+    Authorization: `Bearer ${session.access_token}`
   };
 
   const payload = JSON.stringify({ keys, urls: imageUrlsOrKeys });

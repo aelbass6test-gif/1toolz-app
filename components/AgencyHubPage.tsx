@@ -73,9 +73,11 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     if (!activeStoreId) return;
     try {
       setRequestsLoading(true);
-      const reqs = await db.getMerchantRequests(activeStoreId);
+      const reqs = await db.getMerchantRequests(activeStoreId, { forceAdmin: true });
       setCloudRequests(reqs);
-    } catch (_) {
+    } catch (err) {
+      console.error('[AGENCY-HUB] Failed to load merchant withdrawal requests:', err);
+      setCloudRequests([]);
     } finally {
       setRequestsLoading(false);
     }
@@ -83,9 +85,16 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
 
   useEffect(() => {
     loadRequests();
-    const interval = setInterval(loadRequests, 20000);
-    return () => clearInterval(interval);
-  }, [loadRequests]);
+    const interval = setInterval(loadRequests, 10000);
+    const unsubscribe = db.subscribeToStoreRealtimeOptimized(activeStoreId, {
+      tables: ['merchant_requests'],
+      onUpdate: () => { void loadRequests(); }
+    });
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
+  }, [activeStoreId, loadRequests]);
 
   const suppliersList: Supplier[] = useMemo(() => {
     const suppliers = Array.isArray(settings.suppliers) ? settings.suppliers : Object.values(settings.suppliers || {});
@@ -131,7 +140,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       }
     });
 
-    const pendingRequests = cloudRequests.filter(r => r.status === 'pending');
+    const pendingRequests = cloudRequests.filter(r => r.status === 'pending' || r.status === 'processing');
     const pendingWithdrawalsAmount = pendingRequests
       .filter(r => r.type === 'withdrawal' || !r.type)
       .reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -219,8 +228,15 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     const merchantId = req.partnerId;
     const normName = (req.partnerName || '').trim();
 
+    let requestClaimed = false;
     try {
       setIsApproving(true);
+
+      // Claim the pending request atomically before touching any balance.
+      // A second manager attempting the same payout receives a conflict.
+      const claimed = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'processing');
+      if (!claimed) throw new Error('طلب السحب قيد المعالجة بالفعل أو تمت مراجعته من مدير آخر.');
+      requestClaimed = true;
 
       // Find supplier and calculate transfer fee
       const supplier = suppliersList.find(s => s.id === merchantId || (normName && s.name.trim() === normName));
@@ -241,38 +257,6 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         }
       }
       const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
-
-      // 1. Update request status in database
-      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
-        approvedBy: currentUser?.name || 'المدير المالي',
-        approvedAt: new Date().toISOString()
-      });
-
-      // 2. Deduct net disbursed from treasury if account selected
-      if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
-        const acc = (treasury.accounts || []).find(a => a.id === selectedTreasuryAccountId);
-        if (acc) {
-          const updatedAccounts = (treasury.accounts || []).map(a => 
-            a.id === selectedTreasuryAccountId ? { ...a, balance: (a.balance || 0) - netDisbursed } : a
-          );
-          const newTx = {
-            id: `tx-payout-${Date.now()}`,
-            date: new Date().toISOString(),
-            type: 'withdrawal' as const,
-            amount: netDisbursed,
-            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المطلوب: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المنصرف: ${netDisbursed} ج.م]` : ''}`,
-            fromAccountId: selectedTreasuryAccountId,
-            reference: req.id,
-            orderId: req.id
-          };
-          const updatedTreasury: Treasury = {
-            ...treasury,
-            accounts: updatedAccounts,
-            transactions: [newTx, ...(treasury.transactions || [])]
-          };
-          setTreasury(updatedTreasury);
-        }
-      }
 
       // 3. Deduct from merchant balance in settings.suppliers & settings.partners
       const updatedSuppliers = suppliersList.map(s => {
@@ -326,9 +310,47 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         return p;
       });
 
-      if (activeStoreId) {
-        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+      const settingsSaved = await db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers);
+      if (!settingsSaved.success) {
+        throw new Error(settingsSaved.error || 'تعذر حفظ رصيد الموكل بعد الصرف');
       }
+
+      const requestApproved = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
+        approvedBy: currentUser?.name || 'المدير المالي',
+        approvedAt: new Date().toISOString()
+      });
+      if (!requestApproved) {
+        await db.updatePartnerSettings(activeStoreId, settings.partners || [], settings.suppliers || []);
+        throw new Error('لم يتم اعتماد الطلب في قاعدة البيانات؛ تمت استعادة رصيد الموكل.');
+      }
+      requestClaimed = false;
+
+      // Deduct net disbursed from treasury after the request and merchant balance are saved
+      if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
+        const acc = (treasury.accounts || []).find(a => a.id === selectedTreasuryAccountId);
+        if (acc) {
+          const updatedAccounts = (treasury.accounts || []).map(a => 
+            a.id === selectedTreasuryAccountId ? { ...a, balance: (a.balance || 0) - netDisbursed } : a
+          );
+          const newTx = {
+            id: `tx-payout-${Date.now()}`,
+            date: new Date().toISOString(),
+            type: 'withdrawal' as const,
+            amount: netDisbursed,
+            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المطلوب: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المنصرف: ${netDisbursed} ج.م]` : ''}`,
+            fromAccountId: selectedTreasuryAccountId,
+            reference: req.id,
+            orderId: req.id
+          };
+          const updatedTreasury: Treasury = {
+            ...treasury,
+            accounts: updatedAccounts,
+            transactions: [newTx, ...(treasury.transactions || [])]
+          };
+          setTreasury(updatedTreasury);
+        }
+      }
+
 
       updateSettings(prev => ({
         ...prev,
@@ -340,6 +362,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       setSelectedRequestForApproval(null);
       loadRequests();
     } catch (err: any) {
+      if (requestClaimed) {
+        await db.updateMerchantRequestStatus(req.id, activeStoreId, 'pending').catch(() => false);
+      }
       inAppToast('تعذر اعتماد الصرف: ' + (err.message || ''), 'error');
     } finally {
       setIsApproving(false);
@@ -358,8 +383,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     if (!confirmed) return;
 
     try {
-      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'rejected');
-      inAppToast('تم رفض طلب السحب.', 'info');
+      const rejected = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'rejected');
+      if (!rejected) throw new Error('تعذر تسجيل رفض الطلب في قاعدة البيانات.');
+      inAppToast('تم رفض طلب السحب وفك حجز المبلغ.', 'info');
       loadRequests();
     } catch (err: any) {
       inAppToast('تعذر تحديث الطلب: ' + (err.message || ''), 'error');
@@ -370,6 +396,10 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
 
   const filteredRequests = useMemo(() => {
     if (requestFilter === 'all') return cloudRequests;
+    if (requestFilter === 'pending') {
+      // Claimed requests are still awaiting payout and must remain visible in the pending queue.
+      return cloudRequests.filter(r => r.status === 'pending' || r.status === 'processing');
+    }
     return cloudRequests.filter(r => r.status === requestFilter);
   }, [cloudRequests, requestFilter]);
 

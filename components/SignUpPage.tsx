@@ -6,9 +6,8 @@ import {
   Send, RefreshCw, AlertCircle
 } from 'lucide-react';
 import { User } from '../types';
-import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase } from '../services/databaseService';
-import { auth } from '../services/firebaseClient';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase } from '../services/databaseService';
+import { signInWithSupabase, signUpWithSupabase } from '../services/supabaseAuthService';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { verifyPasswordSecure } from '../utils/syncIntegrity';
 import { motion } from 'framer-motion';
@@ -150,30 +149,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     }
   };
 
-  const handleDirectAdminLogin = async () => {
-    setIsLoading(true);
-    setUserError('');
-    try {
-      let adminUser = await getUserByPhone('010010010');
-      if (!adminUser || !adminUser.isAdmin) {
-        adminUser = await getUserByPhone('admin');
-      }
-      if (!adminUser) {
-        adminUser = {
-          fullName: 'abdoooo (المدير العام)',
-          phone: '010010010',
-          email: 'aelbass6test@gmail.com',
-          isAdmin: true,
-          stores: []
-        };
-      }
-      adminUser.isAdmin = true;
-      onPasswordSuccess(adminUser);
-    } catch (e: any) {
-      setUserError('حدث خطأ أثناء الدخول كمسؤول: ' + (e?.message || ''));
-      setIsLoading(false);
-    }
-  };
 
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,31 +157,18 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
 
     const trimmedPhone = userPhone.trim();
 
-    // Direct access for authorized admin usernames/phones
-    if (isLoginView && (trimmedPhone === 'admin' || trimmedPhone === '010010010' || trimmedPhone === '01000000000')) {
-      try {
-        let adminUser = await getUserByPhone(trimmedPhone);
-        if (adminUser && adminUser.isAdmin) {
-          onPasswordSuccess(adminUser, userPassword);
-          return;
-        }
-      } catch (err) {
-        console.warn('Admin fast-track lookup failed:', err);
-      }
-    }
-
-    const firebaseEmail = `${trimmedPhone}@mystore-auth.app`;
+    const authEmail = `${trimmedPhone}@mystore-auth.app`;
 
     if (isLoginView) {
       try {
-        await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
+        await signInWithSupabase(authEmail, userPassword);
         let foundUser = await getUserByPhone(trimmedPhone);
         if (!foundUser) {
           // Reconstruct user gracefully from auth session if Firestore quota was exhausted
           foundUser = {
             fullName: 'التاجر العزيز',
             phone: trimmedPhone,
-            email: auth.currentUser?.email || `${trimmedPhone}@mystore-auth.app`,
+            email: `${trimmedPhone}@mystore-auth.app`,
             stores: [{ 
               id: `store_${trimmedPhone}`, 
               name: 'متجري الذكي',
@@ -217,7 +179,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               creationDate: new Date().toISOString()
             }],
             sites: [],
-            isAdmin: trimmedPhone === '010010010' || trimmedPhone === '01000000000' || trimmedPhone === 'admin',
+            isAdmin: false,
             isBanned: false,
             joinDate: new Date().toISOString()
           };
@@ -233,33 +195,22 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           return;
         }
       } catch (err: any) {
-        if (err.code === 'auth/network-request-failed') {
+        if (err?.code === 'fetch_error' || /network/i.test(String(err?.message || ''))) {
           setUserError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
           setIsLoading(false);
           return;
         }
-        const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
-                                       err.code === 'auth/invalid-credential' || 
-                                       err?.message?.includes('user-not-found') || 
-                                       err?.message?.includes('invalid-credential');
+        const isUserNotFoundOrInvalid = ['invalid_credentials','user_not_found','invalid_email'].includes(String(err?.code || '')) || /invalid login credentials/i.test(String(err?.message || ''));
         if (isUserNotFoundOrInvalid) {
           try {
             // Check if user exists in Firestore
             const firestoreUser = await getUserByPhone(userPhone.trim());
             if (firestoreUser) {
-              // Create or link Firebase Authentication credentials directly without browser hash checking
-              try {
-                await createUserWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                onPasswordSuccess(firestoreUser, userPassword);
-                return;
-              } catch (createErr: any) {
-                if (createErr.code === 'auth/email-already-in-use') {
-                  // Password was incorrect for existing Firebase Auth account
-                  setUserError("كلمة المرور غير صحيحة. يرجى التأكد أو استخدام خيار استعادة كلمة المرور.");
-                  setIsLoading(false);
-                  return;
-                }
-              }
+              // A legacy profile alone is not proof of account ownership.
+              // Never create credentials from an unauthenticated login attempt.
+              setUserError('الحساب موجود، لكن يلزم استعادة كلمة المرور أو التحقق من ملكية الحساب قبل تفعيل الدخول.');
+              setIsLoading(false);
+              return;
             }
 
             const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
@@ -267,7 +218,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             // 1. Check if they have a CUSTOM email in Supabase (meaning they updated it in settings)
             if (legacyUser && legacyUser.email && legacyUser.email !== `${userPhone.trim()}@mystore-auth.app`) {
               try {
-                await signInWithEmailAndPassword(auth, legacyUser.email, userPassword);
+                await signInWithSupabase(legacyUser.email, userPassword);
                 const foundUser = await getUserByPhone(userPhone.trim());
                 if (foundUser) {
                   onPasswordSuccess(foundUser, userPassword);
@@ -277,65 +228,10 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               }
             }
             
-            // 2. Original Migration Logic (Legacy users)
-            if (legacyUser) {
-              const storedPassword = legacyUser.password;
-              if (storedPassword === userPassword) {
-                if (userPassword.length < 6) {
-                  setUserError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                  setIsLoading(false);
-                  return;
-                }
-                
-                // Use real email if available, otherwise generated one
-                const emailToCreate = legacyUser.email || firebaseEmail;
-
-                const migratedUser: User = {
-                  ...legacyUser,
-                  migrationStatus: 'migrated',
-                  migratedAt: new Date().toISOString(),
-                  legacyVerified: true
-                };
-
-                try {
-                  await createUserWithEmailAndPassword(auth, emailToCreate, userPassword);
-                  await createUserDoc(migratedUser);
-                  onPasswordSuccess(migratedUser, userPassword);
-                } catch (createErr: any) {
-                  if (createErr.code === 'auth/email-already-in-use') {
-                    try {
-                      // Try signing in with BOTH potential emails
-                      try {
-                        await signInWithEmailAndPassword(auth, emailToCreate, userPassword);
-                      } catch (signInErr: any) {
-                        if (emailToCreate !== firebaseEmail) {
-                          await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                        } else {
-                          throw signInErr;
-                        }
-                      }
-                      
-                      const existingFsUser = await getUserByPhone(userPhone.trim());
-                      if (!existingFsUser) {
-                        await createUserDoc(migratedUser);
-                      }
-                      onPasswordSuccess(migratedUser, userPassword);
-                    } catch (signInErr: any) {
-                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
-                      } else {
-                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
-                      }
-                      setIsLoading(false);
-                    }
-                  } else {
-                    setUserError('فشل إنشاء حساب المصادقة.');
-                    setIsLoading(false);
-                  }
-                }
-                return;
-              }
-            }
+            // Legacy password records are no longer accepted for automatic account migration.
+            setUserError('يلزم إعادة تعيين كلمة المرور أو إنشاء بيانات دخول جديدة قبل نقل الحساب إلى نظام الدخول الجديد.');
+            setIsLoading(false);
+            return;
           } catch (migrationErr) {
           }
         }
@@ -369,24 +265,20 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       }
       
       try {
-        const emailToUse = firebaseEmail;
-        await createUserWithEmailAndPassword(auth, emailToUse, userPassword);
+        const emailToUse = authEmail;
+        await signUpWithSupabase({ email: emailToUse, password: userPassword, displayName: fullName.trim(), phone: userPhone.trim() });
         
         const newUser: User = { 
           fullName: fullName.trim(), 
           phone: userPhone.trim(), 
           email: userEmail.trim(), 
-          password: userPassword,
           stores: [],
           joinDate: new Date().toISOString() 
         };
         const success = await createUserDoc(newUser);
         if (success) {
-          try {
-            await updateUserInSupabase(newUser);
-          } catch (e) {
-          }
-          
+          // createUserDoc persists the profile to the configured data stores.
+          // Do not perform a second independent Supabase profile upsert here.
           setUsers(prevUsers => [...prevUsers, newUser]);
           setIsLoading(false);
           
@@ -400,7 +292,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           setIsLoading(false);
         }
       } catch (err: any) {
-        if (err.code === 'auth/email-already-in-use') {
+        if (['user_already_exists','email_exists'].includes(String(err?.code || '')) || /already registered/i.test(String(err?.message || ''))) {
            setUserError('هذا الرقم مسجل بالفعل في النظام. يرجى تسجيل الدخول أو استعادة كلمة المرور.');
         } else {
            setUserError('حدث خطأ أثناء إنشاء الحساب. يرجى المحاولة لاحقاً: ' + (err?.message || ''));
@@ -447,9 +339,9 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         return;
       }
       
-      await handleCustomPasswordReset(userEmailToUse);
+      const resetEmailSent = await handleCustomPasswordReset(userEmailToUse);
       
-      if (!authActionsError) {
+      if (resetEmailSent) {
         setSentToEmail(userEmailToUse);
         setResetSuccess(true);
         
@@ -485,15 +377,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             <span><strong className="block text-lg font-black tracking-tight">عبده ميديا برايم</strong><span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • منظومة التجارة والتسويق</span></span>
           </Link>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleDirectAdminLogin}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 text-xs font-black shadow-md shadow-purple-600/20 transition active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              <ShieldCheck size={16} />
-              دخول لوحة الإدارة (Admin)
-            </button>
             <Link to="/employee-login" className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-white hover:text-emerald-700">دخول الموظفين</Link>
           </div>
         </header>
@@ -833,17 +716,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       )}
                     </button>
 
-                    {isLoginView && (
-                      <button
-                        type="button"
-                        onClick={handleDirectAdminLogin}
-                        disabled={isLoading}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 py-3 font-black text-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
-                      >
-                        <ShieldCheck size={16} className="text-purple-600" />
-                        الدخول المباشر كمسؤول النظام (Admin Portal)
-                      </button>
-                    )}
                   </form>
 
                   <p className="mt-6 text-center text-xs sm:text-sm text-slate-500">

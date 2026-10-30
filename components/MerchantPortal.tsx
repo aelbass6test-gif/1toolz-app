@@ -514,6 +514,38 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     };
   }, [authenticatedMerchant, merchants, effectiveStoreId]);
 
+  // Load this merchant's own withdrawal history through the passcode-verified endpoint.
+  useEffect(() => {
+    if (!liveMerchant?.id || !liveMerchant?.passcode || !effectiveStoreId) return;
+    let active = true;
+    db.getMerchantRequests(effectiveStoreId, {
+      merchantId: String(liveMerchant.id),
+      passcode: String(liveMerchant.passcode)
+    }).then(requests => {
+      if (active) setMerchantRequestsList(requests);
+    }).catch(err => console.warn('[MerchantPortal] Withdrawal history refresh failed:', err));
+    return () => { active = false; };
+  }, [liveMerchant?.id, liveMerchant?.passcode, effectiveStoreId]);
+
+  // Keep the merchant's reserved-withdrawal balance synchronized when the manager
+  // approves/rejects a request from the agency dashboard.
+  useEffect(() => {
+    if (!liveMerchant?.id || !liveMerchant?.passcode || !effectiveStoreId) return;
+    const refreshRequests = () => {
+      void db.getMerchantRequests(effectiveStoreId, {
+        merchantId: String(liveMerchant.id),
+        passcode: String(liveMerchant.passcode)
+      }).then(setMerchantRequestsList).catch(err =>
+        console.warn('[MerchantPortal] Realtime withdrawal refresh failed:', err)
+      );
+    };
+    const unsubscribe = db.subscribeToStoreRealtimeOptimized(effectiveStoreId, {
+      tables: ['merchant_requests'],
+      onUpdate: refreshRequests
+    });
+    return unsubscribe;
+  }, [liveMerchant?.id, liveMerchant?.passcode, effectiveStoreId]);
+
   // A portal URL identifies one merchant. Never keep showing a previous browser session
   // when the URL points to another merchant or store.
   useEffect(() => {
@@ -3004,7 +3036,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Sum of pending withdrawal requests (held from wallet)
   const pendingRequestsSum = useMemo(() => {
     return merchantFilteredRequests
-      .filter(r => r.status === 'pending' && (!r.type || r.type === 'withdrawal'))
+      .filter(r => (r.status === 'pending' || r.status === 'processing') && (!r.type || r.type === 'withdrawal'))
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   }, [merchantFilteredRequests]);
 
@@ -3241,7 +3273,14 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Cancel a pending withdrawal request (releases reserved funds immediately)
   const handleCancelPendingWithdrawal = async (reqId: string) => {
     try {
-      await db.updateMerchantRequestStatus(reqId, effectiveStoreId, 'rejected');
+      const cancelled = await db.updateMerchantRequestStatus(
+        reqId,
+        effectiveStoreId,
+        'rejected',
+        undefined,
+        { merchantId: String(liveMerchant?.id || ''), passcode: String(liveMerchant?.passcode || '') }
+      );
+      if (!cancelled) throw new Error('تعذر إلغاء الطلب؛ ربما تمت مراجعته بالفعل.');
       setMerchantRequestsList(prev => prev.map(r => r.id === reqId ? { ...r, status: 'rejected' } : r));
       showToast('تم إلغاء طلب السحب المعلق وفك حجز المبلغ بنجاح', 'success');
     } catch (err: any) {
@@ -3929,8 +3968,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         transferFee?: number;
         netAmount?: number;
         payoutFrequency?: 'daily' | 'weekly';
+        merchantPasscode?: string;
       } = {
         id: `REQ-M-${generateUniqueOrderId('m')}`,
+        merchantPasscode: String(liveMerchant.passcode || ''),
         storeId: effectiveStoreId,
         partnerId: liveMerchant.id,
         partnerName: liveMerchant.name,
@@ -3947,8 +3988,11 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         isMerchantRequest: true
       };
 
-      await db.submitMerchantRequest(effectiveStoreId, newReq as any);
-      setMerchantRequestsList(prev => [newReq as any, ...prev]);
+      const submitResult = await db.submitMerchantRequest(effectiveStoreId, newReq as any);
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'تعذر حفظ طلب السحب في قاعدة البيانات');
+      }
+      setMerchantRequestsList(prev => [((submitResult as any).request || newReq) as any, ...prev]);
       setShowRequestModal(false);
       setRequestAmount('');
       setRequestNotes('');

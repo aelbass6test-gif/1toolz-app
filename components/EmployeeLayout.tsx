@@ -37,9 +37,7 @@ import {
 } from 'lucide-react';
 import FloatingChat, { FloatingChatHandles } from './FloatingChat';
 import IosInstallPrompt from './IosInstallPrompt';
-import { db } from '../services/firebaseClient';
-import { doc, setDoc, deleteDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
-import { isSupabaseActive } from '../services/databaseService';
+import { getSupabaseClient } from '../services/databaseService';
 
 interface EmployeeLayoutProps {
     currentUser: User | null;
@@ -223,50 +221,71 @@ export const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({
     const canManageOrders = Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('ORDERS_MANAGE') || currentUser?.permissions?.includes('ORDERS_VIEW'));
     const canUsePOS = Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('POS_VIEW') || currentUser?.permissions?.includes('POS_MANAGE'));
 
-    // Presence Sync in Firestore
+    // Presence is stored and broadcast through Supabase; no Firebase dependency.
     useEffect(() => {
-        if (!currentUser || !activeStoreId || isSupabaseActive()) return;
+        if (!currentUser?.phone || !activeStoreId) {
+            setOnlineUsers({});
+            return;
+        }
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            setOnlineUsers({});
+            return;
+        }
 
-        const presenceDocRef = doc(db, 'presence', `${activeStoreId}_${currentUser.phone}`);
-
-        const updateStatus = async () => {
-            try {
-                await setDoc(presenceDocRef, {
-                    userId: currentUser.phone,
-                    userName: currentUser.fullName,
-                    storeId: activeStoreId,
-                    shiftStatus: shiftStatus,
-                    lastSeen: Date.now()
-                }, { merge: true });
-            } catch (err) {
-                console.warn('Failed to update presence status:', err);
+        let disposed = false;
+        const userId = String(currentUser.phone);
+        const refreshPresence = async () => {
+            const { data, error } = await supabase
+                .from('presence')
+                .select('user_id,last_seen')
+                .eq('store_id', activeStoreId);
+            if (error) {
+                console.warn('[EmployeeLayout] Supabase presence read notice:', error.message);
+                return;
             }
-        };
-
-        updateStatus();
-        const interval = setInterval(updateStatus, 120000); // every 2 mins
-
-        const q = query(collection(db, 'presence'), where('storeId', '==', activeStoreId));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const usersMap: Record<string, { lastSeen: number }> = {};
+            if (disposed) return;
             const now = Date.now();
-            snapshot.docs.forEach(docSnap => {
-                const data = docSnap.data();
-                if (data.lastSeen && (now - data.lastSeen) < 300000) {
-                    usersMap[data.userId] = { lastSeen: data.lastSeen };
+            const usersMap: Record<string, { lastSeen: number }> = {};
+            (data || []).forEach((row: any) => {
+                const lastSeen = row.last_seen ? new Date(row.last_seen).getTime() : 0;
+                if (row.user_id && lastSeen > 0 && now - lastSeen < 300000) {
+                    usersMap[String(row.user_id)] = { lastSeen };
                 }
             });
             setOnlineUsers(usersMap);
-        }, (error) => {
-            console.warn('[EmployeeLayout] Presence listener notice:', error?.message);
-        });
+        };
+
+        const updateStatus = async () => {
+            const { error } = await supabase.from('presence').upsert({
+                store_id: activeStoreId,
+                user_id: userId,
+                user_name: currentUser.fullName || userId,
+                shift_status: shiftStatus,
+                last_seen: new Date().toISOString()
+            }, { onConflict: 'store_id,user_id' });
+            if (error) console.warn('[EmployeeLayout] Supabase presence update notice:', error.message);
+        };
+
+        void updateStatus();
+        void refreshPresence();
+        const interval = setInterval(() => { void updateStatus(); }, 120000);
+        const channel = supabase.channel(`presence-${activeStoreId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'presence',
+                filter: `store_id=eq.${activeStoreId}`
+            }, () => { void refreshPresence(); })
+            .subscribe();
 
         return () => {
+            disposed = true;
             clearInterval(interval);
-            unsubscribe();
-            deleteDoc(presenceDocRef).catch(() => {});
+            void supabase.removeChannel(channel);
+            void supabase.from('presence').delete().eq('store_id', activeStoreId).eq('user_id', userId);
         };
-    }, [currentUser, activeStoreId, shiftStatus]);
+    }, [currentUser?.phone, currentUser?.fullName, activeStoreId, shiftStatus]);
 
     // Active Stores where employee has access
     const employeeStores = useMemo(() => {

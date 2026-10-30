@@ -7,8 +7,7 @@ import { getLatestProductCost, calculateInsuranceFee, getStandardShippingFee, ca
 import { OrderPreConfirmationModal } from './OrderPreConfirmationModal';
 import { OrderConfirmationSummary } from './OrderConfirmationSummary';
 import { triggerWebhooks } from '../utils/webhook';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc } from 'firebase/firestore';
+import { getSupabaseClient } from '../services/databaseService';
 import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
 
@@ -226,7 +225,7 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
         setOrderToConfirm(orderToAdd);
     };
 
-    const handleConfirmAddOrder = () => {
+    const handleConfirmAddOrder = async () => {
         if (!orderToConfirm) return;
         const orderToAdd = orderToConfirm;
         
@@ -615,8 +614,32 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
                 laborCost: 0
             };
 
-            addDoc(collection(db, 'maintenance_requests'), maintenanceRequest)
-                .catch(err => console.error("Error creating linked maintenance request:", err));
+            const supabase = getSupabaseClient();
+            if (!supabase) {
+                console.error('[MAINTENANCE] Supabase client is unavailable; linked request was not saved.');
+            } else {
+                const { error } = await supabase.from('maintenance_requests').insert({
+                    store_id: maintenanceRequest.storeId,
+                    order_number: maintenanceRequest.orderNumber,
+                    customer_name: maintenanceRequest.customerName,
+                    customer_phone: maintenanceRequest.customerPhone,
+                    customer_address: maintenanceRequest.customerAddress,
+                    governorate: maintenanceRequest.governorate,
+                    city: maintenanceRequest.city,
+                    item_description: maintenanceRequest.itemDescription,
+                    item_serial: maintenanceRequest.itemSerial,
+                    item_value: maintenanceRequest.itemValue,
+                    initial_problem_description: maintenanceRequest.initialProblemDescription,
+                    status: maintenanceRequest.status,
+                    priority: maintenanceRequest.priority,
+                    received_date: maintenanceRequest.receivedDate,
+                    total_cost: maintenanceRequest.totalCost,
+                    internal_notes: maintenanceRequest.internalNotes,
+                    parts: maintenanceRequest.parts,
+                    labor_cost: maintenanceRequest.laborCost
+                });
+                if (error) console.error('[MAINTENANCE] Failed to save linked request:', error);
+            }
         }
         // ----------------------------------
 
