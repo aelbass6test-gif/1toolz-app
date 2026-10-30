@@ -68,7 +68,7 @@ create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
 set search_path = ''
-as $
+as $$
 begin
   new.updated_at = now();
   return new;
@@ -96,7 +96,7 @@ as $$
       and m.user_id = p_user_id
       and p_user_id = (select auth.uid())
   );
-$;
+$$;
 
 create or replace function public.is_store_owner(p_store_id text)
 returns boolean
