@@ -164,11 +164,12 @@ The following changes are committed on `migration/firebase-to-supabase` and the 
 
 - Owner sign-in and owner registration in `components/SignUpPage.tsx` now call Supabase Auth.
 - Employee sign-in and employee registration in `App.tsx` now call Supabase Auth.
-- Password-authentication imports were removed from the app shell and owner sign-in page. Firestore remains in use for non-auth application domains.
+- Password-authentication imports were removed from the app shell and owner sign-in page. Employee password reset in `server.ts` now uses Supabase Auth Admin API and no longer calls Firebase Identity Toolkit; the server-only `SUPABASE_SERVICE_ROLE_KEY` must be configured in that backend environment before reset is considered live. Firestore remains in use for non-auth application domains.
 - `getUserByPhone` no longer queries Firestore when the deployment Supabase client is active.
 - `createUserDoc` now persists the user directory profile to Supabase only; it no longer writes a duplicate Firebase user document.
 - `saveGlobalData` now saves only the signed-in user's own profile through Supabase Auth/RLS; admin changes to other accounts and privileged flags must go through a trusted server-side workflow.
 - `useLiveCollaboration` now uses the Supabase Auth UUID and listens for Supabase session changes instead of reading Firebase Auth state.
+- Product-image upload and deletion now use the Supabase access token instead of Firebase ID tokens. The live Cloudflare `abdomedi-media` Worker was updated and deployed to validate the Supabase JWT and verify store membership before upload/delete; public image reads remain public.
 - `public.users` no longer has an anonymous/public all-access policy. RLS limits reads and writes to the authenticated user's phone profile (or a trusted admin profile).
 - API roles cannot select the legacy `users.password` column and cannot set admin/ban flags. The app-side profile writer omits those privileged flags.
 - Added the missing `default_store_id` and `auto_launch_default_store` columns expected by the app's profile mapper.
@@ -194,4 +195,4 @@ Applied migration versions:
 - The Supabase Auth signup flow currently uses the existing phone-derived alias (`phone@mystore-auth.app`) while the app sends its separate activation email. Supabase Auth email confirmation must be disabled for this alias-based password flow, or replaced with a server-side Admin API bootstrap after verified activation. Do not assume this dashboard setting is configured until tested.
 - Store membership data currently covers only four of six existing stores. Do not remove the public `stores_data` compatibility policy or claim the dashboard cutover is complete until owner claims/memberships are reconciled and storefront public data is separated from private store settings.
 - Firestore is still an active dependency for stores_data, orders, products, employees, finance, inventory, chat, storefront domain lookup, server routes, and other modules. Firebase SDK/config removal is explicitly not complete.
-- A full production build/typecheck and browser end-to-end test have not yet been run in this environment. The branch must pass `npm run lint`, `npm run build`, `npm run test:supabase-membership`, and the relevant owner/employee/storefront workflows before deployment.
+- A full production build/typecheck and browser end-to-end test for the latest media/chat changes are still running in GitHub Actions. The branch must pass `npm run lint`, `npm run build`, `npm run test:supabase-membership`, and the relevant owner/employee/storefront workflows before deployment.
