@@ -2165,6 +2165,13 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         }
     }
 
+    if (!supabase) {
+        return {
+            success: false,
+            error: 'اتصال Supabase غير مهيأ. تم الاحتفاظ بالتعديلات محليًا، ومصدر Firebase القديم متوقف في مسار الترحيل.'
+        };
+    }
+
     const operationId = generateUniqueOrderId('sync');
     const failedCollections: string[] = [];
     const conflicts: Array<{
