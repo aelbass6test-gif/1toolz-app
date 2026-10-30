@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { getSupabaseClient } from '../services/databaseService';
 import { User, Settings, ChatMessage, Employee } from '../types';
 import { Send, User as UserIcon, MessageSquare, Paperclip } from 'lucide-react';
 
@@ -11,7 +10,6 @@ interface TeamChatPageProps {
   users: User[];
 }
 
-import { isSupabaseActive } from '../services/databaseService';
 
 const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId, settings, users }) => {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -36,68 +34,84 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
   }, [messages]);
 
   useEffect(() => {
-    if (!activeChat || !currentUser || !activeStoreId || isSupabaseActive()) {
+    if (!activeChat || !currentUser || !activeStoreId) {
       setMessages([]);
       return;
     }
 
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    let isActive = true;
     setLoading(true);
 
-    // Set up standard query. We order by createdAt to get proper sequence.
-    const q = query(
-      collection(db, 'chat_messages'),
-      where('storeId', '==', activeStoreId),
-      orderBy('createdAt', 'asc')
-    );
+    const loadMessages = async () => {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('id,store_id,sender_id,receiver_id,content,is_read,created_at')
+        .eq('store_id', activeStoreId)
+        .order('created_at', { ascending: true });
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allMsgs = snapshot.docs.map(doc => {
-        const d = doc.data();
-        return {
-          id: doc.id,
-          store_id: d.storeId || '',
-          sender_id: d.senderId || '',
-          receiver_id: d.receiverId || '',
-          content: d.content || '',
-          is_read: d.isRead || false,
-          created_at: d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-        } as ChatMessage;
-      });
+      if (!isActive) return;
+      if (error) {
+        console.warn('[TeamChat] Supabase chat query failed:', error.message);
+        setLoading(false);
+        return;
+      }
 
-      // Pure client-side grouping filter for security/simplicity to avoid complex compound Firestore index builds
-      const filtered = allMsgs.filter(msg => {
-        if (activeChat === 'general') {
-          return msg.receiver_id === 'general';
-        } else {
-          return (
-            (msg.sender_id === currentUser.phone && msg.receiver_id === activeChat.id) ||
-            (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.phone)
-          );
-        }
+      const allMessages = (data || []).map((row: any) => ({
+        id: String(row.id),
+        store_id: row.store_id || '',
+        sender_id: row.sender_id || '',
+        receiver_id: row.receiver_id || '',
+        content: row.content || '',
+        is_read: Boolean(row.is_read),
+        created_at: row.created_at || new Date().toISOString()
+      } as ChatMessage));
+
+      const filtered = allMessages.filter(msg => {
+        if (activeChat === 'general') return msg.receiver_id === 'general';
+        return (
+          (msg.sender_id === currentUser.phone && msg.receiver_id === activeChat.id) ||
+          (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.phone)
+        );
       });
 
       setMessages(filtered);
       setLoading(false);
 
-      // Sound notification for incoming messages
       if (filtered.length > 0) {
         const lastMsg = filtered[filtered.length - 1];
         if (lastMsg.sender_id !== currentUser.phone) {
           notificationSound.current.play().catch(e => console.warn('Audio play blocked:', e));
         }
       }
-    }, (error) => {
-      const msg = String(error?.message || error);
-      if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
-        console.warn('[TeamChat] Firestore quota reached. Working offline/cached.');
-      } else {
-        console.warn('[TeamChat] Chat subscription notice:', msg);
-      }
-      setLoading(false);
-    });
+    };
+
+    void loadMessages();
+    const channel = supabase
+      .channel(`team-chat-${activeStoreId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chat_messages',
+        filter: `store_id=eq.${activeStoreId}`
+      }, () => {
+        void loadMessages();
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[TeamChat] Supabase Realtime status:', status);
+        }
+      });
 
     return () => {
-      unsubscribe();
+      isActive = false;
+      void supabase.removeChannel(channel);
     };
   }, [activeChat, currentUser, activeStoreId]);
 
@@ -108,16 +122,18 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
     setNewMessage('');
 
     try {
-      await addDoc(collection(db, 'chat_messages'), {
-        storeId: activeStoreId,
-        senderId: currentUser.phone,
-        receiverId: activeChat === 'general' ? 'general' : activeChat.id,
-        content: content,
-        createdAt: new Date()
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Supabase client is not initialized.');
+      const { error } = await supabase.from('chat_messages').insert({
+        store_id: activeStoreId,
+        sender_id: currentUser.phone,
+        receiver_id: activeChat === 'general' ? 'general' : activeChat.id,
+        content
       });
+      if (error) throw error;
     } catch (err) {
-      console.error('Error sending message:', err);
-      setNewMessage(content); // Restore message
+      console.error('[TeamChat] Supabase send failed:', err);
+      setNewMessage(content);
     }
   };
 
