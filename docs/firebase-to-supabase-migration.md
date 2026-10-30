@@ -221,3 +221,10 @@ A second read-only catalog pass was run against the connected project after the 
 - No production schema, policy, grant, user, membership, business data, or Cloudflare deployment was changed by this revalidation.
 
 Implementation consequence: do not wire the current employee registration UI directly to `store_memberships`. First add a reviewed, non-production invitation/claim model with verified contact ownership, an explicit membership status and permissions model, and a one-time owner bootstrap path that cannot be called by arbitrary authenticated users. The client must not be able to select its own role or attach itself to an arbitrary store. Until that is tested, keep the existing Firebase-backed flows in place and continue the migration in isolated code slices.
+
+
+### Authentication log privacy cleanup (branch only; 2026-10-30)
+
+- Removed browser-console messages that printed employee/owner phone numbers during employee-portal sign-in, and removed the success log that repeated the authenticated phone number.
+- This is a privacy hardening change only; Firebase remains the active credential provider for this login path until the Supabase Auth identity-linking and membership cutover is complete.
+- No account data or production configuration was changed.
