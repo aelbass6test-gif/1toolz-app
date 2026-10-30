@@ -95,10 +95,11 @@ function json(request: Request, env: Env, body: unknown, status = 200): Response
 }
 
 async function getSupabaseUserId(request: Request, env: Env): Promise<string | null> {
-  const baseUrl = String(env.SUPABASE_URL || '').replace(/\\/$/, '');
+  const baseUrlRaw = String(env.SUPABASE_URL || '').trim();
+  const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw.slice(0, -1) : baseUrlRaw;
   const publishableKey = String(env.SUPABASE_PUBLISHABLE_KEY || '');
   const authorization = request.headers.get('Authorization') || '';
-  if (!baseUrl || !publishableKey || !/^Bearer\\s+\\S+/i.test(authorization)) return null;
+  if (!baseUrl || !publishableKey || !authorization.toLowerCase().startsWith('bearer ') || !authorization.slice(7).trim()) return null;
 
   try {
     const response = await fetch(`${baseUrl}/auth/v1/user`, {
@@ -118,7 +119,8 @@ async function userHasStoreMembership(
   userId: string,
   storeId: string
 ): Promise<boolean> {
-  const baseUrl = String(env.SUPABASE_URL || '').replace(/\\/$/, '');
+  const baseUrlRaw = String(env.SUPABASE_URL || '').trim();
+  const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw.slice(0, -1) : baseUrlRaw;
   const publishableKey = String(env.SUPABASE_PUBLISHABLE_KEY || '');
   const authorization = request.headers.get('Authorization') || '';
   if (!baseUrl || !publishableKey || !userId || !storeId) return false;
