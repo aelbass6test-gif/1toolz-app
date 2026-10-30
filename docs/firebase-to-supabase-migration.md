@@ -325,3 +325,8 @@ Auth profile schema review: removed the proposed unique index on `user_profiles.
 ### Next-phase identity design
 
 The detailed owner bootstrap, existing-owner claim, employee invitation/acceptance, membership lifecycle, RLS rollout, negative test matrix, and rollback gates are specified in [docs/supabase-identity-cutover-design.md](./supabase-identity-cutover-design.md). This is a design document only; it does not apply schema changes or authorize production cutover.
+
+
+### Firestore data-domain inventory
+
+A source-code inventory of the Firebase collections, realtime listeners, local IndexedDB dependencies, and recommended domain-by-domain cutover order is maintained in [docs/firestore-domain-inventory.md](./firestore-domain-inventory.md). It is an inventory and rollout plan, not a claim that any Firestore domain has already been migrated.
