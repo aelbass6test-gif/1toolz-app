@@ -186,3 +186,15 @@ Project: `kwirhppfowzqshltmoga` (`Wuilt-Platform`).
 - No production schema, policy, grant, user, membership, or business data was changed during this audit.
 
 The empty project `lhlcwtxbmxipcesuymnr` (`Wuilt-Platform2`) was inspected and contains no public tables or migrations. It has not been designated or modified as a staging environment.
+
+### Supabase Auth action-flow cutover (branch only; 2026-10-30)
+
+- Replaced the Firebase-backed password-reset and email-verification hook with Supabase Auth APIs.
+- Added a Supabase signup-confirmation resend helper.
+- Reworked the legacy action-page route to consume Supabase PKCE callback sessions or Supabase token-hash links, and to update passwords through Supabase Auth.
+- Updated the owner password-reset UI to rely on the explicit boolean result of the reset request instead of checking stale React state.
+- This is an Auth-action slice only. The owner login, owner signup, employee login/registration, session bootstrap, and OTP/session handoff in `App.tsx` and the sign-up/employee screens still contain Firebase Auth calls.
+- The current owner sign-up path still writes user profile records through the legacy `createUserDoc` implementation. Do not switch that path to Supabase Auth until the profile/tenant membership flow is moved to the new `user_profiles` and `store_memberships` model with appropriate authorization.
+- The production `public.users` table contains a legacy `password` column. Do not select, expose, copy, or use this field for authentication. Authentication must be delegated to Supabase Auth.
+- GitHub Actions validation for commit `9c5df6e8cf7ee00d0d4c6d9ae00f318f1b1fdef8` was queued at the time of this update; earlier baseline commit `d06325f590b2f0b63d7162e773fe5f15b463f983` passed both type-check and production build.
+- No production database schema, RLS policy, grant, user, membership, or business data was changed in this slice.
