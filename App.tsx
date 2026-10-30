@@ -5,9 +5,9 @@ import { Loader2 } from 'lucide-react';
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
 import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
-import { db as firebaseDb, auth } from './services/firebaseClient';
+import { db as firebaseDb } from './services/firebaseClient';
 import { getSupabaseClient } from './services/databaseService';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
+import { signInWithSupabase, signUpWithSupabase, getSupabaseAuthUser } from './services/supabaseAuthService';
 import { getApps, initializeApp } from 'firebase/app';
 import firebaseConfig from './firebase-applet-config.json';
 import { INITIAL_SETTINGS } from './constants';
@@ -1821,15 +1821,8 @@ export const AppComponent = () => {
     // Legacy Firebase account migration is disabled. Accounts must be explicitly
     // re-enrolled into Supabase Auth; never copy plaintext legacy passwords.
 
-    // Helper to wait for Firebase Auth to initialize and return the authenticated user
-    const getCurrentAuthenticatedUser = (): Promise<any> => {
-        return new Promise((resolve) => {
-            const unsubscribe = auth.onAuthStateChanged((user) => {
-                unsubscribe();
-                resolve(user);
-            });
-        });
-    };
+    // Supabase Auth is the sole password-authentication provider.
+    const getCurrentAuthenticatedUser = () => getSupabaseAuthUser();
 
     // Legacy password-based background account migration has been removed.
 
@@ -2297,15 +2290,12 @@ export const AppComponent = () => {
         const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
         const firebaseEmail = `${authPhone}@mystore-auth.app`;
         try {
-            await signInWithEmailAndPassword(auth, firebaseEmail, password);
+            await signInWithSupabase(firebaseEmail, password);
         } catch (err: any) {
-            if (err?.code === 'auth/network-request-failed') {
+            if (err?.code === 'fetch_error' || /network/i.test(String(err?.message || ''))) {
                 throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
             }
-            if (err?.code === 'auth/user-not-found' ||
-                err?.code === 'auth/invalid-credential' ||
-                err?.code === 'auth/wrong-password' ||
-                err?.code === 'auth/invalid-email') {
+            if (['invalid_credentials','user_not_found','invalid_email'].includes(String(err?.code || '')) || /invalid login credentials/i.test(String(err?.message || ''))) {
                 throw new Error("بيانات الدخول غير صحيحة أو الحساب لم يتم تفعيله بعد. استخدم استعادة كلمة المرور أو تواصل مع مدير المتجر لإعادة تفعيل الحساب.");
             }
             console.error('[AUTH] Employee login failed:', err);
@@ -2344,12 +2334,12 @@ export const AppComponent = () => {
 
         const firebaseEmail = `${phone.trim()}@mystore-auth.app`;
         try {
-            const userCred = await createUserWithEmailAndPassword(auth, firebaseEmail, password);
-            if (!userCred.user) {
+            const authUser = await signUpWithSupabase({ email: firebaseEmail, password, displayName: fullName, phone });
+            if (!authUser) {
                 throw new Error("فشل إنشاء حساب المصادقة.");
             }
         } catch (err: any) {
-            if (err.code === 'auth/email-already-in-use') {
+            if (['user_already_exists','email_exists'].includes(String(err?.code || '')) || /already registered/i.test(String(err?.message || ''))) {
                 throw new Error("هذا الرقم مسجل بالفعل في نظام المصادقة.");
             }
             throw new Error("حدث خطأ أثناء التسجيل.");
