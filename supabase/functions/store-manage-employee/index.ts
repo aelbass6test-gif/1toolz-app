@@ -69,6 +69,53 @@ Deno.serve(async (request: Request) => {
   const { data: store, error: storeError } = await admin.from("stores_data").select("id").eq("id", storeId).maybeSingle();
   if (storeError || !store) return json({ success: false, error: "المتجر غير موجود." }, 404);
 
+  const action = String(body.action || "create");
+  if (["update", "delete", "reset_password"].includes(action)) {
+    const targetPhone = String(body.phone || "").trim();
+    if (!targetPhone) return json({ success: false, error: "رقم الموظف مطلوب." }, 400);
+    const { data: profile, error: profileError } = await admin.from("user_profiles").select("user_id").eq("phone", targetPhone).maybeSingle();
+    if (profileError) return json({ success: false, error: "تعذر التحقق من حساب الموظف." }, 500);
+    if (!profile?.user_id) return json({ success: false, error: "حساب الموظف غير مربوط بهوية Supabase موثقة." }, 409);
+    const targetUserId = profile.user_id;
+    const { data: membership, error: membershipError } = await admin.from("store_memberships").select("role").eq("store_id", storeId).eq("user_id", targetUserId).maybeSingle();
+    if (membershipError) return json({ success: false, error: "تعذر التحقق من عضوية الموظف." }, 500);
+    if (!membership || membership.role === "owner") return json({ success: false, error: "الموظف غير موجود أو لا يمكن تعديل المالك." }, 404);
+
+    if (action === "reset_password") {
+      const nextPassword = String(body.password || "");
+      if (nextPassword.length < 8) return json({ success: false, error: "كلمة المرور يجب ألا تقل عن 8 أحرف." }, 400);
+      const { error } = await admin.auth.admin.updateUserById(targetUserId, { password: nextPassword });
+      if (error) return json({ success: false, error: "تعذر تحديث كلمة مرور الموظف." }, 400);
+      return json({ success: true });
+    }
+
+    if (action === "delete") {
+      const { error: employeeDeleteError } = await admin.from("employees").delete().eq("store_id", storeId).eq("phone", targetPhone);
+      if (employeeDeleteError) return json({ success: false, error: "تعذر حذف سجل الموظف." }, 400);
+      const { error: membershipDeleteError } = await admin.from("store_memberships").delete().eq("store_id", storeId).eq("user_id", targetUserId);
+      if (membershipDeleteError) return json({ success: false, error: "تم حذف سجل الموظف لكن تعذر إنهاء عضويته؛ راجع العضويات." }, 500);
+      // Keep the Auth user and global profile: the same person may belong to other stores.
+      return json({ success: true });
+    }
+
+    const nextName = String(body.fullName || "").trim();
+    const nextEmail = String(body.email || "").trim().toLowerCase();
+    const nextPermissions = Array.isArray(body.permissions)
+      ? [...new Set(body.permissions.filter((p): p is string => typeof p === "string" && /^[A-Z_]{2,64}$/.test(p)))]
+      : [];
+    const nextRole = body.membershipRole === "manager" ? "manager" : "staff";
+    if (!nextName || !nextEmail.includes("@") || nextPermissions.length > 40) return json({ success: false, error: "بيانات التعديل غير صالحة." }, 400);
+    const { error: employeeUpdateError } = await admin.from("employees").update({ name: nextName, email: nextEmail, permissions: nextPermissions }).eq("store_id", storeId).eq("phone", targetPhone);
+    if (employeeUpdateError) return json({ success: false, error: "تعذر تحديث بيانات الموظف." }, 400);
+    const { error: membershipUpdateError } = await admin.from("store_memberships").update({ role: nextRole }).eq("store_id", storeId).eq("user_id", targetUserId);
+    if (membershipUpdateError) return json({ success: false, error: "تم تحديث بيانات الموظف لكن تعذر تحديث دوره؛ راجع العضوية." }, 500);
+    const { error: userUpdateError } = await admin.from("users").update({ full_name: nextName, email: nextEmail }).eq("phone", targetPhone);
+    if (userUpdateError) return json({ success: false, error: "تم تحديث عضوية الموظف لكن تعذر تحديث ملفه العام." }, 500);
+    const { error: profileUpdateError } = await admin.from("user_profiles").update({ display_name: nextName }).eq("user_id", targetUserId);
+    if (profileUpdateError) return json({ success: false, error: "تم تحديث بيانات الموظف لكن تعذر تحديث ملف المصادقة." }, 500);
+    return json({ success: true });
+  }
+
   let employeeAuthId: string | null = null;
   let createdAuthUser = false;
   let userRowCreated = false;
