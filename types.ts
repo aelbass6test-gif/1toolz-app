@@ -2221,7 +2221,7 @@ export interface PartnerPortalRequest {
     amount: number;
     notes: string;
     date?: string;
-    status: 'pending' | 'approved' | 'rejected' | 'quoted';
+    status: 'pending' | 'processing' | 'approved' | 'rejected' | 'quoted';
     createdAt: string;
     isMerchantRequest?: boolean;
     payoutMethod?: string;
