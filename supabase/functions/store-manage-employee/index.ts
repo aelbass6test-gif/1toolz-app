@@ -140,7 +140,7 @@ Deno.serve(async (request: Request) => {
     const nextName = String(body.fullName || "").trim();
     const nextEmail = String(body.email || "").trim().toLowerCase();
     const nextPermissions = Array.isArray(body.permissions)
-      ? [...new Set(body.permissions.filter((p): p is string => typeof p === "string" && /^[A-Z_]{2,64}$/.test(p)))]
+      ? [...new Set(body.permissions.filter((p): p is string => typeof p === "string" && ALLOWED_PERMISSIONS.has(p)))]
       : [];
     const nextRole = body.membershipRole === "manager" ? "manager" : "staff";
     if (!nextName || !nextEmail.includes("@") || nextPermissions.length > 26) return json({ success: false, error: "بيانات التعديل غير صالحة." }, 400);
