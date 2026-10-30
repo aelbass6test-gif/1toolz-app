@@ -133,3 +133,16 @@ This list is based on direct references found in App.tsx and services/databaseSe
 - Do not expose Supabase service-role credentials in browser code.
 - Do not migrate embedded secrets from stores_data.settings into browser-readable normalized tables.
 - Do not claim a collection is migrated merely because a similarly named Supabase table exists.
+
+
+## Additional repository scan findings (selected high-risk modules)
+
+A follow-up source scan beyond App.tsx and databaseService.ts found these additional active Firebase dependencies:
+
+- server.ts imports Firebase Auth/Firestore and contains server-side Firestore reads/writes for user records, stores_data, report sharing, SMTP settings, and other backend operations. Server routes and background handlers must be included in the data cutover; replacing only browser SDK calls is insufficient.
+- components/TeamChatPage.tsx independently reads and writes chat_messages using Firestore, in addition to the listeners already present in App.tsx.
+- components/InventoryAudit.tsx independently reads, subscribes to, creates, and updates shared_audits. Its audit workflow is not fully contained in App.tsx or the central data service.
+- services/userMigrationService.ts still reads the Firestore users collection and writes Firestore user documents. Keep it disabled or tightly controlled during cutover; never migrate legacy password values.
+- src/hooks/useLiveCollaboration.ts and services/mediaUploadService.ts still import the Firebase client for authentication-related behavior, so their Firebase Auth assumptions need an explicit Supabase-session replacement review.
+
+This was a targeted scan of high-risk files, not an exhaustive proof that all 311 TypeScript/JavaScript source files are free of Firebase references. Before retiring Firebase, run a complete repository-wide import and SDK-call scan on the final release commit, including server routes, scripts, Cloudflare code, and lazily loaded components.
