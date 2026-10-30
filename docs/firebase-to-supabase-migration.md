@@ -30,3 +30,10 @@
 - Realtime events are only visible to members of the relevant store.
 - OTP secrets remain in Worker secrets and never enter client bundles.
 - Build, typecheck, unit tests, and end-to-end smoke tests pass in staging.
+
+
+## Implemented on the migration branch
+- Added `services/supabaseAuthService.ts` with a single project-configured Supabase Auth client, PKCE flow, sign-up, sign-in, sign-out, and current-user helpers.
+- The client intentionally ignores per-store Supabase URLs and keys from localStorage/store settings.
+- Removed plaintext password writes to the legacy Supabase `users` table and Firestore user documents, and stopped returning the legacy Supabase password field from the phone lookup helper.
+- These helpers are a foundation only; the existing sign-up/login screens and data listeners are not yet switched over. Do not cut over production until the screens, employee flows, memberships, and data access have been migrated and tested.
