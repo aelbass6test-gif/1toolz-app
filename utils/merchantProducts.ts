@@ -87,6 +87,119 @@ export const isMerchantOrder = (order: any): boolean => {
   );
 };
 
+/**
+ * Robust, multifaceted check to determine if an order belongs to a specific merchant or partner.
+ * Matches on:
+ * - Order-level merchantId, merchant_id, partnerId, partner_id (against merchant.id, aliases)
+ * - Order-level merchantName, merchant_name, subSenderName, merchantBrandName (Arabic normalized)
+ * - Merchant phone number against merchantBrandPhone / merchantPhone / partnerPhone
+ * - Split settlements (merchantSettlementRefs)
+ * - Managed merchant plan tags (managedMerchantId, managerPlanMerchantId)
+ * - Line item merchantId, supplierId, merchantName, supplierName
+ * - Line item productId or productName matching products allocated to or owned by this merchant
+ */
+export const checkOrderBelongsToMerchant = (
+  order: any,
+  merchant: any,
+  merchantProductIds?: Set<string>,
+  merchantProductNames?: Set<string>
+): boolean => {
+  if (!order || !merchant) return false;
+
+  const mId = normalizeMerchantId(merchant.id);
+  const mName = normalizeMerchantLabel(merchant.name);
+  const rawPhone = String(
+    merchant.phone ||
+    merchant.contactPhone ||
+    merchant.mobile ||
+    merchant.phoneNumber ||
+    merchant.payoutAccounts?.walletPhone ||
+    ''
+  ).replace(/\D/g, '');
+  const mPhone = rawPhone.length >= 8 ? rawPhone.slice(-8) : rawPhone;
+
+  // 1. Order-level merchant ID matches
+  const oMId = normalizeMerchantId(order.merchantId || order.merchant_id);
+  if (mId && oMId && oMId !== 'pending') {
+    if (oMId === mId || oMId.includes(mId) || mId.includes(oMId)) return true;
+  }
+
+  // 2. Order-level partner ID matches
+  const oPId = normalizeMerchantId(order.partnerId || order.partner_id);
+  if (mId && oPId && oPId !== 'pending') {
+    if (oPId === mId || oPId.includes(mId) || mId.includes(oPId)) return true;
+  }
+
+  // 3. Aliases match
+  if (Array.isArray(merchant.aliases) && merchant.aliases.length > 0) {
+    const matchedAlias = merchant.aliases.some((alias: string) => {
+      const a = normalizeMerchantId(alias);
+      if (!a) return false;
+      return oMId === a || oPId === a || normalizeMerchantLabel(order.merchantName || '') === normalizeMerchantLabel(a);
+    });
+    if (matchedAlias) return true;
+  }
+
+  // 4. Order-level merchant / partner name match (robust Arabic normalization)
+  const oMName = normalizeMerchantLabel(order.merchantName || order.merchant_name);
+  if (mName && oMName) {
+    if (oMName === mName || oMName.includes(mName) || mName.includes(oMName)) return true;
+  }
+
+  const oSubSender = normalizeMerchantLabel(order.subSenderName);
+  if (mName && oSubSender) {
+    if (oSubSender === mName || oSubSender.includes(mName) || mName.includes(oSubSender)) return true;
+  }
+
+  const oBrand = normalizeMerchantLabel(order.merchantBrandName);
+  if (mName && oBrand) {
+    if (oBrand === mName || oBrand.includes(mName) || mName.includes(oBrand)) return true;
+  }
+
+  // 5. Phone match (if order has merchant phone)
+  if (mPhone) {
+    const oPhone = String(order.merchantPhone || order.partnerPhone || order.merchantBrandPhone || '').replace(/\D/g, '');
+    if (oPhone && (oPhone.endsWith(mPhone) || mPhone.endsWith(oPhone))) return true;
+  }
+
+  // 6. Split settlement references
+  if (Array.isArray(order.merchantSettlementRefs)) {
+    if (order.merchantSettlementRefs.some((r: any) => normalizeMerchantId(r?.merchantId) === mId)) {
+      return true;
+    }
+  }
+
+  // 7. Managed merchant ID (dedicated manager plan tag)
+  const oManaged = normalizeMerchantId(order.managedMerchantId || order.managerPlanMerchantId);
+  if (mId && oManaged === mId) return true;
+
+  // 8. Order items matching merchant
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    for (const item of order.items) {
+      if (!item) continue;
+      const iMId = normalizeMerchantId(item.merchantId || item.merchant_id || item.supplierId);
+      if (mId && iMId && iMId !== 'pending') {
+        if (iMId === mId || iMId.includes(mId) || mId.includes(iMId)) return true;
+      }
+
+      const iMName = normalizeMerchantLabel(item.merchantName || item.merchant_name || item.supplierName);
+      if (mName && iMName) {
+        if (iMName === mName || iMName.includes(mName) || mName.includes(iMName)) return true;
+      }
+
+      // Product ID matching
+      const pId = String(item.productId || item.id || '').trim();
+      if (merchantProductIds && pId && merchantProductIds.has(pId)) return true;
+
+      // Product Name matching
+      const pName = normalizeMerchantLabel(item.name || item.productName || '');
+      if (merchantProductNames && pName && merchantProductNames.has(pName)) return true;
+    }
+  }
+
+  return false;
+};
+
 export const isUnresolvedMerchantOrder = (order: any): boolean => {
   if (!order || typeof order !== 'object') return false;
   const hasOrderId = Boolean(normalizeMerchantId(order.merchantId) && normalizeMerchantId(order.merchantId) !== 'pending');

@@ -147,6 +147,10 @@ export const syncSupabaseCredentials = (storeId: string, settings: any) => {
 
 export const getSupabaseClient = () => {
     if (typeof window === 'undefined') return null;
+    const provider = localStorage.getItem('custom_cloud_provider');
+    if (provider === 'firebase' || provider === 'hostinger') return null;
+    if (getSupabaseRestrictedStatus()) return null;
+
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
     const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
     const url = localStorage.getItem('custom_cloud_url') || envUrl;
@@ -174,10 +178,15 @@ export const getSupabaseClient = () => {
 };
 
 export const isSupabaseActive = (): boolean => {
+    if (typeof window !== 'undefined') {
+        const provider = localStorage.getItem('custom_cloud_provider');
+        if (provider === 'firebase' || provider === 'hostinger') return false;
+        if (getSupabaseRestrictedStatus()) return false;
+    }
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
     const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
-    const hasUrl = !!localStorage.getItem('custom_cloud_url') || !!envUrl;
-    const hasKey = !!localStorage.getItem('custom_cloud_anon_key') || !!envKey;
+    const hasUrl = !!(typeof window !== 'undefined' ? localStorage.getItem('custom_cloud_url') : '') || !!envUrl;
+    const hasKey = !!(typeof window !== 'undefined' ? localStorage.getItem('custom_cloud_anon_key') : '') || !!envKey;
     return hasUrl && hasKey;
 };
 
@@ -234,6 +243,10 @@ export enum OperationType {
 }
 
 export const handleFirestoreError = (err: any, operation: OperationType, path: string) => {
+    const msg = String(err?.message || err);
+    if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
+        markFirestoreQuotaExhausted();
+    }
     const errInfo = {
         error: err instanceof Error ? err.message : String(err),
         operationType: operation,
@@ -312,16 +325,42 @@ export const checkSupabaseConnection = async (): Promise<boolean> => {
 };
 
 export const getSupabaseRestrictedStatus = (): boolean => {
+    if (typeof window === 'undefined') return false;
     return localStorage.getItem('supabase_restricted') === 'true';
 };
 
 export const setSupabaseRestricted = (restricted: boolean) => {
+    if (typeof window === 'undefined') return;
     localStorage.setItem('supabase_restricted', String(restricted));
+    if (restricted) {
+        localStorage.setItem('custom_cloud_provider', 'firebase');
+    }
+    window.dispatchEvent(new CustomEvent('supabase_restricted_changed', { detail: { restricted } }));
 };
 
 export const isRestrictionError = (error: any): boolean => {
-    const msg = String(error?.message || error).toLowerCase();
-    return msg.includes('permission') || msg.includes('access') || msg.includes('unauthorized') || msg.includes('restricted');
+    if (!error) return false;
+    const msg = String(error?.message || error?.details || error?.hint || error || '').toLowerCase();
+    const code = String(error?.code || '').toLowerCase();
+    const status = Number(error?.status || 0);
+    return (
+        msg.includes('exceed_egress_quota') ||
+        msg.includes('egress_quota') ||
+        msg.includes('spend caps') ||
+        msg.includes('violations') ||
+        msg.includes('upgrade their plan') ||
+        msg.includes('quota') ||
+        msg.includes('restricted') ||
+        msg.includes('permission') ||
+        msg.includes('access') ||
+        msg.includes('unauthorized') ||
+        msg.includes('rate limit') ||
+        msg.includes('resource-exhausted') ||
+        status === 402 ||
+        status === 429 ||
+        code === '402' ||
+        code === '429'
+    );
 };
 
 // --- Local IndexedDB Helpers ---
@@ -887,7 +926,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
 
     // --- Custom Supabase Fetch Logic ---
     const supabase = getSupabaseClient();
-    if (supabase) {
+    if (supabase && isSupabaseActive()) {
         try {
             const fetchTable = async (table: string) => {
                 if (knownMissingTables.has(table)) {
@@ -896,6 +935,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 try {
                     const { data, error } = await supabase.from(table).select('*').eq('store_id', storeId);
                     if (error) {
+                        if (isRestrictionError(error)) {
+                            setSupabaseRestricted(true);
+                            throw error;
+                        }
                         // Orders are business-critical: never convert a failed read into an empty
                         // list, because the caller would persist that empty list over the local cache.
                         if (table === 'orders') {
@@ -915,6 +958,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     }
                     return data || [];
                 } catch (fetchErr: any) {
+                    if (isRestrictionError(fetchErr)) {
+                        setSupabaseRestricted(true);
+                        throw fetchErr;
+                    }
                     console.warn(`[SUPABASE-FETCH] Could not fetch ${table}:`, fetchErr?.message || fetchErr);
                     if (table === 'orders') throw fetchErr;
                     return [];
@@ -1164,7 +1211,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         };
                     });
 
-                    return mappedCloudOrders.filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
+                    const cloudOrderKeys = new Set(mappedCloudOrders.map((o: any) => String(o?.id || o?.orderNumber || '').trim()).filter(Boolean));
+                    const localUnsyncedOrders = (local?.orders || []).filter((lo: any) => {
+                        const key = String(lo?.id || lo?.orderNumber || '').trim();
+                        return key && !cloudOrderKeys.has(key) && !isExplicitlyDeleted(lo?.id, storeId) && !isExplicitlyDeleted(lo?.orderNumber, storeId);
+                    });
+                    return [...mappedCloudOrders, ...localUnsyncedOrders].filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
                 })(),
                 wallet: { balance: 0, transactions },
                 treasury: { 
@@ -1209,16 +1261,20 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
 
             await saveLocal(storeId, fullData);
             return fullData;
-        } catch (e) {
-            console.error('[SUPABASE-FETCH] Remote store read failed; returning the last local snapshot without overwriting it:', e);
-            // Supabase is the configured source of truth. A failed read is not an empty
-            // result and must never fall through to legacy Firebase data.
-            return local;
+        } catch (e: any) {
+            if (isRestrictionError(e)) {
+                console.warn('[SUPABASE-FETCH] Supabase project restricted (exceed_egress_quota). Falling through to native Firebase Firestore:', e?.message || e);
+                setSupabaseRestricted(true);
+                // Do not return local; smoothly proceed to Firebase Firestore step below
+            } else {
+                console.error('[SUPABASE-FETCH] Remote store read failed; returning the last local snapshot without overwriting it:', e);
+                return local;
+            }
         }
     }
 
     // 3. Fallback to Firestore cloud database (ensures external users & partner portal can load data)
-    if (firebaseDb) {
+    if (firebaseDb && !isFirestoreQuotaExhausted) {
         try {
             const storeRef = doc(firebaseDb, 'stores_data', storeId);
             const snap = await WITH_TIMEOUT(getDoc(storeRef), 8000);
@@ -1348,52 +1404,81 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                                 const snap = await getDocs(query(collection(firebaseDb, 'discount_codes'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         collections: await (async () => {
                             const embedded = storeSettings.collections || local?.settings?.collections || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'collections'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         customPages: await (async () => {
                             const embedded = storeSettings.customPages || local?.settings?.customPages || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'custom_pages'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         paymentMethods: await (async () => {
                             const embedded = storeSettings.paymentMethods || local?.settings?.paymentMethods || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'payment_methods'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         globalOptions: await (async () => {
                             const embedded = storeSettings.globalOptions || local?.settings?.globalOptions || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'global_options'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         shippingIntegrations: await (async () => {
                             const embedded = storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'shipping_integrations'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         partners: await (async () => {
                             const embedded = storeSettings.partners || local?.settings?.partners || [];
@@ -1501,7 +1586,23 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         callScripts: storeSettings.callScripts || local?.settings?.callScripts || []
                     },
                     orders: await (async () => {
-                        const embeddedOrders = (cloudData?.orders || local?.orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
+                        const cloudOrdersList = Array.isArray(cloudData?.orders) ? cloudData.orders : [];
+                        const localOrdersList = Array.isArray(local?.orders) ? local.orders : [];
+                        
+                        const orderMap = new Map<string, any>();
+                        localOrdersList.forEach((o: any) => {
+                            const k = String(o?.id || o?.orderNumber || '').trim();
+                            if (k) orderMap.set(k, o);
+                        });
+                        cloudOrdersList.forEach((o: any) => {
+                            const k = String(o?.id || o?.orderNumber || '').trim();
+                            if (k) {
+                                const exist = orderMap.get(k);
+                                orderMap.set(k, exist ? { ...exist, ...o } : o);
+                            }
+                        });
+
+                        const embeddedOrders = Array.from(orderMap.values()).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
                         try {
                             let ordersSnap = null;
                             if (forceRemote || embeddedOrders.length === 0) {
@@ -1639,7 +1740,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
     // --- Custom Supabase Save Logic (Ultra-Optimized for Low Egress) ---
     const supabase = getSupabaseClient();
-    if (supabase) {
+    if (supabase && isSupabaseActive()) {
         let supabaseSaveSucceeded = false;
         try {
             // 1. Send clean, lightweight settings to stores_data without repeating massive relational tables
@@ -1668,6 +1769,9 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                     syncFingerprints.set(storesDataFingerprintKey, storesDataFingerprint);
                 } catch (storesDataErr: any) {
                     console.warn('[SUPABASE-SYNC] Error updating stores_data:', storesDataErr?.message || storesDataErr);
+                    if (isRestrictionError(storesDataErr)) {
+                        setSupabaseRestricted(true);
+                    }
                     throw storesDataErr;
                 }
             }
@@ -2431,26 +2535,33 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             }));
 
             if (syncErrors.length > 0) {
-                const isSchemaError = syncErrors.some(e => e.code === 'PGRST204');
-                const isNetworkError = syncErrors.every(e => e?.message?.includes('Failed to fetch') || e?.name === 'TypeError');
-                
-                if (isNetworkError) {
-                    console.warn('[SUPABASE-SYNC] Supabase is offline or unreachable. Keeping the write local; Firebase fallback is disabled while Supabase is active.');
-                    return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا ولن يتم إرسالها إلى مصدر آخر.' };
+                const isRestrictedError = syncErrors.some(e => isRestrictionError(e));
+                if (isRestrictedError) {
+                    console.warn('[SUPABASE-SYNC] Quota/restriction violations detected during table sync. Falling back to native Firebase Firestore.');
+                    setSupabaseRestricted(true);
+                    // Do not return error; break out to native Firebase Firestore sync below
                 } else {
-                    const isRlsError = syncErrors.some(e => e?.message?.toLowerCase?.().includes('row-level security') || e?.code === '42501');
-                    if (isRlsError) {
-                        return {
-                            success: false,
-                            error: 'حدث خطأ في صلاحيات الجداول (RLS). يرجى نسخ سكربت قاعدة البيانات من إعدادات المطور وتشغيله في Supabase SQL Editor لتعطيل الحماية وتفعيل المزامنة.'
+                    const isSchemaError = syncErrors.some(e => e.code === 'PGRST204');
+                    const isNetworkError = syncErrors.every(e => e?.message?.includes('Failed to fetch') || e?.name === 'TypeError');
+                    
+                    if (isNetworkError) {
+                        console.warn('[SUPABASE-SYNC] Supabase is offline or unreachable. Keeping the write local; Firebase fallback is disabled while Supabase is active.');
+                        return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا ولن يتم إرسالها إلى مصدر آخر.' };
+                    } else {
+                        const isRlsError = syncErrors.some(e => e?.message?.toLowerCase?.().includes('row-level security') || e?.code === '42501');
+                        if (isRlsError) {
+                            return {
+                                success: false,
+                                error: 'حدث خطأ في صلاحيات الجداول (RLS). يرجى نسخ سكربت قاعدة البيانات من إعدادات المطور وتشغيله في Supabase SQL Editor لتعطيل الحماية وتفعيل المزامنة.'
+                            };
+                        }
+                        return { 
+                            success: false, 
+                            error: isSchemaError 
+                                ? `كود الخطأ PGRST204: هناك أعمدة مفقودة في قاعدة البيانات (مثل minStockLevel). يرجى الضغط على زر "إصلاح الأعمدة المفقودة" في إعدادات المطورين.` 
+                                : (syncErrors[0]?.message || 'Sync error')
                         };
                     }
-                    return { 
-                        success: false, 
-                        error: isSchemaError 
-                            ? `كود الخطأ PGRST204: هناك أعمدة مفقودة في قاعدة البيانات (مثل minStockLevel). يرجى الضغط على زر "إصلاح الأعمدة المفقودة" في إعدادات المطورين.` 
-                            : (syncErrors[0]?.message || 'Sync error')
-                    };
                 }
             } else {
                 supabaseSaveSucceeded = true;
@@ -2460,13 +2571,19 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 return { success: true };
             }
         } catch (e: any) {
-            const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
-            if (isNet) {
-                console.warn('[SUPABASE-SYNC] Supabase unreachable on save. Firebase fallback is disabled while Supabase is active:', e?.message || e);
-                return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا.' };
+            if (isRestrictionError(e)) {
+                console.warn('[SUPABASE-SYNC] Supabase egress quota exceeded or project restricted. Automatically falling back to native Firebase Firestore:', e?.message || e);
+                setSupabaseRestricted(true);
+                // Do not return error! Let execution continue downwards to native Firebase Firestore sync so data is safely saved!
             } else {
-                console.error('Supabase save failed', e);
-                return { success: false, error: e.message };
+                const isNet = e?.message?.includes('Failed to fetch') || e?.name === 'TypeError';
+                if (isNet) {
+                    console.warn('[SUPABASE-SYNC] Supabase unreachable on save. Firebase fallback is disabled while Supabase is active:', e?.message || e);
+                    return { success: false, error: 'تعذر الاتصال بقاعدة البيانات الأساسية. تم الاحتفاظ بالتعديلات محليًا.' };
+                } else {
+                    console.error('Supabase save failed', e);
+                    return { success: false, error: e.message };
+                }
             }
         }
     }
@@ -3380,6 +3497,38 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
         }
     }
 
+    // 3. SECONDARY: Firestore Fallback/Merge
+    if (firebaseDb && !isFirestoreQuotaExhausted) {
+        try {
+            // Fetch from partner_requests collection
+            const pSnap = await getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId)));
+            pSnap.forEach(docSnap => {
+                const r = { id: docSnap.id, ...docSnap.data() } as any;
+                if (r && r.id && !merged.has(String(r.id))) {
+                    merged.set(String(r.id), {
+                        ...r,
+                        partnerId: r.partner_id ?? r.partnerId,
+                        partnerName: r.partner_name ?? r.partnerName,
+                        createdAt: r.created_at ?? r.createdAt,
+                        updatedAt: r.updated_at ?? r.updatedAt,
+                        legacySource: 'partner_requests'
+                    } as PartnerPortalRequest);
+                }
+            });
+
+            // Fetch from merchant_requests collection (partners might also be merchants)
+            const mSnap = await getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId)));
+            mSnap.forEach(docSnap => {
+                const r = { id: docSnap.id, ...docSnap.data() } as any;
+                if (r && r.id && !merged.has(String(r.id))) {
+                    merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                }
+            });
+        } catch (fsErr) {
+            console.warn('[PARTNER-REQUEST] Firestore read failed:', fsErr);
+        }
+    }
+
     const result = Array.from(merged.values()).sort((a, b) => {
         const dateA = new Date(a.date || a.createdAt || 0).getTime();
         const dateB = new Date(b.date || b.createdAt || 0).getTime();
@@ -3441,20 +3590,28 @@ export const updatePartnerRequestStatus = async (
             }
         }
 
-        // Update local cache
-        try {
-            const localKey = `partner_requests_${storeId}`;
-            const merchantKey = `merchant_requests_${storeId}`;
-            
-            [localKey, merchantKey].forEach(key => {
-                const existing = JSON.parse(localStorage.getItem(key) || '[]');
-                if (existing.some((r: any) => r.id === requestId)) {
-                    const next = existing.map((r: any) => r.id === requestId ? { ...r, status, updatedAt: nowIso, ...extraFields } : r);
-                    localStorage.setItem(key, JSON.stringify(next));
-                    updated = true;
+        // 3. Update Firestore
+        if (firebaseDb) {
+            try {
+                // Update in both potential collections to ensure consistency
+                const collections = ['partner_requests', 'merchant_requests'];
+                for (const collName of collections) {
+                    const docRef = doc(firebaseDb, collName, requestId);
+                    const snap = await getDoc(docRef);
+                    if (snap.exists()) {
+                        await updateDoc(docRef, { 
+                            status, 
+                            updatedAt: nowIso, 
+                            updated_at: nowIso,
+                            ...extraFields 
+                        });
+                        updated = true;
+                    }
                 }
-            });
-        } catch (_) {}
+            } catch (fsErr) {
+                console.warn('[PARTNER-REQUEST] Firestore status update failed:', fsErr);
+            }
+        }
 
         return updated;
     } catch (err) {
@@ -3466,15 +3623,18 @@ export const updatePartnerRequestStatus = async (
 export const deletePartnerRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
         if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            await deleteDoc(reqRef);
+            await deleteDoc(doc(firebaseDb, 'partner_requests', requestId)).catch(() => {});
+            await deleteDoc(doc(firebaseDb, 'merchant_requests', requestId)).catch(() => {});
         }
 
         try {
             const localKey = `partner_requests_${storeId}`;
-            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-            const updated = existing.filter((r: any) => r.id !== requestId);
-            localStorage.setItem(localKey, JSON.stringify(updated));
+            const merchantKey = `merchant_requests_${storeId}`;
+            [localKey, merchantKey].forEach(key => {
+                const existing = JSON.parse(localStorage.getItem(key) || '[]');
+                const updated = existing.filter((r: any) => r.id !== requestId);
+                localStorage.setItem(key, JSON.stringify(updated));
+            });
         } catch (_) {}
 
         return true;
@@ -3580,6 +3740,22 @@ export const submitMerchantRequest = async (
 
         const { error: upsertError } = await supabase.from('merchant_requests').upsert(supabasePayload);
         if (upsertError) throw upsertError;
+
+        // 3. Save to Firestore for real-time notifications
+        if (firebaseDb) {
+            try {
+                const fsRequest = {
+                    ...request,
+                    partnerId: request.merchantId,
+                    partnerName: request.merchantName,
+                    isMerchantRequest: true
+                };
+                await setDoc(doc(firebaseDb, 'merchant_requests', request.id), cleanUndefined(fsRequest));
+                console.log('[MERCHANT-REQUEST] Successfully saved merchant request to Firestore:', request.id);
+            } catch (fsErr) {
+                console.warn('[MERCHANT-REQUEST] Firestore save failed:', fsErr);
+            }
+        }
 
         // 3. Update Balance in partners/suppliers table and settings JSON (Simulating atomicity)
         // This is a temporary measure until an RPC is implemented.
@@ -3689,6 +3865,31 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         }
     }
 
+    // 3. SECONDARY: Firestore Fallback/Merge
+    if (firebaseDb && !isFirestoreQuotaExhausted) {
+        try {
+            // Fetch from merchant_requests collection
+            const mSnap = await getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId)));
+            mSnap.forEach(docSnap => {
+                const r = { id: docSnap.id, ...docSnap.data() };
+                if (r && r.id && !merged.has(String(r.id))) {
+                    merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                }
+            });
+
+            // Fetch from partner_requests collection (for legacy)
+            const pSnap = await getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId)));
+            pSnap.forEach(docSnap => {
+                const r = { id: docSnap.id, ...docSnap.data() };
+                if (r && r.id && !merged.has(String(r.id)) && isLegacyMerchantRequest(r)) {
+                    merged.set(String(r.id), toMerchantRequestView(r, 'partner_requests'));
+                }
+            });
+        } catch (fsErr) {
+            console.warn('[MERCHANT-REQUEST] Firestore read failed:', fsErr);
+        }
+    }
+
     const result = Array.from(merged.values()).sort((a, b) => {
         const dateA = new Date(a.date || a.createdAt || 0).getTime();
         const dateB = new Date(b.date || b.createdAt || 0).getTime();
@@ -3726,6 +3927,13 @@ export const deleteMerchantRequestDoc = async (requestId: string, storeId: strin
                 console.warn('[MERCHANT-REQUEST] Supabase delete failed:', err);
             }
         }
+        if (firebaseDb) {
+            try {
+                await deleteDoc(doc(firebaseDb, 'merchant_requests', requestId)).catch(() => {});
+                await deleteDoc(doc(firebaseDb, 'partner_requests', requestId)).catch(() => {});
+            } catch (_) {}
+        }
+
         for (const key of [`merchant_requests_${storeId}`, `partner_requests_${storeId}`]) {
             try {
                 const rows = JSON.parse(localStorage.getItem(key) || '[]');

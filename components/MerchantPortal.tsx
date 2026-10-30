@@ -22,7 +22,7 @@ import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlan
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
 import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTracking';
 import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
-import { getProductsForMerchant, normalizeMerchantLabel } from '../utils/merchantProducts';
+import { getProductsForMerchant, normalizeMerchantLabel, checkOrderBelongsToMerchant } from '../utils/merchantProducts';
 import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
@@ -329,16 +329,51 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const activeStoreData = directStoreData || localStoreData;
   const settings = (activeStoreData?.settings || { partners: [], suppliers: [], partnerTransactions: [] }) as any;
   const rawOrders: Order[] = useMemo(() => {
-    const list: Order[] = Array.isArray(directStoreData?.orders)
-      ? directStoreData.orders
-      : (localStoreData?.orders || []);
-    return list.filter(o => {
+    const orderMap = new Map<string, Order>();
+
+    // 1. Local store data orders (IndexedDB cache snapshot in memory)
+    if (Array.isArray(localStoreData?.orders)) {
+      localStoreData.orders.forEach(o => {
+        if (!o) return;
+        const key = String(o.id || o.orderNumber || '').trim();
+        if (key) orderMap.set(key, o);
+      });
+    }
+
+    // 2. Direct store data orders (fresh remote or fallback fetch)
+    if (Array.isArray(directStoreData?.orders)) {
+      directStoreData.orders.forEach(o => {
+        if (!o) return;
+        const key = String(o.id || o.orderNumber || '').trim();
+        if (key) {
+          const existing = orderMap.get(key);
+          orderMap.set(key, existing ? { ...existing, ...o } : o);
+        }
+      });
+    }
+
+    // 3. Fallback scan across all stores in allStoresData (handles cross-store / branch partitions)
+    if (allStoresData && typeof allStoresData === 'object') {
+      Object.values(allStoresData).forEach((s: any) => {
+        if (Array.isArray(s?.orders)) {
+          s.orders.forEach((o: Order) => {
+            if (!o) return;
+            const key = String(o.id || o.orderNumber || '').trim();
+            if (key && !orderMap.has(key)) {
+              orderMap.set(key, o);
+            }
+          });
+        }
+      });
+    }
+
+    return Array.from(orderMap.values()).filter(o => {
       if (!o) return false;
       const oId = String(o.id || '').trim();
       const oNum = String(o.orderNumber || '').trim();
       return !db.isExplicitlyDeleted(oId, effectiveStoreId) && !db.isExplicitlyDeleted(oNum, effectiveStoreId);
     });
-  }, [directStoreData?.orders, localStoreData?.orders, effectiveStoreId]);
+  }, [directStoreData?.orders, localStoreData?.orders, allStoresData, effectiveStoreId]);
   
   // Build the merchant directory only from explicit ID-bearing profiles in the active store.
   const merchants: Partner[] = useMemo(() => {
@@ -1769,22 +1804,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     }
   };
 
-  // Filter Orders for Live Merchant
-  const merchantOrders = useMemo(() => {
-    if (!liveMerchant) return [];
-    const mId = String(liveMerchant.id || '').trim().toLowerCase();
-
-    return rawOrders.filter(o => {
-      const oMId = String(o.merchantId || '').trim().toLowerCase();
-      const itemIds = (o.items || []).map(item => String(item.merchantId || '').trim().toLowerCase()).filter(Boolean);
-      if (itemIds.length > 0) return itemIds.includes(mId);
-      return Boolean(mId && oMId === mId);
-    });
-  }, [rawOrders, liveMerchant]);
-
   // Consignment Products & Stock Valuation
-  // Product ownership is resolved centrally by merchant ID. Cross-store and
-  // localStorage scans are intentionally not used for runtime visibility.
   const merchantProducts = useMemo(() => {
     if (!liveMerchant) return [];
 
@@ -1832,6 +1852,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
     return list;
   }, [activeStoreData, settings?.products, crossStoreProducts, liveMerchant]);
+
+  // Product ID & Name sets for fast, exhaustive item-level order matching
+  const merchantProductIds = useMemo(() => {
+    const ids = new Set<string>();
+    (merchantProducts || []).forEach(p => {
+      if (p?.id) ids.add(String(p.id).trim());
+    });
+    return ids;
+  }, [merchantProducts]);
+
+  const merchantProductNames = useMemo(() => {
+    const names = new Set<string>();
+    (merchantProducts || []).forEach(p => {
+      const n = normalizeMerchantLabel(p?.name || (p as any)?.title || '');
+      if (n) names.add(n);
+    });
+    return names;
+  }, [merchantProducts]);
+
+  // Resilient, Multi-faceted Filter for Merchant Orders
+  const merchantOrders = useMemo(() => {
+    if (!liveMerchant) return [];
+    return rawOrders.filter(o => checkOrderBelongsToMerchant(o, liveMerchant, merchantProductIds, merchantProductNames));
+  }, [rawOrders, liveMerchant, merchantProductIds, merchantProductNames]);
 
   // Orders Counts by Status for Filter Pills
   const orderStatusCounts = useMemo(() => {

@@ -36,7 +36,7 @@ import { getVirtualOrderHandovers } from '../utils/financials';
 import { PartnerStatementModal } from './PartnerStatementModal';
 import { PartnerProfileTab } from './PartnerProfileTab';
 import { PartnerReportsView } from './PartnerReportsView';
-import { getStoreOwnedOrders, normalizeMerchantId } from '../utils/merchantProducts';
+import { getStoreOwnedOrders, normalizeMerchantId, checkOrderBelongsToMerchant } from '../utils/merchantProducts';
 import { calculateMerchantBalance } from '../utils/merchantAccounting';
 import { PartnerAuthView } from './PartnerAuthView';
 
@@ -1161,17 +1161,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   // Filter and organize orders belonging to this partner/merchant
   const merchantOrders = useMemo(() => {
     if (!livePartner) return [];
-    const pName = (livePartner.name || '').trim().toLowerCase();
-    const pId = (livePartner.id || '').trim().toLowerCase();
-    const pPhone = (livePartner.phone || '').trim().toLowerCase();
-
-    return rawOrders.filter(o => {
-      const oMId = (o.merchantId || '').trim().toLowerCase();
-      const oMName = (o.merchantName || '').trim().toLowerCase();
-      if (!oMId && !oMName) return false;
-      if (oMId === 'pending') return false;
-      return oMId === pId || oMName === pName || (pPhone && oMId === pPhone) || oMName === pId;
-    });
+    return rawOrders.filter(o => checkOrderBelongsToMerchant(o, livePartner));
   }, [rawOrders, livePartner]);
 
   // Status Categorization for Merchant Orders

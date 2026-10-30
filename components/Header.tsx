@@ -464,11 +464,11 @@ const Header: React.FC<HeaderProps> = ({
 
                                 {isRestricted && (
                                     <span 
-                                        title="الوضع الاحتياطي المحلي نشط لحماية بياناتك"
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/10 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 border border-amber-500/20"
+                                        title="تم التحويل التلقائي لقاعدة بيانات Firebase Firestore الأساسية بسبب تجاوز كوتة Supabase"
+                                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:bg-amber-500/25 dark:text-amber-300 border border-amber-500/30"
                                     >
-                                        <ShieldAlert size={10} />
-                                        <span>محلي</span>
+                                        <ShieldAlert size={11} className="text-amber-600 dark:text-amber-400" />
+                                        <span>Firebase نشط (كوتة Supabase)</span>
                                     </span>
                                 )}
                             </div>

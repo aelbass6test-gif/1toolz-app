@@ -255,25 +255,45 @@ export function isOrderForMerchant(
   merchantIdOrName: string, 
   merchantObj?: { id: string; name: string }
 ): boolean {
-  const hasMerchant = Boolean(
-    (order.merchantId && order.merchantId !== 'pending') ||
-    (order.items || []).some(item => Boolean(item.merchantId && item.merchantId !== 'pending'))
-  );
-
-  if (!hasMerchant) return false;
+  if (!order) return false;
   if (!merchantIdOrName || merchantIdOrName === 'all') return true;
 
   const targetId = normalizeStr(merchantObj?.id || merchantIdOrName);
-  const oMId = normalizeStr(order.merchantId || '');
-  const hasLineOwnership = (order.items || []).some(item => Boolean(item.merchantId || item.ownerType));
-  if (targetId && oMId === targetId && !hasLineOwnership) return true;
+  const targetName = normalizeStr(merchantObj?.name || merchantIdOrName);
 
-  const hasItemMatch = (order.items || []).some(item => {
-    const iMId = normalizeStr(item.merchantId || '');
-    return Boolean(targetId && iMId === targetId);
-  });
+  const oMId = normalizeStr(order.merchantId || (order as any).merchant_id || '');
+  const oPId = normalizeStr((order as any).partnerId || (order as any).partner_id || '');
+  const oMName = normalizeStr(order.merchantName || (order as any).merchant_name || order.subSenderName || order.merchantBrandName || '');
 
-  return hasItemMatch;
+  // 1. Direct Order-level ID match
+  if (targetId && (oMId === targetId || oPId === targetId || (oMId && oMId.includes(targetId)) || (targetId && oMId && targetId.includes(oMId)))) {
+    return true;
+  }
+
+  // 2. Direct Order-level Name match
+  if (targetName && (oMName === targetName || (oMName && oMName.includes(targetName)) || (targetName && oMName && targetName.includes(oMName)))) {
+    return true;
+  }
+
+  // 3. Settlement refs
+  if (Array.isArray(order.merchantSettlementRefs)) {
+    if (order.merchantSettlementRefs.some((r: any) => normalizeStr(r?.merchantId || '') === targetId)) return true;
+  }
+
+  // 4. Item-level match
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    const hasItemMatch = order.items.some(item => {
+      if (!item) return false;
+      const iMId = normalizeStr(item.merchantId || (item as any).merchant_id || (item as any).supplierId || '');
+      const iMName = normalizeStr(item.merchantName || (item as any).merchant_name || (item as any).supplierName || '');
+      if (targetId && (iMId === targetId || (iMId && iMId.includes(targetId)) || (targetId && iMId && targetId.includes(iMId)))) return true;
+      if (targetName && (iMName === targetName || (iMName && iMName.includes(targetName)) || (targetName && iMName && targetName.includes(iMName)))) return true;
+      return false;
+    });
+    if (hasItemMatch) return true;
+  }
+
+  return false;
 }
 
 /**

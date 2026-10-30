@@ -253,6 +253,7 @@ const MainLayout = ({
                 const msg = String(err?.message || err);
                 if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
                     console.warn('[Notification] Firestore quota reached for shared_audits. Using cached data seamlessly.');
+                    db.markFirestoreQuotaExhausted();
                     try { if (unsubAudit) unsubAudit(); } catch (_) {}
                 } else {
                     console.warn('[Notification] shared_audits notice:', msg);
@@ -284,6 +285,7 @@ const MainLayout = ({
                 const msg = String(err?.message || err);
                 if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
                     console.warn('[Notification] Firestore quota reached for chat_messages. Using cached data seamlessly.');
+                    db.markFirestoreQuotaExhausted();
                     try { if (unsubChat) unsubChat(); } catch (_) {}
                 } else {
                     console.warn('[Notification] chat_messages notice:', msg);
@@ -887,12 +889,22 @@ const OwnerLayoutWrapper = ({
                 legacy = [];
                 snapshot.forEach(docSnap => legacy.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
                 publish();
+            }, (err) => {
+                const msg = String(err?.message || err);
+                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
+                    db.markFirestoreQuotaExhausted();
+                }
             }));
             const merchantQuery = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', activeStoreId));
             unsubs.push(onSnapshot(merchantQuery, snapshot => {
                 merchants = [];
                 snapshot.forEach(docSnap => merchants.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
                 publish();
+            }, (err) => {
+                const msg = String(err?.message || err);
+                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
+                    db.markFirestoreQuotaExhausted();
+                }
             }));
         } catch (e) {
             console.warn('[Notification] request subscriptions error:', e);

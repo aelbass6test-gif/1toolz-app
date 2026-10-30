@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
-import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square, Mail, Send } from 'lucide-react';
+import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, AlertTriangle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square, Mail, Send } from 'lucide-react';
 import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, isHostingerActive, verifyHostingerConnection, getLocal, saveLocal, saveStoreData, pushLocalToHostinger } from '../services/databaseService';
 import ApiKeysManager from './ApiKeysManager';
 import WebhooksManager from './WebhooksManager';
@@ -2574,9 +2574,9 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
 
               <div className="flex items-center gap-2">
                 {isRestricted ? (
-                  <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl border border-amber-200/50 dark:border-amber-900/40 animate-pulse">
-                    <AlertCircle size={14} />
-                    <span>وضع الطوارئ (تخزين محلي فقط)</span>
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-xs font-bold rounded-xl border border-amber-300 dark:border-amber-900/60 shadow-sm">
+                    <AlertCircle size={14} className="text-amber-600 dark:text-amber-400 animate-pulse" />
+                    <span>تنبيه: تم تجاوز كوتة Supabase (التحويل التلقائي لـ Firebase نشط)</span>
                   </span>
                 ) : cloudProvider === 'hostinger' ? (
                   <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-blue-200/50 dark:border-blue-900/30">
@@ -2600,6 +2600,41 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
         </div>
 
         <div className="p-6 space-y-6 text-right">
+          {isRestricted && (
+            <div className="bg-amber-500/10 dark:bg-amber-950/30 border-2 border-amber-500/30 rounded-2xl p-5 space-y-4 text-right">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+                  <AlertTriangle size={22} />
+                </div>
+                <div className="space-y-1.5 flex-1">
+                  <h3 className="text-base font-bold text-amber-800 dark:text-amber-200">
+                    تنبيه: تم إيقاف خدمة Supabase لتجاوز باقة نقل البيانات (Egress Quota Exceeded)
+                  </h3>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                    تم حظر الاتصال بمشروع Supabase بسبب تجاوز الكوتة الشهرية المجانية لنقل البيانات (Egress Quota). 
+                    <strong> قام النظام تلقائياً بتحويل عمليات المزامنة والحفظ السحابي إلى قاعدة بيانات Firebase Firestore الأساسية </strong> 
+                    لضمان استمرار المتجر والطلبات دون أي انقطاع أو فقدان للبيانات.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-amber-500/20">
+                <button
+                  onClick={handleRestoreDefaultDatabase}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 transition"
+                >
+                  <Check size={14} />
+                  <span>الاعتماد الدائم على Firebase Firestore (موصى به)</span>
+                </button>
+                <button
+                  onClick={handleReactivateCloudSync}
+                  className="px-4 py-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+                >
+                  <RefreshCw size={14} />
+                  <span>إعادة محاولة الاتصال بـ Supabase (في حال ترقية الباقة)</span>
+                </button>
+              </div>
+            </div>
+          )}
           {cloudProvider === 'hostinger' ? (
             <div className="bg-blue-50/50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/30 rounded-xl p-4 text-sm text-slate-600 dark:text-slate-300 space-y-3 leading-relaxed">
               <h3 className="font-bold text-blue-900 dark:text-blue-400 flex items-center gap-2 justify-start">
