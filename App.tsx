@@ -2345,9 +2345,6 @@ export const AppComponent = () => {
         }
 
         const newUser: User = { fullName, phone: normalizedPhone, email: normalizedEmail, joinDate: new Date().toISOString() };
-        const userSaved = await db.createUserDoc(newUser);
-        if (!userSaved) throw new Error("تم إنشاء حساب الدخول لكن تعذر حفظ ملف الموظف.");
-
         const { data: requestResult, error: requestError } = await supabase.functions.invoke('store-manage-employee', {
             body: {
                 action: 'submit_request',
