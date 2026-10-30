@@ -3036,7 +3036,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   // Sum of pending withdrawal requests (held from wallet)
   const pendingRequestsSum = useMemo(() => {
     return merchantFilteredRequests
-      .filter(r => r.status === 'pending' && (!r.type || r.type === 'withdrawal'))
+      .filter(r => (r.status === 'pending' || r.status === 'processing') && (!r.type || r.type === 'withdrawal'))
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   }, [merchantFilteredRequests]);
 
