@@ -7,8 +7,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase } from '../services/databaseService';
-import { auth } from '../services/firebaseClient';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithSupabase, signUpWithSupabase } from '../services/supabaseAuthService';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { verifyPasswordSecure } from '../utils/syncIntegrity';
 import { motion } from 'framer-motion';
@@ -162,14 +161,14 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
 
     if (isLoginView) {
       try {
-        await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
+        await signInWithSupabase(firebaseEmail, userPassword);
         let foundUser = await getUserByPhone(trimmedPhone);
         if (!foundUser) {
           // Reconstruct user gracefully from auth session if Firestore quota was exhausted
           foundUser = {
             fullName: 'التاجر العزيز',
             phone: trimmedPhone,
-            email: auth.currentUser?.email || `${trimmedPhone}@mystore-auth.app`,
+            email: `${trimmedPhone}@mystore-auth.app`,
             stores: [{ 
               id: `store_${trimmedPhone}`, 
               name: 'متجري الذكي',
@@ -196,15 +195,12 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           return;
         }
       } catch (err: any) {
-        if (err.code === 'auth/network-request-failed') {
+        if (err?.code === 'fetch_error' || /network/i.test(String(err?.message || ''))) {
           setUserError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
           setIsLoading(false);
           return;
         }
-        const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
-                                       err.code === 'auth/invalid-credential' || 
-                                       err?.message?.includes('user-not-found') || 
-                                       err?.message?.includes('invalid-credential');
+        const isUserNotFoundOrInvalid = ['invalid_credentials','user_not_found','invalid_email'].includes(String(err?.code || '')) || /invalid login credentials/i.test(String(err?.message || ''));
         if (isUserNotFoundOrInvalid) {
           try {
             // Check if user exists in Firestore
@@ -222,7 +218,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             // 1. Check if they have a CUSTOM email in Supabase (meaning they updated it in settings)
             if (legacyUser && legacyUser.email && legacyUser.email !== `${userPhone.trim()}@mystore-auth.app`) {
               try {
-                await signInWithEmailAndPassword(auth, legacyUser.email, userPassword);
+                await signInWithSupabase(legacyUser.email, userPassword);
                 const foundUser = await getUserByPhone(userPhone.trim());
                 if (foundUser) {
                   onPasswordSuccess(foundUser, userPassword);
@@ -270,7 +266,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       
       try {
         const emailToUse = firebaseEmail;
-        await createUserWithEmailAndPassword(auth, emailToUse, userPassword);
+        await signUpWithSupabase({ email: emailToUse, password: userPassword, displayName: fullName.trim(), phone: userPhone.trim() });
         
         const newUser: User = { 
           fullName: fullName.trim(), 
@@ -296,7 +292,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           setIsLoading(false);
         }
       } catch (err: any) {
-        if (err.code === 'auth/email-already-in-use') {
+        if (['user_already_exists','email_exists'].includes(String(err?.code || '')) || /already registered/i.test(String(err?.message || ''))) {
            setUserError('هذا الرقم مسجل بالفعل في النظام. يرجى تسجيل الدخول أو استعادة كلمة المرور.');
         } else {
            setUserError('حدث خطأ أثناء إنشاء الحساب. يرجى المحاولة لاحقاً: ' + (err?.message || ''));
