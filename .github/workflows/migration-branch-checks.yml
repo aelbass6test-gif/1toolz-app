@@ -34,6 +34,8 @@ jobs:
         run: npm run test:merchant-accounting
       - name: Shipping status regression tests
         run: npm run test:shipping
+      - name: Supabase membership authorization boundary tests
+        run: npm run test:supabase-membership
       - name: Type-check
         run: npm run lint
       - name: Production build
