@@ -867,7 +867,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       return;
     }
 
-    const isMerchantWithdrawal = req.type === 'withdrawal';
+    const isMerchantWithdrawal = req.type === 'withdrawal' || req.type == null;
     if (!isMerchantWithdrawal) {
       const statusUpdated = await db.updateMerchantRequestStatus(req.id, storeId, 'approved');
       if (!statusUpdated) {
