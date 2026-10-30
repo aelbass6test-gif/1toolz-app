@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Settings, Employee, Permission, PERMISSIONS, User, Store } from '../types';
 import { Users, UserPlus, UserCog, Trash2, XCircle, KeyRound, AlertCircle, Check, Clock, Copy, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { createUserDoc } from '../services/databaseService';
+import { getAuthSupabaseClient } from '../services/supabaseAuthService';
 import { db } from '../services/firebaseClient';
 import { doc, setDoc } from 'firebase/firestore';
 import { getApps, initializeApp } from 'firebase/app';
@@ -181,78 +181,95 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     setAddEmployeeError('');
     setNewEmployeeCredentials(null);
 
-    const initialPermissions = ROLES[data.roleKey]?.permissions || [];
-
-    if (settings.employees.some(e => e.id === data.phone)) {
-        setAddEmployeeError('هذا الموظف مضاف بالفعل في هذا المتجر.');
-        return;
+    if (!activeStoreId) {
+      setAddEmployeeError('لم يتم تحديد المتجر الحالي.');
+      return;
     }
 
-    const userByPhone = users.find(u => u.phone === data.phone);
+    const initialPermissions = ROLES[data.roleKey]?.permissions || [];
+    const phone = data.phone.trim();
+    const email = data.email.trim().toLowerCase();
 
-    if (userByPhone) {
-        alert(`تم العثور على حساب للمستخدم "${userByPhone.fullName}". سيتم إضافته كموظف في هذا المتجر بالدور المحدد.`);
-        const newEmployee: Employee = { 
-          id: userByPhone.phone, 
-          phone: userByPhone.phone, 
-          name: userByPhone.fullName, 
-          email: userByPhone.email, 
-          permissions: initialPermissions, 
-          status: 'active',
-          commissionType: data.commissionType || 'fixed',
-          commissionValue: Number(data.commissionValue) || 0,
-          balance: 0,
-          commissionTransactions: []
-        };
-        setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
-        setIsAddEmployeeModalOpen(false);
-    } else {
-        const userByEmail = users.find(u => u.email === data.email);
-        if (userByEmail) {
-            setAddEmployeeError('هذا البريد الإلكتروني مسجل لحساب آخر.');
-            return;
+    if (settings.employees.some(e => e.id === phone || e.phone === phone)) {
+      setAddEmployeeError('هذا الموظف مضاف بالفعل في هذا المتجر.');
+      return;
+    }
+
+    const userByPhone = users.find(u => u.phone === phone);
+    const userByEmail = users.find(u => u.email?.toLowerCase() === email && u.phone !== phone);
+    if (userByEmail) {
+      setAddEmployeeError('هذا البريد الإلكتروني مسجل لحساب آخر.');
+      return;
+    }
+
+    if (!userByPhone && (!data.password || data.password.length < 8)) {
+      setAddEmployeeError('يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.');
+      return;
+    }
+
+    try {
+      const { data: result, error } = await getAuthSupabaseClient().functions.invoke('store-manage-employee', {
+        body: {
+          mode: userByPhone ? 'link' : 'create',
+          storeId: activeStoreId,
+          fullName: userByPhone?.fullName || data.name.trim(),
+          phone,
+          email: userByPhone?.email || email,
+          password: userByPhone ? undefined : data.password,
+          permissions: initialPermissions,
+          membershipRole: data.roleKey === 'FULL_MANAGER' ? 'manager' : 'staff'
         }
+      });
 
-        if (!data.password || data.password.length < 8) {
-            setAddEmployeeError('يجب أن تحتوي كلمة المرور على 8 أحرف على الأقل.');
-            return;
-        }
-
-        const firebaseEmail = `${data.phone.trim()}@mystore-auth.app`;
+      if (error) {
+        const context = (error as any)?.context;
+        let message = (error as any)?.message || 'تعذر إضافة الموظف.';
         try {
-            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, data.password);
-            await secondaryAuth.signOut();
-        } catch (err: any) {
-            setAddEmployeeError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
-            return;
-        }
+          const payload = context && typeof context.json === 'function' ? await context.json() : null;
+          if (payload?.error) message = payload.error;
+        } catch {}
+        throw new Error(message);
+      }
+      if (!result?.success) throw new Error(result?.error || 'تعذر حفظ عضوية الموظف.');
 
-        const newUser: User = { fullName: data.name, phone: data.phone, email: data.email, joinDate: new Date().toISOString() };
-        const success = await createUserDoc(newUser);
-        if (!success) {
-            setAddEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
-            return;
-        }
+      const employeeName = userByPhone?.fullName || data.name.trim();
+      const employeeEmail = userByPhone?.email || email;
+      const newEmployee: Employee = {
+        id: phone,
+        phone,
+        name: employeeName,
+        email: employeeEmail,
+        permissions: initialPermissions,
+        status: 'active',
+        commissionType: data.commissionType || 'fixed',
+        commissionValue: Number(data.commissionValue) || 0,
+        balance: 0,
+        commissionTransactions: []
+      };
 
-        setUsers(prev => [...prev, newUser]);
-        const newEmployee: Employee = { 
-          id: data.phone, 
-          phone: data.phone, 
-          name: data.name, 
-          email: data.email, 
-          permissions: initialPermissions, 
-          status: 'active',
-          commissionType: data.commissionType || 'fixed',
-          commissionValue: Number(data.commissionValue) || 0,
-          balance: 0,
-          commissionTransactions: []
+      setSettings(s => ({
+        ...s,
+        employees: [...(s.employees || []).filter(e => e.id !== phone), newEmployee]
+      }));
+
+      if (!userByPhone) {
+        const newUser: User = {
+          fullName: employeeName,
+          phone,
+          email: employeeEmail,
+          joinDate: new Date().toISOString()
         };
-        setSettings(s => ({ ...s, employees: [...(s.employees || []), newEmployee] }));
-        setNewEmployeeCredentials({ phone: data.phone, pass: data.password });
-        setIsAddEmployeeModalOpen(false);
+        setUsers(prev => [...prev.filter(u => u.phone !== phone), newUser]);
+        setNewEmployeeCredentials({ phone, pass: data.password });
+      }
+
+      setIsAddEmployeeModalOpen(false);
+    } catch (err: any) {
+      console.error('[EMPLOYEE-PROVISIONING] Supabase request failed:', err);
+      setAddEmployeeError(err?.message || 'تعذر إضافة الموظف. حاول مرة أخرى.');
     }
   };
-  
+
   const handleRequestAction = (employeeId: string, action: 'accept' | 'decline') => {
      if (action === 'accept') {
          setSettings(s => ({ ...s, employees: s.employees.map(e => e.id === employeeId ? { ...e, status: 'active' } : e) }));
