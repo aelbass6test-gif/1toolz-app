@@ -43,7 +43,7 @@ Deno.serve(async (request: Request) => {
   // or a trusted admin flag server-side before using the service role.
   if (isAdminAction) {
     const authorization = request.headers.get("Authorization") || "";
-    const token = authorization.replace(/^Bearer\s+/i, "").trim();
+    const token = authorization.replace(/^Bearer\\s+/i, "").trim();
     if (!token) return json({ success: false, error: "يلزم تسجيل دخول الإدارة" }, 401);
     const { data: authData, error: authError } = await admin.auth.getUser(token);
     if (authError || !authData.user) return json({ success: false, error: "جلسة الإدارة غير صالحة" }, 401);
@@ -108,6 +108,10 @@ Deno.serve(async (request: Request) => {
       return json({ success: false, error: "بيانات تحديث الطلب غير صحيحة" }, 400);
     }
     const meta = body?.meta || {};
+    // Claiming changes pending -> processing. Final approval OR rejection must
+    // therefore accept either state, while a retry after a terminal transition
+    // must fail to avoid duplicate processing.
+    const allowedSourceStatuses = status === "pending" ? ["processing"] : ["pending", "processing"];
     const { data: updated, error } = await admin
       .from("merchant_requests")
       .update({
@@ -120,9 +124,10 @@ Deno.serve(async (request: Request) => {
       })
       .eq("id", requestId)
       .eq("storeId", storeId)
-      .eq("status", status === "approved" || status === "pending" ? "processing" : "pending")
+      .in("status", allowedSourceStatuses)
       .select("id")
       .maybeSingle();
+    if (error) return json({ success: false, error: "تعذر تحديث حالة طلب السحب" }, 500);
     if (!updated?.id) return json({ success: false, error: "الطلب غير موجود أو تمت معالجته بالفعل" }, 409);
     return json({ success: true, id: updated.id, status });
   }
