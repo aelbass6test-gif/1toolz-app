@@ -2283,9 +2283,9 @@ export const AppComponent = () => {
         }
 
         const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
-        const firebaseEmail = `${authPhone}@mystore-auth.app`;
+        const authEmail = `${authPhone}@mystore-auth.app`;
         try {
-            await signInWithSupabase(firebaseEmail, password);
+            await signInWithSupabase(authEmail, password);
         } catch (err: any) {
             if (err?.code === 'fetch_error' || /network/i.test(String(err?.message || ''))) {
                 throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
@@ -2327,9 +2327,9 @@ export const AppComponent = () => {
             throw new Error("لديك بالفعل طلب انضمام معلق أو أنت موظف في هذا المتجر.");
         }
 
-        const firebaseEmail = `${phone.trim()}@mystore-auth.app`;
+        const authEmail = `${phone.trim()}@mystore-auth.app`;
         try {
-            const authUser = await signUpWithSupabase({ email: firebaseEmail, password, displayName: fullName, phone });
+            const authUser = await signUpWithSupabase({ email: authEmail, password, displayName: fullName, phone });
             if (!authUser) {
                 throw new Error("فشل إنشاء حساب المصادقة.");
             }
