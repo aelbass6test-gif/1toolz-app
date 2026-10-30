@@ -26,7 +26,8 @@ Deno.serve(async (request: Request) => {
   const merchantId = String(body?.merchantId || "").trim();
   const passcode = String(body?.passcode || "");
   const action = String(body?.action || "");
-  if (!storeId || !merchantId || !passcode || !["submit", "list"].includes(action)) {
+  const isAdminAction = action === "admin_list" || action === "admin_update";
+  if (!storeId || (!isAdminAction && (!merchantId || !passcode)) || !["submit", "list", "admin_list", "admin_update"].includes(action)) {
     return json({ success: false, error: "بيانات الطلب أو التحقق غير مكتملة" }, 400);
   }
   if (storeId.length > 160 || merchantId.length > 160 || passcode.length > 128) {
@@ -37,6 +38,62 @@ Deno.serve(async (request: Request) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !serviceKey) return json({ success: false, error: "Server configuration is incomplete" }, 503);
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+  // Administrative reads/updates use a real Supabase session and verify store ownership
+  // or a trusted admin flag server-side before using the service role.
+  if (isAdminAction) {
+    const authorization = request.headers.get("Authorization") || "";
+    const token = authorization.replace(/^Bearer\\s+/i, "").trim();
+    if (!token) return json({ success: false, error: "يلزم تسجيل دخول الإدارة" }, 401);
+    const { data: authData, error: authError } = await admin.auth.getUser(token);
+    if (authError || !authData.user) return json({ success: false, error: "جلسة الإدارة غير صالحة" }, 401);
+    const userId = authData.user.id;
+
+    const [{ data: profile }, { data: membership }] = await Promise.all([
+      admin.from("user_profiles").select("is_admin").eq("user_id", userId).maybeSingle(),
+      admin.from("store_memberships").select("role").eq("user_id", userId).eq("store_id", storeId).maybeSingle()
+    ]);
+    const isTrustedAdmin = profile?.is_admin === true;
+    const isStoreOwner = ["owner", "store_owner"].includes(String(membership?.role || "").toLowerCase());
+    if (!isTrustedAdmin && !isStoreOwner) {
+      return json({ success: false, error: "غير مصرح بعرض أو إدارة طلبات هذا المتجر" }, 403);
+    }
+
+    if (action === "admin_list") {
+      const { data: requests, error } = await admin
+        .from("merchant_requests")
+        .select("id,storeId,type,typeArabic,amount,notes,date,status,createdAt,merchantId,merchantName,payoutMethod,payoutAccount,receiptImage,transferReference,approvedBy,approvedAt,details")
+        .eq("storeId", storeId)
+        .order("createdAt", { ascending: false });
+      if (error) return json({ success: false, error: "تعذر تحميل طلبات السحب من قاعدة البيانات" }, 500);
+      return json({ success: true, requests: requests || [] });
+    }
+
+    const requestId = String(body?.requestId || "").trim();
+    const status = String(body?.status || "");
+    if (!requestId || !["approved", "rejected"].includes(status)) {
+      return json({ success: false, error: "بيانات تحديث الطلب غير صحيحة" }, 400);
+    }
+    const meta = body?.meta || {};
+    const { data: updated, error } = await admin
+      .from("merchant_requests")
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+        ...(meta.receiptImage ? { receiptImage: String(meta.receiptImage).slice(0, 2000000) } : {}),
+        ...(meta.transferReference ? { transferReference: String(meta.transferReference).slice(0, 300) } : {}),
+        ...(meta.approvedBy ? { approvedBy: String(meta.approvedBy).slice(0, 160) } : {}),
+        ...(meta.approvedAt ? { approvedAt: String(meta.approvedAt).slice(0, 80) } : {})
+      })
+      .eq("id", requestId)
+      .eq("storeId", storeId)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (error) return json({ success: false, error: "تعذر تحديث حالة طلب السحب" }, 500);
+    if (!updated?.id) return json({ success: false, error: "الطلب غير موجود أو تمت معالجته بالفعل" }, 409);
+    return json({ success: true, id: updated.id, status });
+  }
 
   const { data: store, error: storeError } = await admin
     .from("stores_data").select("settings").eq("id", storeId).maybeSingle();
