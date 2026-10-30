@@ -26,8 +26,8 @@ Deno.serve(async (request: Request) => {
   const merchantId = String(body?.merchantId || "").trim();
   const passcode = String(body?.passcode || "");
   const action = String(body?.action || "");
-  const isAdminAction = action === "admin_list" || action === "admin_update";
-  if (!storeId || (!isAdminAction && (!merchantId || !passcode)) || !["submit", "list", "admin_list", "admin_update", "merchant_cancel"].includes(action)) {
+  const isAdminAction = action === "admin_list" || action === "admin_update" || action === "admin_claim";
+  if (!storeId || (!isAdminAction && (!merchantId || !passcode)) || !["submit", "list", "admin_list", "admin_update", "admin_claim", "merchant_cancel"].includes(action)) {
     return json({ success: false, error: "بيانات الطلب أو التحقق غير مكتملة" }, 400);
   }
   if (storeId.length > 160 || merchantId.length > 160 || passcode.length > 128) {
@@ -84,6 +84,16 @@ Deno.serve(async (request: Request) => {
     }
 
     const requestId = String(body?.requestId || "").trim();
+    if (action === "admin_claim") {
+      if (!requestId) return json({ success: false, error: "رقم الطلب غير صحيح" }, 400);
+      const { data: claimed, error: claimError } = await admin.from("merchant_requests")
+        .update({ status: "processing", updated_at: new Date().toISOString() })
+        .eq("id", requestId).eq("storeId", storeId).eq("status", "pending")
+        .select("id").maybeSingle();
+      if (claimError) return json({ success: false, error: "تعذر حجز الطلب للمعالجة" }, 500);
+      if (!claimed?.id) return json({ success: false, error: "الطلب قيد المعالجة أو تمت مراجعته بالفعل" }, 409);
+      return json({ success: true, id: claimed.id, status: "processing" });
+    }
     const status = String(body?.status || "");
     if (!requestId || !["approved", "rejected"].includes(status)) {
       return json({ success: false, error: "بيانات تحديث الطلب غير صحيحة" }, 400);
@@ -101,10 +111,9 @@ Deno.serve(async (request: Request) => {
       })
       .eq("id", requestId)
       .eq("storeId", storeId)
-      .eq("status", "pending")
+      .eq("status", status === "approved" || status === "pending" ? "processing" : "pending")
       .select("id")
       .maybeSingle();
-    if (error) return json({ success: false, error: "تعذر تحديث حالة طلب السحب" }, 500);
     if (!updated?.id) return json({ success: false, error: "الطلب غير موجود أو تمت معالجته بالفعل" }, 409);
     return json({ success: true, id: updated.id, status });
   }
