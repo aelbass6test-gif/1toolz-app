@@ -198,3 +198,11 @@ The empty project `lhlcwtxbmxipcesuymnr` (`Wuilt-Platform2`) was inspected and c
 - The production `public.users` table contains a legacy `password` column. Do not select, expose, copy, or use this field for authentication. Authentication must be delegated to Supabase Auth.
 - GitHub Actions validation for commit `9c5df6e8cf7ee00d0d4c6d9ae00f318f1b1fdef8` was queued at the time of this update; earlier baseline commit `d06325f590b2f0b63d7162e773fe5f15b463f983` passed both type-check and production build.
 - No production database schema, RLS policy, grant, user, membership, or business data was changed in this slice.
+
+### Auth schema deployment gate (live project inspection; 2026-10-30)
+
+- The connected production project has a `public.store_memberships` table with `user_id`, `store_id`, `role`, and `created_at`; the read-only check found 4 rows earlier in this session.
+- The connected production project does **not** currently have `public.user_profiles`. The additive Auth foundation migration in this branch has not been applied to production.
+- Therefore the current Supabase Auth helper code is groundwork only. New owner/employee onboarding must not be switched to Supabase until the profile table, owner bootstrap flow, membership linking, and safe store-scoped policies have been deployed and tested in a non-production environment.
+- The legacy `public.users` table contains a nullable `password` column. Application code must never select or use it for authentication. New credentials belong exclusively in `auth.users`.
+- The available empty Supabase project `lhlcwtxbmxipcesuymnr` has not been designated as staging. No schema or data was written to either connected Supabase project during this inspection.
