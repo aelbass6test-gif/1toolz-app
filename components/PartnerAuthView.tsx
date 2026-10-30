@@ -807,7 +807,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                             setSelectedPartnerId(p.id);
                             if (p.email) {
                               setOtpTargetEmail(p.email);
-                              setCustomEmailInput(p.email);
                             } else {
                               setOtpTargetEmail('');
                             }
