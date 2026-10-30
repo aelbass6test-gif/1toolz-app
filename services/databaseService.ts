@@ -1009,22 +1009,27 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         const pNameNorm = String(p.name || '').trim().toLowerCase();
                         const fallbackPartner = (storeSettings.partners || []).find((fp: any) => fp.id === p.id || (pNameNorm && String(fp.name || '').trim().toLowerCase() === pNameNorm))
                             || (local?.settings?.partners || []).find((lp: any) => lp.id === p.id || (pNameNorm && String(lp.name || '').trim().toLowerCase() === pNameNorm));
-                        const details = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
+                        // Legacy partner passwords are not an authentication source.
+                        // Keep them (and nested details.password) out of the client-side store model.
+                        const { password: _fallbackPassword, details: _fallbackDetails, ...safeFallbackPartner } = fallbackPartner || {};
+                        const { password: _legacyPassword, details: _rawDetails, ...safePartnerRecord } = p;
+                        const parsedDetails = p.details && typeof p.details === 'object' ? p.details : (typeof p.details === 'string' && p.details ? JSON.parse(p.details) : {});
+                        const { password: _legacyDetailsPassword, ...safeDetails } = parsedDetails;
                         return {
-                            ...fallbackPartner,
-                            ...p,
-                            email: p.email || details.email || fallbackPartner?.email || '',
-                            passcode: p.passcode || details.passcode || fallbackPartner?.passcode || '0000',
-                            password: p.password || details.password || fallbackPartner?.password || '',
-                            requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? details.requireEmailOtp ?? fallbackPartner?.requireEmailOtp ?? true),
-                            isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? details.isEmailVerified ?? fallbackPartner?.isEmailVerified ?? false),
-                            emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || details.emailVerifiedAt || fallbackPartner?.emailVerifiedAt,
-                            lastLoginAt: p.lastLoginAt || p.last_login_at || details.lastLoginAt || fallbackPartner?.lastLoginAt,
-                            permissions: p.permissions || details.permissions || fallbackPartner?.permissions || {},
-                            portalPermissions: p.portalPermissions || details.portalPermissions || fallbackPartner?.portalPermissions || {},
-                            payoutAccounts: p.payoutAccounts || details.payoutAccounts || fallbackPartner?.payoutAccounts || {},
-                            biometricCredentials: p.biometricCredentials || details.biometricCredentials || fallbackPartner?.biometricCredentials || [],
-                            allowBiometricAuth: Boolean(p.allowBiometricAuth ?? details.allowBiometricAuth ?? fallbackPartner?.allowBiometricAuth ?? false)
+                            ...safeFallbackPartner,
+                            ...safePartnerRecord,
+                            details: safeDetails,
+                            email: p.email || safeDetails.email || safeFallbackPartner.email || '',
+                            passcode: p.passcode || safeDetails.passcode || safeFallbackPartner.passcode || '0000',
+                            requireEmailOtp: Boolean(p.requireEmailOtp ?? p.require_email_otp ?? safeDetails.requireEmailOtp ?? safeFallbackPartner.requireEmailOtp ?? true),
+                            isEmailVerified: Boolean(p.isEmailVerified ?? p.is_email_verified ?? safeDetails.isEmailVerified ?? safeFallbackPartner.isEmailVerified ?? false),
+                            emailVerifiedAt: p.emailVerifiedAt || p.email_verified_at || safeDetails.emailVerifiedAt || safeFallbackPartner.emailVerifiedAt,
+                            lastLoginAt: p.lastLoginAt || p.last_login_at || safeDetails.lastLoginAt || safeFallbackPartner.lastLoginAt,
+                            permissions: p.permissions || safeDetails.permissions || safeFallbackPartner.permissions || {},
+                            portalPermissions: p.portalPermissions || safeDetails.portalPermissions || safeFallbackPartner.portalPermissions || {},
+                            payoutAccounts: p.payoutAccounts || safeDetails.payoutAccounts || safeFallbackPartner.payoutAccounts || {},
+                            biometricCredentials: p.biometricCredentials || safeDetails.biometricCredentials || safeFallbackPartner.biometricCredentials || [],
+                            allowBiometricAuth: Boolean(p.allowBiometricAuth ?? safeDetails.allowBiometricAuth ?? safeFallbackPartner.allowBiometricAuth ?? false)
                         };
                     }),
                     partnerTransactions: partnerTransactions.length > 0 ? partnerTransactions : (storeSettings.partnerTransactions || local?.settings?.partnerTransactions || []),
