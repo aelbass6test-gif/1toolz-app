@@ -144,3 +144,27 @@ export async function getSupabaseAuthUser(): Promise<User | null> {
   if (error && error.name !== 'AuthSessionMissingError') throw error;
   return data.user;
 }
+
+/** Resend a Supabase signup confirmation to the authenticated user's email. */
+export async function resendSupabaseSignupConfirmation(
+  email: string,
+  redirectTo: string
+): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    throw new Error('عنوان البريد الإلكتروني غير صالح.');
+  }
+  if (typeof window === 'undefined') {
+    throw new Error('لا يمكن إرسال رسالة التفعيل من هذا السياق.');
+  }
+  const redirectUrl = new URL(redirectTo);
+  if (redirectUrl.origin !== window.location.origin) {
+    throw new Error('رابط العودة يجب أن يكون من نفس نطاق التطبيق.');
+  }
+  const { error } = await getAuthSupabaseClient().auth.resend({
+    type: 'signup',
+    email: normalizedEmail,
+    options: { emailRedirectTo: redirectUrl.toString() }
+  });
+  if (error) throw error;
+}
