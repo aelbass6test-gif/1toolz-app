@@ -1,4 +1,11 @@
-import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
+import {
+  createClient,
+  type AuthChangeEvent,
+  type EmailOtpType,
+  type Session,
+  type SupabaseClient,
+  type User
+} from '@supabase/supabase-js';
 
 let client: SupabaseClient | null = null;
 
@@ -70,6 +77,78 @@ export async function signInWithSupabase(email: string, password: string): Promi
   });
   if (error) throw error;
   if (!data.user) throw new Error('تعذر التحقق من الحساب.');
+  return data.user;
+}
+
+/** Read the locally persisted session; Supabase handles refresh-token rotation. */
+export async function getSupabaseSession(): Promise<Session | null> {
+  const { data, error } = await getAuthSupabaseClient().auth.getSession();
+  if (error) throw error;
+  return data.session;
+}
+
+/** Subscribe to sign-in, sign-out, token refresh, and initial-session events. */
+export function onSupabaseAuthStateChange(
+  callback: (event: AuthChangeEvent, session: Session | null) => void
+): () => void {
+  const { data } = getAuthSupabaseClient().auth.onAuthStateChange(callback);
+  return () => data.subscription.unsubscribe();
+}
+
+/**
+ * Send a password-reset email. The redirect must be an absolute URL on the
+ * current application origin and must also be allow-listed in Supabase Auth.
+ */
+export async function requestSupabasePasswordReset(
+  email: string,
+  redirectTo: string
+): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    throw new Error('أدخل بريدًا إلكترونيًا صحيحًا.');
+  }
+  if (typeof window === 'undefined') {
+    throw new Error('لا يمكن بدء استعادة كلمة المرور من هذا السياق.');
+  }
+
+  let redirectUrl: URL;
+  try {
+    redirectUrl = new URL(redirectTo);
+  } catch {
+    throw new Error('رابط العودة بعد استعادة كلمة المرور غير صحيح.');
+  }
+  if (redirectUrl.origin !== window.location.origin) {
+    throw new Error('رابط العودة يجب أن يكون من نفس نطاق التطبيق.');
+  }
+
+  const { error } = await getAuthSupabaseClient().auth.resetPasswordForEmail(
+    normalizedEmail,
+    { redirectTo: redirectUrl.toString() }
+  );
+  if (error) throw error;
+}
+
+/** Complete a recovery flow after Supabase has established the recovery session. */
+export async function updateSupabasePassword(password: string): Promise<User> {
+  if (password.length < 8) throw new Error('كلمة المرور يجب ألا تقل عن 8 أحرف.');
+  const { data, error } = await getAuthSupabaseClient().auth.updateUser({ password });
+  if (error) throw error;
+  if (!data.user) throw new Error('تعذر تحديث كلمة المرور.');
+  return data.user;
+}
+
+/** Exchange a PKCE email-confirmation/recovery token hash for an Auth session. */
+export async function verifySupabaseEmailOtp(
+  tokenHash: string,
+  type: EmailOtpType
+): Promise<User> {
+  if (!tokenHash.trim()) throw new Error('رمز التحقق غير صالح.');
+  const { data, error } = await getAuthSupabaseClient().auth.verifyOtp({
+    token_hash: tokenHash,
+    type
+  });
+  if (error) throw error;
+  if (!data.user) throw new Error('تعذر التحقق من رابط البريد الإلكتروني.');
   return data.user;
 }
 
