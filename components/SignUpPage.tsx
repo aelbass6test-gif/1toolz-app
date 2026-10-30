@@ -321,7 +321,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           fullName: fullName.trim(), 
           phone: userPhone.trim(), 
           email: userEmail.trim(), 
-          password: userPassword,
           stores: [],
           joinDate: new Date().toISOString() 
         };
