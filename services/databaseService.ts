@@ -61,6 +61,7 @@ import {
     CallScript,
     PartnerPortalRequest
 } from '../types';
+export type { PartnerPortalRequest } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 import {
     shouldDeleteCloudRecord,
@@ -3203,7 +3204,7 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
     }
 
     // 3. Fetch from Firestore (authoritative source of truth when online)
-    if (!legacyRemoteSuccess && firebaseDb) {
+    if (!supabaseSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
@@ -3452,7 +3453,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
     } catch (_) {}
     
-    if (!supabaseSuccess && firebaseDb) {
+    if (!legacyRemoteSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
