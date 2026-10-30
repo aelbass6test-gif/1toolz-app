@@ -123,64 +123,59 @@ try {
 
 const knownMissingTables = new Set<string>(['quotations', ...storedMissingTables]);
 
-export const syncSupabaseCredentials = (storeId: string, settings: any) => {
-    if (typeof window === 'undefined') return;
-    const activeStoreId = localStorage.getItem('lastActiveStoreId');
-    if (!activeStoreId || activeStoreId === storeId) {
-        const localUrl = localStorage.getItem('custom_cloud_url');
-        const localKey = localStorage.getItem('custom_cloud_anon_key');
-        
-        if (settings) {
-            if (settings.supabaseUrl && settings.supabaseAnonKey) {
-                if (localUrl !== settings.supabaseUrl || localKey !== settings.supabaseAnonKey) {
-                    console.log(`[SUPABASE-SYNC] Syncing custom cloud credentials for store ${storeId} to localStorage...`);
-                    localStorage.setItem('custom_cloud_url', settings.supabaseUrl);
-                    localStorage.setItem('custom_cloud_anon_key', settings.supabaseAnonKey);
-                }
-            } else if (localUrl && localKey) {
-                // If localStorage already has credentials, attach them to settings object so it persists
-                console.log(`[SUPABASE-SYNC] Attaching stored custom cloud credentials to store settings...`);
-                settings.supabaseUrl = localUrl;
-                settings.supabaseAnonKey = localKey;
-            }
-        }
-    }
+/**
+ * Legacy per-store Supabase credentials are intentionally ignored.
+ * All tenants must use the single deployment-configured Supabase project.
+ * Kept as a no-op while old callers are removed from store hydration.
+ */
+export const syncSupabaseCredentials = (_storeId: string, _settings: any) => {
+    // Deliberately no-op: never persist tenant-provided database URLs or keys.
 };
 
 export const getSupabaseClient = () => {
     if (typeof window === 'undefined') return null;
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
-    const url = localStorage.getItem('custom_cloud_url') || envUrl;
-    const key = localStorage.getItem('custom_cloud_anon_key') || envKey;
-    
-    if (url && key && url.startsWith('http')) {
-        // Reuse existing client if credentials haven't changed
-        if (supabaseSingleton && supabaseSingleton.__url === url && supabaseSingleton.__key === key) {
-            return supabaseSingleton;
-        }
-        try {
-            const client = createClient(url, key);
-            // Attach URL/Key for comparison in next calls
-            (client as any).__url = url;
-            (client as any).__key = key;
-            supabaseSingleton = client;
-            return supabaseSingleton;
-        } catch (e) {
-            console.error('Failed to init custom Supabase client', e);
-            return null;
-        }
+    const envKey =
+        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
+
+    if (!envUrl || !envKey || !/^https:\/\//.test(envUrl)) {
+        supabaseSingleton = null;
+        return null;
     }
-    supabaseSingleton = null;
-    return null;
+
+    if (supabaseSingleton && supabaseSingleton.__url === envUrl && supabaseSingleton.__key === envKey) {
+        return supabaseSingleton;
+    }
+
+    try {
+        const client = createClient(envUrl, envKey, {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: true,
+                flowType: 'pkce'
+            }
+        });
+        (client as any).__url = envUrl;
+        (client as any).__key = envKey;
+        supabaseSingleton = client;
+        return supabaseSingleton;
+    } catch (e) {
+        console.error('Failed to initialize the deployment Supabase client', e);
+        return null;
+    }
 };
 
 export const isSupabaseActive = (): boolean => {
+    if (typeof window === 'undefined') return false;
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || '';
-    const hasUrl = !!localStorage.getItem('custom_cloud_url') || !!envUrl;
-    const hasKey = !!localStorage.getItem('custom_cloud_anon_key') || !!envKey;
-    return hasUrl && hasKey;
+    const envKey =
+        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
+    return !!envUrl && !!envKey && /^https:\/\//.test(envUrl);
 };
 
 /**
