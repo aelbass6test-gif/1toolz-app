@@ -49,11 +49,25 @@ Deno.serve(async (request: Request) => {
     if (authError || !authData.user) return json({ success: false, error: "جلسة الإدارة غير صالحة" }, 401);
     const userId = authData.user.id;
 
-    const [{ data: profile }, { data: membership }] = await Promise.all([
-      admin.from("user_profiles").select("is_admin").eq("user_id", userId).maybeSingle(),
+    const [{ data: profile, error: profileError }, { data: membership, error: membershipError }] = await Promise.all([
+      admin.from("user_profiles").select("is_admin,phone").eq("user_id", userId).maybeSingle(),
       admin.from("store_memberships").select("role").eq("user_id", userId).eq("store_id", storeId).maybeSingle()
     ]);
-    const isTrustedAdmin = profile?.is_admin === true;
+    if (profileError || membershipError) {
+      return json({ success: false, error: "تعذر التحقق من صلاحيات الإدارة" }, 500);
+    }
+    let isTrustedAdmin = profile?.is_admin === true;
+    // Preserve compatibility with trusted legacy administrators whose flag is
+    // still stored in users until their profile has been synchronized.
+    if (!isTrustedAdmin && profile?.phone) {
+      const { data: legacyAdmin, error: legacyError } = await admin
+        .from("users").select("is_admin").eq("phone", profile.phone).maybeSingle();
+      if (legacyError) return json({ success: false, error: "تعذر التحقق من صلاحيات الإدارة" }, 500);
+      isTrustedAdmin = legacyAdmin?.is_admin === true;
+      if (isTrustedAdmin) {
+        await admin.from("user_profiles").update({ is_admin: true }).eq("user_id", userId);
+      }
+    }
     const isStoreOwner = ["owner", "store_owner"].includes(String(membership?.role || "").toLowerCase());
     if (!isTrustedAdmin && !isStoreOwner) {
       return json({ success: false, error: "غير مصرح بعرض أو إدارة طلبات هذا المتجر" }, 403);
