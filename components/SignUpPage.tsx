@@ -8,7 +8,7 @@ import {
 import { User } from '../types';
 import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase } from '../services/databaseService';
 import { auth } from '../services/firebaseClient';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { verifyPasswordSecure } from '../utils/syncIntegrity';
 import { motion } from 'framer-motion';
