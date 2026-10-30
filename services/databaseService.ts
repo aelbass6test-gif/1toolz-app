@@ -76,6 +76,7 @@ const LOCAL_STORAGE_PREFIX = 'wuilt_backup_';
 
 // --- Supabase Custom Connection ---
 let supabaseSingleton: any = null;
+let publicSupabaseSingleton: any = null;
 const syncFingerprints = new Map<string, string>();
 
 const defaultMissingColumns = [
@@ -130,6 +131,38 @@ const knownMissingTables = new Set<string>(['quotations', ...storedMissingTables
  */
 export const syncSupabaseCredentials = (_storeId: string, _settings: any) => {
     // Deliberately no-op: never persist tenant-provided database URLs or keys.
+};
+
+export const getSupabasePublicClient = () => {
+    if (typeof window === 'undefined') return null;
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
+    const envKey =
+        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+        '';
+    if (!envUrl || !envKey || !/^https:\/\//.test(envUrl)) {
+        publicSupabaseSingleton = null;
+        return null;
+    }
+    if (publicSupabaseSingleton && publicSupabaseSingleton.__url === envUrl && publicSupabaseSingleton.__key === envKey) {
+        return publicSupabaseSingleton;
+    }
+    try {
+        const client = createClient(envUrl, envKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+                detectSessionInUrl: false
+            }
+        });
+        (client as any).__url = envUrl;
+        (client as any).__key = envKey;
+        publicSupabaseSingleton = client;
+        return client;
+    } catch (e) {
+        console.error('Failed to initialize the public Supabase client', e);
+        return null;
+    }
 };
 
 export const getSupabaseClient = () => {
@@ -786,6 +819,7 @@ export const ensureStoreRecordExists = async (storeId: string, storeName: string
 
 export const getStoreData = async (storeId: string, forceRemote: boolean = false): Promise<StoreData | null> => {
     const supabase = getSupabaseClient();
+    const publicSupabase = getSupabasePublicClient();
     let isAuthenticated = false;
     let isStoreMember = false;
     if (supabase) {
@@ -866,7 +900,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     }
 
     // --- Custom Supabase Fetch Logic ---
-    if (supabase) {
+    const queryClient = canAccessPrivateStoreData ? supabase : publicSupabase;
+    if (queryClient) {
         try {
             const publicStorefrontViews: Record<string, string> = {
                 products: 'public_storefront_products',
@@ -883,7 +918,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     return [];
                 }
                 try {
-                    const { data, error } = await supabase.from(queryTable).select('*').eq('store_id', storeId);
+                    const { data, error } = await queryClient.from(queryTable).select('*').eq('store_id', storeId);
                     if (error) {
                         if (error.code === 'PGRST205' || error.code === 'PGRST116') {
                             knownMissingTables.add(table);
@@ -944,8 +979,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 fetchTable('call_scripts'),
                 fetchTable('quotations'),
                 canAccessPrivateStoreData
-                    ? supabase.from('stores_data').select('*').eq('id', storeId).maybeSingle()
-                    : supabase.from('public_storefronts').select('*').eq('id', storeId).maybeSingle()
+                    ? queryClient.from('stores_data').select('*').eq('id', storeId).maybeSingle()
+                    : queryClient.from('public_storefronts').select('*').eq('id', storeId).maybeSingle()
             ]);
 
             const storeRow = storeRowResult?.data;
