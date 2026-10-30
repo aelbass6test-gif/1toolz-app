@@ -2313,66 +2313,67 @@ export const AppComponent = () => {
 
     const handleEmployeeRegisterRequest = async (data: EmployeeRegisterRequestData) => {
         const { fullName, phone, password, storeId, email } = data;
-        
-        let storeData = allStoresData[storeId];
-        if (!storeData) {
-            const data = await db.getStoreData(storeId, dbSyncMode === 'auto') as StoreData | null;
-            if (data) {
-                const sanitizedData = sanitizeData(data);
-                setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedData }));
-                storeData = sanitizedData;
-            } else {
-                 throw new Error("لا يمكن تحميل بيانات المتجر.");
-            }
-        }
-        if (storeData.settings.employees.some(e => e.id === phone)) {
-            throw new Error("لديك بالفعل طلب انضمام معلق أو أنت موظف في هذا المتجر.");
-        }
+        const normalizedPhone = phone.trim();
+        const normalizedEmail = email.trim().toLowerCase();
 
-        const authEmail = `${phone.trim()}@mystore-auth.app`;
+        const storeData = allStoresData[storeId] || await db.getStoreData(storeId, true) as StoreData | null;
+        if (!storeData) throw new Error("كود المتجر غير صحيح أو لا يمكن تحميل بياناته.");
+
+        // Register the applicant's Supabase identity first; the server validates
+        // that the request is submitted by that same authenticated phone.
+        let authUser;
         try {
-            const authUser = await signUpWithSupabase({ email: authEmail, password, displayName: fullName, phone });
-            if (!authUser) {
-                throw new Error("فشل إنشاء حساب المصادقة.");
-            }
+            authUser = await signUpWithSupabase({
+                email: `${normalizedPhone}@mystore-auth.app`,
+                password,
+                displayName: fullName,
+                phone: normalizedPhone
+            });
         } catch (err: any) {
-            if (['user_already_exists','email_exists'].includes(String(err?.code || '')) || /already registered/i.test(String(err?.message || ''))) {
+            if (['user_already_exists', 'email_exists'].includes(String(err?.code || '')) || /already registered/i.test(String(err?.message || ''))) {
                 throw new Error("هذا الرقم مسجل بالفعل في نظام المصادقة.");
             }
-            throw new Error("حدث خطأ أثناء التسجيل.");
+            throw new Error(err?.message || "حدث خطأ أثناء إنشاء حساب الموظف.");
+        }
+        if (!authUser) throw new Error("فشل إنشاء حساب المصادقة.");
+
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("إعدادات Supabase غير متاحة.");
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !sessionData.session) {
+            throw new Error("الحساب اتعمل لكن جلسة التسجيل غير متاحة. راجع إعداد تأكيد البريد في Supabase Auth قبل إرسال طلب الانضمام.");
         }
 
-        const newUser: User = { fullName, phone, email, joinDate: new Date().toISOString() };
-        const success = await db.createUserDoc(newUser);
-        if (!success) {
-            throw new Error("فشل إنشاء حساب الموظف في قاعدة البيانات.");
-        }
-        setUsers(prev => [...prev, newUser]);
+        const newUser: User = { fullName, phone: normalizedPhone, email: normalizedEmail, joinDate: new Date().toISOString() };
+        const userSaved = await db.createUserDoc(newUser);
+        if (!userSaved) throw new Error("تم إنشاء حساب الدخول لكن تعذر حفظ ملف الموظف.");
 
-        const newEmployee: Employee = { id: phone, name: fullName, email, permissions: [], status: 'pending' };
-        
+        const { data: requestResult, error: requestError } = await supabase.functions.invoke('store-manage-employee', {
+            body: {
+                action: 'submit_request',
+                storeId,
+                fullName,
+                phone: normalizedPhone,
+                email: normalizedEmail
+            }
+        });
+        if (requestError || !requestResult?.success) {
+            const serverMessage = requestResult?.error || (requestError as any)?.message;
+            throw new Error(serverMessage || "تعذر حفظ طلب الانضمام.");
+        }
+
+        setUsers(prev => [...prev.filter(user => user.phone !== normalizedPhone), newUser]);
         const updatedStoreData: StoreData = {
             ...storeData,
             settings: {
                 ...storeData.settings,
-                employees: [...storeData.settings.employees, newEmployee]
+                employees: [
+                    ...(storeData.settings.employees || []).filter(employee => employee.phone !== normalizedPhone && employee.id !== normalizedPhone),
+                    { id: normalizedPhone, phone: normalizedPhone, name: fullName, email: normalizedEmail, permissions: [], status: 'pending' }
+                ]
             }
         };
-
-        setAllStoresData(p => ({
-            ...p, 
-            [storeId]: updatedStoreData
-        }));
-
-        await db.saveStoreData({
-            id: storeId,
-            name: (storeData.settings as any).storeName || storeId,
-            specialization: '',
-            language: 'ar',
-            currency: 'EGP',
-            url: '',
-            creationDate: new Date().toISOString()
-        }, updatedStoreData);
+        setAllStoresData(prev => ({ ...prev, [storeId]: updatedStoreData }));
     };
 
     const handleStoreCreated = (newStore: Store, initialCustomization?: any, initialSettingsOverride?: any) => {
