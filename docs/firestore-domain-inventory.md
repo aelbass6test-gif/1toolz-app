@@ -170,6 +170,8 @@ The following changes are committed on `migration/firebase-to-supabase` and the 
 - `saveGlobalData` now saves only the signed-in user's own profile through Supabase Auth/RLS; admin changes to other accounts and privileged flags must go through a trusted server-side workflow.
 - `useLiveCollaboration` now uses the Supabase Auth UUID and listens for Supabase session changes instead of reading Firebase Auth state.
 - Product-image upload and deletion now use the Supabase access token instead of Firebase ID tokens. The live Cloudflare `abdomedi-media` Worker was updated and deployed to validate the Supabase JWT and verify store membership before upload/delete; public image reads remain public.
+- Employee account password changes now call Supabase Auth `updateUser`; passwords are no longer written to Firestore or the public user profile table.
+- Team chat reads, inserts and realtime updates now use Supabase. Anonymous chat access was removed, message reads are limited to store members who participate in the thread (or general-room messages), and Realtime publication is enabled for `chat_messages`.
 - `public.users` no longer has an anonymous/public all-access policy. RLS limits reads and writes to the authenticated user's phone profile (or a trusted admin profile).
 - API roles cannot select the legacy `users.password` column and cannot set admin/ban flags. The app-side profile writer omits those privileged flags.
 - Added the missing `default_store_id` and `auto_launch_default_store` columns expected by the app's profile mapper.
@@ -185,6 +187,7 @@ Applied migration versions:
 - `20261030060720_lock_legacy_admin_flags`
 - `20261030060949_store_scoped_operational_rls`
 - `20261030061244_restrict_store_record_writes_and_bootstrap_membership`
+- `20261030062127_secure_chat_messages_for_supabase_auth`
 
 ### Current verification and release blockers
 
