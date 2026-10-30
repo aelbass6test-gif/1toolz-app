@@ -3436,6 +3436,8 @@ export const syncIncrementalStoreData = async (
                     .gt('created_at', lastSyncIsoTimestamp)
             ]);
 
+            if (ordersRes.error) throw ordersRes.error;
+            if (reqsRes.error) throw reqsRes.error;
             if (ordersRes.data) {
                 updatedOrders = ordersRes.data as Order[];
             }
@@ -3445,7 +3447,7 @@ export const syncIncrementalStoreData = async (
 
             return { updatedOrders, updatedPartnerRequests, timestamp: currentIso };
         } catch (err) {
-            console.warn('[INCREMENTAL-SYNC] Supabase incremental sync failed, trying Firestore:', err);
+            console.error('[INCREMENTAL-SYNC] Supabase incremental sync failed; Firebase fallback is disabled:', err);
         }
     }
 
