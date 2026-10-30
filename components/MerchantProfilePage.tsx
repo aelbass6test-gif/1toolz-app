@@ -466,7 +466,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
               performedBy: currentUser?.fullName || 'الإدارة'
             };
 
-            const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
+            const newTxs = feeTx ? [withdrawalTx, feeTx] : [withdrawalTx];
 
             const nextSupplier: any = {
               ...s,

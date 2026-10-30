@@ -920,7 +920,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
       referenceId: req.id
     };
 
-    const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
+    const newTxs = feeTx ? [withdrawalTx, feeTx] : [withdrawalTx];
 
     await syncMerchantUpdates(
       supplier.id,

@@ -797,7 +797,17 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       });
 
       // Sort chronologically (earliest to latest) to compute running balance
-      ledgerRows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      ledgerRows.sort((a, b) => {
+        const timeA = new Date(a.date).getTime();
+        const timeB = new Date(b.date).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        // If timestamps are identical, fee comes FIRST in chronological sequence (so fee appears below withdrawal in reverse display)
+        const isFeeA = a.type === 'expense' || a.id?.includes('Fee') || a.id?.includes('Transfer');
+        const isFeeB = b.type === 'expense' || b.id?.includes('Fee') || b.id?.includes('Transfer');
+        if (isFeeA && !isFeeB) return -1;
+        if (!isFeeA && isFeeB) return 1;
+        return 0;
+      });
 
       let running = 0;
       const ledgerWithBalance = ledgerRows.map(row => {
