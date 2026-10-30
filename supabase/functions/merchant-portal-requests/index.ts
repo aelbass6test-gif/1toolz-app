@@ -127,14 +127,6 @@ Deno.serve(async (request: Request) => {
       return json({ success: false, error: "بيانات تحديث الطلب غير صحيحة" }, 400);
     }
     const meta = body?.meta || {};
-    if (status === "approved") {
-      const { data: targetRequest, error: targetRequestError } = await admin
-        .from("merchant_requests").select("type").eq("id", requestId).eq("storeId", storeId).maybeSingle();
-      if (targetRequestError) return json({ success: false, error: "تعذر التحقق من نوع الطلب" }, 500);
-      if (targetRequest && (targetRequest.type === "withdrawal" || targetRequest.type == null)) {
-        return json({ success: false, error: "اعتماد السحب يجب أن يتم من مسار التسوية الذرّي لحماية رصيد المحفظة" }, 409);
-      }
-    }
     // Claiming changes pending -> processing. Final approval OR rejection must
     // therefore accept either state, while a retry after a terminal transition
     // must fail to avoid duplicate processing.
