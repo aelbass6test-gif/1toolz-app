@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import {
-  getCurrentUserStoreMemberships,
   isStoreMembershipRole,
   normalizeStoreMembershipRows
-} from '../services/supabaseMembershipService';
+} from '../utils/supabaseMembership';
 
 const userId = '11111111-2222-4333-8444-555555555555';
 
@@ -42,9 +41,5 @@ assert.throws(
 );
 assert.throws(() => normalizeStoreMembershipRows(null, userId), /غير صالحة/);
 assert.throws(() => normalizeStoreMembershipRows([], ''), /جلسة مستخدم/);
-
-// Guard against accidental client-side auth lookup by accepting arbitrary UUIDs.
-// The production helper always asks Supabase Auth for the currently verified user.
-assert.equal(typeof getCurrentUserStoreMemberships, 'function');
 
 console.log('supabase-membership tests passed');
