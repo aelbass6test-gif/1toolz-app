@@ -119,16 +119,32 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
     const amt = Number(req.amount || 0);
 
     if (req.type === 'withdrawal' && amt > 0) {
+      const partner = (settings.partners || []).find(p => p.id === req.partnerId || normalizeName(p.name) === normalizeName(req.partnerName));
+      const fee = typeof req.transferFee === 'number' && req.transferFee >= 0 ? req.transferFee : db.calculateTransferFee(amt, partner, settings);
+      
+      const nowIso = new Date().toISOString();
+      const wTxIso = new Date(Date.now() + 20).toISOString();
+
+      const feeTx: PartnerTransaction | null = fee > 0 ? {
+        id: `tx_fee_${Date.now()}`,
+        partnerId: req.partnerId,
+        partnerName: req.partnerName,
+        type: 'loan',
+        amount: fee,
+        date: nowIso,
+        notes: `رسوم تحويل طلب سحب أرباح (#${req.id.slice(-6)})`
+      } : null;
+
       const newTx: PartnerTransaction = {
-        id: `tx_${Date.now()}`,
+        id: `tx_${Date.now() + 20}`,
         partnerId: req.partnerId,
         partnerName: req.partnerName,
         type: 'loan',
         amount: amt,
-        date: new Date().toISOString(),
-        notes: `اعتماد طلب سحب أرباح من البوابة: ${req.notes || ''}`
+        date: wTxIso,
+        notes: `اعتماد طلب سحب أرباح من البوابة (#${req.id.slice(-6)}): ${req.notes || ''}`
       };
-      updatedTxs = [newTx, ...updatedTxs];
+      updatedTxs = feeTx ? [newTx, feeTx, ...updatedTxs] : [newTx, ...updatedTxs];
     } else if (req.type === 'expense' && amt > 0) {
       const newTx: PartnerTransaction = {
         id: `tx_${Date.now()}`,
@@ -150,7 +166,8 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
       if (isMatch) {
         let newBalance = Number(p.balance || 0);
         if (req.type === 'withdrawal') {
-          newBalance -= amt;
+          const fee = typeof req.transferFee === 'number' && req.transferFee >= 0 ? req.transferFee : db.calculateTransferFee(amt, p, settings);
+          newBalance -= (amt + fee);
         } else if (req.type === 'expense') {
           newBalance += amt;
         }

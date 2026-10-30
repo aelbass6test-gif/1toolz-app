@@ -3220,6 +3220,30 @@ export interface PartnerPortalRequest {
     planRequestMeta?: any;
 }
 
+export const calculateTransferFee = (
+    amount: number,
+    merchant?: any,
+    settings?: any
+): number => {
+    if (!amount || amount <= 0) return 0;
+    const isDaily = merchant?.payoutFrequency === 'daily';
+    const feeRate = isDaily
+        ? (typeof merchant?.dailyTransferFee === 'number' ? merchant.dailyTransferFee : (settings?.dailyTransferFee ?? 1))
+        : (typeof merchant?.weeklyTransferFee === 'number' ? merchant.weeklyTransferFee : (settings?.weeklyTransferFee ?? 25));
+    const feeType = isDaily
+        ? (merchant?.dailyTransferFeeType || settings?.dailyTransferFeeType || 'percentage')
+        : (merchant?.weeklyTransferFeeType || settings?.weeklyTransferFeeType || 'fixed');
+
+    if (feeRate > 0) {
+        if (feeType === 'percentage') {
+            return Math.round((amount * (feeRate / 100)) * 100) / 100;
+        } else {
+            return Math.min(amount, Number(feeRate) || 0);
+        }
+    }
+    return 0;
+};
+
 export const submitPartnerRequest = async (
     storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
     maybeReq?: Partial<PartnerPortalRequest>
@@ -3239,6 +3263,8 @@ export const submitPartnerRequest = async (
             type: (rawReq.type as any) || 'withdrawal',
             typeArabic: rawReq.typeArabic || 'طلب شريك',
             amount: Number(rawReq.amount || 0),
+            transferFee: typeof rawReq.transferFee === 'number' ? rawReq.transferFee : undefined,
+            netAmount: typeof rawReq.netAmount === 'number' ? rawReq.netAmount : Number(rawReq.amount || 0),
             notes: rawReq.notes || '',
             date: rawReq.date || nowIso,
             status: rawReq.status || 'pending',
@@ -3289,60 +3315,83 @@ export const submitPartnerRequest = async (
 };
 
 export const getPartnerRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
-    let requests: PartnerPortalRequest[] = [];
+    const localKey = `partner_requests_${storeId}`;
+    const merchantKey = `merchant_requests_${storeId}`;
+    const merged = new Map<string, PartnerPortalRequest>();
     
-    // 1. Try local storage first
+    // 1. Initialise with cached requests from localStorage for instant UI
     try {
-        const localKey = `partner_requests_${storeId}`;
         const local = JSON.parse(localStorage.getItem(localKey) || '[]');
-        if (Array.isArray(local) && local.length > 0) {
-            requests = local;
+        if (Array.isArray(local)) {
+            local.forEach(r => { if (r && r.id) merged.set(String(r.id), r); });
         }
     } catch (_) {}
 
-    // 2. Try Supabase
+    try {
+        const merchantCached = JSON.parse(localStorage.getItem(merchantKey) || '[]');
+        if (Array.isArray(merchantCached)) {
+            merchantCached.forEach(r => {
+                if (r && r.id && !merged.has(String(r.id))) {
+                    merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                }
+            });
+        }
+    } catch (_) {}
+
+    // 2. PRIMARY: Supabase
     const supabase = getSupabaseClient();
     if (supabase) {
         try {
-            const { data, error } = await supabase
+            // Get from partner_requests
+            const { data: pData, error: pError } = await supabase
                 .from('partner_requests')
                 .select('*')
                 .eq('store_id', storeId);
-            if (!error && Array.isArray(data)) {
-                const map = new Map<string, PartnerPortalRequest>();
-                requests.forEach(r => { if (r.id) map.set(String(r.id), r); });
-                (data as any[]).forEach(r => { if (r.id) map.set(String(r.id), r); });
-                requests = Array.from(map.values());
-                requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-                try { localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests)); } catch (_) {}
+            
+            if (!pError && Array.isArray(pData)) {
+                pData.forEach((r: any) => {
+                    if (r.id) {
+                        merged.set(String(r.id), {
+                            ...r,
+                            partnerId: r.partner_id ?? r.partnerId,
+                            partnerName: r.partner_name ?? r.partnerName,
+                            createdAt: r.created_at ?? r.createdAt,
+                            updatedAt: r.updated_at ?? r.updatedAt,
+                            legacySource: 'partner_requests'
+                        });
+                    }
+                });
+            }
+
+            // Get from merchant_requests
+            const { data: mData, error: mError } = await supabase
+                .from('merchant_requests')
+                .select('*')
+                .eq('store_id', storeId);
+            
+            if (!mError && Array.isArray(mData)) {
+                mData.forEach((r: any) => {
+                    if (r.id) {
+                        merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                    }
+                });
             }
         } catch (err) {
             console.warn('[PARTNER-REQUEST] Supabase read failed:', err);
         }
     }
 
-    // 3. Fetch from Firestore (authoritative source of truth when online)
-    if (firebaseDb && localStorage.getItem('firestore_quota_exceeded') !== 'true') {
-        try {
-            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            const cloudRequests = snap.docs.map(d => ({ id: d.id, ...d.data() } as PartnerPortalRequest));
-            
-            const map = new Map<string, PartnerPortalRequest>();
-            requests.forEach(r => { if (r.id) map.set(String(r.id), r); });
-            cloudRequests.forEach(r => { if (r.id) map.set(String(r.id), r); });
-            
-            requests = Array.from(map.values());
-            requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-            try {
-                localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
-            } catch (_) {}
-        } catch (err) {
-            console.warn('[PARTNER-REQUEST] Error reading partner requests from Firestore:', err);
-        }
-    }
+    const result = Array.from(merged.values()).sort((a, b) => {
+        const dateA = new Date(a.date || a.createdAt || 0).getTime();
+        const dateB = new Date(b.date || b.createdAt || 0).getTime();
+        return dateB - dateA;
+    });
 
-    return requests;
+    try {
+        localStorage.setItem(localKey, JSON.stringify(result));
+    } catch (_) {}
+
+    return result;
 };
 
 export const updatePartnerRequestStatus = async (
@@ -3359,46 +3408,56 @@ export const updatePartnerRequestStatus = async (
             ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
         });
 
-        if (firebaseDb) {
-            const reqRef = doc(firebaseDb, 'partner_requests', requestId);
-            const updated = await runTransaction(firebaseDb, async (transaction) => {
-                const snapshot = await transaction.get(reqRef);
-                if (!snapshot.exists()) return false;
-                const data = snapshot.data() as PartnerPortalRequest;
-                if (data.storeId !== storeId || data.status !== 'pending') return false;
-                transaction.update(reqRef, {
-                    status,
-                    updatedAt: new Date().toISOString(),
-                    ...extraFields
-                });
-                return true;
-            });
-            if (!updated) return false;
-        }
+        let updated = false;
+        const nowIso = new Date().toISOString();
 
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                await supabase
+                // Try updating in partner_requests
+                const { data: pData, error: pErr } = await supabase
                     .from('partner_requests')
-                    .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
+                    .update({ status, updated_at: nowIso, ...extraFields })
                     .eq('id', requestId)
-                    .eq('store_id', storeId);
+                    .eq('store_id', storeId)
+                    .select();
+                
+                if (!pErr && pData && pData.length > 0) {
+                    updated = true;
+                } else {
+                    // Try merchant_requests
+                    const { data: mData, error: mErr } = await supabase
+                        .from('merchant_requests')
+                        .update({ status, updated_at: nowIso, ...extraFields })
+                        .eq('id', requestId)
+                        .eq('store_id', storeId)
+                        .select();
+                    
+                    if (!mErr && mData && mData.length > 0) {
+                        updated = true;
+                    }
+                }
             } catch (err) {
                 console.warn('[PARTNER-REQUEST] Supabase status update failed:', err);
             }
         }
 
+        // Update local cache
         try {
             const localKey = `partner_requests_${storeId}`;
-            const existing = JSON.parse(localStorage.getItem(localKey) || '[]');
-            const matchingRequest = existing.find((r: any) => r.id === requestId && r.storeId === storeId);
-            if (!firebaseDb && (!matchingRequest || matchingRequest.status !== 'pending')) return false;
-            const updated = existing.map((r: any) => r.id === requestId ? { ...r, status, ...extraFields } : r);
-            localStorage.setItem(localKey, JSON.stringify(updated));
+            const merchantKey = `merchant_requests_${storeId}`;
+            
+            [localKey, merchantKey].forEach(key => {
+                const existing = JSON.parse(localStorage.getItem(key) || '[]');
+                if (existing.some((r: any) => r.id === requestId)) {
+                    const next = existing.map((r: any) => r.id === requestId ? { ...r, status, updatedAt: nowIso, ...extraFields } : r);
+                    localStorage.setItem(key, JSON.stringify(next));
+                    updated = true;
+                }
+            });
         } catch (_) {}
 
-        return true;
+        return updated;
     } catch (err) {
         console.error('[PARTNER-REQUEST] Error updating partner request status:', err);
         return false;
@@ -3434,8 +3493,13 @@ export interface MerchantPortalRequest extends Omit<PartnerPortalRequest, 'partn
 
 const toMerchantRequestView = (raw: any, legacySource: 'merchant_requests' | 'partner_requests'): PartnerPortalRequest => ({
     ...raw,
-    partnerId: String(raw.merchantId ?? raw.partnerId ?? ''),
-    partnerName: String(raw.merchantName ?? raw.partnerName ?? ''),
+    partnerId: String(raw.merchantId ?? raw.merchant_id ?? raw.partnerId ?? ''),
+    partnerName: String(raw.merchantName ?? raw.merchant_name ?? raw.partnerName ?? ''),
+    typeArabic: raw.typeArabic ?? raw.type_arabic,
+    payoutMethod: raw.payoutMethod ?? raw.payout_method,
+    payoutAccount: raw.payoutAccount ?? raw.payout_account,
+    transferReference: raw.transferReference ?? raw.transfer_reference,
+    createdAt: raw.createdAt ?? raw.created_at,
     isMerchantRequest: true,
     legacySource
 } as PartnerPortalRequest);
@@ -3459,15 +3523,20 @@ export const submitMerchantRequest = async (
         const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
         const rawReq: Partial<PartnerPortalRequest> = isObjFirst ? storeIdOrObj : (maybeReq || {});
         if (!storeId) return { success: false, error: 'Missing storeId' };
+        
         const nowIso = new Date().toISOString();
+        const requestId = rawReq.id || `REQ-M-${generateUniqueOrderId('m')}`;
+        
         const request: MerchantPortalRequest = {
-            id: rawReq.id || `REQ-M-${generateUniqueOrderId('m')}`,
+            id: requestId,
             storeId,
             merchantId: rawReq.partnerId || '',
             merchantName: rawReq.partnerName || '',
             type: (rawReq.type as any) || 'withdrawal',
             typeArabic: rawReq.typeArabic || 'طلب موكل',
             amount: Number(rawReq.amount || 0),
+            transferFee: typeof rawReq.transferFee === 'number' ? rawReq.transferFee : undefined,
+            netAmount: typeof rawReq.netAmount === 'number' ? rawReq.netAmount : Number(rawReq.amount || 0),
             notes: rawReq.notes || '',
             date: rawReq.date || nowIso,
             status: rawReq.status || 'pending',
@@ -3478,39 +3547,82 @@ export const submitMerchantRequest = async (
             ...(rawReq.refundMeta ? { refundMeta: rawReq.refundMeta } : {}),
             ...(rawReq.planRequestMeta ? { planRequestMeta: rawReq.planRequestMeta } : {})
         };
+
+        // 1. Update LocalStorage for instant feedback
         try {
             const key = `merchant_requests_${storeId}`;
             const existing = JSON.parse(localStorage.getItem(key) || '[]');
             localStorage.setItem(key, JSON.stringify([request, ...existing.filter((r: any) => r.id !== request.id)]));
         } catch (_) {}
-        if (firebaseDb) {
-            await setDoc(doc(firebaseDb, 'merchant_requests', request.id), cleanUndefined(request));
-        }
 
-        if (isHostingerActive()) {
-          try {
-            await fetch('/api/mysql/sync', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ table: 'merchant_requests', items: [request], storeId })
-            });
-          } catch (e) {
-            console.warn('[HOSTINGER-SYNC] Merchant request failed:', e);
-          }
-        }
-
+        // 2. PRIMARY: Supabase
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('merchant_requests').upsert({
-                    ...cleanUndefined(request),
-                    store_id: storeId,
-                    merchant_id: request.merchantId
-                });
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase upsert failed:', err);
-            }
+        if (!supabase) {
+            return { success: false, error: 'Supabase client not initialized' };
         }
+
+        const supabasePayload = {
+            id: request.id,
+            store_id: storeId,
+            merchant_id: request.merchantId,
+            merchant_name: request.merchantName,
+            type: request.type,
+            type_arabic: request.typeArabic,
+            amount: request.amount,
+            notes: request.notes,
+            date: request.date,
+            status: request.status,
+            payout_method: request.payoutMethod,
+            payout_account: request.payoutAccount,
+            transfer_reference: request.transferReference,
+            created_at: request.createdAt,
+            updated_at: nowIso
+        };
+
+        const { error: upsertError } = await supabase.from('merchant_requests').upsert(supabasePayload);
+        if (upsertError) throw upsertError;
+
+        // 3. Update Balance in partners/suppliers table and settings JSON (Simulating atomicity)
+        // This is a temporary measure until an RPC is implemented.
+        try {
+            const { data: storeRow } = await supabase.from('stores_data').select('settings').eq('id', storeId).maybeSingle();
+            if (storeRow?.settings) {
+                const settings = storeRow.settings;
+                const partners = Array.isArray(settings.partners) ? [...settings.partners] : [];
+                const suppliers = Array.isArray(settings.suppliers) ? [...settings.suppliers] : [];
+                
+                let found = false;
+                // Update in partners
+                const nextPartners = partners.map(p => {
+                    if (String(p.id) === String(request.merchantId)) {
+                        found = true;
+                        // Note: We don't deduct balance here yet because the request is 'pending'
+                        // but the UI calculates available balance by subtracting pending requests.
+                        // We just need to make sure the request is PERSISTED so it doesn't disappear.
+                        return p;
+                    }
+                    return p;
+                });
+
+                const nextSuppliers = suppliers.map(s => {
+                    if (String(s.id) === String(request.merchantId)) {
+                        found = true;
+                        return s;
+                    }
+                    return s;
+                });
+
+                if (found) {
+                    await supabase.from('stores_data').update({ 
+                        settings: { ...settings, partners: nextPartners, suppliers: nextSuppliers },
+                        updated_at: nowIso
+                    }).eq('id', storeId);
+                }
+            }
+        } catch (syncErr) {
+            console.warn('[MERCHANT-REQUEST] Failed to sync balance settings:', syncErr);
+        }
+
         return { success: true };
     } catch (err: any) {
         console.error('[MERCHANT-REQUEST] Error submitting merchant request:', err);
@@ -3523,7 +3635,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
     const legacyKey = `partner_requests_${storeId}`;
     const merged = new Map<string, PartnerPortalRequest>();
 
-    // 1. Initialise with cached requests from localStorage
+    // 1. Initialise with cached requests from localStorage for instant UI
     try {
         const cached = JSON.parse(localStorage.getItem(key) || '[]');
         if (Array.isArray(cached)) {
@@ -3544,22 +3656,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         }
     } catch (_) {}
 
-    // 2. Query Hostinger MySQL Priority (merge items if present)
-    if (isHostingerActive()) {
-        try {
-            const res = await fetch(`/api/mysql/fetch?table=merchant_requests&storeId=${storeId}`);
-            const data = await res.json();
-            if (data.items && Array.isArray(data.items) && data.items.length > 0) {
-                data.items.forEach((r: any) => {
-                    if (r && r.id) merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
-                });
-            }
-        } catch (e) {
-            console.warn('[HOSTINGER-FETCH] Merchant requests failed:', e);
-        }
-    }
-
-    // 3. Query Supabase
+    // 2. PRIMARY: Supabase
     const supabase = getSupabaseClient();
     if (supabase) {
         try {
@@ -3567,7 +3664,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
                 .from('merchant_requests')
                 .select('*')
                 .eq('store_id', storeId);
-            if (!error && Array.isArray(data) && data.length > 0) {
+            if (!error && Array.isArray(data)) {
                 data.forEach((r: any) => {
                     if (r && r.id) merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
                 });
@@ -3581,9 +3678,9 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
                 .from('partner_requests')
                 .select('*')
                 .eq('store_id', storeId);
-            if (!pError && Array.isArray(pData) && pData.length > 0) {
+            if (!pError && Array.isArray(pData)) {
                 pData.filter(isLegacyMerchantRequest).forEach((r: any) => {
-                    if (r && r.id && !merged.has(String(r.id))) {
+                    if (r && r.id) {
                         merged.set(String(r.id), toMerchantRequestView(r, 'partner_requests'));
                     }
                 });
@@ -3593,50 +3690,17 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         }
     }
 
-    // 4. Query Firestore (if quota not exceeded)
-    if (firebaseDb && localStorage.getItem('firestore_quota_exceeded') !== 'true') {
-        try {
-            const q1 = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
-            const snap1 = await WITH_TIMEOUT(getDocs(q1), 6000);
-            snap1.docs.forEach(d => {
-                const item = { id: d.id, ...d.data() };
-                merged.set(d.id, toMerchantRequestView(item, 'merchant_requests'));
-            });
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Firestore merchant_requests notice:', err);
-        }
+    const result = Array.from(merged.values()).sort((a, b) => {
+        const dateA = new Date(a.date || a.createdAt || 0).getTime();
+        const dateB = new Date(b.date || b.createdAt || 0).getTime();
+        return dateB - dateA;
+    });
 
-        try {
-            const q2 = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap2 = await WITH_TIMEOUT(getDocs(q2), 6000);
-            snap2.docs.forEach(d => {
-                const item = { id: d.id, ...d.data() };
-                if (isLegacyMerchantRequest(item) && !merged.has(d.id)) {
-                    merged.set(d.id, toMerchantRequestView(item, 'partner_requests'));
-                }
-            });
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Firestore partner_requests notice:', err);
-        }
-    }
-
-    // 5. Check local store settings fallback in IndexedDB
-    try {
-        const localStore = await getLocal(storeId);
-        const sReqs = (localStore?.settings as any)?.merchantRequests || (localStore?.settings as any)?.partnerRequests;
-        if (Array.isArray(sReqs)) {
-            sReqs.forEach((r: any) => {
-                if (r && r.id && !merged.has(String(r.id))) {
-                    merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
-                }
-            });
-        }
-    } catch (_) {}
-
-    const result = [...merged.values()].sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+    // Update cache
     try {
         localStorage.setItem(key, JSON.stringify(result));
     } catch (_) {}
+
     return result;
 };
 
@@ -3646,120 +3710,19 @@ export const updateMerchantRequestStatus = async (
     status: 'approved' | 'rejected',
     meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
 ): Promise<boolean> => {
-    try {
-        const extra = cleanUndefined({
-            ...(meta?.receiptImage ? { receiptImage: meta.receiptImage } : {}),
-            ...(meta?.transferReference ? { transferReference: meta.transferReference } : {}),
-            ...(meta?.approvedBy ? { approvedBy: meta.approvedBy } : {}),
-            ...(meta?.approvedAt ? { approvedAt: meta.approvedAt } : {})
-        });
-        let updated = false;
-        if (firebaseDb) {
-            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
-            const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
-            updated = await runTransaction(firebaseDb, async transaction => {
-                const isolatedSnap = await transaction.get(isolatedRef);
-                if (isolatedSnap.exists()) {
-                    const snapData = isolatedSnap.data();
-                    if (snapData.storeId !== storeId) return false;
-                    transaction.update(isolatedRef, { status, updatedAt: new Date().toISOString(), ...extra });
-                    return true;
-                }
-                const legacySnap = await transaction.get(legacyRef);
-                if (!legacySnap.exists()) return false;
-                const legacyData = legacySnap.data();
-                if (legacyData.storeId !== storeId || !isLegacyMerchantRequest(legacyData)) return false;
-                transaction.update(legacyRef, { status, updatedAt: new Date().toISOString(), ...extra });
-                return true;
-            });
-            if (!updated) return false;
-        }
-
-        if (isHostingerActive()) {
-          try {
-             await fetch('/api/mysql/sync', {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ 
-                 table: 'merchant_requests', 
-                 items: [{ id: requestId, storeId, status, updatedAt: new Date().toISOString(), ...extra }], 
-                 storeId 
-               })
-             });
-             updated = true;
-          } catch (e) {
-            console.warn('[HOSTINGER-SYNC] Status update failed:', e);
-          }
-        }
-
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                // Try updating in merchant_requests first
-                const { error: mErr } = await supabase
-                    .from('merchant_requests')
-                    .update({ status, updatedAt: new Date().toISOString(), ...extra })
-                    .eq('id', requestId)
-                    .eq('store_id', storeId);
-                
-                if (mErr) {
-                    // Fallback to partner_requests
-                    await supabase
-                        .from('partner_requests')
-                        .update({ status, updatedAt: new Date().toISOString(), ...extra })
-                        .eq('id', requestId)
-                        .eq('store_id', storeId);
-                }
-                updated = true;
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase status update failed:', err);
-            }
-        }
-
-        for (const [key, expectedCollection] of [[`merchant_requests_${storeId}`, 'merchant_requests'], [`partner_requests_${storeId}`, 'partner_requests']] as const) {
-            try {
-                const rows = JSON.parse(localStorage.getItem(key) || '[]');
-                const updatedRows = rows.map((r: any) => {
-                    const isMatch = r.id === requestId && r.storeId === storeId && r.status === 'pending' && (expectedCollection === 'merchant_requests' || isLegacyMerchantRequest(r));
-                    if (isMatch) updated = true;
-                    return isMatch ? { ...r, status, ...extra } : r;
-                });
-                localStorage.setItem(key, JSON.stringify(updatedRows));
-            } catch (_) {}
-        }
-        return updated;
-    } catch (err) {
-        console.error('[MERCHANT-REQUEST] Error updating merchant request:', err);
-        return false;
-    }
+    // Reuse the unified partner update logic which now handles both tables
+    return updatePartnerRequestStatus(requestId, storeId, status, meta);
 };
 
 export const deleteMerchantRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
         let found = false;
-        if (firebaseDb) {
-            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
-            const isolatedSnap = await getDoc(isolatedRef);
-            if (isolatedSnap.exists()) {
-                if (isolatedSnap.data().storeId !== storeId) return false;
-                await deleteDoc(isolatedRef);
-                found = true;
-            } else {
-                const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
-                const legacySnap = await getDoc(legacyRef);
-                if (legacySnap.exists() && legacySnap.data().storeId === storeId && isLegacyMerchantRequest(legacySnap.data())) {
-                    await deleteDoc(legacyRef);
-                    found = true;
-                }
-            }
-        }
-
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                await supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId);
-                await supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId);
-                found = true;
+                const { error: err1 } = await supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId);
+                const { error: err2 } = await supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId);
+                if (!err1 || !err2) found = true;
             } catch (err) {
                 console.warn('[MERCHANT-REQUEST] Supabase delete failed:', err);
             }
@@ -3768,9 +3731,11 @@ export const deleteMerchantRequestDoc = async (requestId: string, storeId: strin
             try {
                 const rows = JSON.parse(localStorage.getItem(key) || '[]');
                 const before = rows.length;
-                const filtered = rows.filter((r: any) => r.id !== requestId || r.storeId !== storeId || (key.startsWith('partner_requests_') && !isLegacyMerchantRequest(r)));
-                found = found || filtered.length !== before;
-                localStorage.setItem(key, JSON.stringify(filtered));
+                const filtered = rows.filter((r: any) => r.id !== requestId);
+                if (filtered.length !== before) {
+                    found = true;
+                    localStorage.setItem(key, JSON.stringify(filtered));
+                }
             } catch (_) {}
         }
         return found;
@@ -4036,7 +4001,7 @@ export const subscribeToStoreRealtimeOptimized = (
     if (!storeId) return () => {};
 
     const cleanStoreId = storeId.trim();
-    const tablesToListen = options.tables || ['orders', 'merchant_requests', 'partner_requests', 'products', 'transactions'];
+    const tablesToListen = options.tables || ['orders', 'merchant_requests', 'partner_requests', 'products', 'transactions', 'stores_data'];
     const unsubs: Array<() => void> = [];
 
     // A. Supabase Realtime Channel with Strict Row-Level Filter (.eq('store_id', cleanStoreId))
@@ -4047,7 +4012,8 @@ export const subscribeToStoreRealtimeOptimized = (
             const channel = supabase.channel(channelName);
 
             tablesToListen.forEach(table => {
-                const filterField = (table === 'partner_requests' || table === 'merchant_requests') ? 'storeId' : 'store_id';
+                // For stores_data, the primary key is 'id' which IS the storeId
+                const filterField = (table === 'stores_data' || table === 'users') ? 'id' : 'store_id';
                 
                 channel.on(
                     'postgres_changes' as any,
@@ -4071,7 +4037,7 @@ export const subscribeToStoreRealtimeOptimized = (
 
             channel.subscribe((status: string) => {
                 if (status === 'SUBSCRIBED') {
-                    console.log(`[REALTIME-OPTIMIZED] Subscribed to store '${cleanStoreId}' with strict row-level filters.`);
+                    console.log(`[REALTIME-OPTIMIZED] Supabase Subscribed to store '${cleanStoreId}' for tables: ${tablesToListen.join(', ')}`);
                 }
             });
 
@@ -4082,44 +4048,6 @@ export const subscribeToStoreRealtimeOptimized = (
             });
         } catch (err) {
             console.warn('[REALTIME-OPTIMIZED] Error creating Supabase channel:', err);
-        }
-    }
-
-    // B. Firestore Realtime Listeners with Strict Query Filters (where('storeId', '==', cleanStoreId))
-    if (firebaseDb && !isFirestoreQuotaExhausted) {
-        try {
-            tablesToListen.forEach(colName => {
-                const filterField = (colName === 'partner_requests' || colName === 'merchant_requests') ? 'storeId' : 'store_id';
-                const q = query(collection(firebaseDb, colName), where(filterField, '==', cleanStoreId));
-
-                const unsubFs = onSnapshot(
-                    q,
-                    (snapshot) => {
-                        if (options.onUpdate && !snapshot.metadata.hasPendingWrites) {
-                            snapshot.docChanges().forEach((change) => {
-                                if (change.type === 'added' || change.type === 'modified') {
-                                    options.onUpdate!({
-                                        table: colName,
-                                        eventType: change.type.toUpperCase(),
-                                        newRecord: change.doc.data()
-                                    });
-                                }
-                            });
-                        }
-                    },
-                    (err) => {
-                        console.warn(`[REALTIME-OPTIMIZED] Firestore listener notice for ${colName}:`, err?.message || err);
-                        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-                            markFirestoreQuotaExhausted();
-                            try { unsubFs(); } catch (_) {}
-                        }
-                    }
-                );
-
-                unsubs.push(unsubFs);
-            });
-        } catch (err) {
-            console.warn('[REALTIME-OPTIMIZED] Error opening Firestore listeners:', err);
         }
     }
 

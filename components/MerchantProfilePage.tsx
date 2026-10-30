@@ -412,68 +412,59 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
       } : r));
 
       // Calculate configured transfer fee (weekly / daily)
-      const isDaily = (req as any).payoutFrequency === 'daily' || merchant.payoutFrequency === 'daily';
-      const feeRate = isDaily
-        ? (typeof merchant.dailyTransferFee === 'number' ? merchant.dailyTransferFee : (settings.dailyTransferFee ?? 1))
-        : (typeof merchant.weeklyTransferFee === 'number' ? merchant.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
-      const feeType = isDaily
-        ? (merchant.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
-        : (merchant.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
-
       let transferFee = typeof (req as any).transferFee === 'number' && (req as any).transferFee >= 0
         ? Number((req as any).transferFee)
-        : 0;
+        : db.calculateTransferFee(amount, merchant, settings);
 
-      if (transferFee === 0 && !isCreditToWallet && req.type !== 'plan_change_request' && feeRate > 0) {
-        if (feeType === 'percentage') {
-          transferFee = Math.round((amount * (feeRate / 100)) * 100) / 100;
-        } else {
-          transferFee = Math.min(amount, Number(feeRate) || 0);
-        }
+      if (isCreditToWallet || req.type === 'plan_change_request') {
+        transferFee = 0;
       }
-      const netDisbursed = Math.max(0, Number((amount - transferFee).toFixed(2)));
 
       // Update Merchant Balance and record Transaction (Merchant Ledger Only)
       updateSettings(currentSettings => {
         const updatedSuppliers = (currentSettings.suppliers || []).map(s => {
           if (s.id === merchant.id) {
             const currentBalance = Number(s.balance || 0);
+            const totalDeduction = isCreditToWallet ? -amount : (amount + transferFee);
             const nextBal = isCreditToWallet
               ? Number((currentBalance + amount).toFixed(2))
-              : Number((currentBalance - amount).toFixed(2));
-            const nowIso = new Date().toISOString();
+              : Number((currentBalance - totalDeduction).toFixed(2));
 
-            const withdrawalTx: MerchantTransaction = {
-              id: `mtx-w-${Date.now()}`,
-              merchantId: s.id,
-              merchantName: s.name,
-              date: nowIso,
-              type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
-              amount: isCreditToWallet ? amount : -netDisbursed,
-              balanceAfter: isCreditToWallet ? nextBal : Number((currentBalance - netDisbursed).toFixed(2)),
-              notes: isRefundRequest
-                ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة - ${req.notes || ''}`
-                : isTopUpRequest
-                ? `شحن محفظة التاجر بعد اعتماد الإدارة - ${req.notes || ''}`
-                : `سحب مستحقات (صافي المحول - طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع: ${cleanRef}` : ''} - ${req.notes || ''}`,
-              referenceId: req.id,
-              receiptImage: cleanImg,
-              transferReference: cleanRef,
-              performedBy: currentUser?.fullName || 'الإدارة'
-            };
+            const nowIso = new Date().toISOString();
+            const wTxDate = new Date(Date.now() + 20).toISOString();
+            const balanceAfterFee = Number((currentBalance - transferFee).toFixed(2));
 
             const feeTx: MerchantTransaction | null = (!isCreditToWallet && transferFee > 0) ? {
-              id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+              id: `mtx-Fee-${req.id}-${Date.now()}`,
               merchantId: s.id,
               merchantName: s.name,
               date: nowIso,
               type: 'expense',
               amount: -transferFee,
-              balanceAfter: nextBal,
+              balanceAfter: balanceAfterFee,
               notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
               referenceId: req.id,
               performedBy: currentUser?.fullName || 'الإدارة'
             } : null;
+
+            const withdrawalTx: MerchantTransaction = {
+              id: `mtx-w-${req.id}-${Date.now() + 20}`,
+              merchantId: s.id,
+              merchantName: s.name,
+              date: wTxDate,
+              type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
+              amount: isCreditToWallet ? amount : -amount,
+              balanceAfter: nextBal,
+              notes: isRefundRequest
+                ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة - ${req.notes || ''}`
+                : isTopUpRequest
+                ? `شحن محفظة التاجر بعد اعتماد الإدارة - ${req.notes || ''}`
+                : `السحب النقدي (صرف أرباح معتمد - طلب #${req.id.slice(-6)}) ${selectedAcc ? `- صرف من خزينة: ${selectedAcc.name}` : ''}${cleanRef ? ` - مرجع: ${cleanRef}` : ''} - ${req.notes || ''}`,
+              referenceId: req.id,
+              receiptImage: cleanImg,
+              transferReference: cleanRef,
+              performedBy: currentUser?.fullName || 'الإدارة'
+            };
 
             const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
 

@@ -477,6 +477,14 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     setIsSubmittingRequest(true);
     try {
       const typeArabic = requestType === 'withdrawal' ? 'طلب سحب أرباح' : requestType === 'expense' ? 'تسجيل مصروف مدفوع من الشريك' : 'استفسار أو ملاحظة مالية';
+      const estimatedFee = requestType === 'withdrawal' ? db.calculateTransferFee(amt, livePartner, settings) : 0;
+      const totalRequired = amt + estimatedFee;
+
+      if (requestType === 'withdrawal' && totalRequired > (partnerData?.availableToWithdraw || 0)) {
+        showToast(`عفواً، المبلغ المطلوب (${amt.toLocaleString()} ج.م) + عمولة التحويل (${estimatedFee.toLocaleString()} ج.م) = إجمالي ${totalRequired.toLocaleString()} ج.م يتجاوز الرصيد الصافي المتاح للسحب (${(partnerData?.availableToWithdraw || 0).toLocaleString()} ج.م)`, 'error');
+        setIsSubmittingRequest(false);
+        return;
+      }
       
       let payoutDetails = '';
       if (requestType === 'withdrawal') {
@@ -486,7 +494,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
           bank: 'تحويل بنكي رسمي',
           cash: 'استلام نقدي كاش من الخزينة'
         };
-        payoutDetails = ` [طريقة الاستلام: ${methodLabels[payoutMethod]} ${payoutAccount ? `- الحساب: ${payoutAccount}` : ''}]`;
+        payoutDetails = ` [طريقة الاستلام: ${methodLabels[payoutMethod]} ${payoutAccount ? `- الحساب: ${payoutAccount}` : ''}]${estimatedFee > 0 ? ` [رسوم التحويل: ${estimatedFee} ج.م]` : ''}`;
       }
 
       const logEntry = {
@@ -506,6 +514,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         type: requestType,
         typeArabic,
         amount: amt || 0,
+        transferFee: estimatedFee,
+        netAmount: amt || 0,
         notes: `${requestNotes || ''}${payoutDetails}`,
         date: new Date().toISOString(),
         status: 'pending',
@@ -812,10 +822,14 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
           type: r.type
         }));
 
-      // Pending withdrawal hold
+      // Pending withdrawal hold (Amount + Transfer Fee reserved upfront)
       const pendingWithdrawalHold = partnerRequestsList
         .filter(r => normalizeMerchantId(r.partnerId) === mId && r.type === 'withdrawal' && r.status === 'pending')
-        .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+        .reduce((sum, r) => {
+          const reqAmt = Number(r.amount) || 0;
+          const fee = typeof r.transferFee === 'number' && r.transferFee >= 0 ? r.transferFee : db.calculateTransferFee(reqAmt, livePartner, settings);
+          return sum + reqAmt + fee;
+        }, 0);
 
       const availableToWithdraw = Math.max(0, netBalance - pendingWithdrawalHold);
 
@@ -1062,10 +1076,14 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       netBalance = capital + dividends - netWithdrawals;
     }
 
-    // Pending withdrawal requests
+    // Pending withdrawal requests (Amount + Transfer Fee reserved upfront)
     const pendingWithdrawalHold = partnerRequestsList
       .filter(r => (r.partnerId === pId || normalizeName(r.partnerName) === normPName) && r.type === 'withdrawal' && r.status === 'pending')
-      .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+      .reduce((sum, r) => {
+        const reqAmt = Number(r.amount) || 0;
+        const fee = typeof r.transferFee === 'number' && r.transferFee >= 0 ? r.transferFee : db.calculateTransferFee(reqAmt, livePartner, settings);
+        return sum + reqAmt + fee;
+      }, 0);
 
     const availableToWithdraw = netBalance - pendingWithdrawalHold;
 

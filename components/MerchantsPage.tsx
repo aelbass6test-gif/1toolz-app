@@ -874,60 +874,51 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     setCloudRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
 
     // Calculate configured transfer fee (weekly / daily)
-    const isDaily = (req as any).payoutFrequency === 'daily' || supplier.payoutFrequency === 'daily';
-    const feeRate = isDaily
-      ? (typeof supplier.dailyTransferFee === 'number' ? supplier.dailyTransferFee : (settings.dailyTransferFee ?? 1))
-      : (typeof supplier.weeklyTransferFee === 'number' ? supplier.weeklyTransferFee : (settings.weeklyTransferFee ?? 25));
-    const feeType = isDaily
-      ? (supplier.dailyTransferFeeType || settings.dailyTransferFeeType || 'percentage')
-      : (supplier.weeklyTransferFeeType || settings.weeklyTransferFeeType || 'fixed');
-
     let transferFee = typeof (req as any).transferFee === 'number' && (req as any).transferFee >= 0
       ? Number((req as any).transferFee)
-      : 0;
+      : db.calculateTransferFee(amt, supplier, settings);
 
-    if (transferFee === 0 && !isCreditToWallet && req.type !== 'plan_change_request' && feeRate > 0) {
-      if (feeType === 'percentage') {
-        transferFee = Math.round((amt * (feeRate / 100)) * 100) / 100;
-      } else {
-        transferFee = Math.min(amt, Number(feeRate) || 0);
-      }
+    if (isCreditToWallet || req.type === 'plan_change_request') {
+      transferFee = 0;
     }
-    const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
 
     const currentBalance = Number(supplier.balance || 0);
+    const totalDeduction = isCreditToWallet ? -amt : (amt + transferFee);
     const newBalance = isCreditToWallet
       ? Number((currentBalance + amt).toFixed(2))
-      : Number((currentBalance - amt).toFixed(2));
-    const nowIso = new Date().toISOString();
+      : Number((currentBalance - totalDeduction).toFixed(2));
 
-    const withdrawalTx: MerchantTransaction = {
-      id: generateSafeId('mtx'),
-      merchantId: supplier.id,
-      merchantName: supplier.name,
-      type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
-      amount: isCreditToWallet ? amt : -netDisbursed,
-      date: nowIso,
-      notes: isRefundRequest
-        ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة: ${req.notes || ''}`
-        : isTopUpRequest
-        ? `اعتماد شحن محفظة التاجر: ${req.notes || ''}`
-        : `اعتماد طلب سحب من البوابة (صافي المحول - طلب #${req.id.slice(-6)}): ${req.notes || ''}`,
-      balanceAfter: isCreditToWallet ? newBalance : Number((currentBalance - netDisbursed).toFixed(2)),
-      referenceId: req.id
-    };
+    const nowIso = new Date().toISOString();
+    const wTxDate = new Date(Date.now() + 20).toISOString();
+    const balanceAfterFee = Number((currentBalance - transferFee).toFixed(2));
 
     const feeTx: MerchantTransaction | null = (!isCreditToWallet && transferFee > 0) ? {
-      id: `mtx-Transfer_Fees-${Date.now() + 1}`,
+      id: `mtx-Fee-${req.id}-${Date.now()}`,
       merchantId: supplier.id,
       merchantName: supplier.name,
       type: 'expense',
       amount: -transferFee,
       date: nowIso,
       notes: `رسوم التحويل المالي لسحب المستحقات (طلب #${req.id.slice(-6)})`,
-      balanceAfter: newBalance,
+      balanceAfter: balanceAfterFee,
       referenceId: req.id
     } : null;
+
+    const withdrawalTx: MerchantTransaction = {
+      id: generateSafeId('mtx'),
+      merchantId: supplier.id,
+      merchantName: supplier.name,
+      type: isRefundRequest ? 'subscription_refund' : isTopUpRequest ? 'wallet_topup' : 'withdrawal',
+      amount: isCreditToWallet ? amt : -amt,
+      date: wTxDate,
+      notes: isRefundRequest
+        ? `إيداع استرداد باقة (سياسة 14 يوم) بعد مراجعة الإدارة: ${req.notes || ''}`
+        : isTopUpRequest
+        ? `اعتماد شحن محفظة التاجر: ${req.notes || ''}`
+        : `السحب النقدي (صرف أرباح معتمد - طلب #${req.id.slice(-6)}): ${req.notes || ''}`,
+      balanceAfter: newBalance,
+      referenceId: req.id
+    };
 
     const newTxs = feeTx ? [feeTx, withdrawalTx] : [withdrawalTx];
 
