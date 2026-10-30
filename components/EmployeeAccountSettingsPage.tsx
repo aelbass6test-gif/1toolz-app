@@ -19,9 +19,8 @@ import {
   Mail,
   Check
 } from 'lucide-react';
-import { auth, db } from '../services/firebaseClient';
-import { updatePassword as firebaseUpdatePassword } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
+import { updateSupabasePassword } from '../services/supabaseAuthService';
+import { updateUserInSupabase } from '../services/databaseService';
 import { playNotificationChime } from './EmployeeLayout';
 
 interface EmployeeAccountSettingsPageProps {
@@ -135,8 +134,8 @@ export const EmployeeAccountSettingsPage: React.FC<EmployeeAccountSettingsPagePr
         setError('كلمتا المرور غير متطابقتين.');
         return;
       }
-      if (formData.password.length < 6) {
-        setError('يجب أن تكون كلمة المرور 6 أحرف على الأقل.');
+      if (formData.password.length < 8) {
+        setError('يجب أن تكون كلمة المرور 8 أحرف على الأقل.');
         return;
       }
     }
@@ -144,36 +143,20 @@ export const EmployeeAccountSettingsPage: React.FC<EmployeeAccountSettingsPagePr
     setLoading(true);
 
     try {
-      // 1. If password is provided, try updating in Firebase Auth
-      if (formData.password && auth.currentUser) {
-        try {
-          await firebaseUpdatePassword(auth.currentUser, formData.password);
-        } catch (authErr: any) {
-          console.warn('Firebase Auth direct update warning (may need reauth):', authErr);
-        }
-      }
-
-      // 2. Update user document in Firestore if phone exists
-      if (currentUser.phone) {
-        try {
-          const userDocRef = doc(db, 'users', currentUser.phone);
-          const updatePayload: Record<string, any> = {
-            fullName: formData.fullName.trim()
-          };
-          if (formData.password) {
-            updatePayload.password = formData.password;
-          }
-          await updateDoc(userDocRef, updatePayload);
-        } catch (dbErr) {
-          console.warn('Firestore update warning:', dbErr);
-        }
+      // Passwords belong only to Supabase Auth; never write them to a profile row.
+      if (formData.password) {
+        await updateSupabasePassword(formData.password);
       }
 
       const updatedUser: User = {
         ...currentUser,
-        fullName: formData.fullName.trim(),
-        ...(formData.password ? { password: formData.password } : {})
+        fullName: formData.fullName.trim()
       };
+
+      const profileResult = await updateUserInSupabase(updatedUser);
+      if (!profileResult.success) {
+        throw new Error(profileResult.error || 'تعذر حفظ بيانات الملف الشخصي.');
+      }
 
       setCurrentUser(updatedUser);
       setUsers(users.map(u => u.phone === currentUser.phone ? updatedUser : u));
