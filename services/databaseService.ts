@@ -220,7 +220,8 @@ export const verifySupabaseConnection = async (_url?: string, _key?: string): Pr
 // --- Hostinger MySQL Support ---
 
 export const isHostingerActive = (): boolean => {
-  return localStorage.getItem('custom_cloud_provider') === 'hostinger';
+  return typeof window !== 'undefined'
+    && window.localStorage?.getItem('custom_cloud_provider') === 'hostinger';
 };
 
 export const verifyHostingerConnection = async (): Promise<{ success: boolean; error?: string }> => {
@@ -735,13 +736,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     // the current authenticated user has a verified membership for this store.
     const local = canAccessPrivateStoreData ? await getLocal(storeId) : null;
 
-    // Verified store members retain offline-first behavior.
-    if (canAccessPrivateStoreData && !forceRemote && local) {
-        if (local.settings) {
-            syncSupabaseCredentials(storeId, local.settings);
-        }
-        return local;
-    }
+    // Supabase is the source of truth for authenticated store members.
+    // Do not return IndexedDB first: a stale local snapshot can make a newly
+    // created order appear to disappear after refresh. The local snapshot is
+    // used only as a guarded fallback when the remote read cannot complete.
 
     // --- Custom Hostinger MySQL Fetch Logic ---
     if (canAccessPrivateStoreData && isHostingerActive()) {
@@ -1019,7 +1017,6 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     callScripts
                 },
                 orders: (() => {
-                    const cloudOrderIds = new Set((orders || []).map((o: any) => String(o?.id || '').trim()));
                     const mappedCloudOrders = (orders || []).map((o: any) => {
                         const detailsObj = o.details && typeof o.details === 'object' ? o.details : (typeof o.details === 'string' && o.details ? JSON.parse(o.details) : {});
                         const cleanTopLevel = Object.entries(o).reduce((acc: any, [key, val]) => {
@@ -1084,8 +1081,12 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         };
                     });
 
-                    const localOnlyOrders = (local?.orders || []).filter((lo: any) => lo && lo.id && !cloudOrderIds.has(String(lo.id).trim()));
-                    return [...mappedCloudOrders, ...localOnlyOrders];
+                    // Never merge local-only orders into a successful remote read.
+                    // Doing so resurrects stale/deleted records and makes the next
+                    // save overwrite the canonical Supabase state. Unsynced data is
+                    // preserved by the guarded local fallback below when the remote
+                    // read actually fails.
+                    return mappedCloudOrders;
                 })(),
                 wallet: {
                     balance: Number(storeSettings.wallet_balance ?? 0),
@@ -2947,13 +2948,10 @@ export const resetMerchantAccountData = async (
         }
         if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
             const settingsResult = await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers);
-            if (settingsResult === false) throw new Error('تعذر تحديث إعدادات الشركاء بعد التنظيف.');
+            if (!settingsResult.success) throw new Error(settingsResult.error || 'تعذر تحديث إعدادات الشركاء بعد التنظيف.');
         }
 
         // 4. Preserve Supabase orders and financial ledgers for auditability.
-        const supabase = getSupabaseClient();
-        void supabase;
-
         return { success: true, remainingOrders, updatedSuppliers, updatedPartners };
     } catch (e) {
         console.error('[resetMerchantAccountData] Error:', e);
