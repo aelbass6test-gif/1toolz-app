@@ -60,17 +60,14 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
   });
   const [loginInput, setLoginInput] = useState(''); // Direct Email or Phone search
   const [pinCode, setPinCode] = useState('');
-  const [password, setPassword] = useState('');
 
   // OTP login & Password reset state
   const [otpTargetEmail, setOtpTargetEmail] = useState('');
-  const [customEmailInput, setCustomEmailInput] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [otpCooldown, setOtpCooldown] = useState(0);
-  const [devOtpCode, setDevOtpCode] = useState<string | null>(null);
 
   // 2FA state (when PIN login triggers required OTP)
   const [isTwoFactorActive, setIsTwoFactorActive] = useState(false);
@@ -127,8 +124,7 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
       if (p) {
         if (p.email) {
           setOtpTargetEmail(p.email);
-          setCustomEmailInput(p.email);
-        } else {
+            } else {
           setOtpTargetEmail('');
         }
       }
@@ -177,20 +173,19 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
       return;
     }
 
-    const partner = partners.find(p => 
-      p.email?.toLowerCase() === cleanEmail || 
-      p.id === selectedPartnerId
+    const partner = partners.find(p =>
+      p.id === selectedPartnerId &&
+      String(p.email || '').trim().toLowerCase() === cleanEmail
     );
 
-    if (isForReset && !partner) {
-      setAuthError('لم يتم العثور على حساب شريك مسجل بهذا البريد الإلكتروني');
+    if (!partner) {
+      setAuthError('يجب استخدام البريد الإلكتروني المسجل مسبقًا على الحساب المحدد. إذا لم يكن للحساب بريد، اطلب من إدارة المتجر ربطه والتحقق منه أولاً.');
       return;
     }
 
     setIsSendingOtp(true);
     setAuthError('');
     setAuthSuccess('');
-    setDevOtpCode(null);
 
     try {
       const res = await fetch('/api/send-otp', {
@@ -209,10 +204,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
         setIsOtpSent(true);
         setOtpCooldown(60);
         setOtpTargetEmail(cleanEmail);
-
-        if (data.debugCode) {
-          setDevOtpCode(data.debugCode);
-        }
 
         if (isForReset) {
           setResetPartner(partner || null);
@@ -264,36 +255,19 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
 
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.valid) {
-        // Find matching partner
-        let partner = partners.find(p => 
-          p.email?.toLowerCase() === cleanEmail || 
-          p.id === selectedPartnerId
+        const partner = partners.find(p =>
+          p.id === selectedPartnerId &&
+          String(p.email || '').trim().toLowerCase() === cleanEmail
         );
 
-        if (!partner && selectedPartnerId) {
-          partner = partners.find(p => p.id === selectedPartnerId);
+        if (!partner) {
+          setAuthError('البريد الذي تم التحقق منه غير مرتبط بالحساب المحدد. لم يتم تسجيل الدخول.');
+          return;
         }
 
-        if (!partner && partners.length === 1) {
-          partner = partners[0];
-        }
-
-        if (partner) {
-          // Update partner verification and login timestamp
-          const updatedPartner: Partner = {
-            ...partner,
-            email: cleanEmail,
-            isEmailVerified: true,
-            emailVerifiedAt: new Date().toISOString(),
-            lastLoginAt: new Date().toISOString()
-          };
-
-          await persistPartnerUpdate(updatedPartner);
-          onAuthenticated(updatedPartner);
-          showToast(`أهلاً بك يا ${updatedPartner.name}! تم التحقق بنجاح والدخول الآمن للبوابة المالية`, 'success');
-        } else {
-          setAuthError('تم التحقق من الرمز بنجاح ولكن لم يتم العثور على حساب شريك مرتبط بهذا البريد.');
-        }
+        // Do not rewrite partner credentials/profile data from the browser after OTP.
+        onAuthenticated(partner);
+        showToast(`أهلاً بك يا ${partner.name}! تم التحقق من البريد المسجل بنجاح`, 'success');
       } else {
         setAuthError(data.message || data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية. يرجى التأكد وإعادة المحاولة.');
       }
@@ -929,7 +903,7 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                     {activePartner.email ? (
                       <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-1">
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">
-                          سيتم إرسال كود التحقق الأمني إلى البريد المسجل:
+                          سيتم إرسال كود التحقق الأمني إلى البريد المسجل مسبقًا:
                         </div>
                         <div className="text-xs font-black text-slate-900 dark:text-white font-mono flex items-center gap-2">
                           <Mail size={14} className="text-[#008060]" />
@@ -940,28 +914,18 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                       <div className="space-y-2 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60">
                         <div className="flex items-center gap-1.5 text-xs font-black text-amber-800 dark:text-amber-300">
                           <AlertCircle size={15} />
-                          <span>ربط بريد إلكتروني بحسابك:</span>
+                          <span>الحساب يحتاج ربط بريد موثّق</span>
                         </div>
                         <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                          لم يتم تسجيل بريد إلكتروني لحسابك بعد. أدخل بريدك الإلكتروني الآن لربطه وتأكيده بكود التحقق لمرة واحدة:
+                          لا يمكن ربط بريد جديد من شاشة الدخول. اطلب من إدارة المتجر تسجيل البريد والتحقق منه أولاً.
                         </p>
-                        <input
-                          type="email"
-                          value={customEmailInput}
-                          onChange={(e) => {
-                            setCustomEmailInput(e.target.value);
-                            setOtpTargetEmail(e.target.value);
-                          }}
-                          placeholder="partner@example.com"
-                          className="w-full bg-white dark:bg-slate-850 py-2.5 px-3.5 rounded-xl border border-amber-300 dark:border-amber-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-600"
-                        />
                       </div>
                     )}
 
                     <button
                       type="button"
-                      onClick={() => handleSendOtp(activePartner.email || customEmailInput)}
-                      disabled={isSendingOtp || (!activePartner.email && !customEmailInput)}
+                      onClick={() => handleSendOtp(activePartner.email || '')}
+                      disabled={isSendingOtp || !activePartner.email}
                       className="w-full py-3.5 bg-[#008060] hover:bg-[#0a664e] text-white rounded-2xl font-black text-xs shadow-lg shadow-emerald-700/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                       {isSendingOtp ? (
