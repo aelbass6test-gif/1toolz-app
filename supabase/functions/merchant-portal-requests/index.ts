@@ -43,7 +43,7 @@ Deno.serve(async (request: Request) => {
   // or a trusted admin flag server-side before using the service role.
   if (isAdminAction) {
     const authorization = request.headers.get("Authorization") || "";
-    const token = authorization.replace(/^Bearer\\s+/i, "").trim();
+    const token = authorization.replace(/^Bearer\s+/i, "").trim();
     if (!token) return json({ success: false, error: "يلزم تسجيل دخول الإدارة" }, 401);
     const { data: authData, error: authError } = await admin.auth.getUser(token);
     if (authError || !authData.user) return json({ success: false, error: "جلسة الإدارة غير صالحة" }, 401);
