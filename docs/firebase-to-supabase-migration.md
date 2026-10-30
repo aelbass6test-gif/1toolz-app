@@ -277,3 +277,13 @@ Additional partner portal containment:
 - The browser-only biometric handler now fails closed; it cannot establish a partner session.
 - The legacy partner PIN reset handler no longer writes a plaintext password/PIN into the partner record.
 - The only reachable login mode is email OTP sent to the partner's pre-registered address. These changes reduce client-side bypasses but do not replace server-side session issuance or protect store data already loaded into the browser.
+
+
+### Membership helper hardening (branch-only SQL; not applied)
+
+Read-only review of the live helper definitions found that `is_store_member(store_id, user_id)` accepted an arbitrary user UUID, so an authenticated caller could probe membership for another identity. The migration `20261030140000_harden_membership_helpers.sql` now:
+- makes the membership predicate return true only when the supplied UUID equals the current `auth.uid()`;
+- pins both SECURITY DEFINER helpers to an empty search path and schema-qualifies table references;
+- revokes anonymous/public function execution and grants execution to authenticated/service-role callers for RLS and trusted backend use.
+
+The connected project currently has four membership rows (one owner, three staff), with no duplicate or null membership keys. The current membership policies still do not provide a secure owner bootstrap or invitation-acceptance flow. This migration is committed to the branch only and must be exercised in a dedicated staging project before production use.
