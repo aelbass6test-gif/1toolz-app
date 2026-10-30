@@ -3377,44 +3377,7 @@ export const subscribeToStoreRealtimeOptimized = (
         }
     }
 
-    // B. Firestore Realtime Listeners with Strict Query Filters (where('storeId', '==', cleanStoreId))
-    if (firebaseDb && !isFirestoreQuotaExhausted) {
-        try {
-            tablesToListen.forEach(colName => {
-                const filterField = (colName === 'partner_requests' || colName === 'merchant_requests') ? 'storeId' : 'store_id';
-                const q = query(collection(firebaseDb, colName), where(filterField, '==', cleanStoreId));
-
-                const unsubFs = onSnapshot(
-                    q,
-                    (snapshot) => {
-                        if (options.onUpdate && !snapshot.metadata.hasPendingWrites) {
-                            snapshot.docChanges().forEach((change) => {
-                                if (change.type === 'added' || change.type === 'modified') {
-                                    options.onUpdate!({
-                                        table: colName,
-                                        eventType: change.type.toUpperCase(),
-                                        newRecord: change.doc.data()
-                                    });
-                                }
-                            });
-                        }
-                    },
-                    (err) => {
-                        console.warn(`[REALTIME-OPTIMIZED] Firestore listener notice for ${colName}:`, err?.message || err);
-                        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
-                            markFirestoreQuotaExhausted();
-                            try { unsubFs(); } catch (_) {}
-                        }
-                    }
-                );
-
-                unsubs.push(unsubFs);
-            });
-        } catch (err) {
-            console.warn('[REALTIME-OPTIMIZED] Error opening Firestore listeners:', err);
-        }
-    }
-
+    // Firebase realtime is intentionally disabled: Supabase Realtime is the only cloud event source.
     // Teardown / Clean Cleanup
     return () => {
         unsubs.forEach(fn => {
