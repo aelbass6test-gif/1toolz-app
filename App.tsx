@@ -898,7 +898,7 @@ const OwnerLayoutWrapper = ({
             alive = false;
             if (supabase && channel) void supabase.removeChannel(channel);
         };
-
+    }, [activeStoreId]);
 
     const pendingRequestsCounts = useMemo(() => {
         const merchantReqs = allPartnerRequests.filter(r => {
