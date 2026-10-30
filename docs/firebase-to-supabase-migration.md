@@ -320,3 +320,8 @@ Do not treat these Worker routes as authenticated. Before using platform-level c
 
 
 Auth profile schema review: removed the proposed unique index on `user_profiles.phone`. Signup metadata is user-supplied and is not proof of phone ownership; reserving an unverified phone could let someone block the legitimate owner from registering. Phone-based identity linking must wait for a server-verified phone challenge and a server-controlled verification timestamp.
+
+
+### Next-phase identity design
+
+The detailed owner bootstrap, existing-owner claim, employee invitation/acceptance, membership lifecycle, RLS rollout, negative test matrix, and rollback gates are specified in [docs/supabase-identity-cutover-design.md](./supabase-identity-cutover-design.md). This is a design document only; it does not apply schema changes or authorize production cutover.
