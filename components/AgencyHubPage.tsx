@@ -140,7 +140,7 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       }
     });
 
-    const pendingRequests = cloudRequests.filter(r => r.status === 'pending');
+    const pendingRequests = cloudRequests.filter(r => r.status === 'pending' || r.status === 'processing');
     const pendingWithdrawalsAmount = pendingRequests
       .filter(r => r.type === 'withdrawal' || !r.type)
       .reduce((sum, r) => sum + (r.amount || 0), 0);
@@ -396,6 +396,10 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
 
   const filteredRequests = useMemo(() => {
     if (requestFilter === 'all') return cloudRequests;
+    if (requestFilter === 'pending') {
+      // Claimed requests are still awaiting payout and must remain visible in the pending queue.
+      return cloudRequests.filter(r => r.status === 'pending' || r.status === 'processing');
+    }
     return cloudRequests.filter(r => r.status === requestFilter);
   }, [cloudRequests, requestFilter]);
 
