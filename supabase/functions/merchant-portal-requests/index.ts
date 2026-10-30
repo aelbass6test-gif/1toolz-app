@@ -95,7 +95,7 @@ Deno.serve(async (request: Request) => {
       return json({ success: true, id: claimed.id, status: "processing" });
     }
     const status = String(body?.status || "");
-    if (!requestId || !["approved", "rejected"].includes(status)) {
+    if (!requestId || !["approved", "rejected", "pending"].includes(status)) {
       return json({ success: false, error: "بيانات تحديث الطلب غير صحيحة" }, 400);
     }
     const meta = body?.meta || {};
