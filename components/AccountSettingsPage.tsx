@@ -6,9 +6,7 @@ import {
   LogOut, Camera, AlertCircle, RefreshCw, Layers, Moon, Sun, Check, ArrowRight,
   Fingerprint, Scan, Cpu, Trash2, PlusCircle, CheckCircle2
 } from 'lucide-react';
-import { auth } from '../services/firebaseClient';
-import { verifyBeforeUpdateEmail, sendPasswordResetEmail } from 'firebase/auth';
-import { updateUserInSupabase, createUserDoc } from '../services/databaseService';
+import { updateUserInSupabase } from '../services/databaseService';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   isWebAuthnSupported, 
@@ -58,6 +56,10 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetSentMessage, setResetSentMessage] = useState('');
+  const [resetCodeSent, setResetCodeSent] = useState(false);
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [error, setError] = useState('');
   const [sessionsCleared, setSessionsCleared] = useState(false);
 
@@ -190,14 +192,8 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
   };
 
   const handlePasswordReset = async () => {
-    const targetEmail = (formData.email && !formData.email.includes('@mystore-auth.app')) 
-      ? formData.email 
-      : (currentUser?.email && !currentUser.email.includes('@mystore-auth.app')) 
-        ? currentUser.email 
-        : null;
-
-    if (!targetEmail || !targetEmail.includes('@')) {
-      setError('يرجى التأكد من كتابة وحفظ بريدك الإلكتروني الحقيقي (مثل Gmail) أولاً لإرسال رابط إعادة تعيين كلمة المرور إليه.');
+    if (!currentUser?.phone) {
+      setError('رقم الهاتف غير مرتبط بالحساب الحالي.');
       return;
     }
 
@@ -205,15 +201,56 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     setResetSentMessage('');
     setError('');
     try {
-      await sendPasswordResetEmail(auth, targetEmail);
-      setResetSentMessage(`تم إرسال رابط إعادة تعيين كلمة المرور بنجاح إلى بريدك الحقيقي: ${targetEmail}`);
+      const response = await fetch('/api/employee-forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneOrEmail: currentUser.phone, storeId: currentUser.stores?.[0] || '' })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'تعذر إرسال رمز الاستعادة.');
+      setResetCodeSent(true);
+      setResetSentMessage(result.message || 'تم إرسال رمز التحقق إلى بريدك المسجل.');
     } catch (err: any) {
-      console.error('Password reset error:', err);
-      if (err.code === 'auth/user-not-found') {
-        setResetSentMessage(`تم إرسال رابط إعادة تعيين كلمة المرور بنجاح إلى بريدك الحقيقي: ${targetEmail}`);
-      } else {
-        setError('تعذر إرسال رابط كلمة المرور: ' + (err.message || 'حاول لاحقاً.'));
-      }
+      console.error('Supabase password reset request failed:', err);
+      setError(err.message || 'تعذر إرسال رمز استعادة كلمة المرور.');
+    } finally {
+      setIsSendingReset(false);
+    }
+  };
+
+  const handleCompletePasswordReset = async () => {
+    if (!currentUser?.phone) return;
+    if (!/^\\d{6}$/.test(resetCode.trim())) {
+      setError('أدخل رمز التحقق المكون من 6 أرقام.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('كلمة المرور الجديدة يجب ألا تقل عن 8 أحرف.');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setError('كلمتا المرور غير متطابقتين.');
+      return;
+    }
+
+    setIsSendingReset(true);
+    setError('');
+    try {
+      const response = await fetch('/api/employee-reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneOrEmail: currentUser.phone, resetCode: resetCode.trim(), newPassword })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'تعذر تحديث كلمة المرور.');
+      setResetSentMessage('تم تحديث كلمة المرور في Supabase Auth بنجاح.');
+      setResetCodeSent(false);
+      setResetCode('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err: any) {
+      console.error('Supabase password reset completion failed:', err);
+      setError(err.message || 'تعذر تحديث كلمة المرور.');
     } finally {
       setIsSendingReset(false);
     }
@@ -238,39 +275,9 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
         email: formData.email, 
       };
 
-      // 1. Update Firebase Auth Email if it's a real email and changed
-      if (formData.email && formData.email.includes('@') && auth.currentUser) {
-        const currentAuthEmail = auth.currentUser.email;
-        if (currentAuthEmail !== formData.email) {
-          if (formData.email.includes('@mystore-auth.app')) {
-             setError('لا يمكن استخدام بريد النظام المؤقت كبريد أساسي للتواصل. يرجى إدخال بريد إلكتروني حقيقي (Gmail, Outlook, etc).');
-             setIsSaving(false);
-             return;
-          }
-
-          try {
-            await verifyBeforeUpdateEmail(auth.currentUser, formData.email);
-            setSuccessMessage(`تم إرسال رابط تأكيد إلى: ${formData.email}. يرجى الضغط على الرابط في الرسالة لتأكيد البريد.`);
-          } catch (authErr: any) {
-            if (authErr.code === 'auth/requires-recent-login') {
-               // Handled smoothly: Save to Firestore/Database directly without throwing console warnings
-               setSuccessMessage(`تم حفظ البريد الإلكتروني (${formData.email}) وبيانات الحساب بنجاح في قاعدة البيانات!`);
-            } else if (authErr.code === 'auth/email-already-in-use') {
-               setError('هذا البريد الإلكتروني مستخدم بالفعل في حساب آخر.');
-               setIsSaving(false);
-               return;
-            } else if (authErr.code === 'auth/invalid-email') {
-               setError('البريد الإلكتروني المدخل غير صالح.');
-               setIsSaving(false);
-               return;
-            } else {
-               setSuccessMessage(`تم حفظ تحديثات الملف الشخصي والبريد الإلكتروني بنجاح!`);
-            }
-          }
-        }
-      }
-
-      // 2. Update Supabase for forgot password lookup
+      // Supabase Auth uses the phone-derived login alias; the real email stays in the profile.
+      // It is used by the verified OTP password-recovery flow, not as the Auth login address.
+      // Update the Supabase profile below.
       const sbResult = await updateUserInSupabase(updatedUser);
       if (!sbResult.success) {
         console.warn('[SUPABASE] Update failed:', sbResult.error);
@@ -281,8 +288,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
         }
       }
 
-      // 3. Update Firestore & Local State
-      await createUserDoc(updatedUser);
+      // Update local session state after the Supabase profile write.
       setCurrentUser(updatedUser);
       setUsers(users.map(u => u.phone === currentUser.phone ? updatedUser : u));
 
@@ -310,7 +316,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     );
   }
 
-  const isEmailSynced = auth.currentUser?.email === formData.email;
+  const isEmailSynced = currentUser?.email === formData.email;
   const isTypedTempEmail = !formData.email || formData.email.includes('@mystore-auth.app');
   const userInitials = (formData.firstName[0] || 'U') + (formData.lastName[0] || '');
 
@@ -503,7 +509,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                   {isEmailSynced ? (
                     <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
                       <CheckCircle size={15} />
-                      مرتبط ومفعل ببيانات الدخول الموحدة (Firebase Auth).
+                      محفوظ في ملف الحساب داخل Supabase.
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -602,7 +608,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                     </p>
                   )}
                 </div>
-                
+
                 <button
                   type="button"
                   onClick={handlePasswordReset}
@@ -610,9 +616,46 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2 shrink-0 active:scale-95 disabled:opacity-50"
                 >
                   {isSendingReset ? <Loader2 className="animate-spin" size={14} /> : <Mail size={14} />}
-                  إرسال رابط كلمة المرور
+                  إرسال رمز الاستعادة
                 </button>
               </div>
+
+              {resetCodeSent && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/20">
+                  <input
+                    value={resetCode}
+                    onChange={e => setResetCode(e.target.value.replace(/\\D/g, '').slice(0, 6))}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="رمز التحقق 6 أرقام"
+                    className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    placeholder="كلمة المرور الجديدة"
+                    className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="password"
+                    value={confirmNewPassword}
+                    onChange={e => setConfirmNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                    placeholder="تأكيد كلمة المرور"
+                    className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCompletePasswordReset}
+                    disabled={isSendingReset}
+                    className="md:col-span-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs disabled:opacity-50"
+                  >
+                    {isSendingReset ? 'جارٍ التحديث...' : 'تأكيد وتحديث كلمة المرور'}
+                  </button>
+                </div>
+              )}
 
               {/* Two-Factor Authentication */}
               <div className="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-4">
@@ -625,7 +668,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                       التحقق بـ كود التمرير (2FA / Two-Factor Protection)
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      طلب كود تأكيد عبر SMS أو Firebase Auth عند تسجيل الدخول من أجهزة جديدة
+                      طلب كود تأكيد عبر SMS أو Supabase Auth عند تسجيل الدخول من أجهزة جديدة
                     </p>
                   </div>
                 </div>
