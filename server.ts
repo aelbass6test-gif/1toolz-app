@@ -24,6 +24,7 @@ import {
   processCarrierEventOrSettlementAtomic
 } from "./services/orderQuotaLedgerService";
 import { hashPasswordSecure } from "./utils/syncIntegrity";
+import { ensureMysqlTables, query as mysqlQuery, getMysqlPool } from "./services/mysqlAdapter";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "AIzaSy_placeholder_key_for_dev_mode",
@@ -494,6 +495,9 @@ async function getCachedStore(db: any, storeId: string) {
 }
 
 async function startServer() {
+  // Ensure MySQL tables are created if configured
+  await ensureMysqlTables();
+
   const PORT = 3000;
   const app = new Hono();
   const activeShipmentCreationKeys = new Set<string>();
@@ -635,6 +639,188 @@ async function startServer() {
       return c.json({ error: "Report not found" }, 404);
     } catch (err: any) {
       console.error("[Server] Error retrieving shared report:", err);
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  // --- CUSTOM MYSQL CLOUD ADAPTER ROUTES (Hostinger Proxy) ---
+  app.get("/api/mysql/status", async (c) => {
+    const pool = getMysqlPool();
+    return c.json({ active: !!pool, host: process.env.MYSQL_HOST || 'not set' });
+  });
+
+  app.post("/api/mysql/sync", async (c) => {
+    try {
+      const { table, items, storeId } = await c.req.json();
+      if (!table || !storeId) return c.json({ error: "Missing table or storeId" }, 400);
+      
+      const pool = getMysqlPool();
+      if (!pool) return c.json({ error: "MySQL not configured" }, 503);
+
+      const itemsList = Array.isArray(items) ? items : [items];
+      if (itemsList.length === 0) return c.json({ success: true, count: 0 });
+
+      // Build bulk upsert query
+      // This is a generic upsert. Since it's MySQL 8+, we can use JSON and other features.
+      // For simplicity, we'll iterate and upsert for now to handle different schemas.
+      
+      let successCount = 0;
+      for (const item of itemsList) {
+        const id = item.id || item.phone;
+        if (!id) continue;
+
+        const { id: _, storeId: __, store_id: ___, ...data } = item;
+        const jsonContent = JSON.stringify(data);
+
+        if (table === 'stores_data') {
+          await mysqlQuery(
+            `INSERT INTO stores_data (id, name, settings) VALUES (?, ?, ?) 
+             ON DUPLICATE KEY UPDATE name = VALUES(name), settings = VALUES(settings)`,
+            [id, item.name || 'Store', jsonContent]
+          );
+        } else if (table === 'users') {
+          await mysqlQuery(
+            `INSERT INTO users (phone, full_name, password, email, stores, sites, is_admin) VALUES (?, ?, ?, ?, ?, ?, ?) 
+             ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), password = VALUES(password), email = VALUES(email), stores = VALUES(stores), sites = VALUES(sites), is_admin = VALUES(is_admin)`,
+            [id, item.fullName || item.full_name, item.password, item.email, JSON.stringify(item.stores || []), JSON.stringify(item.sites || []), item.isAdmin || false]
+          );
+        } else {
+          // Dynamic handler for generic collections
+          // We'll use a JSON-heavy approach or specific columns if we added them in mysqlAdapter.ts
+          const columns = ['id', 'store_id', 'details'];
+          const values = [id, storeId, jsonContent];
+          
+          // Try to use specific columns for better indexing if they exist in schema
+          let sql = `INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`;
+          
+          if (table === 'products') {
+            sql = `INSERT INTO products (id, store_id, name, price, cost_price, stock_quantity, details) VALUES (?, ?, ?, ?, ?, ?, ?) 
+                   ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), cost_price = VALUES(cost_price), stock_quantity = VALUES(stock_quantity), details = VALUES(details)`;
+            await mysqlQuery(sql, [id, storeId, item.name, item.price || 0, item.costPrice || item.cost_price || 0, item.stockQuantity || item.stock_quantity || 0, jsonContent]);
+          } else if (table === 'orders') {
+            sql = `INSERT INTO orders (id, store_id, order_number, customer_name, customer_phone, status, date, total_price, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                   ON DUPLICATE KEY UPDATE status = VALUES(status), total_price = VALUES(total_price), details = VALUES(details)`;
+            await mysqlQuery(sql, [id, storeId, item.orderNumber || item.order_number, item.customerName || item.customer_name, item.customerPhone || item.customer_phone, item.status, item.date, item.totalPrice || item.total_price || 0, jsonContent]);
+          } else if (table === 'merchant_requests') {
+            sql = `INSERT INTO merchant_requests (id, store_id, merchant_id, merchant_name, type, amount, status, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+                   ON DUPLICATE KEY UPDATE status = VALUES(status), amount = VALUES(amount), details = VALUES(details)`;
+            await mysqlQuery(sql, [id, storeId, item.merchantId || item.merchant_id, item.merchantName || item.merchant_name, item.type, item.amount || 0, item.status, jsonContent]);
+          } else {
+             // Fallback for other tables: just use a generic 'partner_transactions' style or generic table if we add more
+             try {
+               await mysqlQuery(`INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`, [id, storeId, jsonContent]);
+             } catch (e) {
+               // If table doesn't have id/store_id/details structure, log it
+               console.warn(`[MYSQL-SYNC] Table ${table} might not support generic upsert`, e);
+             }
+          }
+        }
+        successCount++;
+      }
+
+      return c.json({ success: true, count: successCount });
+    } catch (err: any) {
+      console.error("[MYSQL-SYNC-ERROR]", err);
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  app.get("/api/mysql/fetch", async (c) => {
+    try {
+      const table = c.req.query("table");
+      const storeId = c.req.query("storeId");
+      if (!table || !storeId) return c.json({ error: "Missing table or storeId" }, 400);
+
+      const pool = getMysqlPool();
+      if (!pool) return c.json({ error: "MySQL not configured" }, 503);
+
+      const rows: any = await mysqlQuery(`SELECT * FROM ${table} WHERE store_id = ?`, [storeId]);
+      
+      const items = rows.map((r: any) => {
+        let details = {};
+        try {
+          details = r.details ? (typeof r.details === 'string' ? JSON.parse(r.details) : r.details) : {};
+        } catch(e) {}
+        
+        // Merge indexed columns back into the object
+        return {
+          ...details,
+          id: r.id,
+          storeId: r.store_id,
+          store_id: r.store_id,
+          // Special columns
+          ...(r.name ? { name: r.name } : {}),
+          ...(r.price !== undefined ? { price: Number(r.price) } : {}),
+          ...(r.status ? { status: r.status } : {}),
+        };
+      });
+
+      return c.json({ success: true, items });
+    } catch (err: any) {
+      console.error("[MYSQL-FETCH-ERROR]", err);
+      return c.json({ error: err.message }, 500);
+    }
+  });
+
+  app.post("/api/mysql/migrate", async (c) => {
+    try {
+      const { storeId, storeName, data } = await c.req.json();
+      if (!storeId || !data) return c.json({ error: "Missing storeId or data" }, 400);
+      
+      const pool = getMysqlPool();
+      if (!pool) return c.json({ error: "MySQL not configured" }, 503);
+
+      console.log(`[MYSQL-MIGRATE] Starting migration for store: ${storeName} (${storeId})`);
+
+      // 1. Sync Store Record
+      await mysqlQuery(
+        `INSERT INTO stores_data (id, name, settings) VALUES (?, ?, ?) 
+         ON DUPLICATE KEY UPDATE name = VALUES(name), settings = VALUES(settings)`,
+        [storeId, storeName || 'Store', JSON.stringify(data.settings || {})]
+      );
+
+      // 2. Helper for bulk sync
+      const bulkSync = async (table: string, items: any[], mapper: (item: any) => any[]) => {
+        if (!items || items.length === 0) return;
+        for (const item of items) {
+          try {
+            const id = item.id || item.phone;
+            if (!id) continue;
+            const values = mapper(item);
+            
+            let sql = "";
+            if (table === 'products') {
+              sql = `INSERT INTO products (id, store_id, name, price, cost_price, stock_quantity, details) VALUES (?, ?, ?, ?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), cost_price = VALUES(cost_price), stock_quantity = VALUES(stock_quantity), details = VALUES(details)`;
+            } else if (table === 'orders') {
+              sql = `INSERT INTO orders (id, store_id, order_number, customer_name, customer_phone, status, date, total_price, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE status = VALUES(status), total_price = VALUES(total_price), details = VALUES(details)`;
+            } else if (table === 'merchant_requests') {
+              sql = `INSERT INTO merchant_requests (id, store_id, merchant_id, merchant_name, type, amount, status, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE status = VALUES(status), amount = VALUES(amount), details = VALUES(details)`;
+            } else {
+              sql = `INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`;
+            }
+            
+            await mysqlQuery(sql, values);
+          } catch (e) {
+            console.warn(`[MYSQL-MIGRATE] Failed item in ${table}:`, e);
+          }
+        }
+      };
+
+      // 3. Execute bulk migrations
+      await Promise.all([
+        bulkSync('products', data.settings?.products || [], (p) => [p.id, storeId, p.name, p.price || 0, p.costPrice || 0, p.stockQuantity || 0, JSON.stringify(p)]),
+        bulkSync('orders', data.orders || [], (o) => [o.id, storeId, o.orderNumber, o.customerName, o.customerPhone, o.status, o.date, o.totalPrice || 0, JSON.stringify(o)]),
+        bulkSync('merchant_requests', data.merchantRequests || [], (m) => [m.id, storeId, m.merchantId, m.merchantName, m.type, m.amount || 0, m.status, JSON.stringify(m)]),
+        bulkSync('suppliers', data.settings?.suppliers || [], (s) => [s.id, storeId, JSON.stringify(s)]),
+        bulkSync('partners', data.settings?.partners || [], (p) => [p.id, storeId, JSON.stringify(p)])
+      ]);
+
+      return c.json({ success: true });
+    } catch (err: any) {
+      console.error("[MYSQL-MIGRATE-ERROR]", err);
       return c.json({ error: err.message }, 500);
     }
   });
@@ -9028,36 +9214,36 @@ async function startServer() {
 
       try {
         const last8 = cleanPhone.slice(-8);
-        const ordersRef = collection(db, "orders");
-        const snap = await getDocs(ordersRef);
+        const qPhone = query(collection(db, "orders"), where("customerPhone", "==", cleanPhone), limit(25));
+        const snap = await getDocs(qPhone).catch(() => null);
 
-        snap.forEach((docSnap) => {
-          const data = docSnap.data();
-          const p1 = (data.customerPhone || "").replace(/\D/g, "");
-          const p2 = (data.customerPhone2 || "").replace(/\D/g, "");
-          
-          if ((p1 && p1.slice(-8) === last8) || (p2 && p2.slice(-8) === last8)) {
-            const st = String(data.status || "").toLowerCase();
-            const wasDispatched = Boolean(
-              data.trackingNumber || data.bostaTrackingNumber || data.shipmentId || data.awb ||
-              data.sentToShippingAt || data.shippedAt || /قيد.?الشحن|تم.?الارسال|تم.?الإرسال|قيد.?التوصيل|out.?for.?delivery|shipped/.test(st)
-            );
-            if ((st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) && !wasDispatched) {
-              return;
+        if (snap) {
+          snap.forEach((docSnap) => {
+            const data = docSnap.data();
+            const p1 = (data.customerPhone || "").replace(/\D/g, "");
+            const p2 = (data.customerPhone2 || "").replace(/\D/g, "");
+            
+            if ((p1 && p1.slice(-8) === last8) || (p2 && p2.slice(-8) === last8)) {
+              const st = String(data.status || "").toLowerCase();
+              const wasDispatched = Boolean(
+                data.trackingNumber || data.bostaTrackingNumber || data.shipmentId || data.awb ||
+                data.sentToShippingAt || data.shippedAt || /قيد.?الشحن|تم.?الارسال|تم.?الإرسال|قيد.?التوصيل|out.?for.?delivery|shipped/.test(st)
+              );
+              if ((st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) && !wasDispatched) {
+                return;
+              }
+              localTotal++;
+              if (st.includes("سلم") || st.includes("تسليم") || st.includes("delivered") || st.includes("تم الاستلام")) {
+                localDelivered++;
+              } else if (st.includes("مرتجع") || st.includes("returned") || st.includes("مرفوض") || st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) {
+                localReturned++;
+              } else {
+                localPending++;
+              }
             }
-            localTotal++;
-            if (st.includes("سلم") || st.includes("تسليم") || st.includes("delivered") || st.includes("تم الاستلام")) {
-              localDelivered++;
-            } else if (st.includes("مرتجع") || st.includes("returned") || st.includes("مرفوض") || st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) {
-              localReturned++;
-            } else {
-              localPending++;
-            }
-          }
-        });
-      } catch (err) {
-        console.warn("Error querying local Firestore for phone rate:", err);
-      }
+          });
+        }
+      } catch (_) {}
 
       // Calculate stats strictly from Bosta API if found, or fall back to local if Bosta API has no records
       let totalDelivered = 0;

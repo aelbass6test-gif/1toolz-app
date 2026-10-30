@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Settings, Order, MerchantSettlement, MerchantSettlementOrderSnapshot, Treasury, CustomerProfile, MerchantTransaction } from '../types';
+import type { Settings, Order, MerchantSettlement, MerchantSettlementOrderSnapshot, Treasury, CustomerProfile, MerchantTransaction } from '../types';
 import { 
   Building2, DollarSign, Calculator, FileText, CheckCircle2, 
   Printer, Download, Plus, Search, Filter, Calendar, User, 
   ArrowUpRight, ArrowDownLeft, Wallet, ShieldAlert, Sparkles, X, Paperclip, ChevronDown, Check, Speaker,
   Landmark, TrendingUp, TrendingDown, RefreshCw, MessageSquare, RotateCcw, Eye, SlidersHorizontal,
   Layers, Percent, PackageCheck, AlertTriangle, Trash2, ExternalLink, FileSpreadsheet, Info, Globe, Mail, Loader2,
-  Coins, Clock, XCircle
+  Coins, Clock, XCircle, Settings as SettingsIcon
 } from 'lucide-react';
 import * as db from '../services/databaseService';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -2701,6 +2701,38 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
               <Sparkles size={15} />
               <span>تقرير الشفافية</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('merchants')}
+              className={`px-3.5 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
+                activeTab === 'merchants' 
+                  ? 'bg-slate-800 text-white shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <User size={15} />
+              <span>إدارة الموكلين</span>
+              <span className="font-mono tabular-nums text-[11px] text-slate-400">
+                ({merchantsList.length})
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('requests')}
+              className={`px-3.5 py-2 rounded-lg font-bold text-xs transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
+                activeTab === 'requests' 
+                  ? 'bg-amber-600 text-white shadow-xs' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Coins size={15} />
+              <span>جدول التحويلات وسياسات الصرف</span>
+              {pendingMerchantRequestsCount > 0 && (
+                <span className="font-mono tabular-nums text-[11px] bg-amber-500 text-slate-950 px-1.5 py-0.2 rounded font-black animate-pulse">
+                  {pendingMerchantRequestsCount}
+                </span>
+              )}
+            </button>
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -2779,6 +2811,35 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                 {executiveMetrics.totalUnsettledOrders > 0 && (
                   <span className="font-mono text-[11px] bg-white/20 px-1.5 py-0.2 rounded-md text-white">
                     {executiveMetrics.totalUnsettledOrders}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('merchants')}
+                className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'merchants' 
+                    ? 'bg-white text-slate-900 shadow-lg' 
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <User size={15} />
+                <span>إدارة الموكلين</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('requests')}
+                className={`px-4 py-2.5 rounded-xl font-black text-xs transition-all flex items-center gap-2 cursor-pointer ${
+                  activeTab === 'requests' 
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-900/50' 
+                    : 'text-amber-300 hover:bg-amber-500/15'
+                }`}
+              >
+                <Coins size={15} />
+                <span>جدول التحويلات وسياسات الصرف</span>
+                {pendingMerchantRequestsCount > 0 && (
+                  <span className="font-mono text-[11px] bg-slate-950 text-amber-300 px-1.5 py-0.2 rounded-md">
+                    {pendingMerchantRequestsCount}
                   </span>
                 )}
               </button>
@@ -4291,14 +4352,26 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
                     <span className="text-[11px] font-bold text-slate-400">
                       {partner.settlementsCount} كشف سابق · عمولاتنا: {partner.totalAgencyEarned.toLocaleString()} ج.م
                     </span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const supp = (settings.suppliers || []).find(s => s.id === partner.id) || partner;
+                          openMerchantPayoutPolicyModal(supp);
+                        }}
+                        className="px-2.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 text-amber-700 dark:text-amber-300 text-xs font-black transition-colors cursor-pointer border border-amber-200 dark:border-amber-800 flex items-center gap-1"
+                        title="تعديل استراتيجية تعليق وصرف أرباح الموكل"
+                      >
+                        <SettingsIcon size={13} />
+                        <span>تعديل السياسة ⚙️</span>
+                      </button>
                       <Link
                         to={`/store/${activeStoreId}/suppliers/${partner.id}`}
                         className="px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border border-emerald-500/10 shadow-xs"
                         title="عرض محفظة الموكل والتحليلات"
                       >
                         <Wallet size={13} />
-                        <span>محفظة الموكل</span>
+                        <span>المحفظة</span>
                       </Link>
                       <button
                         type="button"

@@ -147,12 +147,12 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     };
   }, [suppliersList, orders, cloudRequests, settings.holdingDaysAfterSettlement]);
 
-  // Global Agency Policy form state
   const [globalHoldingDays, setGlobalHoldingDays] = useState<number>(settings.holdingDaysAfterSettlement ?? 7);
   const [globalWeeklyPayoutDay, setGlobalWeeklyPayoutDay] = useState<number>(settings.weeklyPayoutDay ?? 1); // Monday default
   const [globalWeeklyPayoutMode, setGlobalWeeklyPayoutMode] = useState<'auto' | 'admin_confirm'>(settings.weeklyPayoutMode ?? 'admin_confirm');
   const [globalMinPayout, setGlobalMinPayout] = useState<number>(settings.minWeeklyPayout ?? 100);
   const [globalMaxPayout, setGlobalMaxPayout] = useState<number>(settings.maxWeeklyPayout ?? 50000);
+  const [globalPayoutStrategy, setGlobalPayoutStrategy] = useState<'rolling_hold' | 'batch_weekly' | 'manual_request'>(settings.defaultPayoutStrategy ?? 'rolling_hold');
   const [isSavingPolicies, setIsSavingPolicies] = useState(false);
 
   const handleSaveGlobalPolicies = async () => {
@@ -164,13 +164,49 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         weeklyPayoutDay: globalWeeklyPayoutDay,
         weeklyPayoutMode: globalWeeklyPayoutMode,
         minWeeklyPayout: globalMinPayout,
-        maxWeeklyPayout: globalMaxPayout
+        maxWeeklyPayout: globalMaxPayout,
+        defaultPayoutStrategy: globalPayoutStrategy
       };
       
       updateSettings(updated);
       inAppToast('تم حفظ وتطبيق سياسات الوكالة الشاملة بنجاح ✅', 'success');
     } catch (err: any) {
       inAppToast('تعذر حفظ السياسات: ' + (err.message || ''), 'error');
+    } finally {
+      setIsSavingPolicies(false);
+    }
+  };
+
+  const handleReleaseAllHoldingBalances = async () => {
+    try {
+      setIsSavingPolicies(true);
+      setGlobalHoldingDays(0);
+      setGlobalPayoutStrategy('manual_request');
+
+      const updatedSuppliers = (settings.suppliers || []).map((s: any) => ({
+        ...s,
+        holdingDaysAfterSettlement: 0,
+        payoutStrategy: 'manual_request'
+      }));
+
+      const updatedPartners = (settings.partners || []).map((p: any) => ({
+        ...p,
+        holdingDaysAfterSettlement: 0,
+        payoutStrategy: 'manual_request'
+      }));
+
+      const updated: Settings = {
+        ...settings,
+        holdingDaysAfterSettlement: 0,
+        defaultPayoutStrategy: 'manual_request',
+        suppliers: updatedSuppliers,
+        partners: updatedPartners
+      };
+
+      await updateSettings(updated);
+      inAppToast('⚡ تم الإفراج عن كافة الأرباح المعلقة وإتاحتها للسحب والتحويل المباشر فوراً!', 'success');
+    } catch (err: any) {
+      inAppToast('تعذر الإفراج عن الرصيد المعلق: ' + (err.message || ''), 'error');
     } finally {
       setIsSavingPolicies(false);
     }
@@ -437,8 +473,19 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
               <Clock size={18} />
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-            <span className="font-mono tabular-nums">{metrics.totalOrdersUnderHolding}</span> أوردر قيد فترة الأمان قبل إتاحة الصرف
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-[11px] font-medium text-amber-600 dark:text-amber-400 flex flex-col gap-2">
+            <div>
+              <span className="font-mono tabular-nums">{metrics.totalOrdersUnderHolding}</span> أوردر قيد فترة الأمان قبل إتاحة الصرف
+            </div>
+            <button
+              type="button"
+              onClick={handleReleaseAllHoldingBalances}
+              disabled={isSavingPolicies}
+              className="w-full py-1.5 px-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-lg text-[10px] transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              title="إلغاء فترة الأمان وإتاحة كافة المبالغ المعلقة للسحب الفوري الآن"
+            >
+              <span>⚡ إتاحة جميع المبالغ المعلقة للسحب فوراً</span>
+            </button>
           </div>
         </div>
 
@@ -728,6 +775,54 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               
+              {/* 0. Global Payout Strategy */}
+              <div className="md:col-span-2 p-4 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3">
+                <label className="text-xs font-black text-emerald-900 dark:text-emerald-300 flex items-center gap-2">
+                  <Coins size={16} className="text-emerald-600 dark:text-emerald-400" />
+                  <span>استراتيجية الوكالة العامة لصرف وتأجيل أرباح الموكلين:</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setGlobalPayoutStrategy('rolling_hold')}
+                    className={`p-3 rounded-xl border text-right font-bold text-xs transition-all flex flex-col gap-1 cursor-pointer ${
+                      globalPayoutStrategy === 'rolling_hold'
+                        ? 'bg-white dark:bg-slate-900 border-emerald-500 shadow-xs ring-1 ring-emerald-500 text-emerald-900 dark:text-emerald-200'
+                        : 'bg-white/60 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className="font-black text-xs">1. تعليق متدحرج (بالأيام) ⏳</span>
+                    <span className="text-[10px] text-slate-500 leading-tight">تعليق كل أوردر لمدة X يوم من تاريخ تسويته المباشر.</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setGlobalPayoutStrategy('batch_weekly')}
+                    className={`p-3 rounded-xl border text-right font-bold text-xs transition-all flex flex-col gap-1 cursor-pointer ${
+                      globalPayoutStrategy === 'batch_weekly'
+                        ? 'bg-white dark:bg-slate-900 border-emerald-500 shadow-xs ring-1 ring-emerald-500 text-emerald-900 dark:text-emerald-200'
+                        : 'bg-white/60 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className="font-black text-xs">2. تجميع أسبوعي كامل 📅</span>
+                    <span className="text-[10px] text-slate-500 leading-tight">أوردرات الأسبوع بالكامل تُتاح في يوم التحويل القادم.</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setGlobalPayoutStrategy('manual_request')}
+                    className={`p-3 rounded-xl border text-right font-bold text-xs transition-all flex flex-col gap-1 cursor-pointer ${
+                      globalPayoutStrategy === 'manual_request'
+                        ? 'bg-white dark:bg-slate-900 border-emerald-500 shadow-xs ring-1 ring-emerald-500 text-emerald-900 dark:text-emerald-200'
+                        : 'bg-white/60 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <span className="font-black text-xs">3. سحب يدوي حر (بدون تعليق) 🔓</span>
+                    <span className="text-[10px] text-slate-500 leading-tight">الأرباح متاحة فوراً والموكل يرسل طلب سحب.</span>
+                  </button>
+                </div>
+              </div>
+
               {/* 1. Holding Days Duration (7 Days Default) */}
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-3">
                 <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">

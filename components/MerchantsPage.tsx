@@ -105,6 +105,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
   const [adminWeeklyTransferFeeType, setAdminWeeklyTransferFeeType] = useState<'fixed' | 'percentage'>('fixed');
   const [adminDailyTransferFee, setAdminDailyTransferFee] = useState<number>(1);
   const [adminDailyTransferFeeType, setAdminDailyTransferFeeType] = useState<'fixed' | 'percentage'>('percentage');
+  const [adminPayoutStrategy, setAdminPayoutStrategy] = useState<'rolling_hold' | 'batch_weekly' | 'manual_request'>('rolling_hold');
   const [customQuoteFeeMap, setCustomQuoteFeeMap] = useState<Record<string, number>>({});
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -1051,6 +1052,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
     setAdminWeeklyTransferFeeType(merchant.weeklyTransferFeeType === 'percentage' ? 'percentage' : 'fixed');
     setAdminDailyTransferFee(typeof merchant.dailyTransferFee === 'number' ? merchant.dailyTransferFee : 1);
     setAdminDailyTransferFeeType(merchant.dailyTransferFeeType === 'fixed' ? 'fixed' : 'percentage');
+    setAdminPayoutStrategy(merchant.payoutStrategy || (merchant.payoutFrequency === 'daily' ? 'manual_request' : 'rolling_hold'));
   };
 
   // Save Admin Plan & Custom Order Price (Mutually Exclusive: Self-Service OR Dedicated Manager)
@@ -1196,6 +1198,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
         weeklyPayoutMode: adminWeeklyPayoutMode,
         weeklyPayoutDay: adminWeeklyPayoutDay,
         payoutFrequency: adminPayoutFrequency,
+        payoutStrategy: adminPayoutStrategy,
         weeklyTransferFee: Math.max(0, Number(adminWeeklyTransferFee)),
         weeklyTransferFeeType: adminWeeklyTransferFeeType,
         dailyTransferFee: Math.max(0, Number(adminDailyTransferFee)),
@@ -1601,7 +1604,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
                                 className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-[10px] font-black shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
                               >
                                 <Settings2 size={13} />
-                                <span>تعديل الباقة والمدير</span>
+                                <span>تعديل الباقة والسياسة ⚙️</span>
                               </button>
                               <Link
                                 to={`/store/${storeId}/suppliers/${merchant.id}`}
@@ -2144,6 +2147,21 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-black text-teal-800 dark:text-teal-300 mb-1">
+                        استراتيجية صرف وتعليق أرباح الموكل:
+                      </label>
+                      <select
+                        value={adminPayoutStrategy}
+                        onChange={e => setAdminPayoutStrategy(e.target.value as any)}
+                        className="w-full px-3 py-2 rounded-xl border border-teal-300 dark:border-teal-700 bg-white dark:bg-slate-900 text-xs font-black text-teal-900 dark:text-teal-100"
+                      >
+                        <option value="rolling_hold">1. تعليق متدحرج (بالأيام) ⏳ — تعليق كل أوردر لمدة X يوم بعد التسوية</option>
+                        <option value="batch_weekly">2. تجميع أسبوعي 📅 — أوردرات الأسبوع بالكامل تُتاح في موعد سحب الأسبوع القادم</option>
+                        <option value="manual_request">3. سحب يدوي حر (بدون تعليق آلي) 🔓 — الأرباح متاحة فوراً والموكل يرسل طلب سحب</option>
+                      </select>
+                    </div>
+
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
                         تكرار السحب النقدي للموكل (يومي / أسبوعي)

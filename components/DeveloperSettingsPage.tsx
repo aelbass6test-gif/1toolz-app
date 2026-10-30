@@ -3,9 +3,124 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, WebhookIntegration, Store } from '../types';
 import { Code, Webhook, Key, Trash, Plus, Save, Server, Shield, ShoppingCart, Copy, CheckCircle2, Database, RefreshCw, AlertCircle, Check, ExternalLink, ShieldAlert, History, Sparkles, Wifi, WifiOff, Layers, Cloud, CloudUpload, Download, Eye, Activity, Search, Wrench, CheckSquare, Square, Mail, Send } from 'lucide-react';
-import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, getLocal, saveLocal, saveStoreData } from '../services/databaseService';
+import { getSupabaseRestrictedStatus, setSupabaseRestricted, isSupabaseActive, verifySupabaseConnection, isHostingerActive, verifyHostingerConnection, getLocal, saveLocal, saveStoreData, pushLocalToHostinger } from '../services/databaseService';
 import ApiKeysManager from './ApiKeysManager';
 import WebhooksManager from './WebhooksManager';
+
+const MYSQL_SCHEMA_SCRIPT = `-- =========================================================================
+-- السكربت الشامل لإنشاء جداول Hostinger MySQL
+-- قم بنسخ هذا الكود وتشغيله في phpMyAdmin (قسم SQL)
+-- =========================================================================
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+-- 1. STORES_DATA
+CREATE TABLE IF NOT EXISTS stores_data (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  settings JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 2. USERS
+CREATE TABLE IF NOT EXISTS users (
+  phone VARCHAR(50) PRIMARY KEY,
+  full_name VARCHAR(255) NOT NULL,
+  password TEXT NOT NULL,
+  email VARCHAR(255),
+  stores JSON,
+  sites JSON,
+  is_admin BOOLEAN DEFAULT FALSE,
+  is_banned BOOLEAN DEFAULT FALSE,
+  join_date VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 3. PRODUCTS
+CREATE TABLE IF NOT EXISTS products (
+  id VARCHAR(255) PRIMARY KEY,
+  store_id VARCHAR(255),
+  name VARCHAR(255) NOT NULL,
+  sku VARCHAR(100),
+  description TEXT,
+  price DECIMAL(15,2) DEFAULT 0,
+  cost_price DECIMAL(15,2) DEFAULT 0,
+  stock_quantity DECIMAL(15,2) DEFAULT 0,
+  thumbnail TEXT,
+  images JSON,
+  options JSON,
+  variants JSON,
+  details JSON,
+  is_archived BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_store (store_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 4. ORDERS
+CREATE TABLE IF NOT EXISTS orders (
+  id VARCHAR(255) PRIMARY KEY,
+  store_id VARCHAR(255),
+  order_number VARCHAR(100) NOT NULL,
+  customer_name VARCHAR(255) NOT NULL,
+  customer_phone VARCHAR(50),
+  status VARCHAR(50) DEFAULT 'قيد_المراجعة',
+  date VARCHAR(100) NOT NULL,
+  total_price DECIMAL(15,2) DEFAULT 0,
+  shipping_fee DECIMAL(15,2) DEFAULT 0,
+  items JSON,
+  details JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_store (store_id),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 5. MERCHANT_REQUESTS
+CREATE TABLE IF NOT EXISTS merchant_requests (
+  id VARCHAR(255) PRIMARY KEY,
+  store_id VARCHAR(255),
+  merchant_id VARCHAR(255),
+  merchant_name VARCHAR(255),
+  type VARCHAR(50),
+  type_arabic VARCHAR(100),
+  amount DECIMAL(15,2) DEFAULT 0,
+  notes TEXT,
+  date VARCHAR(100),
+  status VARCHAR(50) DEFAULT 'pending',
+  payout_method VARCHAR(50),
+  payout_account VARCHAR(255),
+  transfer_reference VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_store (store_id),
+  INDEX idx_merchant (merchant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 6. PARTNER_TRANSACTIONS
+CREATE TABLE IF NOT EXISTS partner_transactions (
+  id VARCHAR(255) PRIMARY KEY,
+  store_id VARCHAR(255),
+  merchant_id VARCHAR(255),
+  merchant_name VARCHAR(255),
+  date VARCHAR(100),
+  type VARCHAR(50),
+  amount DECIMAL(15,2) DEFAULT 0,
+  balance_after DECIMAL(15,2) DEFAULT 0,
+  notes TEXT,
+  reference_id VARCHAR(255),
+  performed_by VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_store (store_id),
+  INDEX idx_merchant (merchant_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+COMMIT;
+`;
 
 const SupabaseIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[#3ECF8E]">
@@ -1110,6 +1225,54 @@ CREATE TABLE IF NOT EXISTS quotations (
     updatedAt TEXT
 );
 
+-- 40. MERCHANT_REQUESTS (طلبات الموكلين المعزولة)
+CREATE TABLE IF NOT EXISTS merchant_requests (
+    id TEXT PRIMARY KEY,
+    store_id TEXT,
+    storeId TEXT,
+    merchant_id TEXT,
+    merchantId TEXT,
+    merchant_name TEXT,
+    merchantName TEXT,
+    type TEXT,
+    type_arabic TEXT,
+    typeArabic TEXT,
+    amount NUMERIC DEFAULT 0,
+    notes TEXT,
+    date TEXT,
+    status TEXT DEFAULT 'pending',
+    payout_method TEXT,
+    payoutMethod TEXT,
+    payout_account TEXT,
+    payoutAccount TEXT,
+    transfer_reference TEXT,
+    transferReference TEXT,
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
+);
+
+-- 41. PARTNER_REQUESTS (طلبات الشركاء والموكلين القديمة)
+CREATE TABLE IF NOT EXISTS partner_requests (
+    id TEXT PRIMARY KEY,
+    store_id TEXT,
+    storeId TEXT,
+    partner_id TEXT,
+    partnerId TEXT,
+    partner_name TEXT,
+    partnerName TEXT,
+    type TEXT,
+    amount NUMERIC DEFAULT 0,
+    notes TEXT,
+    date TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT,
+    createdAt TEXT,
+    updated_at TEXT,
+    updatedAt TEXT
+);
+
 -- =========================================================================
 -- تعطيل نظام الحماية RLS لجميع الجداول (لتسهيل وسرعة المزامنة بدون أخطاء)
 -- =========================================================================
@@ -1153,6 +1316,8 @@ ALTER TABLE supplier_transactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE shared_audits DISABLE ROW LEVEL SECURITY;
 ALTER TABLE withdrawal_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE quotations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE merchant_requests DISABLE ROW LEVEL SECURITY;
+ALTER TABLE partner_requests DISABLE ROW LEVEL SECURITY;
 
 -- منح كامل الصلاحيات لجميع المفاتيح (anon, authenticated, service_role)
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
@@ -2069,7 +2234,9 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
     () => localStorage.getItem('custom_cloud_anon_key') || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || ''
   );
   const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
+  const [cloudProvider, setCloudProvider] = useState<string>(() => localStorage.getItem('custom_cloud_provider') || 'firebase');
   const [showSqlSchema, setShowSqlSchema] = useState(false);
+  const [showMysqlSchema, setShowMysqlSchema] = useState(false);
 
   useEffect(() => {
     const storedUrl = localStorage.getItem('custom_cloud_url');
@@ -2403,68 +2570,121 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              {isRestricted ? (
-                <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl border border-amber-200/50 dark:border-amber-900/40 animate-pulse">
-                  <AlertCircle size={14} />
-                  <span>وضع الطوارئ (تخزين محلي فقط)</span>
-                </span>
-              ) : isSupabaseActive() ? (
-                <span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400 text-xs font-bold rounded-xl border border-green-200/50 dark:border-green-900/30">
-                  <Check size={14} />
-                  <span>قاعدة البيانات المخصصة (Supabase) متصلة ونشطة</span>
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-blue-200/50 dark:border-blue-900/30">
-                  <Check size={14} />
-                  <span>قاعدة البيانات الافتراضية (Firebase) متصلة</span>
-                </span>
-              )}
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                 {[
+                   { id: 'firebase', label: 'Firebase', icon: <Database size={14} /> },
+                   { id: 'supabase', label: 'Supabase', icon: <SupabaseIcon /> },
+                   { id: 'hostinger', label: 'Hostinger (MySQL)', icon: <Server size={14} /> }
+                 ].map(p => (
+                   <button
+                     key={p.id}
+                     onClick={() => {
+                       setCloudProvider(p.id);
+                       localStorage.setItem('custom_cloud_provider', p.id);
+                     }}
+                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                       cloudProvider === p.id 
+                         ? 'bg-white dark:bg-slate-700 text-primary shadow-sm border border-slate-200 dark:border-slate-600' 
+                         : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                     }`}
+                   >
+                     {p.icon}
+                     {p.label}
+                   </button>
+                 ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isRestricted ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-xl border border-amber-200/50 dark:border-amber-900/40 animate-pulse">
+                    <AlertCircle size={14} />
+                    <span>وضع الطوارئ (تخزين محلي فقط)</span>
+                  </span>
+                ) : cloudProvider === 'hostinger' ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-blue-200/50 dark:border-blue-900/30">
+                    <Check size={14} />
+                    <span>خادم Hostinger MySQL نشط</span>
+                  </span>
+                ) : cloudProvider === 'supabase' && isSupabaseActive() ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-400 text-xs font-bold rounded-xl border border-green-200/50 dark:border-green-900/30">
+                    <Check size={14} />
+                    <span>قاعدة بيانات Supabase نشطة</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-xs font-bold rounded-xl border border-blue-200/50 dark:border-blue-900/30">
+                    <Check size={14} />
+                    <span>Firebase الافتراضية متصلة</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         <div className="p-6 space-y-6 text-right">
-          <div className="bg-blue-50/50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/30 rounded-xl p-4 text-sm text-slate-600 dark:text-slate-300 space-y-3 leading-relaxed">
-            <h3 className="font-bold text-blue-900 dark:text-blue-400 flex items-center gap-2 justify-start">
-              <Shield size={16} /> <span>دليل هيكلية البيانات والمزامنة الشاملة 🌐</span>
-            </h3>
-            <p className="text-xs text-slate-700 dark:text-slate-300">
-                يعتمد النظام على هندسة برمجية متطورة تضمن توافق البيانات بين الأجهزة المختلفة محلياً وسحابياً. يمكنك استخدام كود الـ SQL بالأسفل لإعادة بناء هيكل البيانات إذا كنت ترغب في تصدير مشروعك لمنظومة خارجية أو لإجراء عمليات فحص تقنية متقدمة.
-            </p>
-          </div>
+          {cloudProvider === 'hostinger' ? (
+            <div className="bg-blue-50/50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/30 rounded-xl p-4 text-sm text-slate-600 dark:text-slate-300 space-y-3 leading-relaxed">
+              <h3 className="font-bold text-blue-900 dark:text-blue-400 flex items-center gap-2 justify-start">
+                <Server size={16} /> <span>ربط خادم Hostinger MySQL الخاص بك 🚀</span>
+              </h3>
+              <p className="text-xs text-slate-700 dark:text-slate-300">
+                  لقد اخترت استخدام خادم MySQL الخاص بك لتجاوز قيود القراءة والكتابة. 
+                  تأكد من إدخال بيانات قاعدة البيانات في ملف <code>.env</code> بالخادم لكي يعمل الربط.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                 <div className="px-3 py-1.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-[10px] font-mono">
+                    MYSQL_HOST: {import.meta.env.VITE_MYSQL_HOST || 'config_in_backend'}
+                 </div>
+                 <div className="px-3 py-1.5 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-[10px] font-mono">
+                    STATUS: <span className="text-green-500 font-bold">READY</span>
+                 </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-blue-50/50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/30 rounded-xl p-4 text-sm text-slate-600 dark:text-slate-300 space-y-3 leading-relaxed">
+              <h3 className="font-bold text-blue-900 dark:text-blue-400 flex items-center gap-2 justify-start">
+                <Shield size={16} /> <span>دليل هيكلية البيانات والمزامنة الشاملة 🌐</span>
+              </h3>
+              <p className="text-xs text-slate-700 dark:text-slate-300">
+                  يعتمد النظام على هندسة برمجية متطورة تضمن توافق البيانات بين الأجهزة المختلفة محلياً وسحابياً. يمكنك استخدام كود الـ SQL بالأسفل لإعادة بناء هيكل البيانات إذا كنت ترغب في تصدير مشروعك لمنظومة خارجية أو لإجراء عمليات فحص تقنية متقدمة.
+              </p>
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5 text-right">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">
-                <SupabaseIcon />
-                <span>رابط Supabase URL / Cloud Endpoint المخصص</span>
-              </label>
-              <input 
-                type="text" 
-                placeholder="https://xyz.supabase.co"
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
-                value={customCloudUrl}
-                onChange={(e) => setCustomCloudUrl(e.target.value)}
-                dir="ltr"
-              />
+          {cloudProvider === 'supabase' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5 text-right">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">
+                  <SupabaseIcon />
+                  <span>رابط Supabase URL / Cloud Endpoint المخصص</span>
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="https://xyz.supabase.co"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
+                  value={customCloudUrl}
+                  onChange={(e) => setCustomCloudUrl(e.target.value)}
+                  dir="ltr"
+                />
+              </div>
+              
+              <div className="space-y-1.5 text-right">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">
+                  <Key size={14} className="text-emerald-500" />
+                  <span>مفتاح Supabase Anon Key / API Key الخاص بالربط</span>
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
+                  value={customCloudAnonKey}
+                  onChange={(e) => setCustomCloudAnonKey(e.target.value)}
+                  dir="ltr"
+                />
+              </div>
             </div>
-            
-            <div className="space-y-1.5 text-right">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 justify-start">
-                <Key size={14} className="text-emerald-500" />
-                <span>مفتاح Supabase Anon Key / API Key الخاص بالربط</span>
-              </label>
-              <input 
-                type="text" 
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm font-mono focus:ring-2 focus:ring-primary/50 outline-none transition-all dark:text-white text-left"
-                value={customCloudAnonKey}
-                onChange={(e) => setCustomCloudAnonKey(e.target.value)}
-                dir="ltr"
-              />
-            </div>
-          </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             <div className="flex flex-wrap gap-2.5">
@@ -2870,7 +3090,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
             </div>
           )}
 
-          {isSupabaseActive() && (
+          {(isSupabaseActive() || cloudProvider === 'hostinger') && (
             <div className="w-full mt-4 p-5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-3xl border border-indigo-200/50 dark:border-indigo-900/30">
               <div className="flex flex-col sm:flex-row items-center justify-between gap-6 text-right">
                 <div className="flex-1">
@@ -2879,7 +3099,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                     نقل البيانات الحالية إلى قاعدتك الجديدة (Migration)
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-                    بما أنك قمت للتو بربط Supabase، فإن الجداول هناك ستكون فارغة. 
+                    بما أنك قمت للتو بربط {cloudProvider === 'hostinger' ? 'Hostinger MySQL' : 'Supabase'}، فإن الجداول هناك قد تكون فارغة. 
                     اضغط على الزر أدناه لرفع كافة طلباتك ومنتجاتك الحالية من هذا الجهاز إلى السحابة فوراً لتظهر في جميع أجهزتك.
                   </p>
                 </div>
@@ -2889,7 +3109,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                     const btn = e.currentTarget as HTMLButtonElement;
                     
                     triggerAlarm(
-                      "⚠️ هل أنت متأكد؟ سيتم رفع كافة البيانات المحلية من هذا الجهاز واستبدال ما هو موجود على قاعدة البيانات السحابية (Supabase) بها بالكامل.",
+                      `⚠️ هل أنت متأكد؟ سيتم رفع كافة البيانات المحلية من هذا الجهاز واستبدال ما هو موجود على قاعدة البيانات السحابية (${cloudProvider === 'hostinger' ? 'Hostinger' : 'Supabase'}) بها بالكامل.`,
                       'warning',
                       'تأكيد المزامنة والرفع للسحابة',
                       {
@@ -2910,7 +3130,12 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                             const localData = await getLocal(storeId);
                             if (!localData) throw new Error("لا توجد بيانات محلية للرفع");
                             
-                            const res = await saveStoreData(store, localData);
+                            let res;
+                            if (cloudProvider === 'hostinger') {
+                              res = await pushLocalToHostinger(storeId, store.name, localData);
+                            } else {
+                              res = await saveStoreData(store, localData);
+                            }
                             
                             if (res.success) {
                               triggerAlarm("✅ تمت المزامنة والرفع بنجاح! جداول قاعدة البيانات السحابية أصبحت تحتوي على بياناتك الآن.", 'success', 'مزامنة ناجحة');
@@ -2932,63 +3157,72 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS store_id TEXT;
                   <CloudUpload size={18} />
                   ابدأ مزامنة ورفع البيانات الآن
                 </button>
-
-                <button 
-                  onClick={handleFixDBSchema}
-                  className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
-                >
-                  <RefreshCw size={18} />
-                  ⚡ إصلاح وتحديث شامل لجميع الأعمدة المفقودة (شامل لحل اختفاء المنتجات والبيانات)
-                </button>
-                <button 
-                  onClick={handleFixFlexShipSchema}
-                  className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-2xl text-xs font-black shadow-xl shadow-teal-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 whitespace-nowrap"
-                >
-                  <RefreshCw size={18} />
-                  🚚 إصلاح أعمدة شركات الشحن وبوسطة (apiKey / isConnected / flexShip)
-                </button>
               </div>
             </div>
           )}
 
-          <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-right">
-            <button 
-              type="button"
-              onClick={() => setShowSqlSchema(!showSqlSchema)}
-              className="w-full flex items-center justify-between px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 text-right font-bold text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
-            >
-              <div className="flex items-center gap-2">
-                <Code size={16} className="text-indigo-500" />
-                <span>إظهار كود SQL لإنشاء وتجهيز جميع الجداول والأعمدة تلقائياً (نسخ سريع) ⚡</span>
-              </div>
-              <span className="text-xs text-slate-400">{showSqlSchema ? 'إخفاء' : 'عرض كود المزامنة'}</span>
-            </button>
-
-            {showSqlSchema && (
-              <div className="p-4 bg-slate-950 text-slate-200 font-mono text-xs overflow-hidden relative">
-                <div className="absolute top-3 left-3 z-10">
-                  <button 
-                    onClick={() => handleCopy(SQL_SCHEMA_SCRIPT)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold border border-slate-700 transition active:scale-95"
-                  >
-                    {copiedLink === SQL_SCHEMA_SCRIPT ? (
-                      <>
-                        <Check size={14} className="text-green-400" />
-                        <span>تم النسخ!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={14} />
-                        <span>نسخ الكود بالكامل</span>
-                      </>
-                    )}
-                  </button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-right">
+              <button 
+                type="button"
+                onClick={() => setShowSqlSchema(!showSqlSchema)}
+                className="w-full flex items-center justify-between px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 text-right font-bold text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+              >
+                <div className="flex items-center gap-2">
+                  <SupabaseIcon />
+                  <span>كود SQL لـ Supabase ⚡</span>
                 </div>
-                <pre className="max-h-72 overflow-y-auto pt-8 text-left dir-ltr" style={{ direction: 'ltr' }}>
-                  {SQL_SCHEMA_SCRIPT}
-                </pre>
-              </div>
-            )}
+                <span className="text-xs text-slate-400">{showSqlSchema ? 'إخفاء' : 'عرض'}</span>
+              </button>
+
+              {showSqlSchema && (
+                <div className="p-4 bg-slate-950 text-slate-200 font-mono text-xs overflow-hidden relative">
+                  <div className="absolute top-3 left-3 z-10">
+                    <button 
+                      onClick={() => handleCopy(SQL_SCHEMA_SCRIPT)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[10px] font-bold border border-slate-700 transition active:scale-95"
+                    >
+                      {copiedLink === SQL_SCHEMA_SCRIPT ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                      <span>{copiedLink === SQL_SCHEMA_SCRIPT ? 'تم النسخ!' : 'نسخ'}</span>
+                    </button>
+                  </div>
+                  <pre className="max-h-48 overflow-y-auto pt-8 text-left dir-ltr" style={{ direction: 'ltr' }}>
+                    {SQL_SCHEMA_SCRIPT}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden text-right">
+              <button 
+                type="button"
+                onClick={() => setShowMysqlSchema(!showMysqlSchema)}
+                className="w-full flex items-center justify-between px-5 py-3.5 bg-slate-50 dark:bg-slate-800/30 text-right font-bold text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 transition"
+              >
+                <div className="flex items-center gap-2">
+                  <Server size={16} className="text-blue-500" />
+                  <span>كود SQL لـ Hostinger MySQL 🐬</span>
+                </div>
+                <span className="text-xs text-slate-400">{showMysqlSchema ? 'إخفاء' : 'عرض'}</span>
+              </button>
+
+              {showMysqlSchema && (
+                <div className="p-4 bg-slate-950 text-slate-200 font-mono text-xs overflow-hidden relative">
+                  <div className="absolute top-3 left-3 z-10">
+                    <button 
+                      onClick={() => handleCopy(MYSQL_SCHEMA_SCRIPT)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[10px] font-bold border border-slate-700 transition active:scale-95"
+                    >
+                      {copiedLink === MYSQL_SCHEMA_SCRIPT ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                      <span>{copiedLink === MYSQL_SCHEMA_SCRIPT ? 'تم النسخ!' : 'نسخ'}</span>
+                    </button>
+                  </div>
+                  <pre className="max-h-48 overflow-y-auto pt-8 text-left dir-ltr" style={{ direction: 'ltr' }}>
+                    {MYSQL_SCHEMA_SCRIPT}
+                  </pre>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

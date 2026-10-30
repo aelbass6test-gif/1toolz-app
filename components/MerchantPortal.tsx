@@ -387,17 +387,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             existing.planCyclesHistory = s.planCyclesHistory;
           }
         }
-        if (existing.payoutFrequency === undefined && s.payoutFrequency !== undefined) existing.payoutFrequency = s.payoutFrequency;
-        if (existing.weeklyPayoutDay === undefined && typeof s.weeklyPayoutDay === 'number') existing.weeklyPayoutDay = s.weeklyPayoutDay;
-        if (existing.holdingDaysAfterSettlement === undefined && typeof s.holdingDaysAfterSettlement === 'number') existing.holdingDaysAfterSettlement = s.holdingDaysAfterSettlement;
-        if (existing.minWeeklyPayout === undefined && typeof s.minWeeklyPayout === 'number') existing.minWeeklyPayout = s.minWeeklyPayout;
-        if (existing.maxWeeklyPayout === undefined && typeof s.maxWeeklyPayout === 'number') existing.maxWeeklyPayout = s.maxWeeklyPayout;
-        if (existing.weeklyPayoutMode === undefined && s.weeklyPayoutMode !== undefined) existing.weeklyPayoutMode = s.weeklyPayoutMode;
-        if (existing.weeklyTransferFee === undefined && typeof s.weeklyTransferFee === 'number') existing.weeklyTransferFee = s.weeklyTransferFee;
-        if (existing.weeklyTransferFeeType === undefined && s.weeklyTransferFeeType !== undefined) existing.weeklyTransferFeeType = s.weeklyTransferFeeType;
-        if (existing.dailyTransferFee === undefined && typeof s.dailyTransferFee === 'number') existing.dailyTransferFee = s.dailyTransferFee;
-        if (existing.dailyTransferFeeType === undefined && s.dailyTransferFeeType !== undefined) existing.dailyTransferFeeType = s.dailyTransferFeeType;
-        if (existing.lastPayoutFrequencyChangeAt === undefined && s.lastPayoutFrequencyChangeAt !== undefined) existing.lastPayoutFrequencyChangeAt = s.lastPayoutFrequencyChangeAt;
+        if (s.payoutFrequency !== undefined) existing.payoutFrequency = s.payoutFrequency;
+        if (typeof s.weeklyPayoutDay === 'number') existing.weeklyPayoutDay = s.weeklyPayoutDay;
+        if (typeof s.holdingDaysAfterSettlement === 'number') existing.holdingDaysAfterSettlement = s.holdingDaysAfterSettlement;
+        if (s.payoutStrategy !== undefined) existing.payoutStrategy = s.payoutStrategy;
+        if (typeof s.minWeeklyPayout === 'number') existing.minWeeklyPayout = s.minWeeklyPayout;
+        if (typeof s.maxWeeklyPayout === 'number') existing.maxWeeklyPayout = s.maxWeeklyPayout;
+        if (s.weeklyPayoutMode !== undefined) existing.weeklyPayoutMode = s.weeklyPayoutMode;
+        if (typeof s.weeklyTransferFee === 'number') existing.weeklyTransferFee = s.weeklyTransferFee;
+        if (s.weeklyTransferFeeType !== undefined) existing.weeklyTransferFeeType = s.weeklyTransferFeeType;
+        if (typeof s.dailyTransferFee === 'number') existing.dailyTransferFee = s.dailyTransferFee;
+        if (s.dailyTransferFeeType !== undefined) existing.dailyTransferFeeType = s.dailyTransferFeeType;
+        if (s.lastPayoutFrequencyChangeAt !== undefined) existing.lastPayoutFrequencyChangeAt = s.lastPayoutFrequencyChangeAt;
         
         // Collect alias IDs
         if (sId && existing.id !== sId) {
@@ -423,8 +424,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         pendingPlanRequest: s.pendingPlanRequest ?? null,
         planCyclesHistory: Array.isArray(s.planCyclesHistory) ? s.planCyclesHistory : [],
         payoutFrequency: s.payoutFrequency,
+        payoutStrategy: s.payoutStrategy || settings.defaultPayoutStrategy,
         weeklyPayoutDay: typeof s.weeklyPayoutDay === 'number' ? s.weeklyPayoutDay : undefined,
-        holdingDaysAfterSettlement: typeof s.holdingDaysAfterSettlement === 'number' ? s.holdingDaysAfterSettlement : undefined,
+        holdingDaysAfterSettlement: typeof s.holdingDaysAfterSettlement === 'number' ? s.holdingDaysAfterSettlement : settings.holdingDaysAfterSettlement,
         minWeeklyPayout: typeof s.minWeeklyPayout === 'number' ? s.minWeeklyPayout : undefined,
         maxWeeklyPayout: typeof s.maxWeeklyPayout === 'number' ? s.maxWeeklyPayout : undefined,
         weeklyPayoutMode: s.weeklyPayoutMode,
@@ -11194,6 +11196,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                 <div className="relative">
                   <input
                     type="number"
+                    step="any"
                     value={requestAmount}
                     min={weeklyPayoutOverview.minWeeklyPayout}
                     max={Math.min(weeklyPayoutOverview.maturedWalletBalance, weeklyPayoutOverview.maxWeeklyPayout)}

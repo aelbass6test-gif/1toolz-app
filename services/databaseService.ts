@@ -12,8 +12,18 @@ import {
     query, 
     where, 
     onSnapshot,
-    runTransaction
+    runTransaction,
+    setLogLevel
 } from 'firebase/firestore';
+
+let isFirestoreQuotaExhausted = false;
+
+export const markFirestoreQuotaExhausted = () => {
+    isFirestoreQuotaExhausted = true;
+    try { setLogLevel('error'); } catch (_) {}
+};
+
+export const getIsFirestoreQuotaExhausted = () => isFirestoreQuotaExhausted;
 import { 
     Store, 
     StoreData, 
@@ -193,6 +203,23 @@ export const verifySupabaseConnection = async (url: string, key: string): Promis
     } catch (e: any) {
         return { success: false, error: e.message };
     }
+};
+
+// --- Hostinger MySQL Support ---
+
+export const isHostingerActive = (): boolean => {
+  return localStorage.getItem('custom_cloud_provider') === 'hostinger';
+};
+
+export const verifyHostingerConnection = async (): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const res = await fetch('/api/mysql/status');
+    const data = await res.json();
+    if (data.active) return { success: true };
+    return { success: false, error: 'MySQL is not configured in backend .env' };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
 };
 
 // --- Error Handling & Metrics ---
@@ -778,6 +805,51 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             syncSupabaseCredentials(storeId, local.settings);
         }
         return local;
+    }
+
+    // --- Custom Hostinger MySQL Fetch Logic ---
+    if (isHostingerActive()) {
+      try {
+        const fetchTable = async (table: string) => {
+          const res = await fetch(`/api/mysql/fetch?table=${table}&storeId=${storeId}`);
+          const data = await res.json();
+          return data.items || [];
+        };
+
+        const [
+          products, orders, transactions, treasuryAccounts, treasuryTransactions, suppliers, supplyOrders,
+          partners, partnerTransactions, merchantRequests, storeRowResult
+        ] = await Promise.all([
+          fetchTable('products'),
+          fetchTable('orders'),
+          fetchTable('transactions'),
+          fetchTable('treasury_accounts'),
+          fetchTable('treasury_transactions'),
+          fetchTable('suppliers'),
+          fetchTable('supply_orders'),
+          fetchTable('partners'),
+          fetchTable('partner_transactions'),
+          fetchTable('merchant_requests'),
+          fetch(`/api/mysql/fetch?table=stores_data&storeId=${storeId}`).then(r => r.json())
+        ]);
+
+        const storeRow = storeRowResult?.items?.[0];
+        if (storeRow) {
+          const storeSettings = storeRow.settings || {};
+          const fullData: StoreData = {
+            settings: { ...INITIAL_SETTINGS, ...storeSettings, products, suppliers, partners, supplyOrders },
+            orders,
+            wallet: { balance: storeSettings.wallet_balance || 0, transactions: transactions },
+            treasury: { accounts: treasuryAccounts, transactions: treasuryTransactions },
+            customers: [], // Will be synced separately if needed
+            merchantRequests: merchantRequests || []
+          } as any;
+          await saveLocal(storeId, fullData);
+          return fullData;
+        }
+      } catch (e) {
+        console.warn('[HOSTINGER-FETCH] Failed:', e);
+      }
     }
 
     // --- Custom Supabase Fetch Logic ---
@@ -1464,6 +1536,36 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
         wallet_balance: wallet.balance || 0
     });
 
+    // --- Custom Hostinger MySQL Save Logic ---
+    const hostingerActive = isHostingerActive();
+    if (hostingerActive) {
+      try {
+        const syncToHostinger = async (table: string, items: any[]) => {
+          const fingerprintKey = `${store.id}:hostinger:${table}`;
+          const fingerprint = JSON.stringify(items);
+          if (syncFingerprints.get(fingerprintKey) === fingerprint) return;
+
+          const res = await fetch('/api/mysql/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ table, items, storeId: store.id })
+          });
+          if (res.ok) syncFingerprints.set(fingerprintKey, fingerprint);
+        };
+
+        await Promise.all([
+          syncToHostinger('stores_data', [{ id: store.id, name: store.name, settings: cleanSettingsFinal }]),
+          syncToHostinger('products', products),
+          syncToHostinger('orders', orders),
+          syncToHostinger('partner_transactions', partnerTransactions),
+          syncToHostinger('suppliers', suppliers),
+          syncToHostinger('partners', partners),
+        ]);
+      } catch (e) {
+        console.warn('[HOSTINGER-SYNC] Failed:', e);
+      }
+    }
+
     // --- Custom Supabase Save Logic (Ultra-Optimized for Low Egress) ---
     const supabase = getSupabaseClient();
     if (supabase) {
@@ -1503,8 +1605,6 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             const localGlobal = await getLocal('global');
             const usersList = localGlobal?.users || [];
             const usersFingerprintKey = 'global:users_sync';
-            const usersFingerprint = JSON.stringify(usersList);
-            
             if (syncFingerprints.get(usersFingerprintKey) !== usersFingerprint) {
                 // Map users to relational format
                 const emailSeenInPayload = new Set<string>();
@@ -3092,6 +3192,21 @@ export const submitPartnerRequest = async (
             console.log('[PARTNER-REQUEST] Successfully saved partner request to Firestore:', reqId);
         }
 
+        // 3. Save to Supabase if active
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                await supabase.from('partner_requests').upsert({
+                    ...cleanUndefined(fullRequest),
+                    store_id: storeId,
+                    partner_id: fullRequest.partnerId,
+                    is_merchant_request: fullRequest.isMerchantRequest
+                });
+            } catch (err) {
+                console.warn('[PARTNER-REQUEST] Supabase upsert failed:', err);
+            }
+        }
+
         return { success: true };
     } catch (err: any) {
         console.error('[PARTNER-REQUEST] Error submitting partner request:', err);
@@ -3111,8 +3226,28 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
         }
     } catch (_) {}
 
-    // 2. Fetch from Firestore (authoritative source of truth when online)
-    if (firebaseDb) {
+    // 2. Try Supabase
+    const supabase = getSupabaseClient();
+    let supabaseSuccess = false;
+    if (supabase) {
+        try {
+            const { data, error } = await supabase
+                .from('partner_requests')
+                .select('*')
+                .eq('store_id', storeId);
+            if (!error && data) {
+                requests = data as PartnerPortalRequest[];
+                requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+                supabaseSuccess = true;
+                try { localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests)); } catch (_) {}
+            }
+        } catch (err) {
+            console.warn('[PARTNER-REQUEST] Supabase read failed:', err);
+        }
+    }
+
+    // 3. Fetch from Firestore (authoritative source of truth when online)
+    if (!supabaseSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
@@ -3159,6 +3294,19 @@ export const updatePartnerRequestStatus = async (
                 return true;
             });
             if (!updated) return false;
+        }
+
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                await supabase
+                    .from('partner_requests')
+                    .update({ status, updatedAt: new Date().toISOString(), ...extraFields })
+                    .eq('id', requestId)
+                    .eq('store_id', storeId);
+            } catch (err) {
+                console.warn('[PARTNER-REQUEST] Supabase status update failed:', err);
+            }
         }
 
         try {
@@ -3256,6 +3404,31 @@ export const submitMerchantRequest = async (
         if (firebaseDb) {
             await setDoc(doc(firebaseDb, 'merchant_requests', request.id), cleanUndefined(request));
         }
+
+        if (isHostingerActive()) {
+          try {
+            await fetch('/api/mysql/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ table: 'merchant_requests', items: [request], storeId })
+            });
+          } catch (e) {
+            console.warn('[HOSTINGER-SYNC] Merchant request failed:', e);
+          }
+        }
+
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                await supabase.from('merchant_requests').upsert({
+                    ...cleanUndefined(request),
+                    store_id: storeId,
+                    merchant_id: request.merchantId
+                });
+            } catch (err) {
+                console.warn('[MERCHANT-REQUEST] Supabase upsert failed:', err);
+            }
+        }
         return { success: true };
     } catch (err: any) {
         console.error('[MERCHANT-REQUEST] Error submitting merchant request:', err);
@@ -3270,7 +3443,42 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         const cached = JSON.parse(localStorage.getItem(key) || '[]');
         if (Array.isArray(cached)) current = cached;
     } catch (_) {}
-    if (firebaseDb) {
+
+    const supabase = getSupabaseClient();
+    let remoteSuccess = false;
+
+    // --- Hostinger MySQL Priority ---
+    if (isHostingerActive()) {
+      try {
+        const res = await fetch(`/api/mysql/fetch?table=merchant_requests&storeId=${storeId}`);
+        const data = await res.json();
+        if (data.items) {
+          current = data.items;
+          remoteSuccess = true;
+          try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
+        }
+      } catch (e) {
+        console.warn('[HOSTINGER-FETCH] Merchant requests failed:', e);
+      }
+    }
+
+    if (!remoteSuccess && supabase) {
+        try {
+            const { data, error } = await supabase
+                .from('merchant_requests')
+                .select('*')
+                .eq('store_id', storeId);
+            if (!error && data) {
+                current = data;
+                remoteSuccess = true;
+                try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
+            }
+        } catch (err) {
+            console.warn('[MERCHANT-REQUEST] Supabase read failed:', err);
+        }
+    }
+
+    if (!supabaseSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
@@ -3286,7 +3494,8 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         const cached = JSON.parse(localStorage.getItem(`partner_requests_${storeId}`) || '[]');
         if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
     } catch (_) {}
-    if (firebaseDb) {
+    
+    if (!supabaseSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
@@ -3338,6 +3547,48 @@ export const updateMerchantRequestStatus = async (
             });
             if (!updated) return false;
         }
+
+        if (isHostingerActive()) {
+          try {
+             await fetch('/api/mysql/sync', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ 
+                 table: 'merchant_requests', 
+                 items: [{ id: requestId, storeId, status, updatedAt: new Date().toISOString(), ...extra }], 
+                 storeId 
+               })
+             });
+             updated = true;
+          } catch (e) {
+            console.warn('[HOSTINGER-SYNC] Status update failed:', e);
+          }
+        }
+
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                // Try updating in merchant_requests first
+                const { error: mErr } = await supabase
+                    .from('merchant_requests')
+                    .update({ status, updatedAt: new Date().toISOString(), ...extra })
+                    .eq('id', requestId)
+                    .eq('store_id', storeId);
+                
+                if (mErr) {
+                    // Fallback to partner_requests
+                    await supabase
+                        .from('partner_requests')
+                        .update({ status, updatedAt: new Date().toISOString(), ...extra })
+                        .eq('id', requestId)
+                        .eq('store_id', storeId);
+                }
+                updated = true;
+            } catch (err) {
+                console.warn('[MERCHANT-REQUEST] Supabase status update failed:', err);
+            }
+        }
+
         for (const [key, expectedCollection] of [[`merchant_requests_${storeId}`, 'merchant_requests'], [`partner_requests_${storeId}`, 'partner_requests']] as const) {
             try {
                 const rows = JSON.parse(localStorage.getItem(key) || '[]');
@@ -3373,6 +3624,17 @@ export const deleteMerchantRequestDoc = async (requestId: string, storeId: strin
                     await deleteDoc(legacyRef);
                     found = true;
                 }
+            }
+        }
+
+        const supabase = getSupabaseClient();
+        if (supabase) {
+            try {
+                await supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId);
+                await supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId);
+                found = true;
+            } catch (err) {
+                console.warn('[MERCHANT-REQUEST] Supabase delete failed:', err);
             }
         }
         for (const key of [`merchant_requests_${storeId}`, `partner_requests_${storeId}`]) {
@@ -3697,7 +3959,7 @@ export const subscribeToStoreRealtimeOptimized = (
     }
 
     // B. Firestore Realtime Listeners with Strict Query Filters (where('storeId', '==', cleanStoreId))
-    if (firebaseDb) {
+    if (firebaseDb && !isFirestoreQuotaExhausted) {
         try {
             tablesToListen.forEach(colName => {
                 const filterField = (colName === 'partner_requests' || colName === 'merchant_requests') ? 'storeId' : 'store_id';
@@ -3719,7 +3981,11 @@ export const subscribeToStoreRealtimeOptimized = (
                         }
                     },
                     (err) => {
-                        console.warn(`[REALTIME-OPTIMIZED] Firestore listener notice for ${colName}:`, err?.message);
+                        console.warn(`[REALTIME-OPTIMIZED] Firestore listener notice for ${colName}:`, err?.message || err);
+                        if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota limit exceeded')) {
+                            markFirestoreQuotaExhausted();
+                            try { unsubFs(); } catch (_) {}
+                        }
                     }
                 );
 
@@ -4039,4 +4305,33 @@ export const getMerchantAllocatedProducts = async (merchantId: string, merchantN
     });
 
     return Array.from(prodsMap.values());
+};
+
+// --- Migration Tool for Hostinger ---
+export const pushLocalToHostinger = async (storeId: string, storeName: string, data: StoreData): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const payload = {
+      storeId,
+      storeName,
+      data: {
+        settings: data.settings,
+        orders: data.orders,
+        merchantRequests: data.merchantRequests || [],
+        wallet: data.wallet,
+        treasury: data.treasury
+      }
+    };
+
+    const res = await fetch('/api/mysql/migrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await res.json();
+    if (!result.success) throw new Error(result.error);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
 };

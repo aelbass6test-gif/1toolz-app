@@ -253,6 +253,7 @@ const MainLayout = ({
                 const msg = String(err?.message || err);
                 if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
                     console.warn('[Notification] Firestore quota reached for shared_audits. Using cached data seamlessly.');
+                    try { if (unsubAudit) unsubAudit(); } catch (_) {}
                 } else {
                     console.warn('[Notification] shared_audits notice:', msg);
                 }
@@ -283,6 +284,7 @@ const MainLayout = ({
                 const msg = String(err?.message || err);
                 if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
                     console.warn('[Notification] Firestore quota reached for chat_messages. Using cached data seamlessly.');
+                    try { if (unsubChat) unsubChat(); } catch (_) {}
                 } else {
                     console.warn('[Notification] chat_messages notice:', msg);
                 }
@@ -2898,13 +2900,18 @@ export const AppComponent = () => {
         const handleRealtimeError = (err: any, label: string) => {
             const msg = String(err?.message || err);
             if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                console.warn(`[REALTIME] Firestore quota reached on ${label}. Using local/offline cache mode seamlessly.`);
+                console.warn(`[REALTIME] Firestore quota reached on ${label}. Switching to offline cache mode & Supabase seamlessly.`);
+                db.markFirestoreQuotaExhausted();
+                try {
+                    unsubscribers.forEach(fn => fn());
+                    unsubscribers.length = 0;
+                } catch (_) {}
             } else {
                 console.warn(`[REALTIME] Notice on ${label}:`, msg);
             }
         };
 
-        if (activeStoreId) {
+        if (activeStoreId && !db.getIsFirestoreQuotaExhausted()) {
             // Listen for changes on store configuration
             const unsubStore = onSnapshot(doc(firebaseDb, 'stores_data', activeStoreId), (snap) => {
                 if (snap.exists() && !isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
