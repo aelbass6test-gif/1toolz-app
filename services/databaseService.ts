@@ -3074,133 +3074,46 @@ export const deleteMerchantRequestDoc = async (requestId: string, storeId: strin
 };
 
 export const updatePartnerSettings = async (storeId: string, partners: any[], suppliers?: any[]): Promise<{ success: boolean; error?: string }> => {
+    const supabase = getSupabaseClient();
+    if (!storeId || !supabase) return { success: false, error: 'Supabase connection unavailable' };
     try {
-        if (!storeId) return { success: false, error: 'Missing storeId' };
+        const { data: row, error: readError } = await supabase
+            .from('stores_data').select('settings').eq('id', storeId).maybeSingle();
+        if (readError) throw readError;
+        if (!row) return { success: false, error: 'Store not found or access denied' };
 
-        // 1. Update local IndexedDB cache immediately
+        const nextSettings: any = {
+            ...(row.settings || {}),
+            partners: cleanUndefined(partners || [])
+        };
+        if (suppliers) nextSettings.suppliers = cleanUndefined(suppliers);
+
+        const { data: saved, error: saveError } = await supabase
+            .from('stores_data')
+            .update({ settings: nextSettings, updated_at: new Date().toISOString() })
+            .eq('id', storeId)
+            .select('id')
+            .maybeSingle();
+        if (saveError) throw saveError;
+        if (!saved?.id) return { success: false, error: 'لم يتم حفظ بيانات الموكل في قاعدة البيانات' };
+
         try {
             const localData = await getLocal(storeId);
-            if (localData && localData.settings) {
-                const nextLocalSettings = {
-                    ...localData.settings,
-                    partners: partners || localData.settings.partners || [],
-                    ...(suppliers ? { suppliers } : {})
-                };
+            if (localData) {
                 await saveLocal(storeId, {
                     ...localData,
-                    settings: nextLocalSettings
+                    settings: {
+                        ...localData.settings,
+                        partners: partners || localData.settings?.partners || [],
+                        ...(suppliers ? { suppliers } : {})
+                    }
                 });
             }
         } catch (_) {}
-
-        // 2. Update Firestore stores_data and subcollections
-        if (firebaseDb) {
-            const storeRef = doc(firebaseDb, 'stores_data', storeId);
-            const snap = await getDoc(storeRef);
-            const existingSettings = snap.exists() ? (snap.data()?.settings || {}) : {};
-            const updatedSettingsPayload: any = {
-                ...existingSettings,
-                partners: cleanUndefined(partners)
-            };
-            if (suppliers) {
-                updatedSettingsPayload.suppliers = cleanUndefined(suppliers);
-            }
-            await setDoc(storeRef, {
-                settings: updatedSettingsPayload,
-                updatedAt: new Date().toISOString()
-            }, { merge: true });
-
-            const cleanSupps = suppliers ? sanitizeSuppliersList(suppliers) : undefined;
-
-            if (cleanSupps) {
-                try {
-                    const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
-                    const keepIds = new Set(cleanSupps.map((s: any) => String(s?.id || '')));
-                    const deleteSupplierDocs = snap.docs
-                        .filter(d => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            return (!keepIds.has(rawId) && !keepIds.has(d.id)) || isDummyMockSupplier(d.data());
-                        })
-                        .map(async (d) => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            recordExplicitDeletion(`${storeId}_suppliers_${d.id}`);
-                            recordExplicitDeletion(`${storeId}_suppliers_${rawId}`);
-                            await deleteDoc(d.ref).catch(() => {});
-                        });
-                    await Promise.all(deleteSupplierDocs);
-                } catch (_) {}
-            }
-
-            if (partners) {
-                try {
-                    const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
-                    const keepIds = new Set(partners.map((p: any) => String(p?.id || '')));
-                    const deletePartnerDocs = snap.docs
-                        .filter(d => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            return !keepIds.has(rawId) && !keepIds.has(d.id);
-                        })
-                        .map(async (d) => {
-                            const rawId = d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id;
-                            recordExplicitDeletion(`${storeId}_partners_${d.id}`);
-                            recordExplicitDeletion(`${storeId}_partners_${rawId}`);
-                            await deleteDoc(d.ref).catch(() => {});
-                        });
-                    await Promise.all(deletePartnerDocs);
-                } catch (_) {}
-            }
-
-            const partnerWrites = (partners || []).map(async (p) => {
-                if (!p || !p.id) return;
-                const docId = String(p.id).startsWith(storeId) ? String(p.id) : `${storeId}_${p.id}`;
-                const pRef = doc(firebaseDb, 'partners', docId);
-                await setDoc(pRef, cleanUndefined({
-                    ...p,
-                    storeId,
-                    store_id: storeId,
-                    updatedAt: new Date().toISOString()
-                }), { merge: true }).catch(() => {});
-            });
-
-            const supplierWrites = (cleanSupps || []).map(async (s) => {
-                if (!s || !s.id) return;
-                const docId = String(s.id).startsWith(storeId) ? String(s.id) : `${storeId}_${s.id}`;
-                const sRef = doc(firebaseDb, 'suppliers', docId);
-                await setDoc(sRef, cleanUndefined({
-                    ...s,
-                    storeId,
-                    store_id: storeId,
-                    updatedAt: new Date().toISOString()
-                }), { merge: true }).catch(() => {});
-            });
-
-            await Promise.all([...partnerWrites, ...supplierWrites]);
-        }
-
-        // 3. Update Supabase stores_data settings JSON
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                const { data: row } = await supabase.from('stores_data').select('settings').eq('id', storeId).maybeSingle();
-                const currentSettings = row?.settings || {};
-                const nextSettings: any = {
-                    ...currentSettings,
-                    partners: cleanUndefined(partners)
-                };
-                if (suppliers) {
-                    nextSettings.suppliers = cleanUndefined(suppliers);
-                }
-                await supabase.from('stores_data').upsert({
-                    id: storeId,
-                    settings: nextSettings
-                }, { onConflict: 'id' });
-            } catch (_) {}
-        }
-
         return { success: true };
     } catch (err: any) {
-        console.warn('[DATABASE-SERVICE] Could not update partner settings directly:', err);
-        return { success: false, error: err?.message || 'Error' };
+        console.error('[DATABASE-SERVICE] Supabase partner settings update failed:', err);
+        return { success: false, error: err?.message || 'Error saving merchant settings' };
     }
 };
 
