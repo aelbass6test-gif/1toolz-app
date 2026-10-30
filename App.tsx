@@ -1870,50 +1870,42 @@ export const AppComponent = () => {
             let foundStoreId: string | null = previewId;
             
             if (!foundStoreId && !isExactMainDomain) {
-                // 1. HIGH-PERFORMANCE DIRECT LOOKUP IN STORES_DATA COLLECTION
-                // This bypasses Firebase Auth guest list restriction and quota issues
+                // Resolve storefront domains through the restricted public projection.
+                // The view exposes only storefront-safe settings and never raw stores_data.
                 try {
-                    console.log('[STOREFRONT-LOOKUP] Attempting direct stores_data query for:', host);
-                    
+                    const publicClient = db.getSupabasePublicClient();
+                    if (!publicClient) {
+                        throw new Error('Supabase public client is not configured.');
+                    }
+
+                    const findStoreBySetting = async (setting: string, value: string) => {
+                        const { data, error } = await publicClient
+                            .from('public_storefronts')
+                            .select('id')
+                            .filter(`settings->>${setting}`, 'eq', value)
+                            .limit(1);
+                        if (error) throw error;
+                        return data?.[0]?.id || null;
+                    };
+
                     if (host.endsWith('.abdomedi.com')) {
                         const sub = host.split('.')[0].toLowerCase();
                         if (sub && sub !== 'www' && sub !== 'app' && sub !== 'fallback') {
-                            const qSub = query(collection(firebaseDb, 'stores_data'), where('settings.subdomain', '==', sub));
-                            const subSnap = await getDocs(qSub);
-                            if (!subSnap.empty) {
-                                foundStoreId = subSnap.docs[0].id;
-                                console.log('[STOREFRONT-LOOKUP] Matched store ID via subdomain query:', foundStoreId);
-                            }
-                        }
-                    }
-                    
-                    if (!foundStoreId) {
-                        const qCD = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', hostNoWww));
-                        const cdSnap = await getDocs(qCD);
-                        if (!cdSnap.empty) {
-                            foundStoreId = cdSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customDomain query:', foundStoreId);
+                            foundStoreId = await findStoreBySetting('subdomain', sub);
                         }
                     }
 
                     if (!foundStoreId) {
-                        const qCAD = query(collection(firebaseDb, 'stores_data'), where('settings.customAppDomain', '==', hostNoWww));
-                        const cadSnap = await getDocs(qCAD);
-                        if (!cadSnap.empty) {
-                            foundStoreId = cadSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customAppDomain query:', foundStoreId);
-                        }
+                        foundStoreId = await findStoreBySetting('customDomain', hostNoWww);
                     }
-
+                    if (!foundStoreId) {
+                        foundStoreId = await findStoreBySetting('customAppDomain', hostNoWww);
+                    }
                     if (!foundStoreId && host !== hostNoWww) {
-                        const qCDHost = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', host));
-                        const cdHostSnap = await getDocs(qCDHost);
-                        if (!cdHostSnap.empty) {
-                            foundStoreId = cdHostSnap.docs[0].id;
-                        }
+                        foundStoreId = await findStoreBySetting('customDomain', host);
                     }
                 } catch (lookupErr) {
-                    console.error('[STOREFRONT-LOOKUP] Error in direct stores_data lookup:', lookupErr);
+                    console.error('[STOREFRONT-LOOKUP] Supabase public storefront lookup failed:', lookupErr);
                 }
             }
             
