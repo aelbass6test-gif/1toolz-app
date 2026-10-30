@@ -26,8 +26,8 @@ Deno.serve(async (request: Request) => {
   const merchantId = String(body?.merchantId || "").trim();
   const passcode = String(body?.passcode || "");
   const action = String(body?.action || "");
-  const isAdminAction = action === "admin_list" || action === "admin_update" || action === "admin_claim";
-  if (!storeId || (!isAdminAction && (!merchantId || !passcode)) || !["submit", "list", "admin_list", "admin_update", "admin_claim", "merchant_cancel"].includes(action)) {
+  const isAdminAction = action === "admin_list" || action === "admin_update" || action === "admin_claim" || action === "admin_complete_withdrawal";
+  if (!storeId || (!isAdminAction && (!merchantId || !passcode)) || !["submit", "list", "admin_list", "admin_update", "admin_claim", "admin_complete_withdrawal", "merchant_cancel"].includes(action)) {
     return json({ success: false, error: "بيانات الطلب أو التحقق غير مكتملة" }, 400);
   }
   if (storeId.length > 160 || merchantId.length > 160 || passcode.length > 128) {
@@ -93,6 +93,25 @@ Deno.serve(async (request: Request) => {
     }
 
     const requestId = String(body?.requestId || "").trim();
+    if (action === "admin_complete_withdrawal") {
+      if (!requestId) return json({ success: false, error: "رقم الطلب غير صحيح" }, 400);
+      const meta = body?.meta || {};
+      const transferFee = Number(body?.transferFee || 0);
+      if (!Number.isFinite(transferFee) || transferFee < 0) return json({ success: false, error: "رسوم التحويل غير صحيحة" }, 400);
+      const { data: completed, error: completionError } = await admin.rpc("complete_merchant_withdrawal", {
+        p_store_id: storeId,
+        p_request_id: requestId,
+        p_transfer_fee: transferFee,
+        p_meta: {
+          approvedBy: String(meta.approvedBy || "").slice(0, 160),
+          approvedAt: String(meta.approvedAt || new Date().toISOString()).slice(0, 80),
+          transferReference: String(meta.transferReference || "").slice(0, 300),
+          receiptImage: String(meta.receiptImage || "").slice(0, 2000000)
+        }
+      });
+      if (completionError) return json({ success: false, error: completionError.message || "تعذر اعتماد السحب وتحديث المحفظة" }, 409);
+      return json(completed);
+    }
     if (action === "admin_claim") {
       if (!requestId) return json({ success: false, error: "رقم الطلب غير صحيح" }, 400);
       const { data: claimed, error: claimError } = await admin.from("merchant_requests")
