@@ -179,26 +179,23 @@ export const isSupabaseActive = (): boolean => {
 };
 
 /**
- * Pings the Supabase endpoint to verify credentials
+ * Verify only the deployment-configured Supabase project.
+ * The URL/key arguments remain for compatibility with legacy settings screens,
+ * but tenant-provided credentials are never instantiated or accepted.
  */
-export const verifySupabaseConnection = async (url: string, key: string): Promise<{ success: boolean; error?: string }> => {
+export const verifySupabaseConnection = async (_url?: string, _key?: string): Promise<{ success: boolean; error?: string }> => {
+    const client = getSupabaseClient();
+    if (!client) {
+        return { success: false, error: 'Supabase deployment environment variables are not configured.' };
+    }
     try {
-        const client = createClient(url, key);
-        // Try to select from a common table or just a health check
-        // Note: Even if table doesn't exist, if we get a 404 or something from the client
-        // it means we reached the server. A 401/403 means bad key.
         const { error } = await client.from('stores_data').select('id').limit(1);
-        
         if (error) {
-            // If the table doesn't exist yet, it's still a success in terms of CONNECTION (the key/url are valid)
-            if (error.code === 'PGRST116' || error.message.includes('relation "stores_data" does not exist')) {
-                return { success: true };
-            }
             return { success: false, error: error.message };
         }
         return { success: true };
     } catch (e: any) {
-        return { success: false, error: e.message };
+        return { success: false, error: e?.message || 'Unable to reach the configured Supabase project.' };
     }
 };
 
