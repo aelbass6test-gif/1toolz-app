@@ -8,7 +8,7 @@ import {
 import { User } from '../types';
 import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase } from '../services/databaseService';
 import { auth } from '../services/firebaseClient';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { verifyPasswordSecure } from '../utils/syncIntegrity';
 import { motion } from 'framer-motion';
@@ -210,19 +210,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             // Check if user exists in Firestore
             const firestoreUser = await getUserByPhone(userPhone.trim());
             if (firestoreUser) {
-              // Create or link Firebase Authentication credentials directly without browser hash checking
-              try {
-                await createUserWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                onPasswordSuccess(firestoreUser, userPassword);
-                return;
-              } catch (createErr: any) {
-                if (createErr.code === 'auth/email-already-in-use') {
-                  // Password was incorrect for existing Firebase Auth account
-                  setUserError("كلمة المرور غير صحيحة. يرجى التأكد أو استخدام خيار استعادة كلمة المرور.");
-                  setIsLoading(false);
-                  return;
-                }
-              }
+              // A legacy profile alone is not proof of account ownership.
+              // Never create credentials from an unauthenticated login attempt.
+              setUserError('الحساب موجود، لكن يلزم استعادة كلمة المرور أو التحقق من ملكية الحساب قبل تفعيل الدخول.');
+              setIsLoading(false);
+              return;
             }
 
             const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
