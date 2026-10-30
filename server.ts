@@ -1288,6 +1288,7 @@ async function startServer() {
     employeeName: string;
     createdAt: number;
     expiresAt: number;
+    attempts: number;
   }
   const employeePasswordResetStore = new Map<string, EmployeeResetRecord>();
   const employeePasswordResetCooldown = new Map<string, number>();
@@ -1421,7 +1422,8 @@ async function startServer() {
         storeId: matchedStoreId,
         employeeName: matchedEmployeeName,
         createdAt: now,
-        expiresAt
+        expiresAt,
+        attempts: 0
       };
 
       // Store by both phone and email keys
@@ -1509,7 +1511,18 @@ async function startServer() {
         }, 400);
       }
 
+      if (record.attempts >= 5) {
+        employeePasswordResetStore.delete(inputLower);
+        if (inputDigits) employeePasswordResetStore.delete(inputDigits);
+        if (record.email) employeePasswordResetStore.delete(record.email.toLowerCase());
+        return c.json({
+          success: false,
+          error: "تم تجاوز عدد المحاولات المسموح. يرجى طلب رمز تحقق جديد."
+        }, 429);
+      }
+
       if (record.code !== code) {
+        record.attempts += 1;
         return c.json({
           success: false,
           error: "رمز التحقق المدخل غير صحيح. تأكد من الرمز المرسل إلى بريدك."
