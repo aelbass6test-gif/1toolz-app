@@ -10,8 +10,6 @@ import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAudi
 import { printHTMLDirectly } from '../utils/printHelper';
 import { audioSynth } from '../utils/audioSynth';
 import { getSupabaseClient } from '../services/databaseService';
-import { db } from '../services/firebaseClient';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 
 // Import newly created subcomponents
@@ -79,62 +77,61 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         });
     };
 
-    // Firebase real-time listeners for external shared audits
+    // Supabase is the source of truth for shared external audits.
     const loadSharedAudits = async () => {
         const activeStoreId = localStorage.getItem('lastActiveStoreId') || 'default';
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            customAlert('خطأ اتصال', 'تعذر الاتصال بقاعدة البيانات.', 'danger');
+            return;
+        }
         setLoadingShared(true);
         try {
-            const q = query(
-                collection(db, 'shared_audits'),
-                where('storeId', '==', activeStoreId)
-            );
-            const querySnapshot = await getDocs(q);
-            const list: any[] = [];
-            querySnapshot.forEach(doc => {
-                list.push({ id: doc.id, ...doc.data() });
-            });
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setSharedAudits(list);
+            const { data, error } = await supabase
+                .from('shared_audits')
+                .select('*')
+                .or(`storeid.eq.${activeStoreId},store_id.eq.${activeStoreId}`)
+                .order('createdat', { ascending: false });
+            if (error) throw error;
+            setSharedAudits((data || []).map((row: any) => ({
+                ...row,
+                storeId: row.storeid || row.store_id,
+                warehouseId: row.warehouseid || row.warehouse_id,
+                warehouseName: row.warehousename,
+                createdAt: row.createdat,
+                isProtocolLocked: row.isprotocollocked,
+                isBlindCount: row.isblindcount,
+                rejectReason: row.rejectreason,
+                unlockReason: row.unlockreason,
+                unlockedBy: row.unlockedby,
+                unlockedAt: row.unlockedat
+            })));
         } catch (err) {
-            console.warn('Error loading shared audits from Firestore, checking Supabase:', err);
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) {
-                    const { data, error } = await supabase.from('shared_audits').select('*').eq('storeId', activeStoreId);
-                    if (!error && data) {
-                        data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-                        setSharedAudits(data);
-                    }
-                }
-            } catch (sbErr) {
-                console.error('Supabase shared audits fallback error:', sbErr);
-            }
+            console.error('Supabase shared audits load error:', err);
+            customAlert('خطأ', 'فشل تحميل جلسات الجرد الخارجية من قاعدة البيانات.', 'danger');
         } finally {
             setLoadingShared(false);
         }
     };
 
     useEffect(() => {
-        loadSharedAudits();
-        
-        // Setup Firestore listener for updates with error safety callback
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            void loadSharedAudits();
+            return;
+        }
+        void loadSharedAudits();
         const activeStoreId = localStorage.getItem('lastActiveStoreId') || 'default';
-        const q = query(
-            collection(db, 'shared_audits'),
-            where('storeId', '==', activeStoreId)
-        );
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const list: any[] = [];
-            snapshot.forEach(doc => {
-                list.push({ id: doc.id, ...doc.data() });
-            });
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setSharedAudits(list);
-        }, (error) => {
-            console.warn('Firestore onSnapshot listener error / quota limit:', error);
-        });
-
-        return () => unsubscribe();
+        const channel = supabase
+            .channel(`shared-audits-${activeStoreId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'shared_audits',
+                filter: `storeid=eq.${activeStoreId}`
+            }, () => { void loadSharedAudits(); })
+            .subscribe();
+        return () => { void supabase.removeChannel(channel); };
     }, []);
 
     // 1. Create External Shared Audit Link
@@ -197,45 +194,35 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
             const warehouseName = warehouseObj ? warehouseObj.name : (warehouseId === 'all' ? 'الرصيد الإجمالي' : 'مخزن رئيسي');
 
             const docId = `sa-${Date.now()}`;
-            const newAuditDoc = {
+            const createdAt = new Date().toISOString();
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const { error } = await supabase.from('shared_audits').insert([{
                 id: docId,
-                storeId: activeStoreId,
-                title: title,
-                warehouseId: warehouseId,
-                warehouseName: warehouseName,
-                scope: 'all',
+                storeid: activeStoreId,
+                store_id: activeStoreId,
+                title,
+                warehouseid: warehouseId,
+                warehouse_id: warehouseId,
+                warehousename: warehouseName,
                 status: 'pending',
-                createdAt: new Date().toISOString(),
+                createdat: createdAt,
                 passcode: passcode || null,
-                protocol: protocol,
-                isProtocolLocked: true, // Auto-lock on creation
-                isBlindCount: protocol === 'blind',
+                protocol,
+                isprotocollocked: true,
+                isblindcount: protocol === 'blind',
                 items: itemsToCount,
                 logs: [{
                     id: 'init',
-                    timestamp: new Date().toISOString(),
+                    timestamp: createdAt,
                     userId: currentUser?.uid || 'manager',
                     userName: currentUser?.fullName || 'المشرف',
                     action: 'إنشاء جلسة جرد',
                     details: `تم إنشاء جلسة الجرد ببروتوكول: ${protocol}`,
                     type: 'info'
                 }]
-            };
-
-            // Save to Firestore first
-            try {
-                await setDoc(doc(db, 'shared_audits', docId), newAuditDoc);
-            } catch (fsErr) {
-                console.warn('Firestore setDoc error creating shared audit:', fsErr);
-            }
-
-            // Save to Supabase fallback
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').insert([newAuditDoc]);
-            } catch (sbErr) {
-                console.warn('Supabase insert error creating shared audit:', sbErr);
-            }
+            }]);
+            if (error) throw error;
 
             audioSynth.playTone('success');
             customAlert('تم التوليد', 'تم تفعيل وحفظ رابط الجرد الخارجي بنجاح وبانتظار عد الموظف!', 'success');
@@ -251,7 +238,9 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
     const handleUpdateAssignments = async (sessionId: string, assignments: any[]) => {
         try {
             const supabase = getSupabaseClient();
-            if(supabase) await supabase.from('shared_audits').update({ assignments }).eq('id', sessionId);
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const { error } = await supabase.from('shared_audits').update({ assignments }).eq('id', sessionId);
+            if (error) throw error;
             audioSynth.playTone('info');
         } catch (err) {
             console.error('Error updating assignments:', err);
@@ -272,11 +261,12 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 return item;
             });
 
-            const docRef = doc(db, 'shared_audits', sessionId);
-            await updateDoc(docRef, {
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const { error } = await supabase.from('shared_audits').update({
                 conflicts: updatedConflicts,
                 items: updatedItems,
-                logs: arrayUnion({
+                logs: [...(session.logs || []), {
                     id: `resolve-${Date.now()}`,
                     timestamp: new Date().toISOString(),
                     userId: currentUser?.uid || 'manager',
@@ -284,8 +274,9 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                     action: 'حل تضارب',
                     details: `تم اعتماد كمية (${resolvedQty}) للمنتج من جرد الموظف: ${userName}`,
                     type: 'success'
-                })
-            });
+                }]
+            }).eq('id', sessionId);
+            if (error) throw error;
             audioSynth.playTone('success');
             customAlert('تم الحل', 'تم اعتماد الكمية المختارة وحل التضارب بنجاح.', 'success');
         } catch (err) {
@@ -578,24 +569,13 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 payrollTransactions: [...newPayrollTransactions, ...(prev.payrollTransactions || [])]
             }));
 
-            // Sync approved status and settlement details on Firestore and Supabase
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, { 
-                    status: 'approved',
-                    approvedAt: auditDateStr,
-                    settlementDetails: settlementDetails || null
-                });
-            } catch (fsErr) {
-                console.warn('Firestore update approved error:', fsErr);
-            }
-
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').update({ status: 'approved' }).eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase update approved error:', sbErr);
-            }
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const { error: approvalError } = await supabase.from('shared_audits').update({
+                status: 'approved',
+                notes: logNotes
+            }).eq('id', sessionId).eq('status', 'pending');
+            if (approvalError) throw approvalError;
 
             confetti({
                 particleCount: 150,
@@ -624,19 +604,14 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 rejectedAt: new Date().toISOString()
             };
 
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, updates);
-            } catch (fsErr) {
-                console.warn('Firestore reject error:', fsErr);
-            }
-
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').update(updates).eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase reject error:', sbErr);
-            }
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const { error } = await supabase.from('shared_audits').update({
+                status: 'rejected',
+                rejectreason: reason.trim(),
+                notes: `رفض الجرد: ${reason.trim()}`
+            }).eq('id', sessionId);
+            if (error) throw error;
             
             audioSynth.playTone('error');
             customAlert('تم الرفض', 'تم رفض طلب الجرد الخارجي وإعادته لتصحيح كميات الأرفف من الموظف.', 'warning');
@@ -654,21 +629,10 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         try {
             setLoadingShared(true);
 
-            // Delete from Firestore
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await deleteDoc(docRef);
-            } catch (fsErr) {
-                console.warn('Firestore delete error:', fsErr);
-            }
-
-            // Delete from Supabase
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').delete().eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase delete error:', sbErr);
-            }
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const { error } = await supabase.from('shared_audits').delete().eq('id', sessionId);
+            if (error) throw error;
             
             // Remove from local state immediately
             setSharedAudits(prev => prev.filter(s => s.id !== sessionId));
@@ -706,19 +670,17 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 unlockedAt: new Date().toISOString()
             };
 
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, { ...updates, logs: arrayUnion(logEntry) });
-            } catch (fsErr) {
-                console.warn('Firestore unlock error:', fsErr);
-            }
-
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').update(updates).eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase unlock error:', sbErr);
-            }
+            const supabase = getSupabaseClient();
+            if (!supabase) throw new Error('Supabase client unavailable');
+            const session = sharedAudits.find(s => s.id === sessionId);
+            const { error } = await supabase.from('shared_audits').update({
+                isprotocollocked: false,
+                unlockreason: reason,
+                unlockedby: currentUser?.fullName || 'المشرف',
+                unlockedat: new Date().toISOString(),
+                logs: [...(session?.logs || []), logEntry]
+            }).eq('id', sessionId);
+            if (error) throw error;
             
             audioSynth.playTone('success');
             customAlert('تم فك القفل', 'تم فتح إعدادات البروتوكول للموظف لتعديل أسلوب العد.', 'success');
