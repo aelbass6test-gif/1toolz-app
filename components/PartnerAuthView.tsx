@@ -60,6 +60,7 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
   });
   const [loginInput, setLoginInput] = useState(''); // Direct Email or Phone search
   const [pinCode, setPinCode] = useState('');
+  const [password, setPassword] = useState('');
 
   // OTP login & Password reset state
   const [otpTargetEmail, setOtpTargetEmail] = useState('');
@@ -891,18 +892,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                       )}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onAuthenticated(activePartner);
-                        showToast(`تم تسجيل الدخول الفوري لحساب الموكل: ${activePartner.name}`, 'success');
-                      }}
-                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border border-slate-200 dark:border-slate-700"
-                      title="الدخول الفوري لمعاينة البوابة والمحفظة والأوردرات كمسؤول"
-                    >
-                      <Sparkles size={14} className="text-amber-500" />
-                      <span>دخول تجريبي فوري (معاينة كمسؤول) 🚀</span>
-                    </button>
                   </div>
                 ) : (
                   <p className="text-center text-xs text-slate-400 py-2 font-medium">
@@ -924,23 +913,6 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
                     تم إرسال كود لمرة واحدة إلى: <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{maskEmail(otpTargetEmail)}</span>
                   </p>
                 </div>
-
-                {/* Dev Mode Simulation Code Card */}
-                {devOtpCode && (
-                  <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
-                      <Sparkles size={16} className="text-indigo-600" />
-                      <span>رمز الاختبار في بيئة التطوير: <strong className="font-mono font-black text-sm">{devOtpCode}</strong></span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setOtpCode(devOtpCode)}
-                      className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-[11px] font-bold hover:bg-indigo-700 cursor-pointer"
-                    >
-                      تعبئة الرمز
-                    </button>
-                  </div>
-                )}
 
                 <div>
                   <input
