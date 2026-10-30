@@ -60,7 +60,7 @@ This inventory was collected from the connected production project's catalog and
 - 17 tables have RLS enabled but no policies. Authenticated client access is therefore blocked until deliberate policies are added:
   `call_scripts`, `customer_transactions`, `inventory_audits`, `merchant_requests`, `moneyhash_payments`, `moneyhash_webhook_events`, `order_returns`, `partner_requests`, `pos_sales`, `purchase_returns`, `quotations`, `shared_audits`, `stock_audit_requests`, `stock_transfers`, `supplier_transactions`, `whatsapp_templates`, `withdrawal_requests`.
 - Finance tables already have authenticated membership-scoped policies: `cash_handovers`, `cash_holders`, `treasury_accounts`, `treasury_transactions`. These policies still need role-level review before the new employee permission model is finalized.
-- `store_memberships` currently supports self-read and owner-managed membership writes. Existing rows cannot be safely mapped to Supabase Auth identities until identity linking is designed and verified.
+- `store_memberships` currently supports self-read and owner-managed membership writes. A read-only aggregate join confirmed all 4 existing membership rows match an `auth.users` identity (2 distinct Auth users); the actual identifiers were not exposed. Store ownership/role correctness still requires verification before using these rows as authorization grants.
 - The security advisor also flags `public.rls_auto_enable()` as callable by anon and authenticated users, and `public.set_updated_at()` as having a mutable search_path. Do not expose or invoke the former as an application RPC. Review its event-trigger dependency before changing grants. Pin the latter's search_path in a separately tested migration.
 
 ### Target authorization matrix (design baseline; not yet implemented)
@@ -121,3 +121,12 @@ This inventory was collected from the connected production project's catalog and
 5. Add and test Realtime subscriptions only after the corresponding RLS policies are in place.
 6. Remove Firebase SDK/configuration and Firestore data only after a repository-wide import/API scan shows no live usage and all staging smoke tests pass.
 
+
+
+### Follow-up security hardening (branch only; 2026-10-30)
+
+- The policy/grant audit also found broad table-level grants to both `anon` and `authenticated` on many public tables, including sensitive operational tables. RLS policies are not a substitute for least-privilege SQL grants; the final hardening migration must revoke unnecessary privileges and re-grant only the operations required by the app's intended access model. This has not been applied to the connected database.
+- A focused review of owner sign-in found an account-takeover flaw: when Firebase sign-in failed but a legacy Firestore profile existed, the browser attempted to create a new Firebase Auth account using the phone-derived email and the password supplied by the unauthenticated visitor, then treated the legacy profile as authenticated. A legacy profile is not proof of account ownership.
+- Removed that automatic account-creation fallback from `components/SignUpPage.tsx`. Existing Firebase Auth users can still sign in normally; a legacy profile without a valid Auth identity now receives a message directing them to a verified recovery/re-enrollment path. This is a branch-only code change and does not modify user records.
+- Remaining review items: partner/supplier passcode fields are still hydrated from legacy settings, and several non-user data-layer queries still use `select('*')`. These require domain-specific field inventories and should not be changed blindly because they may carry storefront/integration settings. In particular, the generic store settings query and partner portal data require an explicit secret-field allowlist before being narrowed.
+- The owner sign-up component no longer imports Firebase account creation for the legacy sign-in fallback; Firebase account creation remains only in the deliberate registration path.
