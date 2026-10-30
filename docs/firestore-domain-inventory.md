@@ -171,6 +171,7 @@ The following changes are committed on `migration/firebase-to-supabase` and the 
 - `useLiveCollaboration` now uses the Supabase Auth UUID and listens for Supabase session changes instead of reading Firebase Auth state.
 - Product-image upload and deletion now use the Supabase access token instead of Firebase ID tokens. The live Cloudflare `abdomedi-media` Worker was updated and deployed to validate the Supabase JWT and verify store membership before upload/delete; public image reads remain public.
 - Employee account password changes now call Supabase Auth `updateUser`; passwords are no longer written to Firestore or the public user profile table.
+- Platform admin user listing, creation, banning, deletion, and store-owner assignment now use JWT-protected Supabase Edge Functions with server-side admin checks. The browser no longer creates accounts in a secondary Firebase Auth app or writes privileged user flags directly.
 - Team chat reads, inserts and realtime updates now use Supabase. Anonymous chat access was removed, message reads are limited to store members who participate in the thread (or general-room messages), and Realtime publication is enabled for `chat_messages`.
 - `public.users` no longer has an anonymous/public all-access policy. RLS limits reads and writes to the authenticated user's phone profile (or a trusted admin profile).
 - API roles cannot select the legacy `users.password` column and cannot set admin/ban flags. The app-side profile writer omits those privileged flags.
