@@ -527,6 +527,25 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     return () => { active = false; };
   }, [liveMerchant?.id, liveMerchant?.passcode, effectiveStoreId]);
 
+  // Keep the merchant's reserved-withdrawal balance synchronized when the manager
+  // approves/rejects a request from the agency dashboard.
+  useEffect(() => {
+    if (!liveMerchant?.id || !liveMerchant?.passcode || !effectiveStoreId) return;
+    const refreshRequests = () => {
+      void db.getMerchantRequests(effectiveStoreId, {
+        merchantId: String(liveMerchant.id),
+        passcode: String(liveMerchant.passcode)
+      }).then(setMerchantRequestsList).catch(err =>
+        console.warn('[MerchantPortal] Realtime withdrawal refresh failed:', err)
+      );
+    };
+    const unsubscribe = db.subscribeToStoreRealtimeOptimized(effectiveStoreId, {
+      tables: ['merchant_requests'],
+      onUpdate: refreshRequests
+    });
+    return unsubscribe;
+  }, [liveMerchant?.id, liveMerchant?.passcode, effectiveStoreId]);
+
   // A portal URL identifies one merchant. Never keep showing a previous browser session
   // when the URL points to another merchant or store.
   useEffect(() => {
