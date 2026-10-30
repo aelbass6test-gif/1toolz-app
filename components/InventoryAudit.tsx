@@ -127,8 +127,7 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
             .on('postgres_changes', {
                 event: '*',
                 schema: 'public',
-                table: 'shared_audits',
-                filter: `storeid=eq.${activeStoreId}`
+                table: 'shared_audits'
             }, () => { void loadSharedAudits(); })
             .subscribe();
         return () => { void supabase.removeChannel(channel); };
@@ -661,13 +660,6 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 action: 'فتح قفل البروتوكول',
                 details: `تم إلغاء قفل الجلسة. السبب: ${reason}`,
                 type: 'unlock'
-            };
-
-            const updates = { 
-                isProtocolLocked: false,
-                unlockReason: reason,
-                unlockedBy: currentUser?.fullName || 'المشرف',
-                unlockedAt: new Date().toISOString()
             };
 
             const supabase = getSupabaseClient();
