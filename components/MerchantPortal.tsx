@@ -3929,8 +3929,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         transferFee?: number;
         netAmount?: number;
         payoutFrequency?: 'daily' | 'weekly';
+        merchantPasscode?: string;
       } = {
         id: `REQ-M-${generateUniqueOrderId('m')}`,
+        merchantPasscode: String(liveMerchant.passcode || ''),
         storeId: effectiveStoreId,
         partnerId: liveMerchant.id,
         partnerName: liveMerchant.name,
@@ -3951,7 +3953,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (!submitResult.success) {
         throw new Error(submitResult.error || 'تعذر حفظ طلب السحب في قاعدة البيانات');
       }
-      setMerchantRequestsList(prev => [newReq as any, ...prev]);
+      setMerchantRequestsList(prev => [((submitResult as any).request || newReq) as any, ...prev]);
       setShowRequestModal(false);
       setRequestAmount('');
       setRequestNotes('');
