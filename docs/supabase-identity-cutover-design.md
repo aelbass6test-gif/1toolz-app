@@ -162,3 +162,21 @@ Phone-based sign-in may be added later only with a verified phone-auth flow. Do 
 - Keep production schema, RLS, Worker routes, and Firebase configuration unchanged during the design phase.
 - Record the identity mapping and store ownership reconciliation before production cutover.
 - Have a tested rollback path for app version, Worker version, and database policy changes independently.
+
+
+## Implemented first cutover component (2026-10-30)
+
+The migration branch now includes a read-only membership resolver:
+
+- `services/supabaseMembershipService.ts` obtains the current identity through `supabase.auth.getUser()`; it does not accept a caller-supplied user UUID.
+- It selects only `user_id, store_id, role, created_at` from `public.store_memberships`, filtered to the verified Auth UUID.
+- `utils/supabaseMembership.ts` validates returned rows and allows only the production role values `owner`, `manager`, and `staff`. Foreign-user rows, malformed rows, unknown roles, and duplicate store memberships fail closed.
+- `tests/supabase-membership.test.ts` covers those negative cases, and migration CI runs it as `npm run test:supabase-membership`.
+
+Read-only production metadata checks confirmed that `store_memberships` has RLS enabled, authenticated users have SELECT privilege, anon does not, and the SELECT policy restricts rows to `user_id = auth.uid()`. The production schema currently has no `status` field on memberships; this resolver therefore does not assume one.
+
+This is the first identity-boundary component only. It is not wired into the owner/employee login screen yet, does not provision memberships, and does not replace Firebase sessions or Firestore access. The app must not switch login paths until a staging identity claim/invitation flow, per-store data RLS, and end-to-end regression tests are in place.
+
+### Supabase Data API exposure note
+
+Supabase's 2026-04-28 breaking-change notice states that new public tables are no longer automatically exposed to the Data API as of 2026-10-30. Future identity tables must be explicitly exposed in the project's Data API settings as well as receiving least-privilege SQL grants and RLS policies. A SQL GRANT by itself does not guarantee REST/Data API exposure.
