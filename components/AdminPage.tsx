@@ -758,17 +758,6 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         currency: 'ج.م'
     };
 
-    // Update global users list
-    const updatedUsers = users.map(u => {
-        if (u.phone === selectedOwner.phone) {
-            return {
-                ...u,
-                stores: [...(u.stores || []), newStoreObj]
-            };
-        }
-        return u;
-    });
-
     // Default template data for the store
     const newStoreDataPayload: StoreData = {
         orders: [],
@@ -788,10 +777,19 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
     };
 
     try {
-        // Save store config document
+        // Create the store record, then assign the selected owner through a
+        // privileged Supabase function (the browser cannot grant memberships).
         await db.saveStoreData(newStoreObj, newStoreDataPayload);
-        // Save global user index changes
-        await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error('Supabase client not initialized.');
+        const { data: ownerResult, error: ownerError } = await supabase.functions.invoke('admin-add-store-owner', {
+            body: { ownerPhone: selectedOwner.phone, store: newStoreObj }
+        });
+        if (ownerError) throw ownerError;
+        if (!ownerResult?.success) throw new Error(ownerResult?.error || 'تعذر تعيين مالك المتجر.');
+        const updatedUsers = users.map(user => user.phone === selectedOwner.phone
+            ? { ...user, stores: ownerResult.stores || [...(user.stores || []), newStoreObj] }
+            : user);
 
         // Update react state
         setUsers(updatedUsers);
