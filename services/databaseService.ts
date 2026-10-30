@@ -3131,33 +3131,18 @@ export const completeMerchantWithdrawal = async (
 export const deleteMerchantRequestDoc = async (requestId: string, storeId: string): Promise<boolean> => {
     try {
         let found = false;
-        if (firebaseDb) {
-            const isolatedRef = doc(firebaseDb, 'merchant_requests', requestId);
-            const isolatedSnap = await getDoc(isolatedRef);
-            if (isolatedSnap.exists()) {
-                if (isolatedSnap.data().storeId !== storeId) return false;
-                await deleteDoc(isolatedRef);
-                found = true;
-            } else {
-                const legacyRef = doc(firebaseDb, 'partner_requests', requestId);
-                const legacySnap = await getDoc(legacyRef);
-                if (legacySnap.exists() && legacySnap.data().storeId === storeId && isLegacyMerchantRequest(legacySnap.data())) {
-                    await deleteDoc(legacyRef);
-                    found = true;
-                }
-            }
-        }
-
         const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId);
-                await supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId);
-                found = true;
-            } catch (err) {
-                console.warn('[MERCHANT-REQUEST] Supabase delete failed:', err);
-            }
+        if (!supabase) return false;
+
+        const [merchantDelete, partnerDelete] = await Promise.all([
+            supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId).select('id'),
+            supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId).select('id')
+        ]);
+        if (merchantDelete.error || partnerDelete.error) {
+            console.error('[MERCHANT-REQUEST] Supabase delete failed:', merchantDelete.error || partnerDelete.error);
+            return false;
         }
+        found = Boolean((merchantDelete.data?.length || 0) + (partnerDelete.data?.length || 0));
         for (const key of [`merchant_requests_${storeId}`, `partner_requests_${storeId}`]) {
             try {
                 const rows = JSON.parse(localStorage.getItem(key) || '[]');
