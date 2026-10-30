@@ -2962,7 +2962,7 @@ const isLegacyMerchantRequest = (r: any): boolean => Boolean(r && (
 export const submitMerchantRequest = async (
     storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
     maybeReq?: Partial<PartnerPortalRequest>
-): Promise<{ success: boolean; error?: string }> => {
+): Promise<{ success: boolean; error?: string; request?: any }> => {
     try {
         const isObjFirst = typeof storeIdOrObj === 'object' && storeIdOrObj !== null;
         const storeId = isObjFirst ? String(storeIdOrObj.storeId || '') : String(storeIdOrObj || '');
@@ -2996,8 +2996,9 @@ export const submitMerchantRequest = async (
             return { success: false, error: data?.error || error?.message || 'تعذر حفظ طلب السحب' };
         }
 
+        const { merchantPasscode: _merchantPasscode, ...safeRawReq } = rawReq;
         const request = {
-            ...rawReq,
+            ...safeRawReq,
             id: data.id,
             storeId,
             merchantId,
