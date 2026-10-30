@@ -867,36 +867,38 @@ const OwnerLayoutWrapper = ({
             setAllPartnerRequests([]);
             return;
         }
-        let legacy: db.PartnerPortalRequest[] = [];
-        let merchants: db.PartnerPortalRequest[] = [];
-        const publish = () => {
-            const mappedMerchants = merchants.map(r => ({
-                ...r,
-                partnerId: String((r as any).merchantId || ''),
-                partnerName: String((r as any).merchantName || ''),
-                isMerchantRequest: true
-            } as db.PartnerPortalRequest));
-            setAllPartnerRequests([...legacy, ...mappedMerchants]);
+        let alive = true;
+        const publish = async () => {
+            try {
+                const [legacy, merchants] = await Promise.all([
+                    db.getPartnerRequests(activeStoreId),
+                    db.getMerchantRequests(activeStoreId)
+                ]);
+                if (!alive) return;
+                const mappedMerchants = merchants.map(r => ({
+                    ...r,
+                    partnerId: String((r as any).merchantId || r.partnerId || ''),
+                    partnerName: String((r as any).merchantName || r.partnerName || ''),
+                    isMerchantRequest: true
+                } as db.PartnerPortalRequest));
+                setAllPartnerRequests([...legacy, ...mappedMerchants]);
+            } catch (e) {
+                console.warn('[Notification] Supabase request refresh failed:', e);
+            }
         };
-        const unsubs: Array<() => void> = [];
-        try {
-            const legacyQuery = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', activeStoreId));
-            unsubs.push(onSnapshot(legacyQuery, snapshot => {
-                legacy = [];
-                snapshot.forEach(docSnap => legacy.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
-                publish();
-            }));
-            const merchantQuery = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', activeStoreId));
-            unsubs.push(onSnapshot(merchantQuery, snapshot => {
-                merchants = [];
-                snapshot.forEach(docSnap => merchants.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
-                publish();
-            }));
-        } catch (e) {
-            console.warn('[Notification] request subscriptions error:', e);
-        }
-        return () => unsubs.forEach(unsub => unsub());
-    }, [activeStoreId]);
+
+        void publish();
+        const supabase = getSupabaseClient();
+        const channel = supabase?.channel(`store-requests-${activeStoreId}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'partner_requests' }, () => void publish())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'merchant_requests' }, () => void publish())
+            .subscribe();
+
+        return () => {
+            alive = false;
+            if (supabase && channel) void supabase.removeChannel(channel);
+        };
+
 
     const pendingRequestsCounts = useMemo(() => {
         const merchantReqs = allPartnerRequests.filter(r => {
