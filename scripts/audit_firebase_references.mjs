@@ -50,6 +50,27 @@ function walk(directory, files = []) {
 }
 
 const findings = [];
+
+// The package manifest is a retirement dependency too, even after source imports disappear.
+try {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+    for (const dependency of Object.keys(manifest[section] || {})) {
+      if (dependency === 'firebase' || dependency === 'firebase-admin' || dependency.startsWith('@firebase/')) {
+        findings.push({ file: 'package.json', line: 1, category: `package-dependency:${dependency}` });
+      }
+    }
+  }
+} catch {
+  console.warn('Could not inspect package.json for Firebase dependencies.');
+}
+
+for (const configFile of ['firebase.json', '.firebaserc', 'firestore.rules', 'firestore.indexes.json']) {
+  if (fs.existsSync(path.join(ROOT, configFile))) {
+    findings.push({ file: configFile, line: 1, category: 'firebase-config-artifact' });
+  }
+}
+
 for (const file of walk(ROOT)) {
   let source;
   try {
