@@ -10,7 +10,7 @@ import { createServer as createViteServer } from "vite";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
-import { db, auth } from "./services/firebaseClient";
+import { db } from "./services/firebaseClient";
 import { doc, getDoc, setDoc, getDocs, collection, query, where, limit } from "firebase/firestore";
 
 import { trimTrailingSlash } from "hono/trailing-slash";
@@ -1528,45 +1528,48 @@ async function startServer() {
         }, 400);
       }
 
-      // Update password in Firebase Authentication directly without storing password hashes in Firestore
+      // Password resets are performed only through the Supabase Auth Admin API.
+      // The service-role key is server-only and must never be exposed to the browser.
       const authPhone = record.phone || inputDigits || input;
-      const firebaseEmail = record.email || `${authPhone}@mystore-auth.app`;
-      const firebaseApiKey = "AIzaSyDe0wW1dG5lQph7u2SJoilpIjMRdm80hDo";
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!supabaseUrl || !serviceRoleKey) {
+        return c.json({
+          success: false,
+          error: "خدمة تحديث كلمة المرور غير مهيأة. يرجى التواصل مع الدعم الفني."
+        }, 503);
+      }
 
       try {
-        // Use Firebase Auth Identity Toolkit to update credentials
-        const updateRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${firebaseApiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: firebaseEmail,
-            password: newPassword,
-            returnSecureToken: false
-          })
+        const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+          auth: { autoRefreshToken: false, persistSession: false }
         });
-        const updateData = await updateRes.json().catch(() => ({}));
-        if (updateData?.error?.message?.includes("EMAIL_NOT_FOUND")) {
-          // If user account wasn't in Firebase Auth yet, provision in Firebase Auth
-          await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseApiKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: firebaseEmail,
-              password: newPassword,
-              returnSecureToken: false
-            })
-          });
+        const { data: profile, error: profileError } = await supabaseAdmin
+          .from('user_profiles')
+          .select('user_id')
+          .eq('phone', authPhone)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+        if (!profile?.user_id) {
+          return c.json({
+            success: false,
+            error: "لا يوجد حساب Supabase موثق مرتبط برقم الهاتف. يجب إعادة تسجيل الحساب أولاً."
+          }, 404);
         }
 
-        // Update Firestore user record with metadata only (NO password stored in Firestore)
-        const userRef = doc(db, "users", authPhone);
-        await setDoc(userRef, {
-          lastPasswordReset: new Date().toISOString(),
-          authProvider: "firebase"
-        }, { merge: true });
-        console.log(`[EMP-RESET] Successfully updated credentials in Firebase Auth for user ${firebaseEmail}`);
-      } catch (authErr) {
-        console.warn("[EMP-RESET] Error updating Firebase Auth credentials:", authErr);
+        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+          profile.user_id,
+          { password: newPassword }
+        );
+        if (updateError) throw updateError;
+      } catch (authErr: any) {
+        console.error("[EMP-RESET] Supabase Auth password update failed:", authErr);
+        return c.json({
+          success: false,
+          error: "تعذر تحديث كلمة المرور حالياً. يرجى المحاولة لاحقاً."
+        }, 503);
       }
 
       // Clean up reset store
