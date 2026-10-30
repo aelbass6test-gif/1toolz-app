@@ -80,6 +80,12 @@ Deno.serve(async (request: Request) => {
     if (membershipLookupError) return json({ success: false, error: "تعذر التحقق من عضوية المتجر." }, 500);
     if (existingMembership) return json({ success: false, error: "أنت عضو بالفعل في هذا المتجر." }, 409);
 
+    const { error: userRowError } = await admin.from("users").upsert({
+      phone, full_name: fullName, email, is_admin: false, is_banned: false,
+      join_date: new Date().toISOString(), stores: [], sites: []
+    }, { onConflict: "phone" });
+    if (userRowError) return json({ success: false, error: "تعذر حفظ ملف حساب الموظف." }, 400);
+
     const { error: profileError } = await admin.from("user_profiles").upsert({
       user_id: authData.user.id, phone, display_name: fullName, is_admin: false
     }, { onConflict: "user_id" });
