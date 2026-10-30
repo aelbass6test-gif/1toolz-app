@@ -233,66 +233,74 @@ const MainLayout = ({
             return;
         }
 
-        let unsubAudit: (() => void) | undefined;
-        let unsubChat: (() => void) | undefined;
-
-        try {
-            const qAudit = query(
-                collection(firebaseDb, 'shared_audits'),
-                where('storeId', '==', activeStore.id)
-            );
-            unsubAudit = onSnapshot(qAudit, (snapshot) => {
-                const list: any[] = [];
-                snapshot.forEach(docSnap => {
-                    list.push({ id: docSnap.id, ...docSnap.data() });
-                });
-                setSharedAudits(list);
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    console.warn('[Notification] Firestore quota reached for shared_audits. Using cached data seamlessly.');
-                    try { if (unsubAudit) unsubAudit(); } catch (_) {}
-                } else {
-                    console.warn('[Notification] shared_audits notice:', msg);
-                }
-            });
-        } catch (e) {
-            console.warn('[Notification] shared_audits subscription notice:', e);
+        const supabase = getSupabaseClient();
+        if (!supabase) {
+            setSharedAudits([]);
+            setChatMessages([]);
+            console.warn('[Notification] Supabase client is unavailable; migrated notification feeds are paused.');
+            return;
         }
 
-        try {
-            const qChat = query(
-                collection(firebaseDb, 'chat_messages'),
-                where('storeId', '==', activeStore.id)
-            );
-            unsubChat = onSnapshot(qChat, (snapshot) => {
-                const list: any[] = [];
-                snapshot.forEach(docSnap => {
-                    const d = docSnap.data();
-                    list.push({
-                        id: docSnap.id,
-                        senderId: d.senderId,
-                        receiverId: d.receiverId,
-                        content: d.content,
-                        createdAt: d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-                    });
-                });
-                setChatMessages(list);
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    console.warn('[Notification] Firestore quota reached for chat_messages. Using cached data seamlessly.');
-                    try { if (unsubChat) unsubChat(); } catch (_) {}
-                } else {
-                    console.warn('[Notification] chat_messages notice:', msg);
+        let disposed = false;
+        const loadAuditNotifications = async () => {
+            const { data, error } = await supabase
+                .from('shared_audits')
+                .select('*')
+                .or(`storeid.eq.${activeStore.id},store_id.eq.${activeStore.id}`);
+            if (error) {
+                console.warn('[Notification] Supabase shared_audits read failed:', error.message);
+                return;
+            }
+            if (!disposed) setSharedAudits((data || []).map((row: any) => ({
+                ...row,
+                storeId: row.storeid || row.store_id,
+                warehouseId: row.warehouseid || row.warehouse_id,
+                warehouseName: row.warehousename,
+                createdAt: row.createdat || row.created_at,
+                submittedAt: row.submittedat || row.submitted_at,
+                rejectedAt: row.rejectedat || row.rejected_at,
+                rejectReason: row.rejectreason || row.reject_reason
+            })));
+        };
+
+        const loadChatNotifications = async () => {
+            const { data, error } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .eq('store_id', activeStore.id);
+            if (error) {
+                console.warn('[Notification] Supabase chat_messages read failed:', error.message);
+                return;
+            }
+            if (!disposed) setChatMessages((data || []).map((row: any) => ({
+                id: String(row.id),
+                senderId: row.sender_id || row.senderId,
+                receiverId: row.receiver_id || row.receiverId,
+                content: row.content,
+                createdAt: row.created_at || row.createdAt || new Date().toISOString()
+            })));
+        };
+
+        void loadAuditNotifications();
+        void loadChatNotifications();
+
+        const channel = supabase
+            .channel(`app-notifications-${activeStore.id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_audits' }, () => {
+                void loadAuditNotifications();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `store_id=eq.${activeStore.id}` }, () => {
+                void loadChatNotifications();
+            })
+            .subscribe((status: string) => {
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    console.warn('[Notification] Supabase realtime status:', status);
                 }
             });
-        } catch (e) {
-            console.warn('[Notification] chat_messages subscription notice:', e);
-        }
+
         return () => {
-            if (unsubAudit) unsubAudit();
-            if (unsubChat) unsubChat();
+            disposed = true;
+            void supabase.removeChannel(channel);
         };
     }, [activeStore?.id]);
 
