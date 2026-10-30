@@ -185,6 +185,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
   
   // Merchant Incoming Payout Requests
   const [rawRequests, setRawRequests] = useState<db.PartnerPortalRequest[]>([]);
+  const [requestsLoadError, setRequestsLoadError] = useState<string>('');
   const [requestsFilterStatus, setRequestsFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   const activeStoreId = useMemo(() => {
@@ -200,7 +201,11 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
     try {
       const reqs = await db.getMerchantRequests(activeStoreId, { forceAdmin: true });
       setRawRequests(reqs);
-    } catch (_) {}
+      setRequestsLoadError('');
+    } catch (error: any) {
+      console.error('[MERCHANT-ADMIN] Failed to load withdrawal requests:', error);
+      setRequestsLoadError(error?.message || 'تعذر تحميل طلبات السحب. تحقق من صلاحيات الإدارة واتصال قاعدة البيانات.');
+    }
   }, [activeStoreId]);
 
   useEffect(() => {
@@ -4624,7 +4629,12 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
             {merchantRequests.filter(r => requestsFilterStatus === 'all' || r.status === requestsFilterStatus).length === 0 ? (
               <div className="py-16 text-center text-slate-400 space-y-2">
                 <Coins size={36} className="mx-auto opacity-30" />
-                <p className="font-bold text-xs">لا توجد طلبات سحب مستحقات متطابقة مع التصفية الحالية</p>
+                {requestsLoadError ? (
+                  <p className="font-bold text-xs text-rose-600">{requestsLoadError}</p>
+                ) : (
+                  <p className="font-bold text-xs">لا توجد طلبات سحب مستحقات متطابقة مع التصفية الحالية</p>
+                )}
+                <button type="button" onClick={() => void loadMerchantRequests()} className="mt-2 rounded-lg border px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">إعادة تحميل الطلبات</button>
               </div>
             ) : (
               <div className="overflow-x-auto">
