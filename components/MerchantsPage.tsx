@@ -116,7 +116,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
   const loadCloudRequests = useCallback(async () => {
     if (!storeId) return;
     try {
-      const reqs = await db.getMerchantRequests(storeId);
+      const reqs = await db.getMerchantRequests(storeId, { forceAdmin: true });
       setCloudRequests(reqs);
     } catch (_) {}
   }, [storeId]);
