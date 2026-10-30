@@ -242,41 +242,6 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       }
       const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
 
-      // 1. Update request status in database
-      const requestApproved = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
-        approvedBy: currentUser?.name || 'المدير المالي',
-        approvedAt: new Date().toISOString()
-      });
-      if (!requestApproved) {
-        throw new Error('لم يتم اعتماد الطلب في قاعدة البيانات؛ لم يتم خصم أي مبلغ.');
-      }
-
-      // 2. Deduct net disbursed from treasury if account selected
-      if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
-        const acc = (treasury.accounts || []).find(a => a.id === selectedTreasuryAccountId);
-        if (acc) {
-          const updatedAccounts = (treasury.accounts || []).map(a => 
-            a.id === selectedTreasuryAccountId ? { ...a, balance: (a.balance || 0) - netDisbursed } : a
-          );
-          const newTx = {
-            id: `tx-payout-${Date.now()}`,
-            date: new Date().toISOString(),
-            type: 'withdrawal' as const,
-            amount: netDisbursed,
-            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المطلوب: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المنصرف: ${netDisbursed} ج.م]` : ''}`,
-            fromAccountId: selectedTreasuryAccountId,
-            reference: req.id,
-            orderId: req.id
-          };
-          const updatedTreasury: Treasury = {
-            ...treasury,
-            accounts: updatedAccounts,
-            transactions: [newTx, ...(treasury.transactions || [])]
-          };
-          setTreasury(updatedTreasury);
-        }
-      }
-
       // 3. Deduct from merchant balance in settings.suppliers & settings.partners
       const updatedSuppliers = suppliersList.map(s => {
         if (s.id === merchantId || (normName && s.name.trim() === normName)) {
@@ -329,9 +294,46 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
         return p;
       });
 
-      if (activeStoreId) {
-        db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers).catch(() => {});
+      const settingsSaved = await db.updatePartnerSettings(activeStoreId, updatedPartners, updatedSuppliers);
+      if (!settingsSaved.success) {
+        throw new Error(settingsSaved.error || 'تعذر حفظ رصيد الموكل بعد الصرف');
       }
+
+      const requestApproved = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
+        approvedBy: currentUser?.name || 'المدير المالي',
+        approvedAt: new Date().toISOString()
+      });
+      if (!requestApproved) {
+        await db.updatePartnerSettings(activeStoreId, settings.partners || [], settings.suppliers || []);
+        throw new Error('لم يتم اعتماد الطلب في قاعدة البيانات؛ تمت استعادة رصيد الموكل.');
+      }
+
+      // Deduct net disbursed from treasury after the request and merchant balance are saved
+      if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
+        const acc = (treasury.accounts || []).find(a => a.id === selectedTreasuryAccountId);
+        if (acc) {
+          const updatedAccounts = (treasury.accounts || []).map(a => 
+            a.id === selectedTreasuryAccountId ? { ...a, balance: (a.balance || 0) - netDisbursed } : a
+          );
+          const newTx = {
+            id: `tx-payout-${Date.now()}`,
+            date: new Date().toISOString(),
+            type: 'withdrawal' as const,
+            amount: netDisbursed,
+            description: `صرف أرباح للموكل ${req.partnerName} (طلب سحب #${req.id})${transferFee > 0 ? ` [المطلوب: ${amt} ج.م | عمولة التحويل: ${transferFee} ج.م | صافي المنصرف: ${netDisbursed} ج.م]` : ''}`,
+            fromAccountId: selectedTreasuryAccountId,
+            reference: req.id,
+            orderId: req.id
+          };
+          const updatedTreasury: Treasury = {
+            ...treasury,
+            accounts: updatedAccounts,
+            transactions: [newTx, ...(treasury.transactions || [])]
+          };
+          setTreasury(updatedTreasury);
+        }
+      }
+
 
       updateSettings(prev => ({
         ...prev,
