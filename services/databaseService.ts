@@ -2948,8 +2948,6 @@ export const updateUserInSupabase = async (user: User): Promise<{ success: boole
             phone: user.phone,
             email: user.email || null,
             full_name: user.fullName,
-            is_admin: user.isAdmin || false,
-            is_banned: user.isBanned || false,
             join_date: user.joinDate || new Date().toISOString(),
             stores: user.stores || [],
             sites: user.sites || [],
