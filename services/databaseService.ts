@@ -2985,8 +2985,8 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
         if (!cleanPhone) return null;
 
         const now = Date.now();
-        // 1. Try Firestore if quota is not flagged
-        if (!isFsQuotaExceededForUsers || (now - fsQuotaExceededTimestamp > 15 * 60 * 1000)) {
+        // Once Supabase is configured, identity records must never fall back to Firebase.
+        if (!isSupabaseActive() && (!isFsQuotaExceededForUsers || (now - fsQuotaExceededTimestamp > 15 * 60 * 1000))) {
             try {
                 const userRef = doc(firebaseDb, 'users', cleanPhone);
                 const docSnap = await getDoc(userRef);
@@ -3023,7 +3023,7 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
         const supabase = getSupabaseClient();
         if (supabase) {
             try {
-                const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,fullName,isAdmin,isBanned,joinDate').eq('phone', cleanPhone).maybeSingle();
+                const { data, error } = await supabase.from('users').select('phone,full_name,email,is_admin,is_banned,join_date,stores,sites,default_store_id,auto_launch_default_store').eq('phone', cleanPhone).maybeSingle();
                 if (!error && data) {
                     const defaultStoreId = data.default_store_id || data.defaultStoreId || (typeof window !== 'undefined' ? localStorage.getItem('defaultStoreId') : undefined) || undefined;
                     const mappedUser: User = {
@@ -3063,44 +3063,34 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
 };
 
 export const createUserDoc = async (user: User): Promise<boolean> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+        console.error('[SUPABASE] Cannot create a user profile: deployment Supabase client is unavailable.');
+        return false;
+    }
+
     try {
-        console.log('[FIRESTORE] Creating/Updating user record in Firestore for:', user.phone);
-        const userRef = doc(firebaseDb, 'users', user.phone);
-        const userPayload = {
-            fullName: user.fullName,
+        const supabasePayload = {
+            full_name: user.fullName,
+            phone: user.phone,
             email: user.email,
             stores: user.stores || [],
             sites: user.sites || [],
-            isAdmin: user.isAdmin || false,
-            isBanned: user.isBanned || false,
-            joinDate: user.joinDate || new Date().toISOString(),
-            ownedStoreIds: (user.stores || []).map(s => s.id),
-            defaultStoreId: user.defaultStoreId || null,
-            autoLaunchDefaultStore: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
+            is_admin: user.isAdmin || false,
+            is_banned: user.isBanned || false,
+            join_date: user.joinDate || new Date().toISOString(),
+            default_store_id: user.defaultStoreId || null,
+            auto_launch_default_store: user.autoLaunchDefaultStore ?? Boolean(user.defaultStoreId)
         };
-        await setDoc(userRef, userPayload, { merge: true });
-        console.log('[FIRESTORE] Successfully created user record in Firestore.');
 
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            console.log('[SUPABASE] Creating/Updating user record in Supabase for:', user.phone);
-            const supabasePayload = {
-                full_name: user.fullName,
-                phone: user.phone,
-                email: user.email,
-                stores: user.stores || [],
-                sites: user.sites || [],
-                is_admin: user.isAdmin || false,
-                is_banned: user.isBanned || false,
-                join_date: user.joinDate || new Date().toISOString(),
-                default_store_id: user.defaultStoreId || null,
-                auto_launch_default_store: user.autoLaunchDefaultStore ?? (user.defaultStoreId ? true : false)
-            };
-            await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
+        const { error } = await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
+        if (error) {
+            console.error('[SUPABASE] Failed to persist user profile:', error.message, error.details, error.hint);
+            return false;
         }
         return true;
     } catch (err) {
-        console.error('[DATABASE-SERVICE] Error in createUserDoc:', err);
+        console.error('[SUPABASE] Error creating user profile:', err);
         return false;
     }
 };
