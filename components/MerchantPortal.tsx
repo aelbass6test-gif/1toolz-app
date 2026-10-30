@@ -514,6 +514,19 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     };
   }, [authenticatedMerchant, merchants, effectiveStoreId]);
 
+  // Load this merchant's own withdrawal history through the passcode-verified endpoint.
+  useEffect(() => {
+    if (!liveMerchant?.id || !liveMerchant?.passcode || !effectiveStoreId) return;
+    let active = true;
+    db.getMerchantRequests(effectiveStoreId, {
+      merchantId: String(liveMerchant.id),
+      passcode: String(liveMerchant.passcode)
+    }).then(requests => {
+      if (active) setMerchantRequestsList(requests);
+    }).catch(err => console.warn('[MerchantPortal] Withdrawal history refresh failed:', err));
+    return () => { active = false; };
+  }, [liveMerchant?.id, liveMerchant?.passcode, effectiveStoreId]);
+
   // A portal URL identifies one merchant. Never keep showing a previous browser session
   // when the URL points to another merchant or store.
   useEffect(() => {
