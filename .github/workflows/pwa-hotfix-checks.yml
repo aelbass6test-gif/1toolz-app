@@ -1,0 +1,36 @@
+name: PWA deep-route refresh checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [fix/pwa-deep-route-refresh]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pwa-refresh-checks-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-package-lock
+      - name: Merchant accounting regression tests
+        run: npm run test:merchant-accounting
+      - name: Shipping status regression tests
+        run: npm run test:shipping
+      - name: Type-check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
