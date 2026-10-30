@@ -276,64 +276,10 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     }
   };
 
-  // 3. Handle PIN / Password Login (with 2FA enforcement check)
+  // PIN login is disabled: client-delivered partner records cannot safely verify secrets.
   const handlePinLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthSuccess('');
-
-    let partner = partners.find(p => p.id === selectedPartnerId);
-    if (!partner && loginInput) {
-      const cleanInput = loginInput.trim().toLowerCase();
-      partner = partners.find(p => 
-        p.email?.toLowerCase() === cleanInput || 
-        p.phone?.replace(/\D/g, '') === cleanInput.replace(/\D/g, '') ||
-        p.name.toLowerCase() === cleanInput
-      );
-    }
-
-    if (!partner) {
-      setAuthError('يرجى تحديد حساب الشريك أو إدخال البريد الإلكتروني/الهاتف المسجل');
-      return;
-    }
-
-    const correctPin = String(partner.passcode || '0000').trim();
-    const correctPassword = partner.password ? String(partner.password).trim() : null;
-    const enteredPin = pinCode.trim();
-    const enteredPass = password.trim();
-
-    const isPinMatch = enteredPin && (enteredPin === correctPin || enteredPin === '0000');
-    const isPassMatch = enteredPass && (enteredPass === correctPassword || enteredPass === correctPin);
-
-    if (isPinMatch || isPassMatch || (!enteredPass && enteredPin === correctPin)) {
-      // Check if 2FA (Email OTP) is required for this partner or whole store
-      const requiresEmailOtp = Boolean(
-        partner.requireEmailOtp || 
-        settings?.enforcePartnerOtp ||
-        partner.email
-      );
-
-      if (requiresEmailOtp && partner.email) {
-        // Enforce 2FA: Trigger OTP send and prompt for the code
-        setSelectedPartnerId(partner.id);
-        setOtpTargetEmail(partner.email);
-        setIsTwoFactorActive(true);
-        setAuthMode('otp');
-        handleSendOtp(partner.email);
-        showToast('تم التحقق من كلمة المرور. لإتمام الدخول الأمني، يرجى إدخال رمز OTP المرسل لبريدك.', 'success');
-      } else {
-        // Direct login
-        const updatedPartner: Partner = {
-          ...partner,
-          lastLoginAt: new Date().toISOString()
-        };
-        persistPartnerUpdate(updatedPartner);
-        onAuthenticated(updatedPartner);
-        showToast(`أهلاً بك يا ${partner.name} في بوابتك المالية`, 'success');
-      }
-    } else {
-      setAuthError('رمز PIN أو كلمة المرور غير صحيحة. يمكنك الدخول عبر كود البريد (OTP) أو استرجاع الرمز.');
-    }
+    setAuthError('تسجيل الدخول برمز PIN متوقف مؤقتًا لحين نقل التحقق إلى الخادم. استخدم كود البريد المسجل.');
   };
 
   // 4. Verify OTP for Password Reset
@@ -371,97 +317,15 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     }
   };
 
-  // 5. Save New Password / PIN
+  // A client-side OTP must not authorize writing a new plaintext PIN/password to store data.
   const handleSaveNewPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPassword || newPassword.trim().length < 4) {
-      setAuthError('كلمة المرور / الرمز الجديد يجب أن يتكون من 4 أرقام أو أحرف على الأقل');
-      return;
-    }
-    if (!resetPartner) return;
-
-    try {
-      const updatedPartner: Partner = {
-        ...resetPartner,
-        passcode: newPassword.trim(),
-        password: newPassword.trim(),
-        isEmailVerified: true,
-        emailVerifiedAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString()
-      };
-
-      await persistPartnerUpdate(updatedPartner);
-      onAuthenticated(updatedPartner);
-      showToast('تم استرجاع وتحديث كلمة السر بنجاح! تم تسجيل دخولك للبوابة', 'success');
-    } catch (err: any) {
-      setAuthError('حدث خطأ أثناء حفظ كلمة السر: ' + err.message);
-    }
+    setAuthError('تغيير رمز الدخول متوقف مؤقتًا لحين ربط استعادة الحساب بمصادقة الخادم.');
   };
 
-  // 6. WebAuthn Biometric Authentication Handler
-  const handleBiometricLogin = async (targetPartner?: Partner) => {
-    const partnerToAuth = targetPartner || activePartner;
-    if (!partnerToAuth) {
-      setAuthError('يرجى اختيار حساب الشريك أولاً للتحقق من البصمة البيومترية.');
-      return;
-    }
-
-    setAuthError('');
-    setAuthSuccess('');
-    setIsScanningBiometric(true);
-
-    try {
-      const storedCreds = getStoredBiometrics(partnerToAuth.id);
-      const combinedCreds = [
-        ...(partnerToAuth.biometricCredentials || []),
-        ...storedCreds
-      ];
-
-      const result = await authenticateBiometricCredential(
-        combinedCreds.length > 0 ? combinedCreds : undefined,
-        storeName || 'بوابة الشركاء'
-      );
-
-      if (result.success) {
-        setBiometricScanSuccess(true);
-        const credId = result.credentialId || 'passkey_' + Date.now();
-        let currentBioCreds = [...(partnerToAuth.biometricCredentials || [])];
-
-        if (combinedCreds.length === 0) {
-          const autoCred: BiometricCredentialRecord = {
-            id: credId,
-            rawId: credId,
-            name: biometricDeviceName,
-            createdAt: new Date().toISOString(),
-            lastUsedAt: new Date().toISOString(),
-            algorithm: 'SHA256/WebCryptoPasskey',
-            transports: ['internal'],
-          };
-          saveStoredBiometric(partnerToAuth.id, autoCred, false);
-          currentBioCreds = [autoCred, ...currentBioCreds];
-        }
-
-        const updatedPartner: Partner = {
-          ...partnerToAuth,
-          biometricCredentials: currentBioCreds,
-          lastLoginAt: new Date().toISOString(),
-          allowBiometricAuth: true
-        };
-        await persistPartnerUpdate(updatedPartner);
-
-        showToast(`✨ تم التحقق من البصمة البيومترية بنجاح! مرحباً ${partnerToAuth.name}`, 'success');
-        setTimeout(() => {
-          onAuthenticated(updatedPartner);
-        }, 500);
-      } else {
-        setAuthError(result.error || 'فشل التحقق من البصمة الحيوية. يرجى المحاولة مرة أخرى أو استخدام كود البريد OTP.');
-      }
-    } catch (err: any) {
-      console.error('Biometric auth error:', err);
-      setAuthError('حدث خطأ أثناء فحص البصمة: ' + (err.message || ''));
-    } finally {
-      setIsScanningBiometric(false);
-    }
+  // Browser-only biometric state is not a server-verified authentication factor.
+  const handleBiometricLogin = async (_targetPartner?: Partner) => {
+    setAuthError('تسجيل الدخول بالبصمة متوقف مؤقتًا لحين تفعيل مفاتيح مرور موثقة من الخادم.');
   };
 
   // 7. Enroll Device Biometric With PIN Verification
