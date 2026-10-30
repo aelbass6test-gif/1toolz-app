@@ -185,7 +185,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
             email: s.email || '',
             balance: s.balance || 0,
             profitRatio: 50,
-            passcode: '0000',
+            passcode: '',
             role: 'موكل / مورد بضاعة'
           });
         }
@@ -205,7 +205,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
             email: '',
             balance: 0,
             profitRatio: o.merchantProfitSharePercent || 50,
-            passcode: '0000',
+            passcode: '',
             role: 'موكل صاحب بضاعة'
           });
         }
@@ -421,8 +421,13 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
       return;
     }
 
-    const correctPin = String(partner.passcode || '0000').trim();
+    const correctPin = String(partner.passcode || '').trim();
     const enteredPin = pinCode.trim();
+
+    if (!correctPin) {
+      setAuthError('لم يتم إعداد رمز دخول لهذا الحساب بعد. يرجى التواصل مع إدارة المتجر لتعيين رمز آمن.');
+      return;
+    }
 
     if (enteredPin === correctPin) {
       setAuthenticatedPartner(partner);
