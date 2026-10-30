@@ -7,6 +7,15 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS"
 };
 
+const ALLOWED_PERMISSIONS = new Set([
+  "DASHBOARD_VIEW", "REPORTS_VIEW", "ORDERS_VIEW", "ORDERS_MANAGE", "RETURNS_MANAGE",
+  "POS_VIEW", "POS_MANAGE", "PRODUCTS_VIEW", "PRODUCTS_MANAGE", "INVENTORY_MANAGE",
+  "COLLECTIONS_MANAGE", "CUSTOMERS_VIEW", "CUSTOMERS_MANAGE", "MARKETING_MANAGE",
+  "DISCOUNTS_MANAGE", "REVIEWS_MANAGE", "WALLET_VIEW", "WALLET_MANAGE", "CASH_MANAGE",
+  "EXPENSES_MANAGE", "SETTINGS_VIEW", "SETTINGS_MANAGE", "APPS_MANAGE",
+  "STOREFRONT_MANAGE", "TEAM_VIEW", "TEAM_MANAGE"
+]);
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -44,7 +53,7 @@ Deno.serve(async (request: Request) => {
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
   const permissions = Array.isArray(body.permissions)
-    ? [...new Set(body.permissions.filter((p): p is string => typeof p === "string" && /^[A-Z_]{2,64}$/.test(p)))]
+    ? [...new Set(body.permissions.filter((p): p is string => typeof p === "string" && ALLOWED_PERMISSIONS.has(p)))]
     : [];
   const mode = body.mode === "link" ? "link" : "create";
   const membershipRole = body.membershipRole === "manager" ? "manager" : "staff";
@@ -104,7 +113,7 @@ Deno.serve(async (request: Request) => {
       ? [...new Set(body.permissions.filter((p): p is string => typeof p === "string" && /^[A-Z_]{2,64}$/.test(p)))]
       : [];
     const nextRole = body.membershipRole === "manager" ? "manager" : "staff";
-    if (!nextName || !nextEmail.includes("@") || nextPermissions.length > 40) return json({ success: false, error: "بيانات التعديل غير صالحة." }, 400);
+    if (!nextName || !nextEmail.includes("@") || nextPermissions.length > 26) return json({ success: false, error: "بيانات التعديل غير صالحة." }, 400);
     const { error: employeeUpdateError } = await admin.from("employees").update({ name: nextName, email: nextEmail, permissions: nextPermissions }).eq("store_id", storeId).eq("phone", targetPhone);
     if (employeeUpdateError) return json({ success: false, error: "تعذر تحديث بيانات الموظف." }, 400);
     const { error: membershipUpdateError } = await admin.from("store_memberships").update({ role: nextRole }).eq("store_id", storeId).eq("user_id", targetUserId);
