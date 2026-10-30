@@ -36,6 +36,7 @@
 - Added `services/supabaseAuthService.ts` with a single project-configured Supabase Auth client, PKCE flow, sign-up, sign-in, sign-out, and current-user helpers.
 - The client intentionally ignores per-store Supabase URLs and keys from localStorage/store settings.
 - Removed plaintext password writes to the legacy Supabase `users` table and Firestore user documents, and stopped returning the legacy Supabase password field from the phone lookup helper.
+- Changed user-list, phone-lookup, and migration-overview reads to explicit safe column lists; these queries no longer select the legacy `users.password` column.
 - New sign-ups no longer include a password field in the application profile object.
 - Disabled the old sign-in fallback that compared a supplied password with the legacy Supabase profile password.
 - Removed employee-login fallback paths that read or verify legacy passwords from Supabase `users` or Firestore user documents. Employee login now requires a valid Firebase Auth identity until the full Supabase Auth cutover is implemented.
