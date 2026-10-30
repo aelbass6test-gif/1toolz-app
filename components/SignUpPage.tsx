@@ -150,30 +150,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     }
   };
 
-  const handleDirectAdminLogin = async () => {
-    setIsLoading(true);
-    setUserError('');
-    try {
-      let adminUser = await getUserByPhone('010010010');
-      if (!adminUser || !adminUser.isAdmin) {
-        adminUser = await getUserByPhone('admin');
-      }
-      if (!adminUser) {
-        adminUser = {
-          fullName: 'abdoooo (المدير العام)',
-          phone: '010010010',
-          email: 'aelbass6test@gmail.com',
-          isAdmin: true,
-          stores: []
-        };
-      }
-      adminUser.isAdmin = true;
-      onPasswordSuccess(adminUser);
-    } catch (e: any) {
-      setUserError('حدث خطأ أثناء الدخول كمسؤول: ' + (e?.message || ''));
-      setIsLoading(false);
-    }
-  };
 
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,19 +157,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setIsLoading(true);
 
     const trimmedPhone = userPhone.trim();
-
-    // Direct access for authorized admin usernames/phones
-    if (isLoginView && (trimmedPhone === 'admin' || trimmedPhone === '010010010' || trimmedPhone === '01000000000')) {
-      try {
-        let adminUser = await getUserByPhone(trimmedPhone);
-        if (adminUser && adminUser.isAdmin) {
-          onPasswordSuccess(adminUser, userPassword);
-          return;
-        }
-      } catch (err) {
-        console.warn('Admin fast-track lookup failed:', err);
-      }
-    }
 
     const firebaseEmail = `${trimmedPhone}@mystore-auth.app`;
 
@@ -217,7 +180,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
               creationDate: new Date().toISOString()
             }],
             sites: [],
-            isAdmin: trimmedPhone === '010010010' || trimmedPhone === '01000000000' || trimmedPhone === 'admin',
+            isAdmin: false,
             isBanned: false,
             joinDate: new Date().toISOString()
           };
@@ -429,15 +392,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             <span><strong className="block text-lg font-black tracking-tight">عبده ميديا برايم</strong><span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • منظومة التجارة والتسويق</span></span>
           </Link>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleDirectAdminLogin}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 text-xs font-black shadow-md shadow-purple-600/20 transition active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              <ShieldCheck size={16} />
-              دخول لوحة الإدارة (Admin)
-            </button>
             <Link to="/employee-login" className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-white hover:text-emerald-700">دخول الموظفين</Link>
           </div>
         </header>
@@ -777,17 +731,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       )}
                     </button>
 
-                    {isLoginView && (
-                      <button
-                        type="button"
-                        onClick={handleDirectAdminLogin}
-                        disabled={isLoading}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 py-3 font-black text-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
-                      >
-                        <ShieldCheck size={16} className="text-purple-600" />
-                        الدخول المباشر كمسؤول النظام (Admin Portal)
-                      </button>
-                    )}
                   </form>
 
                   <p className="mt-6 text-center text-xs sm:text-sm text-slate-500">
