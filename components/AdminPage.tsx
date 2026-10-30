@@ -611,30 +611,32 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   }, [users, searchTerm]);
 
   const handleDeleteUser = async (user: User) => {
-    const ok = await inAppConfirm(`هل أنت متأكد من حذف المستخدم ${user.fullName} وجميع متاجره؟ هذا الإجراء لا يمكن التراجع عنه.`, {
-      title: 'حذف مستخدم وجميع متاجره',
-      type: 'danger',
-      confirmText: 'نعم، حذف المستخدم نهائياً',
-      cancelText: 'إلغاء'
-    });
+    const ok = await inAppConfirm(
+      `هل أنت متأكد من حذف حساب ${user.fullName} وإلغاء عضويته من المتاجر؟ ستظل بيانات المتاجر محفوظة ولن تُحذف تلقائياً.`,
+      {
+        title: 'حذف حساب المستخدم',
+        type: 'danger',
+        confirmText: 'حذف الحساب',
+        cancelText: 'إلغاء'
+      }
+    );
     if (!ok) return;
 
     try {
-        await db.deleteUserCompletely(user);
-        
-        // Remove from local state
-        const updatedUsers = users.filter(u => u.phone !== user.phone);
-        setUsers(updatedUsers);
-        
-        // Update global users list in Firebase
-        await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
-        
-        await inAppAlert(`تم حذف المستخدم ${user.fullName} وجميع متاجره بنجاح.`, { type: 'success' });
-    } catch (e: any) {
-        await inAppAlert(`خطأ أثناء حذف المستخدم: ${e.message}`, { type: 'error' });
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Supabase client not initialized.');
+      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: { phone: user.phone }
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'تعذر حذف الحساب.');
+      setUsers(users.filter(existing => existing.phone !== user.phone));
+      await inAppAlert(`تم حذف حساب ${user.fullName} وإلغاء عضوياته. بيانات المتاجر محفوظة.`, { type: 'success' });
+    } catch (err: any) {
+      await inAppAlert(`تعذر حذف الحساب: ${err?.message || 'خطأ غير معروف'}`, { type: 'error' });
     }
   };
-  
+
   const toggleUserBan = async (phone: string) => {
     const target = users.find(user => user.phone === phone);
     if (!target) return;
