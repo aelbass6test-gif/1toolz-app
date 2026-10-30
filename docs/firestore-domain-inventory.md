@@ -167,6 +167,7 @@ The following changes are committed on `migration/firebase-to-supabase` and the 
 - Password-authentication imports were removed from the app shell and owner sign-in page. Firestore remains in use for non-auth application domains.
 - `getUserByPhone` no longer queries Firestore when the deployment Supabase client is active.
 - `createUserDoc` now persists the user directory profile to Supabase only; it no longer writes a duplicate Firebase user document.
+- `saveGlobalData` now saves only the signed-in user's own profile through Supabase Auth/RLS; admin changes to other accounts and privileged flags must go through a trusted server-side workflow.
 - `useLiveCollaboration` now uses the Supabase Auth UUID and listens for Supabase session changes instead of reading Firebase Auth state.
 - `public.users` no longer has an anonymous/public all-access policy. RLS limits reads and writes to the authenticated user's phone profile (or a trusted admin profile).
 - API roles cannot select the legacy `users.password` column and cannot set admin/ban flags. The app-side profile writer omits those privileged flags.
