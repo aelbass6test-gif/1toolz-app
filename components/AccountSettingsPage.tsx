@@ -220,7 +220,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
 
   const handleCompletePasswordReset = async () => {
     if (!currentUser?.phone) return;
-    if (!/^\\d{6}$/.test(resetCode.trim())) {
+    if (!/^\d{6}$/.test(resetCode.trim())) {
       setError('أدخل رمز التحقق المكون من 6 أرقام.');
       return;
     }
@@ -624,7 +624,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/20">
                   <input
                     value={resetCode}
-                    onChange={e => setResetCode(e.target.value.replace(/\\D/g, '').slice(0, 6))}
+                    onChange={e => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     inputMode="numeric"
                     autoComplete="one-time-code"
                     placeholder="رمز التحقق 6 أرقام"
