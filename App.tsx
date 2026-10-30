@@ -1831,53 +1831,7 @@ export const AppComponent = () => {
         });
     };
 
-    // Background migration for legacy accounts using a secondary auth instance
-    const getMigrationAuth = () => {
-        const migrationApp = getApps().find(app => app.name === "MigrationApp") 
-            || initializeApp(firebaseConfig, "MigrationApp");
-        return getAuth(migrationApp);
-    };
-
-    const migrateLegacyUsersToAuth = async (usersToMigrate: User[]) => {
-        try {
-            const mAuth = getMigrationAuth();
-            console.log(`[MIGRATION] Starting background migration check for ${usersToMigrate.length} users...`);
-            // Run sequentially in the background to avoid rate limits
-            for (const user of usersToMigrate) {
-                if (!user.phone) continue;
-                const password = user.password;
-                if (!password) {
-                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: No legacy password stored in legacy database.`);
-                    continue;
-                }
-                if (password.length < 6) {
-                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: Password is shorter than 6 characters (does not meet Firebase Auth security requirements).`);
-                    continue;
-                }
-                
-                // Use real email if available, otherwise generated one
-                const email = (user.email && user.email.includes('@') && !user.email.includes('mystore-auth.app'))
-                    ? user.email
-                    : `${user.phone.trim()}@mystore-auth.app`;
-                
-                try {
-                    await createUserWithEmailAndPassword(mAuth, email, password);
-                    console.log(`[MIGRATION] Successfully created Firebase Auth account for legacy user ${user.phone}.`);
-                } catch (err: any) {
-                    if (err.code === 'auth/email-already-in-use') {
-                        // Already exists, skip
-                    } else if (err.code === 'auth/operation-not-allowed') {
-                        console.error('[MIGRATION] Email/Password provider is not enabled in Firebase project! Please enable it in the console.');
-                        break; // Stop if provider is disabled to avoid spamming errors
-                    } else {
-                        console.error(`[MIGRATION] Error migrating user ${user.phone}:`, err);
-                    }
-                }
-            }
-        } catch (migrationErr) {
-            console.error('[MIGRATION] Fatal migration error:', migrationErr);
-        }
-    };
+    // Legacy password-based background account migration has been removed.
 
     const loadData = async () => {
         setIsInitialLoad(true);
