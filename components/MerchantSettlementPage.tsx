@@ -316,7 +316,22 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         return;
       }
 
-      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved');
+      const customClaimed = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'processing');
+      if (!customClaimed) {
+        inAppToast('تعذر استلام طلب الباقة؛ ربما يعالجه مدير آخر.', 'error');
+        await loadMerchantRequests();
+        return;
+      }
+      const customApproved = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
+        approvedBy: currentUser?.fullName || 'الإدارة',
+        approvedAt: new Date().toISOString()
+      });
+      if (!customApproved) {
+        await db.updateMerchantRequestStatus(req.id, activeStoreId, 'pending');
+        await loadMerchantRequests();
+        inAppToast('تعذر اعتماد طلب الباقة؛ أُعيد إلى قائمة الانتظار.', 'error');
+        return;
+      }
       setRawRequests(prev => prev.map(r => (r.id === req.id ? { ...r, status: 'approved' } : r)));
 
       const nowIso = new Date().toISOString();
@@ -499,12 +514,29 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
         settings.merchantSettlements || [], req.partnerId, amount, req.id, paidNowIso
       );
 
+      // Atomically claim the pending request before marking it approved.
+      // This prevents concurrent managers from paying the same withdrawal twice.
+      const claimed = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'processing');
+      if (!claimed) {
+        inAppToast('لم يتم استلام الطلب؛ ربما يعالجه مدير آخر بالفعل. حدّث القائمة.', 'error');
+        await loadMerchantRequests();
+        return;
+      }
       const statusUpdated = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
         receiptImage: cleanImg,
-        transferReference: cleanRef
+        transferReference: cleanRef,
+        approvedBy: currentUser?.fullName || 'الإدارة',
+        approvedAt: new Date().toISOString()
       });
       if (!statusUpdated) {
-        inAppToast('لم يتم اعتماد الطلب؛ ربما عولج بالفعل من شاشة أخرى. حدّث القائمة.', 'error');
+        const released = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'pending');
+        await loadMerchantRequests();
+        inAppToast(
+          released
+            ? 'لم يكتمل الاعتماد؛ أُعيد الطلب إلى الانتظار وظل المبلغ محجوزاً.'
+            : 'تعذر إكمال الاعتماد أو تحرير الحجز تلقائياً؛ الطلب ما زال قيد المعالجة ويحتاج مراجعة الإدارة.',
+          'error'
+        );
         return;
       }
       setRawRequests(prev => prev.map(r => r.id === req.id ? {
