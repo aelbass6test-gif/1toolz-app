@@ -243,10 +243,13 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
       const netDisbursed = Math.max(0, Number((amt - transferFee).toFixed(2)));
 
       // 1. Update request status in database
-      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
+      const requestApproved = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'approved', {
         approvedBy: currentUser?.name || 'المدير المالي',
         approvedAt: new Date().toISOString()
       });
+      if (!requestApproved) {
+        throw new Error('لم يتم اعتماد الطلب في قاعدة البيانات؛ لم يتم خصم أي مبلغ.');
+      }
 
       // 2. Deduct net disbursed from treasury if account selected
       if (selectedTreasuryAccountId && treasury && setTreasury && netDisbursed > 0) {
@@ -358,8 +361,9 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     if (!confirmed) return;
 
     try {
-      await db.updateMerchantRequestStatus(req.id, activeStoreId, 'rejected');
-      inAppToast('تم رفض طلب السحب.', 'info');
+      const rejected = await db.updateMerchantRequestStatus(req.id, activeStoreId, 'rejected');
+      if (!rejected) throw new Error('تعذر تسجيل رفض الطلب في قاعدة البيانات.');
+      inAppToast('تم رفض طلب السحب وفك حجز المبلغ.', 'info');
       loadRequests();
     } catch (err: any) {
       inAppToast('تعذر تحديث الطلب: ' + (err.message || ''), 'error');
