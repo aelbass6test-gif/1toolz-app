@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { MessageSquare, X, Send, User, Users, ChevronLeft, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User as UserType, ChatMessage, Employee } from '../types';
-import { getSupabaseClient } from '../services/supabaseClient';
+import { getSupabaseClient } from '../services/databaseService';
 
 interface FloatingChatProps {
     currentUser: UserType | null;
