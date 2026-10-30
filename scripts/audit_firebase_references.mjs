@@ -28,8 +28,9 @@ const IGNORED_FILES = new Set([
 
 const CHECKS = [
   ['firebase-client-import', /(?:from\s*|import\s*)['"](?:\.\/|\.\.\/)*services\/firebaseClient['"]/],
-  ['firebase-sdk-import', /(?:from\s*|import\s*)['"]firebase(?:\/(?:auth|firestore|app|storage|functions|database|messaging|analytics|compat|remote-config|performance))?(?:\/[^'"]*)?['"]],
-  ['firebase-scoped-package-import', /['"]@firebase\/[^'"]+['"]],  ['firebase-admin-import', /['"]firebase-admin(?:\/[^'"]*)?['"]/],
+  ['firebase-sdk-import', /(?:from\s*|import\s*)['"]firebase(?:\/(?:auth|firestore|app|storage|functions|database|messaging|analytics|compat|remote-config|performance))?(?:\/[^'"]*)?['"]/],
+  ['firebase-scoped-package-import', /['"]@firebase\/[^'"]+['"]/],
+  ['firebase-admin-import', /['"]firebase-admin(?:\/[^'"]*)?['"]/],
   ['firebase-auth-api', /\b(?:signInWithEmailAndPassword|createUserWithEmailAndPassword|signInWithCustomToken|signInAnonymously|onAuthStateChanged|getAuth)\s*\(/],
   ['firestore-api', /\b(?:onSnapshot|getFirestore|getDocs|getDoc|setDoc|addDoc|updateDoc|deleteDoc|runTransaction)\s*\(/],
   ['legacy-auth-alias', /@mystore-auth\.app/],
