@@ -50,6 +50,10 @@ Deno.serve(async (request: Request) => {
   const { error: membershipDeleteError } = await admin.from("store_memberships").delete().eq("user_id", targetProfile.user_id);
   if (membershipDeleteError) return json({ success: false, error: "Unable to remove store memberships" }, 500);
 
+  // Remove chat rows first because sender_id references public.users.phone.
+  const { error: chatDeleteError } = await admin.from("chat_messages").delete().or(`sender_id.eq.${phone},receiver_id.eq.${phone}`);
+  if (chatDeleteError) return json({ success: false, error: "Unable to remove chat history" }, 500);
+
   const { error: userRowDeleteError } = await admin.from("users").delete().eq("phone", phone);
   if (userRowDeleteError) return json({ success: false, error: "Unable to remove user profile" }, 500);
 
