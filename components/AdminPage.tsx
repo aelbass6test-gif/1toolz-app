@@ -660,46 +660,47 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddUserError('');
-    if (!newUserData.fullName || !newUserData.phone || !newUserData.email) {
-        setAddUserError('يجب تعبئة حقول الاسم والهاتف والبريد الإلكتروني.');
-        return;
+    if (!newUserData.fullName.trim() || !newUserData.phone.trim() || !newUserData.email.trim()) {
+      setAddUserError('يجب تعبئة حقول الاسم والهاتف والبريد الإلكتروني.');
+      return;
     }
-    
-    // Check duplication
+    if (newUserData.password.length < 8) {
+      setAddUserError('كلمة المرور يجب ألا تقل عن 8 أحرف.');
+      return;
+    }
+
     const phoneExists = users.some(u => u.phone.trim() === newUserData.phone.trim());
     if (phoneExists) {
-        setAddUserError('هذا الرقم مسجل مسبقاً لمستخدم آخر.');
-        return;
+      setAddUserError('هذا الرقم مسجل مسبقاً لمستخدم آخر.');
+      return;
     }
 
     try {
-        const supabase = getSupabaseClient();
-        if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError || !session) throw new Error('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) throw new Error('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
 
-        const { data, error } = await supabase.functions.invoke('admin-create-user', {
-            body: {
-                fullName: newUserData.fullName.trim(),
-                phone: newUserData.phone.trim(),
-                email: newUserData.email.trim(),
-                password: newUserData.password || 'password123',
-                isAdmin: newUserData.isAdmin
-            }
-        });
-        if (error) throw error;
-        if (!data?.success || !data.user) throw new Error(data?.error || 'تعذر إنشاء الحساب.');
-        const newUser: User = data.user;
+      const { data, error } = await supabase.functions.invoke('admin-create-user', {
+        body: {
+          fullName: newUserData.fullName.trim(),
+          phone: newUserData.phone.trim(),
+          email: newUserData.email.trim(),
+          password: newUserData.password,
+          isAdmin: newUserData.isAdmin
+        }
+      });
+      if (error) throw error;
+      if (!data?.success || !data.user) throw new Error(data?.error || 'تعذر إنشاء الحساب.');
 
-    const updatedUsersList = [...users, newUser];
-    setUsers(updatedUsersList);
-
-    try {
-        setShowAddUserModal(false);
-        setNewUserData({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
-        alert('تم تسجيل التاجر/المستخدم الجديد بنجاح على خادم المنصة الرئيسي.');
-    } catch (e: any) {
-        setAddUserError(`خطأ أثناء الحفظ بالسيرفر السحابي: ${e.message}`);
+      const newUser: User = data.user;
+      setUsers([...users, newUser]);
+      setShowAddUserModal(false);
+      setNewUserData({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
+      alert('تم إنشاء حساب المستخدم بنجاح عبر Supabase Auth.');
+    } catch (err: any) {
+      console.error('[ADMIN] Supabase user provisioning failed:', err);
+      setAddUserError(err?.message || 'تعذر إنشاء الحساب. تأكد من صلاحيات المدير وإعدادات Supabase.');
     }
   };
 
