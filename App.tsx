@@ -872,7 +872,7 @@ const OwnerLayoutWrapper = ({
             try {
                 const [legacy, merchants] = await Promise.all([
                     db.getPartnerRequests(activeStoreId),
-                    db.getMerchantRequests(activeStoreId)
+                    db.getMerchantRequests(activeStoreId, { forceAdmin: true })
                 ]);
                 if (!alive) return;
                 const mappedMerchants = merchants.map(r => ({
