@@ -1100,7 +1100,13 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     const localOnlyOrders = (local?.orders || []).filter((lo: any) => lo && lo.id && !cloudOrderIds.has(String(lo.id).trim()));
                     return [...mappedCloudOrders, ...localOnlyOrders];
                 })(),
-                wallet: { balance: 0, transactions },
+                wallet: {
+                    balance: Number(storeSettings.wallet_balance ?? 0),
+                    transactions,
+                    withdrawRequests: Array.isArray(storeSettings.withdraw_requests) ? storeSettings.withdraw_requests : [],
+                    settings: storeSettings.wallet_settings || undefined,
+                    supplyBalance: Number(storeSettings.supply_balance ?? 0)
+                },
                 treasury: { 
                     accounts: (treasuryAccounts || []).map((acc: any) => ({
                         ...acc,
