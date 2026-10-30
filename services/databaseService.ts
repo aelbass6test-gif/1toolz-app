@@ -1604,6 +1604,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             // 2. Synchronize Users only when user list actually changes (Fingerprinted)
             const localGlobal = await getLocal('global');
             const usersList = localGlobal?.users || [];
+            const usersFingerprint = JSON.stringify(usersList);
             const usersFingerprintKey = 'global:users_sync';
             if (syncFingerprints.get(usersFingerprintKey) !== usersFingerprint) {
                 // Map users to relational format
@@ -3100,46 +3101,6 @@ export const createUserDoc = async (user: User): Promise<boolean> => {
     }
 };
 
-export interface PartnerPortalRequest {
-    id: string;
-    storeId: string;
-    partnerId: string;
-    partnerName: string;
-    type: 'withdrawal' | 'expense' | 'inquiry' | 'subscription_refund' | 'wallet_topup' | 'plan_change_request' | 'custom_plan_quote';
-    typeArabic?: string;
-    amount: number;
-    notes: string;
-    date?: string;
-    status: 'pending' | 'approved' | 'rejected' | 'quoted';
-    createdAt: string;
-    isMerchantRequest?: boolean;
-    payoutMethod?: string;
-    payoutAccount?: string;
-    receiptImage?: string;
-    transferReference?: string;
-    approvedBy?: string;
-    approvedAt?: string;
-    refundMeta?: {
-        targetType?: 'self_service' | 'manager';
-        planType?: 'self_service' | 'manager';
-        planId?: string;
-        planName?: string;
-        planNameAr?: string;
-        billingCycle?: string;
-        paidAmount?: number;
-        chargeFor14Days?: number;
-        charged14DaysAmount?: number;
-        chargeForActualDays?: number;
-        refundableAmount?: number;
-        refundAmount?: number;
-        daysElapsed?: number;
-        elapsedDays?: number;
-        totalCycleDays?: number;
-        totalDays?: number;
-    };
-    planRequestMeta?: any;
-}
-
 export const submitPartnerRequest = async (
     storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
     maybeReq?: Partial<PartnerPortalRequest>
@@ -3241,7 +3202,7 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
     }
 
     // 3. Fetch from Firestore (authoritative source of truth when online)
-    if (!supabaseSuccess && firebaseDb) {
+    if (!legacyRemoteSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
@@ -3472,7 +3433,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
         }
     }
 
-    if (!supabaseSuccess && firebaseDb) {
+    if (!remoteSuccess && firebaseDb) {
         try {
             const q = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
@@ -3484,6 +3445,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
     }
     // Backward-compatible read only: legacy merchant requests remain visible until migrated.
     let legacy: any[] = [];
+    let legacyRemoteSuccess = false;
     try {
         const cached = JSON.parse(localStorage.getItem(`partner_requests_${storeId}`) || '[]');
         if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
@@ -3494,6 +3456,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
             legacy = snap.docs.map(d => d.data()).filter(isLegacyMerchantRequest);
+            legacyRemoteSuccess = true;
         } catch (err) {
             console.warn('[MERCHANT-REQUEST] Error reading legacy merchant requests:', err);
         }
