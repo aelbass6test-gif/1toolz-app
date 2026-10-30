@@ -616,6 +616,23 @@ const recordExplicitDeletion = (key: string) => {
  * to ensure complete permanent deletion ("من جذوره") with zero accidental resurrection.
  */
 export const deleteStoreItem = async (storeId: string, collectionName: string, itemId: string): Promise<boolean> => {
+    const allowedCollections = new Set([
+        'products', 'orders', 'transactions', 'treasury_accounts', 'treasury_transactions',
+        'suppliers', 'supply_orders', 'reviews', 'abandoned_carts', 'activity_logs',
+        'employees', 'discount_codes', 'collections', 'custom_pages', 'payment_methods',
+        'customers', 'global_options', 'shipping_integrations', 'partners',
+        'partner_transactions', 'warehouses', 'inventory_audits', 'stock_transfers',
+        'order_returns', 'purchase_returns', 'pos_sales', 'cash_holders',
+        'cash_handovers', 'whatsapp_templates', 'call_scripts', 'quotations'
+    ]);
+    if (!allowedCollections.has(collectionName)) {
+        console.warn(`[deleteStoreItem] Rejected unsupported table: ${collectionName}`);
+        return false;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) return false;
+
     try {
         const rawId = String(itemId);
         const docId = rawId.startsWith(storeId + '_') ? rawId : `${storeId}_${rawId}`;
@@ -633,152 +650,38 @@ export const deleteStoreItem = async (storeId: string, collectionName: string, i
         }
         delete LAST_SYNCED_HASHES[hashKey];
 
-        const supabase = getSupabaseClient();
-        if (supabase) {
-            try {
-                await supabase.from(collectionName).delete().or(`id.eq.${docId},id.eq.${rawId}`);
-                if (collectionName === 'orders') {
-                    await supabase.from('orders').delete().or(`order_number.eq.${rawId},orderNumber.eq.${rawId}`);
-                }
-            } catch (_) {}
-        }
+        const ids = Array.from(new Set([docId, rawId]));
+        const { error } = await supabase
+            .from(collectionName)
+            .delete()
+            .eq('store_id', storeId)
+            .in('id', ids);
+        if (error) throw error;
 
-        if (firebaseDb) {
-            const docRef = doc(firebaseDb, collectionName, docId);
-            await deleteDoc(docRef).catch(() => {});
-
-            if (docId !== rawId) {
-                const rawDocRef = doc(firebaseDb, collectionName, rawId);
-                await deleteDoc(rawDocRef).catch(() => {});
+        const localData = await getLocal(storeId);
+        if (localData) {
+            if (collectionName === 'orders' && Array.isArray(localData.orders)) {
+                localData.orders = localData.orders.filter((o: any) => {
+                    const id = String(o?.id || '');
+                    const number = String(o?.orderNumber || '');
+                    return !ids.includes(id) && !ids.includes(number);
+                });
             }
-
-            // CRITICAL: If deleting an order, purge it from the stores_data embedded array as well!
-            if (collectionName === 'orders') {
-                const storeDocRef = doc(firebaseDb, 'stores_data', storeId);
-                getDoc(storeDocRef).then(snap => {
-                    if (snap.exists()) {
-                        const sData = snap.data();
-                        if (Array.isArray(sData?.orders)) {
-                            const filteredOrders = sData.orders.filter((o: any) => {
-                                const oId = String(o?.id || '');
-                                const oNum = String(o?.orderNumber || '');
-                                return oId !== rawId && oId !== docId && oNum !== rawId && oNum !== docId;
-                            });
-                            if (filteredOrders.length !== sData.orders.length) {
-                                updateDoc(storeDocRef, { orders: filteredOrders }).catch(() => {});
-                            }
-                        }
-                    }
-                }).catch(() => {});
-            }
-
-            // CRITICAL: If deleting a supplier or partner, purge from stores_data settings & embedded arrays
             if (collectionName === 'suppliers' || collectionName === 'partners') {
-                const storeDocRef = doc(firebaseDb, 'stores_data', storeId);
-                getDoc(storeDocRef).then(snap => {
-                    if (snap.exists()) {
-                        const sData = snap.data();
-                        const sSettings = sData?.settings || {};
-                        let updated = false;
-                        const newPayload: any = {};
-
-                        if (collectionName === 'suppliers') {
-                            if (Array.isArray(sData?.suppliers)) {
-                                const filtered = sData.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                                if (filtered.length !== sData.suppliers.length) {
-                                    newPayload.suppliers = filtered;
-                                    updated = true;
-                                }
-                            }
-                            if (Array.isArray(sSettings?.suppliers)) {
-                                const filtered = sSettings.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                                if (filtered.length !== sSettings.suppliers.length) {
-                                    newPayload.settings = { ...(newPayload.settings || sSettings), suppliers: filtered };
-                                    updated = true;
-                                }
-                            }
-                        }
-
-                        if (collectionName === 'partners') {
-                            if (Array.isArray(sData?.partners)) {
-                                const filtered = sData.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                                if (filtered.length !== sData.partners.length) {
-                                    newPayload.partners = filtered;
-                                    updated = true;
-                                }
-                            }
-                            if (Array.isArray(sSettings?.partners)) {
-                                const filtered = sSettings.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                                if (filtered.length !== sSettings.partners.length) {
-                                    newPayload.settings = { ...(newPayload.settings || sSettings), partners: filtered };
-                                    updated = true;
-                                }
-                            }
-                        }
-
-                        if (updated) {
-                            updateDoc(storeDocRef, newPayload).catch(() => {});
-                        }
-                    }
-                }).catch(() => {});
+                const key = collectionName;
+                if (Array.isArray(localData.settings?.[key])) {
+                    localData.settings[key] = localData.settings[key].filter((item: any) => !ids.includes(String(item?.id || '')));
+                }
+                if (Array.isArray((localData as any)[key])) {
+                    (localData as any)[key] = (localData as any)[key].filter((item: any) => !ids.includes(String(item?.id || '')));
+                }
             }
-        }
-
-        // Immediately update localStorage so offline/memory caches never resurrect it
-        if (collectionName === 'orders') {
-            getLocal(storeId).then(localData => {
-                if (localData && Array.isArray(localData.orders)) {
-                    const beforeCount = localData.orders.length;
-                    localData.orders = localData.orders.filter((o: any) => {
-                        const oId = String(o?.id || '');
-                        const oNum = String(o?.orderNumber || '');
-                        return oId !== rawId && oId !== docId && oNum !== rawId && oNum !== docId;
-                    });
-                    if (localData.orders.length !== beforeCount) {
-                        saveLocal(storeId, localData).catch(() => {});
-                    }
-                }
-            }).catch(() => {});
-        }
-
-        if (collectionName === 'suppliers' || collectionName === 'partners') {
-            getLocal(storeId).then(localData => {
-                if (localData) {
-                    let changed = false;
-                    if (collectionName === 'suppliers') {
-                        if (Array.isArray(localData.settings?.suppliers)) {
-                            const before = localData.settings.suppliers.length;
-                            localData.settings.suppliers = localData.settings.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                            if (localData.settings.suppliers.length !== before) changed = true;
-                        }
-                        if (Array.isArray(localData.suppliers)) {
-                            const before = localData.suppliers.length;
-                            localData.suppliers = localData.suppliers.filter((s: any) => String(s?.id || '') !== rawId && String(s?.id || '') !== docId);
-                            if (localData.suppliers.length !== before) changed = true;
-                        }
-                    }
-                    if (collectionName === 'partners') {
-                        if (Array.isArray(localData.settings?.partners)) {
-                            const before = localData.settings.partners.length;
-                            localData.settings.partners = localData.settings.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                            if (localData.settings.partners.length !== before) changed = true;
-                        }
-                        if (Array.isArray(localData.partners)) {
-                            const before = localData.partners.length;
-                            localData.partners = localData.partners.filter((p: any) => String(p?.id || '') !== rawId && String(p?.id || '') !== docId);
-                            if (localData.partners.length !== before) changed = true;
-                        }
-                    }
-                    if (changed) {
-                        saveLocal(storeId, localData).catch(() => {});
-                    }
-                }
-            }).catch(() => {});
+            await saveLocal(storeId, localData);
         }
 
         return true;
     } catch (e) {
-        console.error(`[deleteStoreItem] Error deleting item ${itemId} from ${collectionName}:`, e);
+        console.error(`[deleteStoreItem] Supabase delete failed for ${collectionName}/${itemId}:`, e);
         return false;
     }
 };
