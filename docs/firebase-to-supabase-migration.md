@@ -33,7 +33,7 @@
 
 
 ## Implemented on the migration branch
-- Added `services/supabaseAuthService.ts` with a single project-configured Supabase Auth client, PKCE flow, sign-up, sign-in, sign-out, and current-user helpers.
+- Added `services/supabaseAuthService.ts` with a single project-configured Supabase Auth client, PKCE flow, sign-up/sign-in/sign-out, current-user/session lookup, auth-state subscription, password-reset request, password update, and PKCE email-token verification helpers. The UI and route cutover still needs to be wired and tested.
 - The client intentionally ignores per-store Supabase URLs and keys from localStorage/store settings.
 - Removed plaintext password writes to the legacy Supabase `users` table and Firestore user documents, and stopped returning the legacy Supabase password field from the phone lookup helper.
 - Changed user-list, phone-lookup, and migration-overview reads to explicit safe column lists; these queries no longer select the legacy `users.password` column.
