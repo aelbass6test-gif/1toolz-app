@@ -60,7 +60,7 @@ Deno.serve(async (request: Request) => {
 
   if (!storeId || !fullName || !phone || !email || !email.includes("@")) return json({ success: false, error: "بيانات الموظف غير مكتملة." }, 400);
   if (!/^[+0-9][0-9+() -]{5,24}$/.test(phone)) return json({ success: false, error: "رقم الهاتف غير صحيح." }, 400);
-  if (mode === "create" && password.length < 8) return json({ success: false, error: "كلمة المرور يجب ألا تقل عن 8 أحرف." }, 400);
+  if (mode === "create" && password.length < 8 && body.action !== "submit_request") return json({ success: false, error: "كلمة المرور يجب ألا تقل عن 8 أحرف." }, 400);
   if (permissions.length > 26) return json({ success: false, error: "عدد الصلاحيات غير صالح." }, 400);
 
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
