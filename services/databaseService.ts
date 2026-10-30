@@ -562,8 +562,26 @@ const WITH_TIMEOUT = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise
 };
 
 // --- Sync Optimizations: Memory-Hash Cache & ID Tracking to Prevent Duplicate Firestore Reads/Writes & Accidental Deletions ---
-const LAST_SYNCED_HASHES: Record<string, string> = {};
+const loadInitialSyncedHashes = (): Record<string, string> => {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            const raw = localStorage.getItem('last_synced_hashes');
+            if (raw) return JSON.parse(raw);
+        }
+    } catch (_) {}
+    return {};
+};
+
+const LAST_SYNCED_HASHES = loadInitialSyncedHashes();
 const LAST_KNOWN_DOC_IDS: Record<string, Set<string>> = {};
+
+const saveSyncedHashes = () => {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            localStorage.setItem('last_synced_hashes', JSON.stringify(LAST_SYNCED_HASHES));
+        }
+    } catch (_) {}
+};
 
 const loadInitialDeletedIds = (): Set<string> => {
     const s = new Set<string>();
@@ -582,6 +600,26 @@ const loadInitialDeletedIds = (): Set<string> => {
 };
 
 const EXPLICIT_DELETED_IDS = loadInitialDeletedIds();
+
+export const isExplicitlyDeleted = (id: string, storeId?: string): boolean => {
+    if (!id) return false;
+    const rawId = String(id).trim();
+    if (EXPLICIT_DELETED_IDS.has(rawId)) return true;
+    if (storeId) {
+        if (EXPLICIT_DELETED_IDS.has(`${storeId}_${rawId}`)) return true;
+        if (EXPLICIT_DELETED_IDS.has(`${storeId}_orders_${rawId}`)) return true;
+        if (EXPLICIT_DELETED_IDS.has(`${storeId}_suppliers_${rawId}`)) return true;
+        if (EXPLICIT_DELETED_IDS.has(`${storeId}_partners_${rawId}`)) return true;
+    }
+    try {
+        const raw = localStorage.getItem('explicit_deleted_ids');
+        if (raw && (raw.includes(`"${rawId}"`) || raw.includes(`"${storeId}_${rawId}"`) || raw.includes(`"${storeId}_orders_${rawId}"`))) {
+            EXPLICIT_DELETED_IDS.add(rawId);
+            return true;
+        }
+    } catch (_) {}
+    return false;
+};
 
 const recordExplicitDeletion = (key: string) => {
     EXPLICIT_DELETED_IDS.add(key);
@@ -804,6 +842,9 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         if (local.settings) {
             syncSupabaseCredentials(storeId, local.settings);
         }
+        if (Array.isArray(local.orders)) {
+            local.orders = local.orders.filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
+        }
         return local;
     }
 
@@ -836,9 +877,10 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
         const storeRow = storeRowResult?.items?.[0];
         if (storeRow) {
           const storeSettings = storeRow.settings || {};
+          const filteredOrders = (orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
           const fullData: StoreData = {
             settings: { ...INITIAL_SETTINGS, ...storeSettings, products, suppliers, partners, supplyOrders },
-            orders,
+            orders: filteredOrders,
             wallet: { balance: storeSettings.wallet_balance || 0, transactions: transactions },
             treasury: { accounts: treasuryAccounts, transactions: treasuryTransactions },
             customers: [], // Will be synced separately if needed
@@ -1126,7 +1168,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     });
 
                     const localOnlyOrders = (local?.orders || []).filter((lo: any) => lo && lo.id && !cloudOrderIds.has(String(lo.id).trim()));
-                    return [...mappedCloudOrders, ...localOnlyOrders];
+                    return [...mappedCloudOrders, ...localOnlyOrders].filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
                 })(),
                 wallet: { balance: 0, transactions },
                 treasury: { 
@@ -1201,6 +1243,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         storeName: storeSettings.storeName || cloudData?.name || local?.settings?.storeName || 'المتجر',
                         products: await (async () => {
                             const embeddedProducts = storeSettings.products || local?.settings?.products || [];
+                            // Optimization: Skip collection fetch if not forced and we have embedded data
+                            if (!forceRemote && embeddedProducts.length > 0) return embeddedProducts;
                             try {
                                 const productsSnap = await getDocs(query(collection(firebaseDb, 'products'), where('storeId', '==', storeId)));
                                 if (productsSnap.empty) return embeddedProducts;
@@ -1225,6 +1269,8 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         suppliers: await (async () => {
                             const embedded = sanitizeSuppliersList(storeSettings.suppliers || local?.settings?.suppliers || []);
+                            // Optimization: Skip collection fetch if not forced and we have embedded data
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'suppliers'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1253,6 +1299,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         supplyOrders: await (async () => {
                             const embedded = storeSettings.supplyOrders || local?.settings?.supplyOrders || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'supply_orders'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1261,6 +1308,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         reviews: await (async () => {
                             const embedded = storeSettings.reviews || local?.settings?.reviews || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'reviews'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1269,6 +1317,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         abandonedCarts: await (async () => {
                             const embedded = storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'abandoned_carts'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1277,6 +1326,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         activityLogs: await (async () => {
                             const embedded = storeSettings.activityLogs || local?.settings?.activityLogs || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'activity_logs'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1285,6 +1335,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         employees: await (async () => {
                             const embedded = storeSettings.employees || local?.settings?.employees || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'employees'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1293,6 +1344,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         discountCodes: await (async () => {
                             const embedded = storeSettings.discountCodes || local?.settings?.discountCodes || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'discount_codes'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1301,6 +1353,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         collections: await (async () => {
                             const embedded = storeSettings.collections || local?.settings?.collections || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'collections'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1309,6 +1362,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         customPages: await (async () => {
                             const embedded = storeSettings.customPages || local?.settings?.customPages || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'custom_pages'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1317,6 +1371,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         paymentMethods: await (async () => {
                             const embedded = storeSettings.paymentMethods || local?.settings?.paymentMethods || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'payment_methods'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1325,6 +1380,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         globalOptions: await (async () => {
                             const embedded = storeSettings.globalOptions || local?.settings?.globalOptions || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'global_options'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1333,6 +1389,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         shippingIntegrations: await (async () => {
                             const embedded = storeSettings.shippingIntegrations || local?.settings?.shippingIntegrations || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'shipping_integrations'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1341,6 +1398,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         partners: await (async () => {
                             const embedded = storeSettings.partners || local?.settings?.partners || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1349,6 +1407,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         partnerTransactions: await (async () => {
                             const embedded = storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1357,6 +1416,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         warehouses: await (async () => {
                             const embedded = storeSettings.warehouses || local?.settings?.warehouses || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'warehouses'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1365,6 +1425,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         inventoryAudits: await (async () => {
                             const embedded = storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'inventory_audits'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1373,6 +1434,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         stockTransfers: await (async () => {
                             const embedded = storeSettings.stockTransfers || local?.settings?.stockTransfers || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'stock_transfers'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1381,6 +1443,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         orderReturns: await (async () => {
                             const embedded = storeSettings.orderReturns || local?.settings?.orderReturns || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'order_returns'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1389,6 +1452,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         purchaseReturns: await (async () => {
                             const embedded = storeSettings.purchaseReturns || local?.settings?.purchaseReturns || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1397,6 +1461,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         posSales: await (async () => {
                             const embedded = storeSettings.posSales || local?.settings?.posSales || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'pos_sales'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1405,6 +1470,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         cashHolders: await (async () => {
                             const embedded = storeSettings.cashHolders || local?.settings?.cashHolders || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1413,6 +1479,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         cashHandovers: await (async () => {
                             const embedded = storeSettings.cashHandovers || local?.settings?.cashHandovers || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'cash_handovers'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1421,6 +1488,7 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         })(),
                         whatsappTemplates: await (async () => {
                             const embedded = storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || [];
+                            if (!forceRemote && embedded.length > 0) return embedded;
                             try {
                                 const snap = await getDocs(query(collection(firebaseDb, 'whatsapp_templates'), where('storeId', '==', storeId)));
                                 if (snap.empty) return embedded;
@@ -1434,15 +1502,19 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         callScripts: storeSettings.callScripts || local?.settings?.callScripts || []
                     },
                     orders: await (async () => {
-                        const embeddedOrders = cloudData?.orders || local?.orders || [];
+                        const embeddedOrders = (cloudData?.orders || local?.orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
                         try {
-                            let ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('storeId', '==', storeId)));
-                            if (ordersSnap.empty) {
-                                ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId)));
+                            let ordersSnap = null;
+                            if (forceRemote || embeddedOrders.length === 0) {
+                                ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('storeId', '==', storeId)));
+                                if (ordersSnap.empty) {
+                                    ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId)));
+                                }
                             }
+                            if (!ordersSnap || ordersSnap.empty) return embeddedOrders;
                             const colOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-                            const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders, EXPLICIT_DELETED_IDS);
-                            return reconciled.mergedOrders;
+                            const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders, EXPLICIT_DELETED_IDS, true);
+                            return reconciled.mergedOrders.filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
                         } catch {
                             return embeddedOrders;
                         }
@@ -1605,6 +1677,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
             const localGlobal = await getLocal('global');
             const usersList = localGlobal?.users || [];
             const usersFingerprintKey = 'global:users_sync';
+            const usersFingerprint = JSON.stringify(usersList.map((u: any) => ({ phone: u?.phone, name: u?.fullName, email: u?.email })));
             if (syncFingerprints.get(usersFingerprintKey) !== usersFingerprint) {
                 // Map users to relational format
                 const emailSeenInPayload = new Set<string>();
@@ -2527,6 +2600,7 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
                 if (!collectionHadWriteError) {
                     LAST_SYNCED_HASHES[hashKey] = currentHash;
+                    saveSyncedHashes();
                     LAST_KNOWN_DOC_IDS[hashKey] = new Set(stateItems.map(item => {
                         const baseId = String(item[idField] || item.phone || item.id);
                         return baseId.startsWith(store.id) ? baseId : `${store.id}_${baseId}`;
@@ -2644,11 +2718,9 @@ export const getGlobalData = async (forceRemote: boolean = false): Promise<{ use
     const savedSyncMode = isBrowser ? localStorage.getItem('dbSyncMode') : 'auto';
     const shouldForce = forceRemote || (savedSyncMode === 'auto');
 
-    if (!shouldForce) {
-        const local = await getLocal('global');
-        if (local && local.users && local.users.length > 0) {
-            return local;
-        }
+    const local = await getLocal('global');
+    if (!forceRemote && local && local.users && local.users.length > 0) {
+        return local;
     }
 
     try {
@@ -3228,17 +3300,18 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
 
     // 2. Try Supabase
     const supabase = getSupabaseClient();
-    let supabaseSuccess = false;
     if (supabase) {
         try {
             const { data, error } = await supabase
                 .from('partner_requests')
                 .select('*')
                 .eq('store_id', storeId);
-            if (!error && data) {
-                requests = data as PartnerPortalRequest[];
+            if (!error && Array.isArray(data)) {
+                const map = new Map<string, PartnerPortalRequest>();
+                requests.forEach(r => { if (r.id) map.set(String(r.id), r); });
+                (data as any[]).forEach(r => { if (r.id) map.set(String(r.id), r); });
+                requests = Array.from(map.values());
                 requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-                supabaseSuccess = true;
                 try { localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests)); } catch (_) {}
             }
         } catch (err) {
@@ -3247,13 +3320,18 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
     }
 
     // 3. Fetch from Firestore (authoritative source of truth when online)
-    if (!supabaseSuccess && firebaseDb) {
+    if (firebaseDb && localStorage.getItem('firestore_quota_exceeded') !== 'true') {
         try {
             const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
             const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            const cloudRequests = snap.docs.map(d => d.data() as PartnerPortalRequest);
-            cloudRequests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
-            requests = cloudRequests;
+            const cloudRequests = snap.docs.map(d => ({ id: d.id, ...d.data() } as PartnerPortalRequest));
+            
+            const map = new Map<string, PartnerPortalRequest>();
+            requests.forEach(r => { if (r.id) map.set(String(r.id), r); });
+            cloudRequests.forEach(r => { if (r.id) map.set(String(r.id), r); });
+            
+            requests = Array.from(map.values());
+            requests.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
             try {
                 localStorage.setItem(`partner_requests_${storeId}`, JSON.stringify(requests));
             } catch (_) {}
@@ -3362,7 +3440,9 @@ const toMerchantRequestView = (raw: any, legacySource: 'merchant_requests' | 'pa
 
 const isLegacyMerchantRequest = (r: any): boolean => Boolean(r && (
     r.isMerchantRequest === true ||
+    r.is_merchant_request === true ||
     String(r.id || '').startsWith('REQ-M-') ||
+    String(r.id || '').startsWith('preq_') ||
     String(r.typeArabic || '').includes('الموكل') ||
     String(r.partnerId || '').startsWith('m_') ||
     String(r.partnerId || '').startsWith('sup_')
@@ -3438,79 +3518,124 @@ export const submitMerchantRequest = async (
 
 export const getMerchantRequests = async (storeId: string): Promise<PartnerPortalRequest[]> => {
     const key = `merchant_requests_${storeId}`;
-    let current: any[] = [];
+    const legacyKey = `partner_requests_${storeId}`;
+    const merged = new Map<string, PartnerPortalRequest>();
+
+    // 1. Initialise with cached requests from localStorage
     try {
         const cached = JSON.parse(localStorage.getItem(key) || '[]');
-        if (Array.isArray(cached)) current = cached;
+        if (Array.isArray(cached)) {
+            cached.forEach(r => {
+                if (r && r.id) merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+            });
+        }
     } catch (_) {}
 
-    const supabase = getSupabaseClient();
-    let remoteSuccess = false;
-
-    // --- Hostinger MySQL Priority ---
-    if (isHostingerActive()) {
-      try {
-        const res = await fetch(`/api/mysql/fetch?table=merchant_requests&storeId=${storeId}`);
-        const data = await res.json();
-        if (data.items) {
-          current = data.items;
-          remoteSuccess = true;
-          try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
+    try {
+        const cachedLeg = JSON.parse(localStorage.getItem(legacyKey) || '[]');
+        if (Array.isArray(cachedLeg)) {
+            cachedLeg.filter(isLegacyMerchantRequest).forEach(r => {
+                if (r && r.id && !merged.has(String(r.id))) {
+                    merged.set(String(r.id), toMerchantRequestView(r, 'partner_requests'));
+                }
+            });
         }
-      } catch (e) {
-        console.warn('[HOSTINGER-FETCH] Merchant requests failed:', e);
-      }
+    } catch (_) {}
+
+    // 2. Query Hostinger MySQL Priority (merge items if present)
+    if (isHostingerActive()) {
+        try {
+            const res = await fetch(`/api/mysql/fetch?table=merchant_requests&storeId=${storeId}`);
+            const data = await res.json();
+            if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+                data.items.forEach((r: any) => {
+                    if (r && r.id) merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                });
+            }
+        } catch (e) {
+            console.warn('[HOSTINGER-FETCH] Merchant requests failed:', e);
+        }
     }
 
-    if (!remoteSuccess && supabase) {
+    // 3. Query Supabase
+    const supabase = getSupabaseClient();
+    if (supabase) {
         try {
             const { data, error } = await supabase
                 .from('merchant_requests')
                 .select('*')
                 .eq('store_id', storeId);
-            if (!error && data) {
-                current = data;
-                remoteSuccess = true;
-                try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
+            if (!error && Array.isArray(data) && data.length > 0) {
+                data.forEach((r: any) => {
+                    if (r && r.id) merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                });
             }
         } catch (err) {
             console.warn('[MERCHANT-REQUEST] Supabase read failed:', err);
         }
+
+        try {
+            const { data: pData, error: pError } = await supabase
+                .from('partner_requests')
+                .select('*')
+                .eq('store_id', storeId);
+            if (!pError && Array.isArray(pData) && pData.length > 0) {
+                pData.filter(isLegacyMerchantRequest).forEach((r: any) => {
+                    if (r && r.id && !merged.has(String(r.id))) {
+                        merged.set(String(r.id), toMerchantRequestView(r, 'partner_requests'));
+                    }
+                });
+            }
+        } catch (err) {
+            console.warn('[MERCHANT-REQUEST] Supabase partner_requests read failed:', err);
+        }
     }
 
-    if (!supabaseSuccess && firebaseDb) {
+    // 4. Query Firestore (if quota not exceeded)
+    if (firebaseDb && localStorage.getItem('firestore_quota_exceeded') !== 'true') {
         try {
-            const q = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            current = snap.docs.map(d => d.data());
-            try { localStorage.setItem(key, JSON.stringify(current)); } catch (_) {}
+            const q1 = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId));
+            const snap1 = await WITH_TIMEOUT(getDocs(q1), 6000);
+            snap1.docs.forEach(d => {
+                const item = { id: d.id, ...d.data() };
+                merged.set(d.id, toMerchantRequestView(item, 'merchant_requests'));
+            });
         } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Error reading isolated merchant requests:', err);
+            console.warn('[MERCHANT-REQUEST] Firestore merchant_requests notice:', err);
+        }
+
+        try {
+            const q2 = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
+            const snap2 = await WITH_TIMEOUT(getDocs(q2), 6000);
+            snap2.docs.forEach(d => {
+                const item = { id: d.id, ...d.data() };
+                if (isLegacyMerchantRequest(item) && !merged.has(d.id)) {
+                    merged.set(d.id, toMerchantRequestView(item, 'partner_requests'));
+                }
+            });
+        } catch (err) {
+            console.warn('[MERCHANT-REQUEST] Firestore partner_requests notice:', err);
         }
     }
-    // Backward-compatible read only: legacy merchant requests remain visible until migrated.
-    let legacy: any[] = [];
+
+    // 5. Check local store settings fallback in IndexedDB
     try {
-        const cached = JSON.parse(localStorage.getItem(`partner_requests_${storeId}`) || '[]');
-        if (Array.isArray(cached)) legacy = cached.filter(isLegacyMerchantRequest);
-    } catch (_) {}
-    
-    if (!supabaseSuccess && firebaseDb) {
-        try {
-            const q = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId));
-            const snap = await WITH_TIMEOUT(getDocs(q), 8000);
-            legacy = snap.docs.map(d => d.data()).filter(isLegacyMerchantRequest);
-        } catch (err) {
-            console.warn('[MERCHANT-REQUEST] Error reading legacy merchant requests:', err);
+        const localStore = await getLocal(storeId);
+        const sReqs = (localStore?.settings as any)?.merchantRequests || (localStore?.settings as any)?.partnerRequests;
+        if (Array.isArray(sReqs)) {
+            sReqs.forEach((r: any) => {
+                if (r && r.id && !merged.has(String(r.id))) {
+                    merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests'));
+                }
+            });
         }
-    }
-    const merged = new Map<string, PartnerPortalRequest>();
-    current.forEach(r => merged.set(String(r.id), toMerchantRequestView(r, 'merchant_requests')));
-    legacy.forEach(r => {
-        const id = String(r.id || '');
-        if (!merged.has(id)) merged.set(id, toMerchantRequestView(r, 'partner_requests'));
-    });
-    return [...merged.values()].sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+    } catch (_) {}
+
+    const result = [...merged.values()].sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+    try {
+        localStorage.setItem(key, JSON.stringify(result));
+    } catch (_) {}
+    return result;
 };
 
 export const updateMerchantRequestStatus = async (

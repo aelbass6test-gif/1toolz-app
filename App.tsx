@@ -1762,7 +1762,7 @@ export const AppComponent = () => {
 
         debounceTimer.current = setTimeout(() => {
             executeCloudSync();
-        }, 800); // 800ms debounce to rapidly persist updates to Cloud without blocking UI
+        }, 3000); // 3000ms debounce to reduce Firestore write frequency and prevent quota exhaustion
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -2921,7 +2921,8 @@ export const AppComponent = () => {
                     setAllStoresData(prev => {
                         const store = prev[activeStoreId];
                         if (!store) return prev;
-                        // Only update name and settings from the store document
+                        
+                        // Smart merge: Update settings, orders, wallet, and treasury if provided in the summary document
                         return {
                             ...prev,
                             [activeStoreId]: {
@@ -2930,7 +2931,11 @@ export const AppComponent = () => {
                                 settings: {
                                     ...store.settings,
                                     ...(snapData.settings || {})
-                                }
+                                },
+                                orders: snapData.orders || store.orders,
+                                wallet: snapData.wallet || store.wallet,
+                                treasury: snapData.treasury || store.treasury,
+                                quotations: snapData.quotations || store.quotations
                             }
                         };
                     });

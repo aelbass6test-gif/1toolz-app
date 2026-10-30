@@ -1326,6 +1326,8 @@ export interface Settings {
   activePeriodName?: string;
   openingInventoryValue?: number;
   storeApiKeys?: StoreApiKey[];
+  defaultPayoutStrategy?: 'rolling_hold' | 'batch_weekly' | 'manual_request';
+  merchantRequests?: any[];
 }
 
 export type ApiKeyScope = 
@@ -2219,6 +2221,7 @@ export interface StoreData {
   cart: OrderItem[];
   customers: CustomerProfile[]; // Added customers to StoreData
   quotations?: Quotation[];
+  merchantRequests?: any[];
 }
 
 export interface PlaceOrderData {

@@ -214,7 +214,8 @@ export function reconcileDualOrderSources(
   storeId: string,
   embeddedOrders: any[],
   collectionOrders: any[],
-  explicitlyDeletedIds?: Set<string>
+  explicitlyDeletedIds?: Set<string>,
+  isFullCollectionSource = false
 ): {
   mergedOrders: any[];
   onlyInEmbeddedIds: string[];
@@ -263,8 +264,22 @@ export function reconcileDualOrderSources(
 
   for (const [id, emb] of embeddedMap.entries()) {
     if (!collectionMap.has(id)) {
-      onlyInEmbeddedIds.push(id);
-      mergedMap.set(id, emb);
+      if (isFullCollectionSource) {
+        // If we have a full cloud list and this item is missing, it might be deleted.
+        // But if it's very new, it might be a local pending creation.
+        const embTime = new Date(emb.createdAt || emb.date || 0).getTime();
+        const ageMs = Date.now() - embTime;
+        if (ageMs < 600000) { // 10 minutes grace period for pending syncs
+          onlyInEmbeddedIds.push(id);
+          mergedMap.set(id, emb);
+        } else {
+          // Discard older item missing from cloud - likely a remote deletion
+          console.log(`[SYNC-RECONCILE] Discarding local order ${id} missing from cloud (Full Sync)`);
+        }
+      } else {
+        onlyInEmbeddedIds.push(id);
+        mergedMap.set(id, emb);
+      }
     } else {
       const col = collectionMap.get(id);
       if (emb.status !== col.status) {

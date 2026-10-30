@@ -123,8 +123,7 @@ const MerchantsPage: React.FC<MerchantsPageProps> = ({
 
   useEffect(() => {
     loadCloudRequests();
-    const interval = setInterval(loadCloudRequests, 10000);
-    return () => clearInterval(interval);
+    // Removed 10s polling interval to reduce backend resource consumption.
   }, [loadCloudRequests]);
 
   const merchants = useMemo(() => {

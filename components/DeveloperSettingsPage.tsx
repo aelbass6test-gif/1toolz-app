@@ -130,9 +130,19 @@ const SupabaseIcon = () => (
 
 const SQL_SCHEMA_SCRIPT = `-- =========================================================================
 -- السكربت الشامل والمتكامل لإنشاء وضبط جميع جداول وأعمدة قاعدة بيانات Supabase
--- يتضمن 38 جدولاً متكاملاً مع جميع الأعمدة بصيغتي CamelCase و snake_case
+-- يتضمن 41 جدولاً متكاملاً مع جميع الأعمدة بصيغتي CamelCase و snake_case
 -- وتعطيل RLS وتعيين الصلاحيات لضمان أقصى سرعة ومزامنة سلسة 100%
 -- =========================================================================
+
+-- تنفيذ الإعدادات الأولية للصلاحيات (في حالة وجود جداول قديمة)
+DO $$ 
+BEGIN
+    EXECUTE (
+        SELECT string_agg('ALTER TABLE ' || quote_ident(schemaname) || '.' || quote_ident(tablename) || ' DISABLE ROW LEVEL SECURITY;', ' ')
+        FROM pg_tables
+        WHERE schemaname = 'public'
+    );
+END $$;
 
 -- 1. STORES_DATA (قاعدة بيانات المتاجر والإعدادات)
 CREATE TABLE IF NOT EXISTS stores_data (
@@ -552,7 +562,7 @@ CREATE TABLE IF NOT EXISTS collections (
     updatedAt TEXT
 );
 
--- 14. CUSTOM_PAGES (الصفحات المخصصة)
+-- 14. CUSTOM_PAGES (صفحات المتجر)
 CREATE TABLE IF NOT EXISTS custom_pages (
     id TEXT PRIMARY KEY,
     store_id TEXT REFERENCES stores_data(id) ON DELETE CASCADE,
@@ -1274,54 +1284,21 @@ CREATE TABLE IF NOT EXISTS partner_requests (
 );
 
 -- =========================================================================
--- تعطيل نظام الحماية RLS لجميع الجداول (لتسهيل وسرعة المزامنة بدون أخطاء)
+-- تعطيل نظام الحماية RLS ومنح الصلاحيات الشاملة (لضمان أقصى سرعة ومزامنة)
 -- =========================================================================
-ALTER TABLE stores_data DISABLE ROW LEVEL SECURITY;
-ALTER TABLE users DISABLE ROW LEVEL SECURITY;
-ALTER TABLE products DISABLE ROW LEVEL SECURITY;
-ALTER TABLE orders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE suppliers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE supply_orders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE reviews DISABLE ROW LEVEL SECURITY;
-ALTER TABLE abandoned_carts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE activity_logs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE employees DISABLE ROW LEVEL SECURITY;
-ALTER TABLE discount_codes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE collections DISABLE ROW LEVEL SECURITY;
-ALTER TABLE custom_pages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE payment_methods DISABLE ROW LEVEL SECURITY;
-ALTER TABLE customers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE global_options DISABLE ROW LEVEL SECURITY;
-ALTER TABLE shipping_integrations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE documents DISABLE ROW LEVEL SECURITY;
-ALTER TABLE treasury_accounts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE treasury_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partners DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partner_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE chat_messages DISABLE ROW LEVEL SECURITY;
-ALTER TABLE warehouses DISABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_audits DISABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_transfers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE order_returns DISABLE ROW LEVEL SECURITY;
-ALTER TABLE purchase_returns DISABLE ROW LEVEL SECURITY;
-ALTER TABLE pos_sales DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cash_holders DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cash_handovers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE whatsapp_templates DISABLE ROW LEVEL SECURITY;
-ALTER TABLE webhook_logs DISABLE ROW LEVEL SECURITY;
-ALTER TABLE call_scripts DISABLE ROW LEVEL SECURITY;
-ALTER TABLE customer_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE supplier_transactions DISABLE ROW LEVEL SECURITY;
-ALTER TABLE shared_audits DISABLE ROW LEVEL SECURITY;
-ALTER TABLE withdrawal_requests DISABLE ROW LEVEL SECURITY;
-ALTER TABLE quotations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE merchant_requests DISABLE ROW LEVEL SECURITY;
-ALTER TABLE partner_requests DISABLE ROW LEVEL SECURITY;
+DO $$ 
+BEGIN
+    EXECUTE (
+        SELECT string_agg('ALTER TABLE ' || quote_ident(schemaname) || '.' || quote_ident(tablename) || ' DISABLE ROW LEVEL SECURITY;', ' ')
+        FROM pg_tables
+        WHERE schemaname = 'public'
+    );
+END $$;
 
--- منح كامل الصلاحيات لجميع المفاتيح (anon, authenticated, service_role)
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
 `;
 
 interface DeveloperSettingsPageProps {

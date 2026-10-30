@@ -74,17 +74,48 @@ export const AgencyHubPage: React.FC<AgencyHubPageProps> = ({
     try {
       setRequestsLoading(true);
       const reqs = await db.getMerchantRequests(activeStoreId);
-      setCloudRequests(reqs);
-    } catch (_) {
+      const map = new Map<string, db.PartnerPortalRequest>();
+      (reqs || []).forEach(r => {
+        if (r && r.id) map.set(String(r.id), r);
+      });
+
+      // Also merge with localStorage cached requests
+      try {
+        const localCached = JSON.parse(localStorage.getItem(`merchant_requests_${activeStoreId}`) || '[]');
+        if (Array.isArray(localCached)) {
+          localCached.forEach((r: any) => {
+            if (r && r.id && !map.has(String(r.id))) map.set(String(r.id), r);
+          });
+        }
+      } catch (_) {}
+      try {
+        const legacyCached = JSON.parse(localStorage.getItem(`partner_requests_${activeStoreId}`) || '[]');
+        if (Array.isArray(legacyCached)) {
+          legacyCached.forEach((r: any) => {
+            if (r && r.id && !map.has(String(r.id))) map.set(String(r.id), r);
+          });
+        }
+      } catch (_) {}
+
+      // Also check settings.merchantRequests / settings.partnerRequests
+      const sReqs = (settings as any)?.merchantRequests || (settings as any)?.partnerRequests;
+      if (Array.isArray(sReqs)) {
+        sReqs.forEach((r: any) => {
+          if (r && r.id && !map.has(String(r.id))) map.set(String(r.id), r);
+        });
+      }
+
+      setCloudRequests(Array.from(map.values()).sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()));
+    } catch (err) {
+      console.warn('Error loading requests in AgencyHubPage:', err);
     } finally {
       setRequestsLoading(false);
     }
-  }, [activeStoreId]);
+  }, [activeStoreId, settings]);
 
   useEffect(() => {
     loadRequests();
-    const interval = setInterval(loadRequests, 20000);
-    return () => clearInterval(interval);
+    // Removed redundant 20s polling interval to save backend resources; onSnapshot or manual refresh should be preferred.
   }, [loadRequests]);
 
   const suppliersList: Supplier[] = useMemo(() => {

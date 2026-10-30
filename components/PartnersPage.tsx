@@ -83,9 +83,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
   useEffect(() => {
     loadCloudRequests();
-    // Poll every 10 seconds to catch incoming requests from partners
-    const interval = setInterval(loadCloudRequests, 10000);
-    return () => clearInterval(interval);
+    // Removed 10s polling interval to prevent Firestore quota exhaustion.
   }, [loadCloudRequests]);
 
   const partnerRequests = useMemo(() => {

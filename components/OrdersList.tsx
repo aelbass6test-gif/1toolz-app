@@ -592,12 +592,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     });
   }, [orders]);
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (onRefresh && document.visibilityState === "visible") {
-        onRefresh();
-      }
-    }, 10000); // UI poll every 10 seconds for smoothness
-    return () => clearInterval(interval);
+    // Removed redundant 10s UI polling to conserve Firestore/Supabase quota. 
+    // Real-time listeners or manual refresh provide sufficient synchronization.
   }, [onRefresh]);
 
   const handleManualRefresh = async () => {

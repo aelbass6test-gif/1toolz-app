@@ -310,8 +310,15 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     if (!targetStoreId) return;
     try {
       const reqs = await db.getMerchantRequests(targetStoreId);
-      setMerchantRequestsList(reqs);
-    } catch (_) {}
+      setMerchantRequestsList(prev => {
+        const map = new Map<string, db.PartnerPortalRequest>();
+        prev.forEach(r => { if (r && r.id) map.set(String(r.id), r); });
+        (reqs || []).forEach(r => { if (r && r.id) map.set(String(r.id), r); });
+        return Array.from(map.values()).sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+      });
+    } catch (err) {
+      console.warn('[MerchantPortal] Error loading requests:', err);
+    }
   }, [directStoreId, storeId, effectiveStoreId]);
 
   useEffect(() => {
@@ -321,9 +328,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const localStoreData = (storeId && allStoresData[storeId]) || (effectiveStoreId ? allStoresData[effectiveStoreId] : null);
   const activeStoreData = directStoreData || localStoreData;
   const settings = (activeStoreData?.settings || { partners: [], suppliers: [], partnerTransactions: [] }) as any;
-  const rawOrders: Order[] = Array.isArray(directStoreData?.orders)
-    ? directStoreData.orders
-    : (localStoreData?.orders || []);
+  const rawOrders: Order[] = useMemo(() => {
+    const list: Order[] = Array.isArray(directStoreData?.orders)
+      ? directStoreData.orders
+      : (localStoreData?.orders || []);
+    return list.filter(o => {
+      if (!o) return false;
+      const oId = String(o.id || '').trim();
+      const oNum = String(o.orderNumber || '').trim();
+      return !db.isExplicitlyDeleted(oId, effectiveStoreId) && !db.isExplicitlyDeleted(oNum, effectiveStoreId);
+    });
+  }, [directStoreData?.orders, localStoreData?.orders, effectiveStoreId]);
   
   // Build the merchant directory only from explicit ID-bearing profiles in the active store.
   const merchants: Partner[] = useMemo(() => {
@@ -3948,7 +3963,12 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       };
 
       await db.submitMerchantRequest(effectiveStoreId, newReq as any);
-      setMerchantRequestsList(prev => [newReq as any, ...prev]);
+      try {
+        const key = `merchant_requests_${effectiveStoreId}`;
+        const existing = JSON.parse(localStorage.getItem(key) || '[]');
+        localStorage.setItem(key, JSON.stringify([newReq, ...existing.filter((r: any) => r.id !== newReq.id)]));
+      } catch (_) {}
+      setMerchantRequestsList(prev => [newReq as any, ...prev.filter(r => r.id !== newReq.id)]);
       setShowRequestModal(false);
       setRequestAmount('');
       setRequestNotes('');
@@ -11198,7 +11218,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     type="number"
                     step="any"
                     value={requestAmount}
-                    min={weeklyPayoutOverview.minWeeklyPayout}
+                    min="0.01"
                     max={Math.min(weeklyPayoutOverview.maturedWalletBalance, weeklyPayoutOverview.maxWeeklyPayout)}
                     onChange={e => setRequestAmount(e.target.value)}
                     placeholder={`الحد الأقصى الجاهز للسحب: ${weeklyPayoutOverview.cappedNextPayoutAmount.toLocaleString()}`}

@@ -509,7 +509,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
         notes: `${requestNotes || ''}${payoutDetails}`,
         date: new Date().toISOString(),
         status: 'pending',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isMerchantRequest: isMerchantMode
       };
 
       const res = await db.submitPartnerRequest(effectiveStoreId, newPartnerRequest);
