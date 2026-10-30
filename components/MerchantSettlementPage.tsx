@@ -4474,19 +4474,19 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
       {activeTab === 'requests' && (
         <div className="space-y-6">
           {/* Header Banner */}
-          <div className="bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border border-amber-500/30 rounded-3xl p-6 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+          <div className="bg-gradient-to-l from-emerald-50 via-white to-amber-50 dark:from-slate-900 dark:via-slate-900 dark:to-emerald-950/30 border border-emerald-100 dark:border-emerald-900/60 rounded-3xl p-6 text-slate-900 dark:text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black text-2xl shadow-lg shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black text-2xl shadow-md shadow-emerald-600/20 shrink-0">
                 <Coins size={24} />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-black text-base text-white">طلبات سحب المستحقات الواردة من الموكلين</h3>
-                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-900">
                     {merchantRequests.length} طلب إجمالي
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-2xl leading-relaxed">
                   مراجعة طلبات السحب المالية والمصروفات المقدمة من الموكلين وأصحاب البضائع بالأمانة، مع إمكانية الاعتماد والتحويل المباشر لحساباتهم.
                 </p>
               </div>
@@ -4494,7 +4494,7 @@ export const MerchantSettlementPage: React.FC<MerchantSettlementPageProps> = ({
 
             <button
               onClick={loadMerchantRequests}
-              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-amber-500/30 whitespace-nowrap shadow-sm"
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all flex items-center gap-2 cursor-pointer border border-emerald-700 whitespace-nowrap shadow-sm shadow-emerald-600/20"
             >
               <RefreshCw size={14} />
               <span>تحديث الطلبات</span>
