@@ -139,3 +139,11 @@ This inventory was collected from the connected production project's catalog and
 - Pins `public.rls_auto_enable()` to `pg_catalog` and revokes direct execution from application roles. The existing `ensure_rls` DDL event trigger remains attached to this function and is not dropped or disabled.
 - Read-only catalog inspection confirmed `ensure_rls` is the event trigger that invokes `rls_auto_enable()`, while 35 ordinary table triggers use `set_updated_at()`. No trigger attachments or database data were changed during this inspection.
 - This SQL is committed to the migration branch only. It has not been applied to the connected Supabase project; apply only after staging validation and a reviewed deployment window.
+
+
+### Partner credential exposure review (branch only; 2026-10-30)
+
+- The store hydration mapper no longer copies the legacy `partners.password` field or `details.password` into the in-memory partner object; fallback objects are sanitized as well.
+- Partner portal code currently authenticates a partner by comparing a PIN in the browser, so the legacy `passcode` remains part of the client model for compatibility. This is not an acceptable final authentication design.
+- Important limitation: the current generic Supabase `partners.select('*')` still retrieves the database row (including its password column and the JSON details column) before the mapper strips the legacy password fields. Therefore this change reduces accidental propagation through application state but does **not** yet prevent those fields crossing the network to the browser.
+- Before enabling the Supabase read path in production, replace the generic query with a database-side safe projection that excludes password material, and move partner PIN verification to a server-side/Supabase Auth flow. Do not expose the service-role key in the browser.
