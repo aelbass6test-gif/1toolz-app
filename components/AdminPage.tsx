@@ -404,6 +404,23 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   const [newUserData, setNewUserData] = useState({ fullName: '', phone: '', email: '', password: 'password123', isAdmin: false });
   const [addUserError, setAddUserError] = useState('');
 
+  useEffect(() => {
+    let active = true;
+    const loadAdminUsers = async () => {
+      const supabase = getSupabaseClient();
+      if (!supabase) return;
+      const { data, error } = await supabase.functions.invoke('admin-list-users');
+      if (!active) return;
+      if (error || !data?.success) {
+        console.warn('[ADMIN] Supabase user directory load failed:', error || data?.error);
+        return;
+      }
+      setUsers(Array.isArray(data.users) ? data.users : []);
+    };
+    void loadAdminUsers();
+    return () => { active = false; };
+  }, [setUsers]);
+
   // States for Adding New Store
   const [showAddStoreModal, setShowAddStoreModal] = useState(false);
   const [newStoreData, setNewStoreData] = useState({ name: '', url: '', ownerPhone: '', specialization: 'عام' });
@@ -619,6 +636,9 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   };
   
   const toggleUserBan = async (phone: string) => {
+    const target = users.find(user => user.phone === phone);
+    if (!target) return;
+    const nextIsBanned = !target.isBanned;
     const ok = await inAppConfirm("هل أنت متأكد من تغيير حالة حظر هذا المستخدم؟", {
       title: 'تغيير حالة حظر المستخدم',
       type: 'warning',
@@ -626,12 +646,18 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
       cancelText: 'تراجع'
     });
     if (!ok) return;
-    const updated = users.map(u => u.phone === phone ? { ...u, isBanned: !u.isBanned } : u);
-    setUsers(updated);
+
     try {
-        await db.saveGlobalData({ users: updated, loyaltyData: {} });
-    } catch (e) {
-        await inAppAlert("فشل تحديث السيرفر العام لمستخدم.", { type: 'error' });
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Supabase client not initialized.');
+      const { data, error } = await supabase.functions.invoke('admin-update-user', {
+        body: { phone, isBanned: nextIsBanned }
+      });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'تعذر تحديث حالة المستخدم.');
+      setUsers(users.map(user => user.phone === phone ? data.user : user));
+    } catch (err: any) {
+      await inAppAlert(err?.message || "فشل تحديث حالة المستخدم عبر Supabase.", { type: 'error' });
     }
   };
 
