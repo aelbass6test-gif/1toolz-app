@@ -1068,7 +1068,6 @@ async function startServer() {
         success: mailResult.success || mailResult.delivered,
         delivered: mailResult.delivered,
         recipient: mailResult.recipient || email,
-        activationCode: customCode,
         note: mailResult.note,
         error: mailResult.error
       });
