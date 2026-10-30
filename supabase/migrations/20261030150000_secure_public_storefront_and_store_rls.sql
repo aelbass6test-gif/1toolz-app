@@ -17,7 +17,7 @@ from public.stores_data s;
 create or replace view public.public_storefront_products
 with (security_barrier = true, security_invoker = false) as
 select id, store_id, name, sku, price, description, weight, thumbnail, images,
-       "inStock", "collectionId", "hasVariants", options, "updatedAt", "CreatedAt"
+       "inStock", "collectionId", "hasVariants", options, "updatedAt", "createdAt"
 from public.products;
 
 create or replace view public.public_storefront_collections
