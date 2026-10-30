@@ -65,7 +65,37 @@ Deno.serve(async (request: Request) => {
 
   const admin = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
-  // A caller can add staff only to a store where this exact Auth user is the owner.
+  const action = String(body.action || "create");
+
+  const { data: store, error: storeError } = await admin.from("stores_data").select("id").eq("id", storeId).maybeSingle();
+  if (storeError || !store) return json({ success: false, error: "المتجر غير موجود." }, 404);
+
+  // Applicants may submit only for their own authenticated phone identity.
+  // The request is stored relationally, not in the store settings document.
+  if (action === "submit_request") {
+    const authPhone = String(authData.user.user_metadata?.phone || "").trim();
+    if (!authPhone || authPhone !== phone) return json({ success: false, error: "رقم الهاتف لا يطابق حساب الدخول الحالي." }, 403);
+    const { data: existingMembership, error: membershipLookupError } = await admin
+      .from("store_memberships").select("role").eq("store_id", storeId).eq("user_id", authData.user.id).maybeSingle();
+    if (membershipLookupError) return json({ success: false, error: "تعذر التحقق من عضوية المتجر." }, 500);
+    if (existingMembership) return json({ success: false, error: "أنت عضو بالفعل في هذا المتجر." }, 409);
+
+    const { error: profileError } = await admin.from("user_profiles").upsert({
+      user_id: authData.user.id, phone, display_name: fullName, is_admin: false
+    }, { onConflict: "user_id" });
+    if (profileError) return json({ success: false, error: "تعذر ربط هوية حساب الموظف." }, 400);
+
+    const { error: requestError } = await admin.from("employees").insert({
+      store_id: storeId, phone, name: fullName, email, permissions: [], status: "pending"
+    });
+    if (requestError) {
+      if (requestError.code === "23505") return json({ success: false, error: "لديك طلب انضمام مسجل بالفعل في هذا المتجر." }, 409);
+      return json({ success: false, error: "تعذر حفظ طلب الانضمام." }, 400);
+    }
+    return json({ success: true, status: "pending" }, 201);
+  }
+
+  // All management actions require this exact Auth user to own the store.
   const { data: ownerMembership, error: ownerError } = await admin
     .from("store_memberships")
     .select("role")
@@ -73,12 +103,7 @@ Deno.serve(async (request: Request) => {
     .eq("user_id", authData.user.id)
     .maybeSingle();
   if (ownerError) return json({ success: false, error: "تعذر التحقق من ملكية المتجر." }, 500);
-  if (ownerMembership?.role !== "owner") return json({ success: false, error: "إضافة الموظفين متاحة لمالك المتجر فقط." }, 403);
-
-  const { data: store, error: storeError } = await admin.from("stores_data").select("id").eq("id", storeId).maybeSingle();
-  if (storeError || !store) return json({ success: false, error: "المتجر غير موجود." }, 404);
-
-  const action = String(body.action || "create");
+  if (ownerMembership?.role !== "owner") return json({ success: false, error: "إدارة الموظفين متاحة لمالك المتجر فقط." }, 403);
   if (["update", "delete", "reset_password", "accept_request", "decline_request"].includes(action)) {
     const targetPhone = String(body.phone || "").trim();
     if (!targetPhone) return json({ success: false, error: "رقم الموظف مطلوب." }, 400);
