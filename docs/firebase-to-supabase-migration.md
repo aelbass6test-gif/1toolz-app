@@ -172,3 +172,17 @@ This inventory was collected from the connected production project's catalog and
 - Added a maximum of five wrong employee reset-code attempts per issued code; after the limit the record is invalidated and the user must request a new code.
 - The current reset-code storage and cooldown are process-local in-memory maps, so they are not durable/shared across multiple Worker instances or restarts. A production-grade recovery flow still needs durable, rate-limited storage (or Supabase Auth recovery) and consistent identity linking.
 - This branch still has legacy Firebase employee recovery paths; this hardening does not complete the Firebase-to-Supabase identity migration.
+
+### Connected production security snapshot (read-only; 2026-10-30)
+
+Project: `kwirhppfowzqshltmoga` (`Wuilt-Platform`).
+
+- 48 public tables were inspected; RLS is enabled on all 48.
+- 17 tables have no RLS policies. These are fail-closed for row access, but their application flows will fail until purpose-specific policies are added.
+- The security advisor also reports broad public policies on `public.users`, `public.partners`, and `public.stores_data` with `USING (true)` and `WITH CHECK (true)`. These policies expose broad read/write paths and must be replaced with table-specific rules.
+- A catalog check found 168 table privileges granted to `anon`. Grants and RLS policies must be reviewed together; RLS alone does not remove table-level privileges.
+- The connected production project currently has 2 Auth users and 4 store-membership rows linked to those identities. Only aggregate counts were inspected; no identity values were read.
+- The production security advisor also reports the leaked-password protection setting is disabled.
+- No production schema, policy, grant, user, membership, or business data was changed during this audit.
+
+The empty project `lhlcwtxbmxipcesuymnr` (`Wuilt-Platform2`) was inspected and contains no public tables or migrations. It has not been designated or modified as a staging environment.
