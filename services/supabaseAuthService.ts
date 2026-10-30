@@ -1,40 +1,22 @@
 import {
-  createClient,
   type AuthChangeEvent,
   type EmailOtpType,
   type Session,
   type SupabaseClient,
   type User
 } from '@supabase/supabase-js';
-
-let client: SupabaseClient | null = null;
+import { getSupabaseClient } from './databaseService';
 
 /**
  * The application must use one project-level Supabase client.
  * Never accept per-store URLs/keys from localStorage or store settings.
  */
 export function getAuthSupabaseClient(): SupabaseClient {
-  if (client) return client;
-
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const key = (
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-  ) as string | undefined;
-
-  if (!url || !key || !/^https:\/\//.test(url)) {
+  const sharedClient = getSupabaseClient();
+  if (!sharedClient) {
     throw new Error('إعدادات Supabase غير مكتملة. يرجى التواصل مع مسؤول النظام.');
   }
-
-  client = createClient(url, key, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      flowType: 'pkce'
-    }
-  });
-  return client;
+  return sharedClient as SupabaseClient;
 }
 
 export interface SignUpInput {
