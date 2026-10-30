@@ -270,3 +270,10 @@ The legacy partner portal had several browser-side authentication bypasses. The 
 Important limitations remain: the OTP verification endpoint currently returns a generic `valid` result rather than a signed partner/store session, partner/store data is still fetched into the browser before authentication, and the legacy partner credential fields/data model still need a server-owned replacement. Therefore this is a containment improvement, not a complete authorization boundary. Do not expose this portal as secure for production financial data until partner identity, store scope, permission checks, and data projection are enforced server-side with Supabase Auth/RLS or a verified Worker session.
 
 No production database, Worker deployment, or live partner record was changed.
+
+
+Additional partner portal containment:
+- The PIN/password handler now fails closed rather than checking partner secrets delivered to the browser.
+- The browser-only biometric handler now fails closed; it cannot establish a partner session.
+- The legacy partner PIN reset handler no longer writes a plaintext password/PIN into the partner record.
+- The only reachable login mode is email OTP sent to the partner's pre-registered address. These changes reduce client-side bypasses but do not replace server-side session issuance or protect store data already loaded into the browser.
