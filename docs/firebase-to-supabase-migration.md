@@ -130,3 +130,12 @@ This inventory was collected from the connected production project's catalog and
 - Removed that automatic account-creation fallback from `components/SignUpPage.tsx`. Existing Firebase Auth users can still sign in normally; a legacy profile without a valid Auth identity now receives a message directing them to a verified recovery/re-enrollment path. This is a branch-only code change and does not modify user records.
 - Remaining review items: partner/supplier passcode fields are still hydrated from legacy settings, and several non-user data-layer queries still use `select('*')`. These require domain-specific field inventories and should not be changed blindly because they may carry storefront/integration settings. In particular, the generic store settings query and partner portal data require an explicit secret-field allowlist before being narrowed.
 - The owner sign-up component no longer imports Firebase account creation for the legacy sign-in fallback; Firebase account creation remains only in the deliberate registration path.
+
+
+### Trigger helper hardening migration added (branch only; 2026-10-30)
+
+- Added `20261030120000_harden_trigger_helpers.sql`.
+- Pins `public.set_updated_at()` to an empty search path and revokes direct execution from `PUBLIC`, `anon`, and `authenticated`. Existing table triggers continue to invoke it; the function only updates `NEW.updated_at`.
+- Pins `public.rls_auto_enable()` to `pg_catalog` and revokes direct execution from application roles. The existing `ensure_rls` DDL event trigger remains attached to this function and is not dropped or disabled.
+- Read-only catalog inspection confirmed `ensure_rls` is the event trigger that invokes `rls_auto_enable()`, while 35 ordinary table triggers use `set_updated_at()`. No trigger attachments or database data were changed during this inspection.
+- This SQL is committed to the migration branch only. It has not been applied to the connected Supabase project; apply only after staging validation and a reviewed deployment window.
