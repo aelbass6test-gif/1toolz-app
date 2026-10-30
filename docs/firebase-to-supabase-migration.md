@@ -308,3 +308,12 @@ The live catalog contains 23 public tables with permissive `FOR ALL` policies wh
 Membership coverage is incomplete: 6 store rows exist in `stores_data`, but only 4 stores have at least one `store_memberships` row; 2 stores have no membership record. The 4 membership rows link to 2 existing Supabase Auth users, with 1 owner and 3 staff roles. No orphan membership user IDs or duplicate (user, store) pairs were found.
 
 Consequently, replacing the 23 permissive policies with membership-only policies today would both break the still-Firebase/anonymous client paths and risk locking out two stores. Before the RLS cutover, every legitimate store owner must be securely mapped to a verified Supabase Auth UUID, and every active user/store relation must be reconciled. Then replace public policies table-by-table with membership/role policies and test anonymous denial, cross-store denial, owner access, staff permission boundaries, and storefront public-read exceptions.
+
+
+### Cloudflare Worker authorization audit (source review; branch only)
+
+The Worker currently exposes carrier proxy routes under `/api/bosta/*` and `/api/turbo/*` without validating a user session or store membership. The proxy accepts credentials supplied in request bodies/headers and can also fall back to Worker-level `BOSTA_API_KEY` / `TURBO_API_KEY` secrets. CORS origin matching is not authentication and does not stop direct HTTP clients. This creates a risk of unauthorized use of configured carrier credentials and shipment actions if the environment-level keys are set.
+
+The media handler's `MEDIA_REQUIRE_AUTH=true` guard currently checks only whether an Authorization header exists; it does not validate the token or verify that the caller belongs to the store/product path being changed. An arbitrary non-empty header can pass that check.
+
+Do not treat these Worker routes as authenticated. Before using platform-level carrier secrets or allowing sensitive media writes/deletes, validate Supabase JWTs server-side and verify store membership/permissions for the exact `storeId`. Do not deploy an auth gate until the app's Supabase session is available and existing carrier/media workflows have been tested; otherwise legitimate Firebase-era traffic will break. No Worker source or Cloudflare configuration was changed in this audit.
