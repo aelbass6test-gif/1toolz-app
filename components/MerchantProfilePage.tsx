@@ -130,7 +130,7 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
     if (!storeId) return;
     setIsLoadingRequests(true);
     try {
-      const reqs = await db.getMerchantRequests(storeId);
+      const reqs = await db.getMerchantRequests(storeId, { forceAdmin: true });
       setCloudRequests(reqs);
     } catch (err) {
       console.error('[MerchantProfile] Error loading requests:', err);
@@ -141,7 +141,14 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
 
   useEffect(() => {
     loadRequests();
-  }, [loadRequests]);
+    const unsubscribe = storeId
+      ? db.subscribeToStoreRealtimeOptimized(storeId, {
+          tables: ['merchant_requests'],
+          onUpdate: () => { void loadRequests(); }
+        })
+      : undefined;
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, [loadRequests, storeId]);
 
   const merchantRequests = useMemo(() => {
     if (!merchant) return [];
@@ -396,12 +403,32 @@ const MerchantProfilePage: React.FC<MerchantProfilePageProps> = ({
       const cleanRef = approvalTransferRef.trim() || undefined;
       const cleanImg = approvalReceiptImage || undefined;
 
+      // Claim the pending request first. The server only permits approval
+      // from "processing", preventing two managers from paying the same request.
+      const claimed = await db.updateMerchantRequestStatus(req.id, storeId, 'processing');
+      if (!claimed) {
+        inAppToast('لم يتم استلام الطلب؛ ربما يعالجه مدير آخر بالفعل. حدّث القائمة.', 'error');
+        await loadRequests();
+        return;
+      }
+
       const statusUpdated = await db.updateMerchantRequestStatus(req.id, storeId, 'approved', {
         receiptImage: cleanImg,
-        transferReference: cleanRef
+        transferReference: cleanRef,
+        approvedBy: currentUser?.fullName || 'الإدارة',
+        approvedAt: new Date().toISOString()
       });
       if (!statusUpdated) {
-        inAppToast('لم يتم اعتماد الطلب؛ ربما عولج بالفعل من شاشة أخرى. حدّث القائمة.', 'error');
+        // Release the claim so the amount remains reserved only while a real
+        // approval is in progress; a failed payout must not strand the request.
+        const released = await db.updateMerchantRequestStatus(req.id, storeId, 'pending');
+        await loadRequests();
+        inAppToast(
+          released
+            ? 'لم يكتمل اعتماد الطلب؛ أُعيد إلى قائمة الانتظار وظل المبلغ محجوزاً بأمان.'
+            : 'تعذر إكمال الاعتماد أو تحرير الحجز تلقائياً. الطلب ما زال قيد المعالجة ويحتاج مراجعة الإدارة.',
+          'error'
+        );
         return;
       }
       setCloudRequests(prev => prev.map(r => r.id === req.id ? {
