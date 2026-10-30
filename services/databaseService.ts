@@ -2857,8 +2857,7 @@ export const updatePartnerRequestStatus = async (
     requestId: string,
     storeId: string,
     status: 'approved' | 'rejected',
-    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string },
-    merchantAuth?: { merchantId: string; passcode: string }
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
 ): Promise<boolean> => {
     try {
         const extraFields = cleanUndefined({
@@ -3084,7 +3083,8 @@ export const updateMerchantRequestStatus = async (
     requestId: string,
     storeId: string,
     status: 'approved' | 'rejected',
-    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string }
+    meta?: { receiptImage?: string; transferReference?: string; approvedBy?: string; approvedAt?: string },
+    merchantAuth?: { merchantId: string; passcode: string }
 ): Promise<boolean> => {
     const supabase = getSupabaseClient();
     if (!supabase) return false;
