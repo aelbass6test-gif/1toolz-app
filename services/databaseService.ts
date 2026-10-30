@@ -3098,8 +3098,8 @@ export const deleteMerchantRequestDoc = async (requestId: string, storeId: strin
         if (!supabase) return false;
 
         const [merchantDelete, partnerDelete] = await Promise.all([
-            supabase.from('merchant_requests').delete().eq('id', requestId).eq('store_id', storeId).select('id'),
-            supabase.from('partner_requests').delete().eq('id', requestId).eq('store_id', storeId).select('id')
+            supabase.from('merchant_requests').delete().eq('id', requestId).eq('storeId', storeId).select('id'),
+            supabase.from('partner_requests').delete().eq('id', requestId).eq('storeId', storeId).select('id')
         ]);
         if (merchantDelete.error || partnerDelete.error) {
             console.error('[MERCHANT-REQUEST] Supabase delete failed:', merchantDelete.error || partnerDelete.error);
