@@ -11,9 +11,8 @@ create table if not exists public.user_profiles (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists user_profiles_phone_unique
-  on public.user_profiles (phone)
-  where phone is not null and phone <> '';
+-- Phone is profile metadata until a verified-phone workflow exists.
+-- Do not reserve or trust user-supplied, unverified phone numbers.
 
 alter table public.user_profiles enable row level security;
 
