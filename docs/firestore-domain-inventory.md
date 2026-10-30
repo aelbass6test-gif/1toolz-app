@@ -146,3 +146,13 @@ A follow-up source scan beyond App.tsx and databaseService.ts found these additi
 - src/hooks/useLiveCollaboration.ts and services/mediaUploadService.ts still import the Firebase client for authentication-related behavior, so their Firebase Auth assumptions need an explicit Supabase-session replacement review.
 
 This was a targeted scan of high-risk files, not an exhaustive proof that all 311 TypeScript/JavaScript source files are free of Firebase references. Before retiring Firebase, run a complete repository-wide import and SDK-call scan on the final release commit, including server routes, scripts, Cloudflare code, and lazily loaded components.
+
+
+## Automated Firebase retirement gate
+
+A read-only repository scanner is available as `npm run audit:firebase` in [scripts/audit_firebase_references.mjs](../scripts/audit_firebase_references.mjs). It reports source-file paths, line numbers, and reference categories only; it does not print source lines, inspect environment files, read credentials, or inspect backup records.
+
+- The migration CI workflow runs the scanner in informational mode on every branch/PR validation.
+- Informational mode is expected to report remaining Firebase dependencies during migration and does not fail CI.
+- The `--strict` mode exits non-zero while any detected Firebase reference remains. Enable this as a release gate only after the final domain cutovers are complete.
+- The scanner is a safety net, not proof by itself. Review generated code, package/config files, server routes, scripts, Cloudflare Worker code, and dynamic imports manually before Firebase retirement.
