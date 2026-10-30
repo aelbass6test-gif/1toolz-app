@@ -2430,6 +2430,30 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
                 }
             }));
 
+            // Verify the authoritative order IDs after upsert, including fingerprint-skipped writes.
+            // This prevents a stale local snapshot or a skipped sync from being reported as cloud-persisted.
+            const expectedOrderIds = (Array.isArray(orders) ? orders : [])
+                .map((order: any) => String(order?.id || '').trim())
+                .filter(Boolean);
+            for (let offset = 0; offset < expectedOrderIds.length; offset += 100) {
+                const batchIds = expectedOrderIds.slice(offset, offset + 100);
+                const { data: persistedOrders, error: verifyError } = await supabase
+                    .from('orders')
+                    .select('id')
+                    .eq('store_id', store.id)
+                    .in('id', batchIds);
+                if (verifyError) {
+                    syncErrors.push(verifyError);
+                    break;
+                }
+                const persistedIds = new Set((persistedOrders || []).map((row: any) => String(row.id)));
+                const missingIds = batchIds.filter(id => !persistedIds.has(id));
+                if (missingIds.length > 0) {
+                    syncErrors.push(new Error(`Order persistence verification failed: ${missingIds.length} order(s) are missing from Supabase.`));
+                    break;
+                }
+            }
+
             if (syncErrors.length > 0) {
                 const isSchemaError = syncErrors.some(e => e.code === 'PGRST204');
                 const isNetworkError = syncErrors.every(e => e?.message?.includes('Failed to fetch') || e?.name === 'TypeError');

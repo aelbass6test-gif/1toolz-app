@@ -3416,18 +3416,20 @@ export const AppComponent = () => {
                 console.warn('[MANUAL-SYNC] Cloud failed, but data saved locally:', failed.error);
                 setSaveStatus('local_saved');
                 setSaveMessage('تم الحفظ محلياً (فشل المزامنة السحابية)');
-                return;
+                return { success: false, error: failed.error || 'فشلت المزامنة السحابية؛ البيانات محفوظة محلياً فقط.' };
             }
 
             setSaveStatus('success');
             setSaveMessage('تم الحفظ والمزامنة بنجاح!');
             setTimeout(() => setSaveStatus(prev => prev === 'success' ? 'idle' : prev), 3000);
+            return { success: true };
         } catch (e: any) {
             console.error('[MANUAL-SAVE] Save failed:', e);
             // Even if everything fails, we likely have it in fastLocalSave already, 
             // but let's at least show local_saved if we think we got it.
             setSaveStatus('local_saved');
             setSaveMessage('محفوظ على هذا الجهاز (خطأ سحابي)');
+            return { success: false, error: e?.message || 'حدث خطأ أثناء المزامنة السحابية.' };
         } finally {
             isSavingRef.current = false;
         }
