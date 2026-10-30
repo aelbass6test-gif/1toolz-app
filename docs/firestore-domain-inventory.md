@@ -189,6 +189,7 @@ Applied migration versions:
 - `20261030060949_store_scoped_operational_rls`
 - `20261030061244_restrict_store_record_writes_and_bootstrap_membership`
 - `20261030062127_secure_chat_messages_for_supabase_auth`
+- `20261030063423_preserve_trusted_admin_flag_on_auth_enrollment`
 
 ### Current verification and release blockers
 
@@ -196,7 +197,8 @@ Applied migration versions:
 - Verified: neither `anon` nor `authenticated` can select the legacy password column; authenticated users cannot update admin flags.
 - Verified: the Supabase security advisor now reports no RLS-enabled/no-policy tables except `moneyhash_webhook_events`, which is intentionally server-only.
 - Remaining advisor warnings: the two `SECURITY DEFINER` membership predicates are callable by authenticated users because RLS policies depend on them; leaked-password protection is disabled and must be enabled in Supabase Auth settings.
-- The Supabase Auth signup flow currently uses the existing phone-derived alias (`phone@mystore-auth.app`) while the app sends its separate activation email. Supabase Auth email confirmation must be disabled for this alias-based password flow, or replaced with a server-side Admin API bootstrap after verified activation. Do not assume this dashboard setting is configured until tested.
+- The Supabase Auth self-signup flow still uses the phone-derived alias (`phone@mystore-auth.app`) while the app sends its separate activation email. Supabase Auth email confirmation must be disabled for this alias-based password flow, or self-signup must be moved to an Admin API bootstrap after verified activation. Admin-created users are created server-side with `email_confirm: true`. Do not assume the self-signup dashboard setting is configured until tested.
+- The `/api/employee-forgot-password` and `/api/employee-reset-password` server routes now use Supabase Auth Admin API and Supabase user/profile lookup, but require `SUPABASE_SERVICE_ROLE_KEY` to be configured in the server runtime. This key is not committed to the repository.
 - Store membership data currently covers only four of six existing stores. Do not remove the public `stores_data` compatibility policy or claim the dashboard cutover is complete until owner claims/memberships are reconciled and storefront public data is separated from private store settings.
-- Firestore is still an active dependency for stores_data, orders, products, employees, finance, inventory, chat, storefront domain lookup, server routes, and other modules. Firebase SDK/config removal is explicitly not complete.
+- Firestore is still an active dependency for external shared-audit links, orders, products, employees, finance, inventory, storefront domain lookup, server routes, and other modules. Team chat has been moved to Supabase. Firebase SDK/config removal is explicitly not complete.
 - A full production build/typecheck and browser end-to-end test for the latest media/chat changes are still running in GitHub Actions. The branch must pass `npm run lint`, `npm run build`, `npm run test:supabase-membership`, and the relevant owner/employee/storefront workflows before deployment.
