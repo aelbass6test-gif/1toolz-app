@@ -40,3 +40,12 @@ jobs:
         run: npm run lint
       - name: Production build
         run: npm run build
+      - name: Upload production build for Cloudflare preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1toolz-app-cloudflare-build
+          path: |
+            dist/
+            cloudflare-worker/dist/
+          if-no-files-found: error
+          retention-days: 3
