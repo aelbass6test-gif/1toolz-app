@@ -330,3 +330,8 @@ The detailed owner bootstrap, existing-owner claim, employee invitation/acceptan
 ### Firestore data-domain inventory
 
 A source-code inventory of the Firebase collections, realtime listeners, local IndexedDB dependencies, and recommended domain-by-domain cutover order is maintained in [docs/firestore-domain-inventory.md](./firestore-domain-inventory.md). It is an inventory and rollout plan, not a claim that any Firestore domain has already been migrated.
+
+
+### Automated retirement audit
+
+Migration CI now runs `npm run audit:firebase` to inventory remaining SDK references without exposing source contents or secrets. The scanner's `--strict` mode is intentionally reserved for the final Firebase retirement gate; the current migration still has active Firebase dependencies.
