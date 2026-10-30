@@ -2296,10 +2296,8 @@ export const AppComponent = () => {
 
         const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
         const firebaseEmail = `${authPhone}@mystore-auth.app`;
-        console.log('[AUTH] Login attempt for phone:', authPhone, isOwnerSession ? '(Owner Mode)' : '(Employee Mode)');
         try {
             await signInWithEmailAndPassword(auth, firebaseEmail, password);
-            console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
         } catch (err: any) {
             if (err?.code === 'auth/network-request-failed') {
                 throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
@@ -2320,7 +2318,6 @@ export const AppComponent = () => {
         }
 
         if (isOwnerSession) {
-            console.log('[AUTH] Owner recognized on portal. Starting full Owner session for:', targetUser.fullName);
             startOtpFlow(targetUser, null, password);
         } else {
             startOtpFlow(targetUser, { isEmployee: true, storeId: storeId }, password);
