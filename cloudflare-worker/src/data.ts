@@ -318,8 +318,12 @@ export async function handleDataRequest(
   } else {
     if (!storeId || storeId.length > 160) return json({ success: false, error: "معرّف المتجر مطلوب." }, 400);
     const membership = context?.memberships.find(item => item.store_id === storeId);
-    if (!membership) return json({ success: false, error: "غير مصرح بالوصول إلى بيانات هذا المتجر." }, 403);
-    access = { role: membership.role, permissions: membership.permissions, isAdmin: Boolean(context?.isPlatformAdmin) };
+    if (!membership && !context?.isPlatformAdmin) {
+      return json({ success: false, error: "غير مصرح بالوصول إلى بيانات هذا المتجر." }, 403);
+    }
+    access = membership
+      ? { role: membership.role, permissions: membership.permissions, isAdmin: Boolean(context?.isPlatformAdmin) }
+      : { role: "owner", permissions: ["*"], isAdmin: true };
   }
 
   if (FINANCE_TABLES.has(table) && !canReadFinance(access.role, access.permissions, access.isAdmin)) {
