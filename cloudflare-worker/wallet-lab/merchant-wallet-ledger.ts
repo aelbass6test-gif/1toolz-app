@@ -167,6 +167,9 @@ export async function submitMerchantWithdrawal(
   const payoutAccountRef = input.payoutAccountRef
     ? requiredText(input.payoutAccountRef, "payout_account_reference")
     : null;
+  if (payoutAccountRef && !/^vault-ref-[A-Za-z0-9_-]{1,160}$/.test(payoutAccountRef)) {
+    throw new Error("payout_account_must_be_an_opaque_vault_reference");
+  }
 
   const existing = await findByIdempotencyKey(db, storeId, merchantId, idempotencyKey);
   if (existing) {
