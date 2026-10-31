@@ -392,7 +392,7 @@ async function requestOtp(request: Request, env: Env, endpoint: "send" | "verify
   const identityRows = await env.CORE_DB.prepare(`
     SELECT id, email, phone, display_name, account_status, verified_at
     FROM auth_identities
-    WHERE lower(email) = ? AND account_status IN ('pending_reactivation','active')
+    WHERE lower(email) = ?
     ORDER BY created_at ASC
     LIMIT 2
   `).bind(email).all<AuthIdentity>();
@@ -696,7 +696,10 @@ async function bootstrapPlatformAdmin(
   const result = await env.CORE_DB.batch([
     env.CORE_DB.prepare(`
       INSERT OR IGNORE INTO platform_bootstrap_state (singleton_id, completed_by_identity_id, completed_at)
-      VALUES (1, ?, ?)
+      SELECT 1, ?, ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM platform_roles WHERE role = 'platform_admin' AND status = 'active'
+      )
     `).bind(identity.id, now),
     env.CORE_DB.prepare(`
       INSERT OR IGNORE INTO platform_roles (identity_id, role, status, granted_by_identity_id, created_at)
@@ -762,8 +765,14 @@ async function approveStoreOwner(
       INSERT INTO app_write_audit (
         audit_id, identity_id, store_id, table_name, record_key,
         operation, request_id, request_hash, created_at
-      ) VALUES (?, ?, ?, 'store_memberships', ?, 'approve', ?, ?, ?)
-    `).bind(crypto.randomUUID(), admin.id, storeId, identityId, crypto.randomUUID(), await sha256Hex(`${storeId}:${identityId}:owner`), now)
+      )
+      SELECT ?, ?, ?, 'store_memberships', ?, 'approve', ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM pending_store_ownership_claims
+        WHERE store_id = ? AND status = 'linked'
+          AND claimed_identity_id = ? AND verified_by_identity_id = ?
+      )
+    `).bind(crypto.randomUUID(), admin.id, storeId, identityId, crypto.randomUUID(), await sha256Hex(`${storeId}:${identityId}:owner`), now, storeId, identityId, admin.id)
   ]);
 
   if ((results[0]?.meta?.changes || 0) !== 1 || (results[1]?.meta?.changes || 0) !== 1) {
@@ -824,8 +833,14 @@ async function approveMembershipClaim(
       INSERT INTO app_write_audit (
         audit_id, identity_id, store_id, table_name, record_key,
         operation, request_id, request_hash, created_at
-      ) VALUES (?, ?, ?, 'store_memberships', ?, 'approve', ?, ?, ?)
-    `).bind(crypto.randomUUID(), admin.id, storeId, identityId, crypto.randomUUID(), await sha256Hex(`${claimId}:${identityId}:${assignedRole}`), now)
+      )
+      SELECT ?, ?, ?, 'store_memberships', ?, 'approve', ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM pending_membership_claims
+        WHERE claim_id = ? AND store_id = ' ?' AND status = 'linked'
+          AND claimed_identity_id = ? AND verified_by_identity_id = ?
+      )
+    `).bind(crypto.randomUUID(), admin.id, storeId, identityId, crypto.randomUUID(), await sha256Hex(`${claimId}:${identityId}:${assignedRole}`), now, claimId, storeId, identityId, admin.id)
   ]);
   if ((results[0]?.meta?.changes || 0) !== 1 || (results[1]?.meta?.changes || 0) !== 1) {
     return json(request, env, { success: false, error: "تعذر تفعيل العضوية؛ ربما تمت معالجتها مسبقًا." }, 409);
@@ -900,6 +915,10 @@ async function createInvitation(
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
+  const origin = request.headers.get("Origin") || "";
+  if (origin && !originAllowed(origin, env)) {
+    return json(request, env, { success: false, error: "مصدر الطلب غير مسموح." }, 403);
+  }
 
   if (request.method === "OPTIONS") {
     const headers = corsHeaders(request, env);
