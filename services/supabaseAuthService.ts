@@ -10,6 +10,9 @@ export interface CloudflareAuthUser {
   email: string | null;
   phone: string | null;
   user_metadata?: Record<string, unknown>;
+  is_anonymous?: boolean;
+  email_confirmed_at?: string | null;
+  app_metadata?: Record<string, unknown>;
 }
 
 export interface SignUpInput {
