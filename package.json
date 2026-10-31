@@ -13,7 +13,8 @@
     "lint": "tsc --noEmit",
     "audit:firebase": "node scripts/audit_firebase_references.mjs",
     "test:supabase-membership": "tsx tests/supabase-membership.test.ts",
-    "test:d1-wallet-ledger": "tsx tests/d1-wallet-ledger.test.ts"
+    "test:d1-wallet-ledger": "tsx tests/d1-wallet-ledger.test.ts",
+    "test:cloudflare-cutover": "tsx tests/cloudflare-cutover-sanitize.test.ts"
   },
   "dependencies": {
     "@google/genai": "^0.15.0",
