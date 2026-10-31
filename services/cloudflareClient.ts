@@ -252,9 +252,12 @@ function makeAuthUser(data: any): any {
     email: data.user.email || null,
     phone: data.user.phone || null,
     user_metadata: { display_name: data.user.fullName || data.user.full_name || "" },
-    app_metadata: {},
+    app_metadata: {
+      store_memberships: Array.isArray(data.memberships) ? data.memberships : [],
+      is_platform_admin: data.isPlatformAdmin === true
+    },
     is_anonymous: false,
-    email_confirmed_at: null
+    email_confirmed_at: data.user.emailConfirmedAt || null
   };
 }
 
