@@ -344,16 +344,16 @@ export function createCloudflareClient(): any {
       return { data: { user: error ? null : await auth.getUser().then(r => r.data.user) }, error };
     },
     async resetPasswordForEmail(email: string) {
-      const phone = email.split("@")[0];
+      const phoneOrEmail = email.trim();
       const { response, body } = await apiRequest<any>("/api/v1/auth/recovery/request", {
-        method: "POST", body: JSON.stringify({ phone })
+        method: "POST", body: JSON.stringify({ phoneOrEmail })
       });
       return { error: normalizeError(body, response.status) };
     },
     async resend(input: { type: string; email: string }) {
-      const phone = input.email.split("@")[0];
+      const phoneOrEmail = input.email.trim();
       const { response, body } = await apiRequest<any>("/api/v1/auth/recovery/request", {
-        method: "POST", body: JSON.stringify({ phone })
+        method: "POST", body: JSON.stringify({ phoneOrEmail })
       });
       return { error: normalizeError(body, response.status) };
     }
