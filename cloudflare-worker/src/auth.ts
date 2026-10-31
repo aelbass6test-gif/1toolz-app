@@ -268,7 +268,8 @@ async function persistUserProfile(
 ): Promise<void> {
   const profile = toSafeUserProfile(identityId, fullName, phone, email);
   const recordJson = JSON.stringify(profile);
-  const digest = await hmacHex("1toolz-directory-v1", recordJson);
+  const digestBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(recordJson));
+  const digest = bytesToHex(new Uint8Array(digestBytes));
   await db.prepare(`
     INSERT INTO app_records (
       source_system, source_table, record_key, store_id,
@@ -460,7 +461,7 @@ export async function handleAuthRequest(
     if (identity.account_status === "banned" || identity.account_status === "disabled") {
       return json({ success: false, error: "هذا الحساب موقوف." }, 403);
     }
-    const sent = await sendEmailOtp(request, env, jsonResponse, email, safeText(body.userName, identity.display_name || "1Toolz"));
+    const sent = await sendEmailOtp(request, env, jsonResponse, email, (safeText(body.userName, 100) || identity.display_name || "1Toolz"));
     if (!sent.success) return json({ success: false, error: sent.error }, sent.status || 503);
     return json({ success: true, emailSent: true, target: sent.target, expiresInSeconds: sent.expiresInSeconds });
   }
@@ -529,7 +530,7 @@ export async function handleAuthRequest(
     const current = await env.APP_DB.prepare(
       "SELECT password_hash FROM auth_credentials WHERE identity_id = ? LIMIT 1"
     ).bind(context.identityId).first<{ password_hash: string | null }>();
-    if (!current?.password_hash || !currentPassword || !await verifyPassword(currentPassword, current.password_hash)) {
+    if (!current?.password_hash || (currentPassword && !await verifyPassword(currentPassword, current.password_hash))) {
       return json({ success: false, error: "كلمة المرور الحالية غير صحيحة." }, 403);
     }
     const passwordHash = await derivePasswordHash(newPassword);
