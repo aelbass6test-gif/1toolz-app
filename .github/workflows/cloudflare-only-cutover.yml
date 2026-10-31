@@ -29,5 +29,9 @@ jobs:
         run: npm run test:d1-wallet-ledger
       - name: Test cutover sanitization and identity staging
         run: npm run test:cloudflare-cutover
-      - name: Type-check app and Worker code
+      - name: Install Cloudflare Worker dependencies
+        run: npm install --no-package-lock --prefix cloudflare-worker
+      - name: Type-check app
         run: npm run lint
+      - name: Type-check Cloudflare cutover Worker
+        run: npm run typecheck:cutover-lab --prefix cloudflare-worker
