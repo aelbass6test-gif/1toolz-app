@@ -19,7 +19,7 @@ SELECT
   'legacy-directory-' || lower(hex(randomblob(16))),
   'legacy_directory',
   r.record_key,
-  NULLIF(lower(trim(json_extract(r.record_json, '$.email'))), ''),
+  CASE WHEN lower(trim(json_extract(r.record_json, '$.email'))) LIKE '%@mystore-auth.app' THEN NULL ELSE NULLIF(lower(trim(json_extract(r.record_json, '$.email'))), '') END,
   COALESCE(
     NULLIF(trim(json_extract(r.record_json, '$.phone')), ''),
     r.record_key
