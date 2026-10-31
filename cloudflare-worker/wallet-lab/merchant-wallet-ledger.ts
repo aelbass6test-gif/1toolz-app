@@ -261,7 +261,7 @@ export async function transitionMerchantWithdrawal(
          processed_at = CASE WHEN ? IN ('approved', 'rejected') THEN ? ELSE processed_at END,
          updated_at = ?
      WHERE id = ? AND store_id = ? AND merchant_id = ?
-       AND status IN ('pending', 'processing')`
+       AND status IN ('pending', 'processing') AND status <> ?`
   ).bind(
     input.targetStatus,
     actorUserId,
@@ -276,7 +276,8 @@ export async function transitionMerchantWithdrawal(
     occurredAt,
     requestId,
     storeId,
-    merchantId
+    merchantId,
+    input.targetStatus
   ).run();
 
   if (!result.success) throw new Error("withdrawal_transition_failed");
