@@ -433,6 +433,24 @@ export async function handleAuthRequest(
       WHERE id = ?
     `).bind(identity.id).run();
 
+    // Reactivation only restores pre-existing migrated memberships. New roles
+    // or stores can never be added by this self-service recovery endpoint.
+    await env.APP_DB.prepare(`
+      UPDATE store_memberships
+      SET status = 'active', updated_at = CURRENT_TIMESTAMP
+      WHERE identity_id = ? AND status = 'pending_verification'
+    `).bind(identity.id).run();
+
+    await env.APP_DB.prepare(`
+      INSERT INTO migration_audit (
+        id, source_system, source_table, record_key, action, detail_json, created_at
+      ) VALUES (?, 'manual', 'auth_reactivation', ?, 'verified', ?, CURRENT_TIMESTAMP)
+    `).bind(
+      crypto.randomUUID(),
+      identity.id,
+      JSON.stringify({ verifiedBy: "email_otp", membershipsActivated: true })
+    ).run();
+
     const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request);
     return json({
       success: true,
