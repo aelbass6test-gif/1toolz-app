@@ -1169,6 +1169,16 @@ async function createMerchantAccountLink(
     return json(request, env, { success: false, error: "المحفظة أو هوية الحساب غير موجودة أو غير متحققة." }, 409);
   }
 
+  const existingMembership = await env.CORE_DB.prepare(`
+    SELECT role, status
+    FROM store_memberships
+    WHERE store_id = ? AND identity_id = ?
+    LIMIT 1
+  `).bind(storeId, identityId).first<{role:string;status:string}>();
+  if (existingMembership && !["merchant","partner"].includes(existingMembership.role)) {
+    return json(request, env, { success: false, error: "الحساب مرتبط بالفعل بدور مختلف داخل هذا المتجر." }, 409);
+  }
+
   const now = new Date().toISOString();
   const results = await env.CORE_DB.batch([
     env.CORE_DB.prepare(`
@@ -1176,12 +1186,9 @@ async function createMerchantAccountLink(
         store_id, identity_id, role, permissions_json, status, created_at, updated_at
       ) VALUES (?, ?, ?, '[]', 'active', ?, ?)
       ON CONFLICT(store_id, identity_id) DO UPDATE SET
-        role = CASE
-          WHEN store_memberships.role IN ('owner','manager') THEN store_memberships.role
-          ELSE excluded.role
-        END,
         status = 'active',
         updated_at = excluded.updated_at
+      WHERE store_memberships.role IN ('merchant','partner')
     `).bind(storeId, identityId, role, now, now),
     env.CORE_DB.prepare(`
       INSERT INTO merchant_account_links (
