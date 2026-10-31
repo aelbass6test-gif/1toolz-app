@@ -1,5 +1,5 @@
 import { db as localDb } from '../src/lib/db';
-import { createClient } from '@supabase/supabase-js';
+import { createCloudflareClient } from './cloudflareClient';
 // Firebase persistence has been removed from this service. Retain the
 // compatibility flag exports while older UI components finish migrating.
 let isFirestoreQuotaExhausted = false;
@@ -118,102 +118,35 @@ export const syncSupabaseCredentials = (_storeId: string, _settings: any) => {
     // Deliberately no-op: never persist tenant-provided database URLs or keys.
 };
 
+/**
+ * Compatibility export for old service call-sites. This is a same-origin
+ * Cloudflare D1 client and contains no Supabase URL, project key, or SDK.
+ */
 export const getSupabasePublicClient = () => {
     if (typeof window === 'undefined') return null;
-    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey =
-        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
-        '';
-    if (!envUrl || !envKey || !/^https:\/\//.test(envUrl)) {
-        publicSupabaseSingleton = null;
-        return null;
-    }
-    if (publicSupabaseSingleton && publicSupabaseSingleton.__url === envUrl && publicSupabaseSingleton.__key === envKey) {
-        return publicSupabaseSingleton;
-    }
-    try {
-        const client = createClient(envUrl, envKey, {
-            auth: {
-                persistSession: false,
-                autoRefreshToken: false,
-                detectSessionInUrl: false
-            }
-        });
-        (client as any).__url = envUrl;
-        (client as any).__key = envKey;
-        publicSupabaseSingleton = client;
-        return client;
-    } catch (e) {
-        console.error('Failed to initialize the public Supabase client', e);
-        return null;
-    }
+    if (!publicSupabaseSingleton) publicSupabaseSingleton = createCloudflareClient();
+    return publicSupabaseSingleton;
 };
 
 export const getSupabaseClient = () => {
     if (typeof window === 'undefined') return null;
-    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey =
-        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
-        '';
-
-    if (!envUrl || !envKey || !/^https:\/\//.test(envUrl)) {
-        supabaseSingleton = null;
-        return null;
-    }
-
-    if (supabaseSingleton && supabaseSingleton.__url === envUrl && supabaseSingleton.__key === envKey) {
-        return supabaseSingleton;
-    }
-
-    try {
-        const client = createClient(envUrl, envKey, {
-            auth: {
-                persistSession: true,
-                autoRefreshToken: true,
-                detectSessionInUrl: true,
-                flowType: 'pkce'
-            }
-        });
-        (client as any).__url = envUrl;
-        (client as any).__key = envKey;
-        supabaseSingleton = client;
-        return supabaseSingleton;
-    } catch (e) {
-        console.error('Failed to initialize the deployment Supabase client', e);
-        return null;
-    }
+    if (!supabaseSingleton) supabaseSingleton = createCloudflareClient();
+    return supabaseSingleton;
 };
 
-export const isSupabaseActive = (): boolean => {
-    if (typeof window === 'undefined') return false;
-    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || '';
-    const envKey =
-        (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
-        '';
-    return !!envUrl && !!envKey && /^https:\/\//.test(envUrl);
-};
+/** Kept temporarily so conditional Firebase fallbacks are disabled during cutover. */
+export const isSupabaseActive = (): boolean => typeof window !== 'undefined';
 
-/**
- * Verify only the deployment-configured Supabase project.
- * The URL/key arguments remain for compatibility with legacy settings screens,
- * but tenant-provided credentials are never instantiated or accepted.
- */
 export const verifySupabaseConnection = async (_url?: string, _key?: string): Promise<{ success: boolean; error?: string }> => {
-    const client = getSupabaseClient();
-    if (!client) {
-        return { success: false, error: 'Supabase deployment environment variables are not configured.' };
-    }
     try {
-        const { error } = await client.from('stores_data').select('id').limit(1);
-        if (error) {
-            return { success: false, error: error.message };
-        }
-        return { success: true };
-    } catch (e: any) {
-        return { success: false, error: e?.message || 'Unable to reach the configured Supabase project.' };
+        const response = await fetch('/api/health', { credentials: 'include', cache: 'no-store' });
+        if (!response.ok) return { success: false, error: 'Cloudflare API is not ready.' };
+        const result = await response.json();
+        return result?.success === true
+            ? { success: true }
+            : { success: false, error: 'Cloudflare API did not confirm readiness.' };
+    } catch (error: any) {
+        return { success: false, error: error?.message || 'Unable to reach the Cloudflare API.' };
     }
 };
 
