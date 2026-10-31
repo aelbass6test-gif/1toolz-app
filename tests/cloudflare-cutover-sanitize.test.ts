@@ -8,7 +8,8 @@ const migrations = [
   "cloudflare-worker/cutover-lab/migrations/0001_cloudflare_core.sql",
   "cloudflare-worker/cutover-lab/migrations/0002_sanitize_credentials_and_register_missing_sources.sql",
   "cloudflare-worker/cutover-lab/migrations/0003_seed_pending_identity_and_membership_claims.sql",
-  "cloudflare-worker/cutover-lab/migrations/0004_identity_roles_invitations_and_operations.sql"
+  "cloudflare-worker/cutover-lab/migrations/0004_identity_roles_invitations_and_operations.sql",
+  "cloudflare-worker/cutover-lab/migrations/0005_merchant_wallet_ledger_and_opening_balances.sql"
 ];
 
 function loadSql(path: string): string {
@@ -46,8 +47,14 @@ function fixture() {
         moneyHashConfig: { apiKey: "payment-secret-placeholder", publicApiKey: "public-key-remains-classified" , webhookSecret: "webhook-secret-placeholder" },
         adminAlerts: { telegramBotToken: "telegram-secret-placeholder" },
         whatsappConfig: { token: "whatsapp-secret-placeholder" },
-        partners: [{ id: "partner-01", password: "embedded-password", passcode: "embedded-pin" }],
-        suppliers: [{ id: "supplier-01", passcode: "supplier-pin" }]
+        partners: [
+          { id: "partner-01", balance: 20.5, password: "embedded-password", passcode: "embedded-pin" },
+          { id: "merchant-conflict", balance: 50 }
+        ],
+        suppliers: [
+          { id: "supplier-01", balance: 10, passcode: "supplier-pin" },
+          { id: "merchant-conflict", balance: 75 }
+        ]
       }
     }),
     "source-hash-store"
@@ -133,6 +140,7 @@ test("identity seeding never imports legacy passwords or trusts administrator cl
   db.exec(loadSql(migrations[1]));
   db.exec(loadSql(migrations[2]));
   db.exec(loadSql(migrations[3]));
+  db.exec(loadSql(migrations[4]));
 
   const identities = db.prepare(
     "SELECT legacy_user_key, email, phone, display_name, account_status, password_reset_required, legacy_role_claims_json FROM auth_identities ORDER BY legacy_user_key"
@@ -172,6 +180,19 @@ test("identity seeding never imports legacy passwords or trusts administrator cl
   for (const requiredTable of ["platform_roles", "platform_bootstrap_state", "store_invitations", "app_write_audit", "backup_manifest", "domain_outbox"]) {
     assert.equal(names.has(requiredTable), true, `missing table: ${requiredTable}`);
   }
+
+  const walletRows = db.prepare("SELECT merchant_id, balance_minor, reserved_minor FROM merchant_wallets ORDER BY merchant_id").all() as Array<{merchant_id:string;balance_minor:number;reserved_minor:number}>;
+  assert.equal(walletRows.length, 2);
+  assert.equal(walletRows.find(row => row.merchant_id === "partner-01")?.balance_minor, 2050);
+  assert.equal(walletRows.find(row => row.merchant_id === "supplier-01")?.balance_minor, 1000);
+  assert.equal(walletRows.every(row => row.reserved_minor === 0), true);
+  const openingRows = db.prepare("SELECT COUNT(*) AS n FROM merchant_wallet_ledger WHERE entry_type = ?").get("opening_balance") as {n:number};
+  assert.equal(openingRows.n, 2);
+  const walletConflict = db.prepare("SELECT reason,source_occurrences FROM merchant_wallet_seed_conflicts WHERE merchant_id = ?").get("merchant-conflict") as {reason:string;source_occurrences:number};
+  assert.equal(walletConflict.reason, "duplicate_source_identity");
+  assert.equal(walletConflict.source_occurrences, 2);
+  const reconciliation = db.prepare("SELECT merchant_id,balance_minor,reserved_minor,ledger_balance_minor FROM merchant_wallet_reconciliation ORDER BY merchant_id").all() as Array<{merchant_id:string;balance_minor:number;reserved_minor:number;ledger_balance_minor:number}>;
+  assert.equal(reconciliation.every(row => row.balance_minor === row.ledger_balance_minor && row.reserved_minor === 0), true);
 
   const usersRegistry = db.prepare(
     "SELECT source_rows,copied_rows,migration_status FROM app_table_registry WHERE source_system='supabase' AND source_table='users'"
