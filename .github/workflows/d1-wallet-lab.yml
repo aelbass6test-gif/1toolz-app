@@ -1,0 +1,31 @@
+name: D1 wallet ledger laboratory
+
+on:
+  push:
+    branches: [experiment/d1-merchant-wallet]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d1-wallet-lab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-wallet-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install project dependencies
+        run: npm install --no-package-lock
+      - name: Run isolated wallet ledger tests
+        run: npm run test:d1-wallet-ledger
+      - name: Type-check project
+        run: npm run lint
