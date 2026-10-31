@@ -1933,7 +1933,7 @@ export const AppComponent = () => {
 
             let foundStoreId: string | null = previewId;
             
-            if (!foundStoreId && !isExactMainDomain) {
+            if (!foundStoreId && !isExactMainDomain && !db.getIsFirestoreQuotaExhausted()) {
                 // 1. HIGH-PERFORMANCE DIRECT LOOKUP IN STORES_DATA COLLECTION
                 // This bypasses Firebase Auth guest list restriction and quota issues
                 try {
@@ -1943,7 +1943,7 @@ export const AppComponent = () => {
                         const sub = host.split('.')[0].toLowerCase();
                         if (sub && sub !== 'www' && sub !== 'app' && sub !== 'fallback') {
                             const qSub = query(collection(firebaseDb, 'stores_data'), where('settings.subdomain', '==', sub));
-                            const subSnap = await getDocs(qSub);
+                            const subSnap = await db.WITH_TIMEOUT(getDocs(qSub), 5000);
                             if (!subSnap.empty) {
                                 foundStoreId = subSnap.docs[0].id;
                                 console.log('[STOREFRONT-LOOKUP] Matched store ID via subdomain query:', foundStoreId);
@@ -1953,7 +1953,7 @@ export const AppComponent = () => {
                     
                     if (!foundStoreId) {
                         const qCD = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', hostNoWww));
-                        const cdSnap = await getDocs(qCD);
+                        const cdSnap = await db.WITH_TIMEOUT(getDocs(qCD), 5000);
                         if (!cdSnap.empty) {
                             foundStoreId = cdSnap.docs[0].id;
                             console.log('[STOREFRONT-LOOKUP] Matched store ID via customDomain query:', foundStoreId);
@@ -1962,7 +1962,7 @@ export const AppComponent = () => {
 
                     if (!foundStoreId) {
                         const qCAD = query(collection(firebaseDb, 'stores_data'), where('settings.customAppDomain', '==', hostNoWww));
-                        const cadSnap = await getDocs(qCAD);
+                        const cadSnap = await db.WITH_TIMEOUT(getDocs(qCAD), 5000);
                         if (!cadSnap.empty) {
                             foundStoreId = cadSnap.docs[0].id;
                             console.log('[STOREFRONT-LOOKUP] Matched store ID via customAppDomain query:', foundStoreId);
@@ -1971,12 +1971,14 @@ export const AppComponent = () => {
 
                     if (!foundStoreId && host !== hostNoWww) {
                         const qCDHost = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', host));
-                        const cdHostSnap = await getDocs(qCDHost);
+                        const cdHostSnap = await db.WITH_TIMEOUT(getDocs(qCDHost), 5000);
                         if (!cdHostSnap.empty) {
                             foundStoreId = cdHostSnap.docs[0].id;
                         }
                     }
                 } catch (lookupErr) {
+                    const msg = String((lookupErr as any)?.message || lookupErr);
+                    if (msg.includes('quota') || msg.includes('resource-exhausted')) db.markFirestoreQuotaExhausted();
                     console.error('[STOREFRONT-LOOKUP] Error in direct stores_data lookup:', lookupErr);
                 }
             }

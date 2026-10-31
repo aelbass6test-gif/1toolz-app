@@ -594,7 +594,7 @@ export const saveLocal = async (key: string, data: any) => {
 };
 
 // --- Utils ---
-const WITH_TIMEOUT = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise<T> => {
+export const WITH_TIMEOUT = <T>(promise: Promise<T>, timeoutMs: number = 5000): Promise<T> => {
     return Promise.race([
         promise,
         new Promise<T>((_, reject) => setTimeout(() => reject(new Error('العملية السحابية استغرقت وقتاً طويلاً')), timeoutMs))
@@ -1355,47 +1355,98 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         supplyOrders: await (async () => {
                             const embedded = storeSettings.supplyOrders || local?.settings?.supplyOrders || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'supply_orders'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'supply_orders'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         reviews: await (async () => {
                             const embedded = storeSettings.reviews || local?.settings?.reviews || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'reviews'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'reviews'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         abandonedCarts: await (async () => {
                             const embedded = storeSettings.abandonedCarts || local?.settings?.abandonedCarts || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'abandoned_carts'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'abandoned_carts'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         activityLogs: await (async () => {
                             const embedded = storeSettings.activityLogs || local?.settings?.activityLogs || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'activity_logs'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'activity_logs'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         employees: await (async () => {
                             const embedded = storeSettings.employees || local?.settings?.employees || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'employees'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'employees'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.split('_').pop(), ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
+                        })(),
+                        merchantRequests: await (async () => {
+                            const embedded = local?.merchantRequests || [];
+                            if (isFirestoreQuotaExhausted) return embedded;
+                            try {
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId))), 5000);
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            } catch (err) {
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded;
+                            }
+                        })(),
+                        partnerRequests: await (async () => {
+                            const embedded = local?.partnerRequests || [];
+                            if (isFirestoreQuotaExhausted) return embedded;
+                            try {
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId))), 5000);
+                                if (snap.empty) return embedded;
+                                return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                            } catch (err) {
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded;
+                            }
                         })(),
                         discountCodes: await (async () => {
                             const embedded = storeSettings.discountCodes || local?.settings?.discountCodes || [];
@@ -1483,105 +1534,160 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         partners: await (async () => {
                             const embedded = storeSettings.partners || local?.settings?.partners || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'partners'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         partnerTransactions: await (async () => {
                             const embedded = storeSettings.partnerTransactions || local?.settings?.partnerTransactions || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         warehouses: await (async () => {
                             const embedded = storeSettings.warehouses || local?.settings?.warehouses || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'warehouses'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'warehouses'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         inventoryAudits: await (async () => {
                             const embedded = storeSettings.inventoryAudits || local?.settings?.inventoryAudits || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'inventory_audits'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'inventory_audits'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         stockTransfers: await (async () => {
                             const embedded = storeSettings.stockTransfers || local?.settings?.stockTransfers || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'stock_transfers'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'stock_transfers'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         orderReturns: await (async () => {
                             const embedded = storeSettings.orderReturns || local?.settings?.orderReturns || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'order_returns'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'order_returns'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         purchaseReturns: await (async () => {
                             const embedded = storeSettings.purchaseReturns || local?.settings?.purchaseReturns || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         posSales: await (async () => {
                             const embedded = storeSettings.posSales || local?.settings?.posSales || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'pos_sales'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'pos_sales'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         cashHolders: await (async () => {
                             const embedded = storeSettings.cashHolders || local?.settings?.cashHolders || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ ...d.data(), userId: d.id.split('_').pop() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         cashHandovers: await (async () => {
                             const embedded = storeSettings.cashHandovers || local?.settings?.cashHandovers || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'cash_handovers'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'cash_handovers'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         whatsappTemplates: await (async () => {
                             const embedded = storeSettings.whatsappTemplates || local?.settings?.whatsappTemplates || [];
                             if (!forceRemote && embedded.length > 0) return embedded;
+                            if (isFirestoreQuotaExhausted) return embedded;
                             try {
-                                const snap = await getDocs(query(collection(firebaseDb, 'whatsapp_templates'), where('storeId', '==', storeId)));
+                                const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'whatsapp_templates'), where('storeId', '==', storeId))), 5000);
                                 if (snap.empty) return embedded;
                                 return snap.docs.map(d => {
                                     const data = d.data();
                                     const details = (data.details && typeof data.details === 'object') ? data.details : {};
                                     return { id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...data, ...details };
                                 });
-                            } catch { return embedded; }
+                            } catch (err) { 
+                                const msg = String((err as any)?.message || err);
+                                if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                                return embedded; 
+                            }
                         })(),
                         callScripts: storeSettings.callScripts || local?.settings?.callScripts || []
                     },
@@ -1603,43 +1709,82 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                         });
 
                         const embeddedOrders = Array.from(orderMap.values()).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
+                        if (isFirestoreQuotaExhausted) return embeddedOrders;
                         try {
                             let ordersSnap = null;
                             if (forceRemote || embeddedOrders.length === 0) {
-                                ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('storeId', '==', storeId)));
-                                if (ordersSnap.empty) {
-                                    ordersSnap = await getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId)));
+                                ordersSnap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'orders'), where('storeId', '==', storeId))), 10000);
+                                if (!ordersSnap || ordersSnap.empty) {
+                                    ordersSnap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'orders'), where('store_id', '==', storeId))), 10000);
                                 }
                             }
                             if (!ordersSnap || ordersSnap.empty) return embeddedOrders;
                             const colOrders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
                             const reconciled = reconcileDualOrderSources(storeId, embeddedOrders, colOrders, EXPLICIT_DELETED_IDS, true);
                             return reconciled.mergedOrders.filter((o: any) => !isExplicitlyDeleted(o?.id, storeId) && !isExplicitlyDeleted(o?.orderNumber, storeId));
-                        } catch {
+                        } catch (err) {
+                            const msg = String((err as any)?.message || err);
+                            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
                             return embeddedOrders;
                         }
                     })(),
                     wallet: await (async () => {
                         const baseWallet = cloudData?.wallet || local?.wallet || { balance: storeSettings.wallet_balance || 0, transactions: [] };
+                        if (isFirestoreQuotaExhausted) return baseWallet;
                         try {
-                            const snap = await getDocs(query(collection(firebaseDb, 'transactions'), where('storeId', '==', storeId)));
+                            const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'transactions'), where('storeId', '==', storeId))), 5000);
                             if (snap.empty) return baseWallet;
                             const txs = snap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }));
                             return { ...baseWallet, transactions: txs };
-                        } catch { return baseWallet; }
+                        } catch (err) { 
+                            const msg = String((err as any)?.message || err);
+                            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                            return baseWallet; 
+                        }
                     })(),
                     treasury: await (async () => {
                         const baseTreasury = cloudData?.treasury || local?.treasury || { accounts: [], transactions: [] };
+                        if (isFirestoreQuotaExhausted) return baseTreasury;
                         try {
                             const [accSnap, txSnap] = await Promise.all([
-                                getDocs(query(collection(firebaseDb, 'treasury_accounts'), where('storeId', '==', storeId))),
-                                getDocs(query(collection(firebaseDb, 'treasury_transactions'), where('storeId', '==', storeId)))
+                                WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'treasury_accounts'), where('storeId', '==', storeId))), 5000),
+                                WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'treasury_transactions'), where('storeId', '==', storeId))), 5000)
                             ]);
                             return {
                                 accounts: accSnap.empty ? baseTreasury.accounts : accSnap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() })),
                                 transactions: txSnap.empty ? baseTreasury.transactions : txSnap.docs.map(d => ({ id: d.id.startsWith(storeId + '_') ? d.id.substring(storeId.length + 1) : d.id, ...d.data() }))
                             };
-                        } catch { return baseTreasury; }
+                        } catch (err) { 
+                            const msg = String((err as any)?.message || err);
+                            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                            return baseTreasury; 
+                        }
+                    })(),
+                    merchantRequests: await (async () => {
+                        const embedded = local?.merchantRequests || [];
+                        if (isFirestoreQuotaExhausted) return embedded;
+                        try {
+                            const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId))), 5000);
+                            if (snap.empty) return embedded;
+                            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        } catch (err) {
+                            const msg = String((err as any)?.message || err);
+                            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                            return embedded;
+                        }
+                    })(),
+                    partnerRequests: await (async () => {
+                        const embedded = local?.partnerRequests || [];
+                        if (isFirestoreQuotaExhausted) return embedded;
+                        try {
+                            const snap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId))), 5000);
+                            if (snap.empty) return embedded;
+                            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                        } catch (err) {
+                            const msg = String((err as any)?.message || err);
+                            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
+                            return embedded;
+                        }
                     })(),
                     cart: [],
                     customers: cloudData?.customers || local?.customers || [],
@@ -3501,7 +3646,7 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
     if (firebaseDb && !isFirestoreQuotaExhausted) {
         try {
             // Fetch from partner_requests collection
-            const pSnap = await getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId)));
+            const pSnap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId))), 5000);
             pSnap.forEach(docSnap => {
                 const r = { id: docSnap.id, ...docSnap.data() } as any;
                 if (r && r.id && !merged.has(String(r.id))) {
@@ -3517,7 +3662,7 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
             });
 
             // Fetch from merchant_requests collection (partners might also be merchants)
-            const mSnap = await getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId)));
+            const mSnap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId))), 5000);
             mSnap.forEach(docSnap => {
                 const r = { id: docSnap.id, ...docSnap.data() } as any;
                 if (r && r.id && !merged.has(String(r.id))) {
@@ -3525,6 +3670,8 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
                 }
             });
         } catch (fsErr) {
+            const msg = String((fsErr as any)?.message || fsErr);
+            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
             console.warn('[PARTNER-REQUEST] Firestore read failed:', fsErr);
         }
     }
@@ -3869,7 +4016,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
     if (firebaseDb && !isFirestoreQuotaExhausted) {
         try {
             // Fetch from merchant_requests collection
-            const mSnap = await getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId)));
+            const mSnap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', storeId))), 5000);
             mSnap.forEach(docSnap => {
                 const r = { id: docSnap.id, ...docSnap.data() };
                 if (r && r.id && !merged.has(String(r.id))) {
@@ -3878,7 +4025,7 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
             });
 
             // Fetch from partner_requests collection (for legacy)
-            const pSnap = await getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId)));
+            const pSnap = await WITH_TIMEOUT(getDocs(query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', storeId))), 5000);
             pSnap.forEach(docSnap => {
                 const r = { id: docSnap.id, ...docSnap.data() };
                 if (r && r.id && !merged.has(String(r.id)) && isLegacyMerchantRequest(r)) {
@@ -3886,6 +4033,8 @@ export const getMerchantRequests = async (storeId: string): Promise<PartnerPorta
                 }
             });
         } catch (fsErr) {
+            const msg = String((fsErr as any)?.message || fsErr);
+            if (msg.includes('quota') || msg.includes('resource-exhausted')) markFirestoreQuotaExhausted();
             console.warn('[MERCHANT-REQUEST] Firestore read failed:', fsErr);
         }
     }

@@ -2222,6 +2222,7 @@ export interface StoreData {
   customers: CustomerProfile[]; // Added customers to StoreData
   quotations?: Quotation[];
   merchantRequests?: any[];
+  partnerRequests?: any[];
 }
 
 export interface PlaceOrderData {
