@@ -1,4 +1,12 @@
 import { handleOtpRequest } from "../../src/otp";
+import {
+  getMerchantWalletSnapshot,
+  submitMerchantWithdrawal,
+  transitionMerchantWithdrawal,
+  type D1DatabaseLike as WalletD1DatabaseLike,
+  type D1StatementLike as WalletD1StatementLike,
+  type SubmitWithdrawalInput
+} from "../../wallet-lab/merchant-wallet-ledger";
 
 interface D1MetaLike {
   changes?: number;
@@ -914,6 +922,284 @@ async function createInvitation(
   }
 
   return json(request, env, { success: true, invitationId, email, role, expiresAt: expires });
+}
+
+
+interface MerchantLinkRow {
+  merchant_id: string;
+  status: string;
+}
+
+interface MerchantWithdrawalRow {
+  id: string;
+  store_id: string;
+  merchant_id: string;
+  amount_minor: number;
+  transfer_fee_minor: number;
+  status: string;
+  idempotency_key: string;
+  payout_method: string;
+  payout_account_ref: string | null;
+  requested_by_user_id: string;
+  approved_by_user_id: string | null;
+  transfer_reference: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  processed_at: string | null;
+}
+
+function walletDatabase(db: D1DatabaseLike): WalletD1DatabaseLike {
+  const adapt = (statement: D1StatementLike): WalletD1StatementLike => ({
+    bind(...values: Array<string | number | null>): WalletD1StatementLike {
+      return adapt(statement.bind(...values));
+    },
+    first<T = Record<string, unknown>>(): Promise<T | null> {
+      return statement.first<T>();
+    },
+    async run() {
+      const result = await statement.run();
+      return { success: result.success === true, meta: result.meta };
+    }
+  });
+  return { prepare: (sql: string) => adapt(db.prepare(sql)) };
+}
+
+function egpToMinor(value: unknown, field: string): number {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(/^(\d{1,12})(?:\.(\d{1,2}))?$/);
+  if (!match) throw new Error(`invalid_${field}`);
+  const major = Number(match[1]);
+  const minor = Number((match[2] || "").padEnd(2, "0") || "0");
+  const valueMinor = major * 100 + minor;
+  if (!Number.isSafeInteger(valueMinor)) throw new Error(`invalid_${field}`);
+  return valueMinor;
+}
+
+async function activeMerchantLink(
+  env: Env,
+  storeId: string,
+  identityId: string
+): Promise<string | null> {
+  const row = await env.CORE_DB.prepare(`
+    SELECT merchant_id
+    FROM merchant_account_links
+    WHERE store_id = ? AND identity_id = ? AND status = 'active'
+    LIMIT 1
+  `).bind(storeId, identityId).first<MerchantLinkRow>();
+  return row?.merchant_id || null;
+}
+
+async function merchantWalletSnapshot(
+  request: Request,
+  env: Env,
+  storeId: string,
+  merchantId: string
+): Promise<Response> {
+  const snapshot = await getMerchantWalletSnapshot(walletDatabase(env.CORE_DB), storeId, merchantId);
+  if (!snapshot) return json(request, env, { success: false, error: "محفظة الموكل غير موجودة في قاعدة Cloudflare." }, 404);
+  return json(request, env, { success: true, wallet: snapshot });
+}
+
+async function merchantWithdrawalList(
+  request: Request,
+  env: Env,
+  identity: SessionIdentity,
+  storeId: string
+): Promise<Response> {
+  const membership = await getActiveMembership(env, identity.id, storeId);
+  if (!membership) return json(request, env, { success: false, error: "لا تملك عضوية نشطة في هذا المتجر." }, 403);
+
+  let query = env.CORE_DB.prepare(`
+    SELECT id, store_id, merchant_id, amount_minor, transfer_fee_minor, status,
+           idempotency_key, payout_method, payout_account_ref, requested_by_user_id,
+           approved_by_user_id, transfer_reference, rejection_reason,
+           created_at, updated_at, processed_at
+    FROM merchant_withdrawal_requests
+    WHERE store_id = ?
+    ORDER BY created_at DESC
+    LIMIT 200
+  `);
+  if (["merchant","partner"].includes(membership.role)) {
+    const merchantId = await activeMerchantLink(env, storeId, identity.id);
+    if (!merchantId) return json(request, env, { success: false, error: "حساب الموكل غير مربوط بمحفظة بعد." }, 403);
+    query = env.CORE_DB.prepare(`
+      SELECT id, store_id, merchant_id, amount_minor, transfer_fee_minor, status,
+             idempotency_key, payout_method, payout_account_ref, requested_by_user_id,
+             approved_by_user_id, transfer_reference, rejection_reason,
+             created_at, updated_at, processed_at
+      FROM merchant_withdrawal_requests
+      WHERE store_id = ? AND merchant_id = ?
+      ORDER BY created_at DESC
+      LIMIT 200
+    `).bind(storeId, merchantId) as unknown as typeof query;
+  } else if (!["owner","manager"].includes(membership.role)) {
+    return json(request, env, { success: false, error: "لا تملك صلاحية عرض طلبات السحب." }, 403);
+  } else {
+    query = query.bind(storeId) as unknown as typeof query;
+  }
+
+  const result = await query.all<MerchantWithdrawalRow>();
+  return json(request, env, { success: true, requests: result.results || [] });
+}
+
+async function submitWithdrawal(
+  request: Request,
+  env: Env,
+  identity: SessionIdentity,
+  storeId: string
+): Promise<Response> {
+  const membership = await getActiveMembership(env, identity.id, storeId);
+  if (!membership || !["merchant","partner"].includes(membership.role)) {
+    return json(request, env, { success: false, error: "طلب السحب متاح لحساب الموكل المرتبط فقط." }, 403);
+  }
+  const merchantId = await activeMerchantLink(env, storeId, identity.id);
+  if (!merchantId) return json(request, env, { success: false, error: "حساب الموكل لم يتم ربطه بمحفظة بعد." }, 403);
+
+  const body = await readJson(request);
+  if (!body) return json(request, env, { success: false, error: "بيانات طلب السحب غير صالحة." }, 400);
+  const payoutMethod = String(body.payoutMethod || "");
+  if (!["bank","instapay","wallet"].includes(payoutMethod)) {
+    return json(request, env, { success: false, error: "طريقة التحويل غير صحيحة." }, 400);
+  }
+
+  const idempotencyKey = request.headers.get("Idempotency-Key") || String(body.idempotencyKey || "");
+  if (!idempotencyKey.trim()) {
+    return json(request, env, { success: false, error: "مفتاح منع التكرار مطلوب." }, 400);
+  }
+
+  try {
+    const input: SubmitWithdrawalInput = {
+      storeId,
+      merchantId,
+      amountMinor: Number.isSafeInteger(body.amountMinor)
+        ? Number(body.amountMinor)
+        : egpToMinor(body.amount, "amount"),
+      transferFeeMinor: body.transferFeeMinor !== undefined
+        ? Number(body.transferFeeMinor)
+        : body.transferFee !== undefined ? egpToMinor(body.transferFee, "transfer_fee") : 0,
+      idempotencyKey: idempotencyKey.trim(),
+      payoutMethod: payoutMethod as SubmitWithdrawalInput["payoutMethod"],
+      payoutAccountRef: body.payoutAccountRef ? String(body.payoutAccountRef) : null,
+      requestedByUserId: identity.id
+    };
+    const created = await submitMerchantWithdrawal(walletDatabase(env.CORE_DB), input);
+    const wallet = await getMerchantWalletSnapshot(walletDatabase(env.CORE_DB), storeId, merchantId);
+    return json(request, env, { success: true, request: created, wallet }, 201);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "withdrawal_failed";
+    const status = message.includes("insufficient_available_balance") ? 409
+      : message.includes("idempotency_key") ? 409
+      : message.startsWith("invalid_") ? 400 : 500;
+    return json(request, env, {
+      success: false,
+      error: status === 409 ? "الرصيد غير كافٍ أو الطلب مكرر بمحتوى مختلف."
+        : status === 400 ? "بيانات السحب غير صالحة."
+        : "تعذر إنشاء طلب السحب."
+    }, status);
+  }
+}
+
+async function transitionWithdrawal(
+  request: Request,
+  env: Env,
+  identity: SessionIdentity,
+  storeId: string,
+  requestId: string,
+  transition: "processing" | "approved" | "rejected"
+): Promise<Response> {
+  const membership = await getActiveMembership(env, identity.id, storeId);
+  if (!membership || !["owner","manager"].includes(membership.role)) {
+    return json(request, env, { success: false, error: "صلاحية المالك أو المدير مطلوبة لمعالجة طلب السحب." }, 403);
+  }
+  const existing = await env.CORE_DB.prepare(`
+    SELECT merchant_id
+    FROM merchant_withdrawal_requests
+    WHERE id = ? AND store_id = ?
+    LIMIT 1
+  `).bind(requestId, storeId).first<{ merchant_id: string }>();
+  if (!existing) return json(request, env, { success: false, error: "طلب السحب غير موجود." }, 404);
+
+  const body = transition === "processing" ? {} : await readJson(request);
+  if (!body) return json(request, env, { success: false, error: "بيانات معالجة الطلب غير صالحة." }, 400);
+  try {
+    const updated = await transitionMerchantWithdrawal(walletDatabase(env.CORE_DB), {
+      storeId,
+      merchantId: existing.merchant_id,
+      requestId,
+      targetStatus: transition,
+      actorUserId: identity.id,
+      transferReference: transition === "approved" ? String(body.transferReference || "").trim() : undefined,
+      rejectionReason: transition === "rejected" ? String(body.rejectionReason || "").trim() : undefined
+    });
+    const wallet = await getMerchantWalletSnapshot(walletDatabase(env.CORE_DB), storeId, existing.merchant_id);
+    return json(request, env, { success: true, request: updated, wallet });
+  } catch {
+    return json(request, env, { success: false, error: "تعذر معالجة الطلب؛ ربما تمت معالجته من قبل." }, 409);
+  }
+}
+
+async function createMerchantAccountLink(
+  request: Request,
+  env: Env,
+  actor: SessionIdentity,
+  storeId: string
+): Promise<Response> {
+  const ownerMembership = await getActiveMembership(env, actor.id, storeId);
+  if (!ownerMembership || ownerMembership.role !== "owner") {
+    return json(request, env, { success: false, error: "صلاحية مالك المتجر مطلوبة لربط حساب الموكل." }, 403);
+  }
+  const body = await readJson(request);
+  const merchantId = String(body?.merchantId || "").trim();
+  const identityId = String(body?.identityId || "").trim();
+  const role = String(body?.role || "merchant");
+  if (!merchantId || !identityId || !["merchant","partner"].includes(role)) {
+    return json(request, env, { success: false, error: "بيانات ربط الموكل غير مكتملة." }, 400);
+  }
+
+  const [wallet, identity] = await Promise.all([
+    env.CORE_DB.prepare(
+      "SELECT merchant_id FROM merchant_wallets WHERE store_id = ? AND merchant_id = ? LIMIT 1"
+    ).bind(storeId, merchantId).first<{merchant_id:string}>(),
+    env.CORE_DB.prepare(
+      "SELECT id FROM auth_identities WHERE id = ? AND account_status = 'active' AND verified_at IS NOT NULL LIMIT 1"
+    ).bind(identityId).first<{id:string}>()
+  ]);
+  if (!wallet || !identity) {
+    return json(request, env, { success: false, error: "المحفظة أو هوية الحساب غير موجودة أو غير متحققة." }, 409);
+  }
+
+  const now = new Date().toISOString();
+  const results = await env.CORE_DB.batch([
+    env.CORE_DB.prepare(`
+      INSERT INTO store_memberships (
+        store_id, identity_id, role, permissions_json, status, created_at, updated_at
+      ) VALUES (?, ?, ?, '[]', 'active', ?, ?)
+      ON CONFLICT(store_id, identity_id) DO UPDATE SET
+        role = CASE
+          WHEN store_memberships.role IN ('owner','manager') THEN store_memberships.role
+          ELSE excluded.role
+        END,
+        status = 'active',
+        updated_at = excluded.updated_at
+    `).bind(storeId, identityId, role, now, now),
+    env.CORE_DB.prepare(`
+      INSERT INTO merchant_account_links (
+        store_id, merchant_id, identity_id, status, verified_by_identity_id,
+        verified_at, created_at, updated_at
+      ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?)
+      ON CONFLICT(store_id, merchant_id, identity_id) DO UPDATE SET
+        status = 'active',
+        verified_by_identity_id = excluded.verified_by_identity_id,
+        verified_at = excluded.verified_at,
+        updated_at = excluded.updated_at
+    `).bind(storeId, merchantId, identityId, actor.id, now, now, now)
+  ]);
+
+  if ((results[0]?.meta?.changes || 0) !== 1 || (results[1]?.meta?.changes || 0) !== 1) {
+    return json(request, env, { success: false, error: "تعذر ربط محفظة الموكل." }, 409);
+  }
+  return json(request, env, { success: true, storeId, merchantId, identityId, role });
 }
 
 async function route(request: Request, env: Env): Promise<Response> {
