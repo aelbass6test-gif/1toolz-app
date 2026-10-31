@@ -112,14 +112,24 @@ test("request reservation persists across a fresh read and processing keeps the 
   assert.equal(afterRefresh?.reserved_minor, 6_000);
   assert.equal(afterRefresh?.available_minor, 4_000);
 
-  const processing = await transitionMerchantWithdrawal(d1, {
-    storeId: "test-store-a",
-    merchantId: "test-merchant-a",
-    requestId: request.id,
-    targetStatus: "processing",
-    actorUserId: "synthetic-manager-1"
-  });
-  assert.equal(processing.status, "processing");
+  const [processingA, processingB] = await Promise.all([
+    transitionMerchantWithdrawal(d1, {
+      storeId: "test-store-a",
+      merchantId: "test-merchant-a",
+      requestId: request.id,
+      targetStatus: "processing",
+      actorUserId: "synthetic-manager-1"
+    }),
+    transitionMerchantWithdrawal(d1, {
+      storeId: "test-store-a",
+      merchantId: "test-merchant-a",
+      requestId: request.id,
+      targetStatus: "processing",
+      actorUserId: "synthetic-manager-2"
+    })
+  ]);
+  assert.equal(processingA.status, "processing");
+  assert.equal(processingB.status, "processing");
 
   const whileProcessing = await getMerchantWalletSnapshot(d1, "test-store-a", "test-merchant-a");
   assert.equal(whileProcessing?.reserved_minor, 6_000);
