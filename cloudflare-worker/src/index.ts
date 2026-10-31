@@ -39,6 +39,7 @@ export interface Env {
   OTP_RESEND_DAILY_LIMIT?: string;
   OTP_BREVO_DAILY_LIMIT?: string;
   META_VERIFY_TOKEN?: string;
+  META_APP_SECRET?: string;
   BOSTA_API_KEY?: string;
   BOSTA_PRODUCTION_BASE_URL?: string;
   BOSTA_STAGING_BASE_URL?: string;
@@ -165,9 +166,9 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
     (url.pathname === '/api/media/delete' && (request.method === 'DELETE' || request.method === 'POST'));
 
   if (isDeleteApi) {
-    const mediaUserId = env.MEDIA_REQUIRE_AUTH === 'true' ? await getSupabaseUserId(request, env) : null;
-    if (env.MEDIA_REQUIRE_AUTH === 'true' && !mediaUserId) {
-      return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
+    const mediaIdentity = env.MEDIA_REQUIRE_AUTH === 'true' ? await getAuthenticatedIdentity(request, env) : null;
+    if (env.MEDIA_REQUIRE_AUTH === 'true' && !mediaIdentity) {
+      return json(request, env, { success: false, error: 'جلسة الدخول غير صالحة' }, 401);
     }
 
     let body: any = {};
@@ -214,10 +215,10 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       return json(request, env, { success: false, error: 'لم يتم تحديد مفتاح أو رابط صورة صالح للحذف' }, 400);
     }
 
-    if (env.MEDIA_REQUIRE_AUTH === 'true' && mediaUserId) {
+    if (env.MEDIA_REQUIRE_AUTH === 'true' && mediaIdentity) {
       for (const key of cleanedKeys) {
         const storeId = key.split('/')[1] || '';
-        if (!(await userHasStoreMembership(request, env, mediaUserId, storeId))) {
+        if (!(await userHasStoreMembership(request, env, storeId))) {
           return json(request, env, { success: false, error: 'لا تملك صلاحية حذف صور أحد المتاجر المحددة' }, 403);
         }
       }
@@ -246,12 +247,12 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
   }
   const uploadIdentity = env.MEDIA_REQUIRE_AUTH === 'true' ? await getAuthenticatedIdentity(request, env) : null;
   if (env.MEDIA_REQUIRE_AUTH === 'true' && !uploadIdentity) {
-    return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
+    return json(request, env, { success: false, error: 'جلسة الدخول غير صالحة' }, 401);
   }
   const form = await request.formData();
   const storeId = safePathPart(form.get('storeId'), 'store');
-  if (env.MEDIA_REQUIRE_AUTH === 'true' && uploadUserId &&
-      !(await userHasStoreMembership(request, env, uploadUserId, storeId))) {
+  if (env.MEDIA_REQUIRE_AUTH === 'true' && uploadIdentity &&
+      !(await userHasStoreMembership(request, env, storeId))) {
     return json(request, env, { success: false, error: 'لا تملك صلاحية رفع صور لهذا المتجر' }, 403);
   }
   const productId = safePathPart(form.get('productId'), 'product');
@@ -408,22 +409,82 @@ function turboHeaders() { return { "content-type": "application/json", accept: "
 /* WhatsApp / Meta Cloud API Webhook Edge Handler                              */
 /* -------------------------------------------------------------------------- */
 async function handleWhatsAppWebhook(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
-  const target = env.SUPABASE_WHATSAPP_WEBHOOK_URL || SUPABASE_WHATSAPP_WEBHOOK_URL;
-  const targetUrl = new URL(target);
-  const incomingUrl = new URL(request.url);
-  incomingUrl.searchParams.forEach((value, key) => targetUrl.searchParams.set(key, value));
-  const response = await fetch(targetUrl.toString(), {
-    method: request.method,
-    headers: {
-      "content-type": request.headers.get("content-type") || "application/json",
-      "x-hub-signature-256": request.headers.get("x-hub-signature-256") || "",
-    },
-    body: request.method === "GET" ? undefined : await request.text(),
-  });
-  return new Response(response.body, {
-    status: response.status,
-    headers: { "content-type": response.headers.get("content-type") || "application/json" },
-  });
+  if (request.method === "GET") {
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("hub.mode");
+    const token = url.searchParams.get("hub.verify_token") || "";
+    const challenge = url.searchParams.get("hub.challenge") || "";
+    if (mode !== "subscribe" || !challenge || !env.META_VERIFY_TOKEN ||
+        !constantTimeStringEqual(token, env.META_VERIFY_TOKEN)) {
+      return json(request, env, { success: false, error: "طلب تحقق Meta غير صالح." }, 403);
+    }
+    return new Response(challenge, { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
+  }
+
+  if (request.method !== "POST") {
+    return json(request, env, { success: false, error: "طريقة الطلب غير مدعومة." }, 405);
+  }
+  if (!env.APP_DB || !env.META_APP_SECRET) {
+    return json(request, env, { success: false, error: "تكامل واتساب غير مهيأ على Cloudflare." }, 503);
+  }
+
+  const rawBody = await request.text();
+  if (!rawBody || rawBody.length > 1_000_000) {
+    return json(request, env, { success: false, error: "حجم إشعار واتساب غير صالح." }, 413);
+  }
+
+  const signature = request.headers.get("x-hub-signature-256") || "";
+  const expected = await hmacSha256Hex(env.META_APP_SECRET, rawBody);
+  const supplied = signature.startsWith("sha256=") ? signature.slice(7).toLowerCase() : "";
+  if (!supplied || !constantTimeStringEqual(supplied, expected)) {
+    return json(request, env, { success: false, error: "توقيع إشعار Meta غير صالح." }, 401);
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    return json(request, env, { success: false, error: "صيغة إشعار واتساب غير صالحة." }, 400);
+  }
+
+  const eventId = await hmacSha256Hex(env.META_APP_SECRET, rawBody);
+  try {
+    const result = await env.APP_DB.prepare(`
+      INSERT OR IGNORE INTO whatsapp_webhook_events (
+        event_id, object_name, payload_json, signature_verified, received_at
+      ) VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+    `).bind(
+      eventId,
+      typeof payload.object === "string" ? payload.object.slice(0, 80) : "unknown",
+      rawBody
+    ).run();
+    return json(request, env, {
+      success: true,
+      accepted: true,
+      duplicate: (result.meta?.changes ?? 0) === 0
+    });
+  } catch {
+    console.error("[WHATSAPP-WEBHOOK] Failed to persist verified Meta event.");
+    return json(request, env, { success: false, error: "تعذر حفظ إشعار واتساب." }, 503);
+  }
+}
+
+async function hmacSha256Hex(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(signature), item => item.toString(16).padStart(2, "0")).join("");
+}
+
+function constantTimeStringEqual(left: string, right: string): boolean {
+  let mismatch = left.length ^ right.length;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    mismatch |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return mismatch === 0;
 }
 
 /* -------------------------------------------------------------------------- */
