@@ -7,7 +7,8 @@ import { test } from "node:test";
 const migrations = [
   "cloudflare-worker/cutover-lab/migrations/0001_cloudflare_core.sql",
   "cloudflare-worker/cutover-lab/migrations/0002_sanitize_credentials_and_register_missing_sources.sql",
-  "cloudflare-worker/cutover-lab/migrations/0003_seed_pending_identity_and_membership_claims.sql"
+  "cloudflare-worker/cutover-lab/migrations/0003_seed_pending_identity_and_membership_claims.sql",
+  "cloudflare-worker/cutover-lab/migrations/0004_identity_roles_invitations_and_operations.sql"
 ];
 
 function loadSql(path: string): string {
@@ -131,6 +132,7 @@ test("identity seeding never imports legacy passwords or trusts administrator cl
   const db = fixture();
   db.exec(loadSql(migrations[1]));
   db.exec(loadSql(migrations[2]));
+  db.exec(loadSql(migrations[3]));
 
   const identities = db.prepare(
     "SELECT legacy_user_key, email, phone, display_name, account_status, password_reset_required, legacy_role_claims_json FROM auth_identities ORDER BY legacy_user_key"
@@ -164,6 +166,12 @@ test("identity seeding never imports legacy passwords or trusts administrator cl
   ).all() as Array<Record<string, unknown>>;
   assert.equal(storeClaims.length, 1);
   assert.equal(storeClaims[0].status, "pending_verification");
+
+  const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type = ?").all("table") as Array<{ name: string }>;
+  const names = new Set(tableNames.map(row => row.name));
+  for (const requiredTable of ["platform_roles", "platform_bootstrap_state", "store_invitations", "app_write_audit", "backup_manifest", "domain_outbox"]) {
+    assert.equal(names.has(requiredTable), true, `missing table: ${requiredTable}`);
+  }
 
   const usersRegistry = db.prepare(
     "SELECT source_rows,copied_rows,migration_status FROM app_table_registry WHERE source_system='supabase' AND source_table='users'"
