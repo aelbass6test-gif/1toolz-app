@@ -290,7 +290,7 @@ export async function handleDataRequest(
     // Public storefront lookup is read-only. Sensitive keys are stripped before return.
   } else if (isAdminTable) {
     if (!context?.isPlatformAdmin) return json({ success: false, error: "يتطلب هذا القسم صلاحية مدير المنصة." }, 403);
-    if (!storeId) storeId = "__global__";
+    storeId = null;
     access = { role: "owner", permissions: ["*"], isAdmin: true };
   } else {
     if (!storeId || storeId.length > 160) return json({ success: false, error: "معرّف المتجر مطلوب." }, 400);
@@ -379,11 +379,12 @@ export async function handleDataRequest(
 
     const selected = await listRecords(env.APP_DB, table, storeId, filters, MAX_WRITE_ROWS + 1, 0, "record_key", true, null);
     if (selected.length > MAX_WRITE_ROWS) return json({ success: false, error: "حدّث عددًا أقل من السجلات في كل طلب." }, 413);
+    let updateBody: Record<string, unknown> = {};
     if (request.method !== "DELETE") {
       const body = await request.json().catch(() => null);
       if (!body || typeof body !== "object" || Array.isArray(body)) return json({ success: false, error: "بيانات التعديل غير صالحة." }, 400);
+      updateBody = body as Record<string, unknown>;
     }
-    const updateBody = request.method === "DELETE" ? {} : await request.clone().json().catch(() => ({})) as Record<string, unknown>;
     try {
       const items = [];
       for (const row of selected) {
