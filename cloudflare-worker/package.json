@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:cutover-lab": "tsc --noEmit -p cutover-lab/tsconfig.json",
+    "dev:cutover-lab": "wrangler dev --config cutover-lab/wrangler.cutover-lab.jsonc",
+    "deploy:cutover-lab": "wrangler deploy --config cutover-lab/wrangler.cutover-lab.jsonc"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260908.1",
