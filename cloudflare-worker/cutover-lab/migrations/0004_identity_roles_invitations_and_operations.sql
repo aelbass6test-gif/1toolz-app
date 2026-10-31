@@ -16,6 +16,14 @@ CREATE TABLE IF NOT EXISTS platform_roles (
   FOREIGN KEY(granted_by_identity_id) REFERENCES auth_identities(id)
 );
 
+
+CREATE TABLE IF NOT EXISTS platform_bootstrap_state (
+  singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+  completed_by_identity_id TEXT NOT NULL,
+  completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(completed_by_identity_id) REFERENCES auth_identities(id)
+);
+
 CREATE TABLE IF NOT EXISTS store_invitations (
   invitation_id TEXT PRIMARY KEY,
   store_id TEXT NOT NULL,
