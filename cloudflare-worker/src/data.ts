@@ -105,7 +105,8 @@ function parseFilters(url: URL): Filter[] {
     const value = item as Record<string, unknown>;
     const field = String(value.field || "");
     const op = String(value.op || "eq").toLowerCase();
-    if (!FIELD_NAME_RE.test(field) || !["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"].includes(op)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}(?:->>[A-Za-z_][A-Za-z0-9_]{0,62})?$/.test(field) ||
+        !["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"].includes(op)) {
       throw new Error("unsupported_filter");
     }
     if (op === "in" && (!Array.isArray(value.value) || value.value.length > 100)) throw new Error("invalid_in_filter");
@@ -113,14 +114,37 @@ function parseFilters(url: URL): Filter[] {
   });
 }
 
+function parseOrFilters(url: URL): Filter[][] {
+  const raw = url.searchParams.get("orFilters");
+  if (!raw) return [];
+  let groups: unknown;
+  try { groups = JSON.parse(raw); } catch { throw new Error("invalid_or_filters"); }
+  if (!Array.isArray(groups) || groups.length > 10) throw new Error("invalid_or_filters");
+  return groups.map(group => {
+    if (!Array.isArray(group) || group.length === 0 || group.length > 20) throw new Error("invalid_or_filter_group");
+    return group.map(item => {
+      if (!item || typeof item !== "object") throw new Error("invalid_or_filter");
+      const value = item as Record<string, unknown>;
+      const field = String(value.field || "");
+      const op = String(value.op || "eq").toLowerCase();
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}(?:->>[A-Za-z_][A-Za-z0-9_]{0,62})?$/.test(field) ||
+          !["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "is", "in"].includes(op)) {
+        throw new Error("unsupported_or_filter");
+      }
+      return { field, op, value: value.value };
+    });
+  });
+}
+
 function filterSql(filter: Filter, params: unknown[]): string {
   const field = filter.field;
+  const pathParts = field.split("->>");
+  const jsonPath = "$" + pathParts.map(part => `."${part}"`).join("");
   const expression = field === "store_id"
     ? "store_id"
-    : field === "storeId"
-      ? "COALESCE(json_extract(record_json, '$.storeId'), store_id)"
-      : `json_extract(record_json, '$."${field}"')`;
-
+    : field === "storeId" || field === "storeid"
+      ? "COALESCE(json_extract(record_json, '$.storeId'), json_extract(record_json, '$.storeid'), store_id)"
+      : `json_extract(record_json, '${jsonPath}')`;
   if (filter.op === "in") {
     const values = filter.value as unknown[];
     if (!values.length) return "1=0";
@@ -130,13 +154,9 @@ function filterSql(filter: Filter, params: unknown[]): string {
   if (filter.op === "is" && filter.value === null) return `${expression} IS NULL`;
   if (filter.op === "is" && filter.value === true) return `${expression} = 1`;
   if (filter.op === "is" && filter.value === false) return `(${expression} = 0 OR ${expression} IS NULL)`;
-  const operators: Record<string, string> = {
-    eq: "=", neq: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=", like: "LIKE", ilike: "LIKE"
-  };
+  const operators: Record<string, string> = { eq: "=", neq: "<>", gt: ">", gte: ">=", lt: "<", lte: "<=", like: "LIKE", ilike: "LIKE" };
   params.push(filter.op === "ilike" ? String(filter.value ?? "").toLowerCase() : (filter.value ?? null));
-  return filter.op === "ilike"
-    ? `lower(CAST(${expression} AS TEXT)) LIKE ?`
-    : `${expression} ${operators[filter.op]} ?`;
+  return filter.op === "ilike" ? `lower(CAST(${expression} AS TEXT)) LIKE ?` : `${expression} ${operators[filter.op]} ?`;
 }
 
 async function listRecords(
@@ -144,6 +164,7 @@ async function listRecords(
   table: string,
   storeId: string | null,
   filters: Filter[],
+  orGroups: Filter[][],
   limit: number,
   offset: number,
   orderBy: string,
@@ -161,6 +182,7 @@ async function listRecords(
     params.push(cursor);
   }
   const filterWhere = filters.map(filter => filterSql(filter, params));
+  const orWhere = orGroups.map(group => `(${group.map(filter => filterSql(filter, params)).join(" OR ")})`);
   const orderExpr = orderBy === "record_key"
     ? "record_key"
     : orderBy === "store_id" ? "store_id" : `json_extract(record_json, '$."${orderBy}"')`;
@@ -179,6 +201,7 @@ async function listRecords(
     FROM ranked
     WHERE version_rank = 1
       ${filterWhere.length ? "AND " + filterWhere.join(" AND ") : ""}
+      ${orWhere.length ? "AND (" + orWhere.join(" OR ") + ")" : ""}
     ORDER BY ${orderExpr} ${ascending ? "ASC" : "DESC"}, record_key ASC
     LIMIT ? OFFSET ?
   `).bind(...params).all<{ record_key: string; record_json: string; source_system: string }>();
@@ -305,7 +328,8 @@ export async function handleDataRequest(
 
   if (request.method === "GET") {
     let filters: Filter[];
-    try { filters = parseFilters(url); } catch {
+    let orGroups: Filter[][];
+    try { filters = parseFilters(url); orGroups = parseOrFilters(url); } catch {
       return json({ success: false, error: "فلاتر البحث غير صالحة." }, 400);
     }
     const requestedId = parts[4] || url.searchParams.get("id");
@@ -322,7 +346,7 @@ export async function handleDataRequest(
     const cursor = url.searchParams.get("cursor");
 
     const rows = await listRecords(env.APP_DB, table, isPublicRead && !storeId ? null : storeId,
-      filters, limit, offset, orderBy, ascending, cursor);
+      filters, orGroups, limit, offset, orderBy, ascending, cursor);
     const hasMore = rows.length > limit;
     const visible = rows.slice(0, limit).filter(row => {
       try { return JSON.parse(row.record_json)?._deleted !== true; } catch { return false; }
@@ -377,7 +401,7 @@ export async function handleDataRequest(
       }
     }
 
-    const selected = await listRecords(env.APP_DB, table, storeId, filters, MAX_WRITE_ROWS + 1, 0, "record_key", true, null);
+    const selected = await listRecords(env.APP_DB, table, storeId, filters, orGroups, MAX_WRITE_ROWS + 1, 0, "record_key", true, null);
     if (selected.length > MAX_WRITE_ROWS) return json({ success: false, error: "حدّث عددًا أقل من السجلات في كل طلب." }, 413);
     let updateBody: Record<string, unknown> = {};
     if (request.method !== "DELETE") {
