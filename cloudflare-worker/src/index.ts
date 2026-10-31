@@ -19,6 +19,7 @@ type R2Bucket = {
 export interface Env {
   ASSETS: Fetcher;
   R2_IMAGES?: R2Bucket;
+  R2_BACKUPS?: R2Bucket;
   APP_ORIGIN?: string;
   APP_BACKEND_URL?: string;
   MEDIA_PUBLIC_ORIGIN?: string;
@@ -81,7 +82,9 @@ function corsHeaders(request: Request, env: Env): Headers {
   const origin = request.headers.get("Origin") || "";
   const headers = new Headers(jsonHeaders);
   
-  if (isOriginAllowed(origin, env)) {
+  let isSameOrigin = false;
+  try { isSameOrigin = origin === new URL(request.url).origin; } catch { isSameOrigin = false; }
+  if (isOriginAllowed(origin, env) || isSameOrigin) {
     headers.set("access-control-allow-origin", origin);
     headers.set("access-control-allow-credentials", "true");
   } else if (!origin) {
