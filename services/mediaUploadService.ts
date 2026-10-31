@@ -1,5 +1,3 @@
-import { getSupabaseClient } from './databaseService';
-
 export interface ProductImageUploadResult {
   key: string;
   url: string;
@@ -14,7 +12,7 @@ const WEBP_QUALITY = 0.82;
 const COMPRESSIBLE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function mediaApiBase(): string {
-  return (import.meta.env.VITE_MEDIA_API_URL || 'https://app.abdomedi.com').replace(/\/$/, '');
+  return (import.meta.env.VITE_MEDIA_API_URL || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '');
 }
 
 export async function compressProductImages(files: File[]): Promise<File[]> {
@@ -75,8 +73,7 @@ function sendUploadRequest(
   return new Promise<ProductImageUploadResult[]>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
-    // Note: Do NOT set withCredentials = true when sending Bearer token across origins,
-    // because CORS with wildcard Access-Control-Allow-Origin: * strictly forbids credentials.
+    xhr.withCredentials = true;
     Object.entries(headers).forEach(([name, value]) => xhr.setRequestHeader(name, value));
 
     xhr.upload.addEventListener('progress', (event) => {
@@ -123,12 +120,9 @@ export async function uploadProductImages(
     form.append('files', file, file.name);
   }
 
-  const supabase = getSupabaseClient();
-  if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !session?.access_token) throw new Error('يجب تسجيل الدخول بحساب Supabase قبل رفع الصور.');
-  const accessToken = session.access_token;
-  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  // The Worker authenticates the Secure HttpOnly D1 session cookie.
+  // Do not read or send browser bearer tokens.
+  const headers: Record<string, string> = {};
 
   const primaryUrl = `${mediaApiBase()}/api/media/product-images`;
   try {
@@ -190,14 +184,8 @@ export async function deleteProductImages(imageUrlsOrKeys: string[]): Promise<bo
 
   if (!keys.length) return false;
 
-  const supabase = getSupabaseClient();
-  if (!supabase) throw new Error('إعدادات Supabase غير متاحة.');
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError || !session?.access_token) throw new Error('يجب تسجيل الدخول بحساب Supabase قبل حذف الصور.');
-
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${session.access_token}`
+    'Content-Type': 'application/json'
   };
 
   const payload = JSON.stringify({ keys, urls: imageUrlsOrKeys });
@@ -207,16 +195,18 @@ export async function deleteProductImages(imageUrlsOrKeys: string[]): Promise<bo
     const res = await fetch(primaryUrl, {
       method: 'DELETE',
       headers,
+      credentials: 'include',
       body: payload
     });
     if (res.ok) return true;
   } catch (primaryErr) {
-    // Fallback to dev server proxy route if on different origin
+    // Fallback to same-origin Worker route if a custom media origin failed.
     if (typeof window !== 'undefined' && primaryUrl.startsWith('http') && !primaryUrl.startsWith(window.location.origin)) {
       try {
         const fallbackRes = await fetch('/api/media/product-images', {
           method: 'DELETE',
           headers,
+          credentials: 'include',
           body: payload
         });
         if (fallbackRes.ok) return true;
