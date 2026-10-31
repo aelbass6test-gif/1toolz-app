@@ -43,6 +43,7 @@ export interface AuthContext {
   email: string | null;
   phone: string | null;
   displayName: string | null;
+  isPlatformAdmin: boolean;
   memberships: Array<{
     store_id: string;
     role: string;
@@ -223,7 +224,7 @@ export async function getAuthContext(request: Request, env: AuthEnv): Promise<Au
 
   const tokenHash = await hmacHex(env.SESSION_HASH_SECRET, `session:${token}`);
   const row = await env.APP_DB.prepare(`
-    SELECT a.id, a.email, a.phone, a.display_name
+    SELECT a.id, a.email, a.phone, a.display_name, a.legacy_role_claims_json
     FROM auth_sessions s
     JOIN auth_identities a ON a.id = s.identity_id
     JOIN auth_credentials c ON c.identity_id = a.id
@@ -238,9 +239,13 @@ export async function getAuthContext(request: Request, env: AuthEnv): Promise<Au
     email: string | null;
     phone: string | null;
     display_name: string | null;
+    legacy_role_claims_json: string;
   }>();
 
   if (!row) return null;
+
+  let roleClaims: Record<string, unknown> = {};
+  try { roleClaims = JSON.parse(row.legacy_role_claims_json || "{}"); } catch { roleClaims = {}; }
 
   const memberships = await env.APP_DB.prepare(`
     SELECT store_id, role, permissions_json
@@ -255,6 +260,7 @@ export async function getAuthContext(request: Request, env: AuthEnv): Promise<Au
     email: row.email,
     phone: row.phone,
     displayName: row.display_name,
+    isPlatformAdmin: roleClaims.platformAdmin === true,
     memberships: list.map(item => {
       let permissions: string[] = [];
       try {
@@ -480,7 +486,8 @@ export async function handleAuthRequest(
         phone: context.phone,
         fullName: context.displayName
       },
-      memberships: context.memberships
+      memberships: context.memberships,
+      isPlatformAdmin: context.isPlatformAdmin
     });
   }
 
