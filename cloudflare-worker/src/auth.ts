@@ -598,47 +598,25 @@ export async function handleAuthRequest(
 
   if (request.method === "POST" && url.pathname === "/api/v1/auth/recovery/request") {
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const phone = normalizePhone(body.phone);
-    if (!phone || phone.length < 8 || phone.length > 20) {
-      return json({ success: false, error: "رقم الهاتف غير صالح." }, 400);
+    const identifier = safeText(body.phoneOrEmail || body.phone || body.email, 254);
+    const emailInput = normalizeEmail(identifier);
+    const phoneInput = normalizePhone(identifier);
+    if (!identifier || (!EMAIL_RE.test(emailInput) && (phoneInput.length < 8 || phoneInput.length > 20))) {
+      return json({ success: false, error: "رقم الهاتف أو البريد غير صالح." }, 400);
     }
-    const identity = await env.APP_DB.prepare(`
-      SELECT id, email, account_status
-      FROM auth_identities
-      WHERE phone = ?
-      ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END
-      LIMIT 1
-    `).bind(phone).first<{ id: string; email: string | null; account_status: string }>();
-
+    const byEmail = EMAIL_RE.test(emailInput);
+    const identity = await env.APP_DB.prepare("SELECT id, email, phone, display_name, account_status FROM auth_identities WHERE (? <> '' AND lower(email) = ?) OR (? <> '' AND phone = ?) ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END, created_at DESC LIMIT 2")
+      .bind(byEmail ? emailInput : "", byEmail ? emailInput : "", byEmail ? "" : phoneInput, byEmail ? "" : phoneInput)
+      .first<{ id: string; email: string | null; phone: string | null; display_name: string | null; account_status: string }>();
     if (!identity || !identity.email || !EMAIL_RE.test(identity.email) || isSyntheticEmail(identity.email)) {
-      // Do not expose whether the phone exists in the migrated directory.
-      return json({
-        success: true,
-        message: "لو الحساب مرتبط ببريد موثق، هيوصله رمز استعادة. بعض الحسابات القديمة تحتاج مراجعة الإدارة."
-      });
+      return json({ success: true, message: "لو الحساب مرتبط ببريد موثق، هيوصله رمز استعادة. بعض الحسابات القديمة تحتاج مراجعة الإدارة." });
     }
-
-    const otpUrl = new URL("/api/send-otp", request.url);
-    const otpRequest = new Request(otpUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(request.headers.get("Origin") ? { Origin: request.headers.get("Origin")! } : {}),
-        ...(request.headers.get("CF-Connecting-IP") ? { "CF-Connecting-IP": request.headers.get("CF-Connecting-IP")! } : {})
-      },
-      body: JSON.stringify({ email: identity.email, userName: "1Toolz" })
-    });
-    const otpResponse = await handleOtpRequest(otpRequest, env as any, jsonResponse);
-    const otpBody = await otpResponse.json().catch(() => ({})) as Record<string, unknown>;
-    if (!otpResponse.ok || otpBody.success !== true) {
-      return json({ success: false, error: otpBody.error || "تعذر إرسال رمز الاستعادة." }, otpResponse.status);
+    if (identity.account_status === "banned" || identity.account_status === "disabled") {
+      return json({ success: true, message: "لو الحساب مؤهل للاستعادة، هيوصله رمز التحقق." });
     }
-    return json({
-      success: true,
-      message: "تم إرسال رمز الاستعادة إلى البريد المسجل بالحساب.",
-      target: otpBody.target,
-      expiresInSeconds: otpBody.expiresInSeconds
-    });
+    const sent = await sendEmailOtp(request, env, jsonResponse, identity.email, identity.display_name || "1Toolz");
+    if (!sent.success) return json({ success: false, error: sent.error }, sent.status || 503);
+    return json({ success: true, message: "تم إرسال رمز الاستعادة إلى البريد المسجل بالحساب.", target: sent.target, expiresInSeconds: sent.expiresInSeconds });
   }
 
   if (request.method === "POST" && url.pathname === "/api/v1/auth/recovery/complete") {
