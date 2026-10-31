@@ -174,14 +174,112 @@ function isSyntheticEmail(value: string): boolean {
 }
 
 async function lookupIdentity(db: AuthDatabase, login: string): Promise<AuthIdentity | null> {
-  return db.prepare(`
+  const syntheticAlias = login.match(/^(.+)@mystore-auth\\.app$/i);
+  const phoneLogin = normalizePhone(syntheticAlias ? syntheticAlias[1] : login);
+  const emailLogin = normalizeEmail(login);
+  const rows = await db.prepare(`
     SELECT id, legacy_source, legacy_user_key, email, phone, display_name,
            account_status, password_reset_required
     FROM auth_identities
-    WHERE lower(email) = ? OR phone = ?
-    ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END
-    LIMIT 1
-  `).bind(login.toLowerCase(), login).first<AuthIdentity>();
+    WHERE lower(email) = ? OR (? <> '' AND phone = ?)
+    ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END, created_at DESC
+    LIMIT 3
+  `).bind(emailLogin, phoneLogin, phoneLogin).all<AuthIdentity>();
+  const matches = rows.results || [];
+  if (matches.length !== 1) return null;
+  return matches[0];
+}
+
+async function verifyEmailOtp(
+  request: Request,
+  env: AuthEnv,
+  jsonResponse: (request: Request, env: any, body: unknown, status?: number) => Response,
+  email: string,
+  otp: string
+): Promise<{ valid: boolean; error?: string; status?: number }> {
+  if (!env.OTP_DB || !env.OTP_HASH_SECRET) return { valid: false, error: "خدمة التحقق غير مهيأة.", status: 503 };
+  const headers = new Headers({ "content-type": "application/json" });
+  const origin = request.headers.get("Origin");
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (origin) headers.set("Origin", origin);
+  if (ip) headers.set("CF-Connecting-IP", ip);
+  const otpRequest = new Request(new URL("/api/verify-otp", request.url), {
+    method: "POST", headers, body: JSON.stringify({ email, otp })
+  });
+  const response = await handleOtpRequest(otpRequest, env as any, jsonResponse);
+  const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+  return response.ok && result.valid === true
+    ? { valid: true }
+    : { valid: false, error: String(result.message || result.error || "رمز التحقق غير صحيح."), status: response.status || 400 };
+}
+
+async function sendEmailOtp(
+  request: Request,
+  env: AuthEnv,
+  jsonResponse: (request: Request, env: any, body: unknown, status?: number) => Response,
+  email: string,
+  userName: string
+): Promise<{ success: boolean; target?: string; expiresInSeconds?: number; error?: string; status?: number }> {
+  if (!env.OTP_DB || !env.OTP_HASH_SECRET) return { success: false, error: "خدمة التحقق غير مهيأة.", status: 503 };
+  const headers = new Headers({ "content-type": "application/json" });
+  const origin = request.headers.get("Origin");
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (origin) headers.set("Origin", origin);
+  if (ip) headers.set("CF-Connecting-IP", ip);
+  const otpRequest = new Request(new URL("/api/send-otp", request.url), {
+    method: "POST", headers, body: JSON.stringify({ email, userName })
+  });
+  const response = await handleOtpRequest(otpRequest, env as any, jsonResponse);
+  const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || result.success !== true) {
+    return { success: false, error: String(result.error || "تعذر إرسال رمز التحقق."), status: response.status || 503 };
+  }
+  return {
+    success: true,
+    target: typeof result.target === "string" ? result.target : undefined,
+    expiresInSeconds: typeof result.expiresInSeconds === "number" ? result.expiresInSeconds : undefined
+  };
+}
+
+function toSafeUserProfile(identityId: string, fullName: string, phone: string, email: string): Record<string, unknown> {
+  return {
+    id: phone,
+    full_name: fullName,
+    fullName,
+    phone,
+    email,
+    stores: [],
+    sites: [],
+    join_date: new Date().toISOString(),
+    is_admin: false,
+    is_banned: false,
+    default_store_id: null,
+    auto_launch_default_store: false,
+    identity_id: identityId
+  };
+}
+
+async function persistUserProfile(
+  db: AuthDatabase,
+  identityId: string,
+  fullName: string,
+  phone: string,
+  email: string
+): Promise<void> {
+  const profile = toSafeUserProfile(identityId, fullName, phone, email);
+  const recordJson = JSON.stringify(profile);
+  const digest = await hmacHex("1toolz-directory-v1", recordJson);
+  await db.prepare(`
+    INSERT INTO app_records (
+      source_system, source_table, record_key, store_id,
+      record_json, record_sha256, source_updated_at, migrated_at
+    ) VALUES ('manual', 'users', ?, NULL, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(source_system, source_table, record_key) DO UPDATE SET
+      record_json = excluded.record_json,
+      record_sha256 = excluded.record_sha256,
+      source_updated_at = CURRENT_TIMESTAMP,
+      migrated_at = CURRENT_TIMESTAMP
+  `).bind(phone, recordJson, digest).run();
 }
 
 async function createSession(
@@ -284,6 +382,173 @@ export async function handleAuthRequest(
     return json({ success: false, error: "خدمة الدخول غير مهيأة بعد." }, 503);
   }
   if (request.method === "OPTIONS") return json({ success: true }, 204);
+
+  if (request.method === "POST" && url.pathname === "/api/v1/auth/register") {
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const email = normalizeEmail(body.email);
+    const phone = normalizePhone(body.phone);
+    const displayName = safeText(body.displayName, 100);
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!EMAIL_RE.test(email) || email.length > 254 || isSyntheticEmail(email)) {
+      return json({ success: false, error: "أدخل بريدًا إلكترونيًا حقيقيًا وصالحًا لاستلام رمز التفعيل." }, 400);
+    }
+    if (phone.length < 8 || phone.length > 20 || !displayName || password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
+      return json({ success: false, error: "أدخل الاسم ورقم الهاتف وكلمة مرور لا تقل عن 10 أحرف." }, 400);
+    }
+
+    const duplicate = await env.APP_DB.prepare(`
+      SELECT id FROM auth_identities
+      WHERE lower(email) = ? OR phone = ? LIMIT 1
+    `).bind(email, phone).first<{ id: string }>();
+    if (duplicate) return json({ success: false, error: "رقم الهاتف أو البريد مسجل بالفعل. استخدم تسجيل الدخول أو استعادة الحساب." }, 409);
+
+    const identityId = `new:${crypto.randomUUID()}`;
+    const encodedHash = await derivePasswordHash(password);
+    const idResult = await env.APP_DB.prepare(`
+      INSERT INTO auth_identities (
+        id, legacy_source, legacy_user_key, email, phone, display_name,
+        account_status, password_reset_required, legacy_role_claims_json,
+        created_at, updated_at
+      ) VALUES (?, 'manual', ?, ?, ?, ?, 'pending_reactivation', 1, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).bind(identityId, identityId, email, phone, displayName).run();
+    if (idResult.success === false || idResult.meta?.changes === 0) {
+      return json({ success: false, error: "تعذر إنشاء الهوية." }, 500);
+    }
+
+    const credentialResult = await env.APP_DB.prepare(`
+      INSERT INTO auth_credentials (
+        identity_id, password_hash, password_algorithm,
+        password_changed_at, must_change_password
+      ) VALUES (?, ?, 'pbkdf2-sha256', CURRENT_TIMESTAMP, 1)
+    `).bind(identityId, encodedHash).run();
+    if (credentialResult.success === false) {
+      return json({ success: false, error: "تعذر حفظ بيانات الدخول." }, 500);
+    }
+
+    await persistUserProfile(env.APP_DB, identityId, displayName, phone, email);
+    await env.APP_DB.prepare(`
+      INSERT INTO migration_audit (
+        id, source_system, source_table, record_key, action, detail_json, created_at
+      ) VALUES (?, 'manual', 'auth_registration', ?, 'copied', ?, CURRENT_TIMESTAMP)
+    `).bind(
+      crypto.randomUUID(),
+      identityId,
+      JSON.stringify({ emailVerified: false, roleGranted: false, credential: "user_supplied_password_hash" })
+    ).run();
+
+    return json({
+      success: true,
+      requiresEmailVerification: true,
+      user: { id: identityId, email, phone, fullName: displayName }
+    }, 201);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/send-account-activation") {
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const email = normalizeEmail(body.email);
+    const phone = normalizePhone(body.phone);
+    if (!EMAIL_RE.test(email) || phone.length < 8) {
+      return json({ success: false, error: "بيانات الحساب غير مكتملة." }, 400);
+    }
+    const identity = await env.APP_DB.prepare(`
+      SELECT id, email, phone, display_name, account_status
+      FROM auth_identities
+      WHERE phone = ? AND lower(email) = ?
+      LIMIT 1
+    `).bind(phone, email).first<AuthIdentity>();
+    if (!identity) return json({ success: false, error: "بيانات الحساب غير متطابقة." }, 404);
+    if (identity.account_status === "banned" || identity.account_status === "disabled") {
+      return json({ success: false, error: "هذا الحساب موقوف." }, 403);
+    }
+    const sent = await sendEmailOtp(request, env, jsonResponse, email, safeText(body.userName, identity.display_name || "1Toolz"));
+    if (!sent.success) return json({ success: false, error: sent.error }, sent.status || 503);
+    return json({ success: true, emailSent: true, target: sent.target, expiresInSeconds: sent.expiresInSeconds });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/verify-account-activation") {
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const email = normalizeEmail(body.email);
+    const phone = normalizePhone(body.phone);
+    const otp = String(body.code ?? "").trim();
+    if (!EMAIL_RE.test(email) || phone.length < 8 || !/^\\d{6}$/.test(otp)) {
+      return json({ success: false, error: "رقم الهاتف والبريد وكود التفعيل مطلوبون." }, 400);
+    }
+    const identity = await env.APP_DB.prepare(`
+      SELECT id, email, phone, display_name, account_status
+      FROM auth_identities WHERE phone = ? AND lower(email) = ? LIMIT 1
+    `).bind(phone, email).first<AuthIdentity>();
+    if (!identity) return json({ success: false, error: "الحساب غير موجود أو بياناته غير متطابقة." }, 404);
+    if (identity.account_status === "banned" || identity.account_status === "disabled") {
+      return json({ success: false, error: "هذا الحساب موقوف." }, 403);
+    }
+
+    const verification = await verifyEmailOtp(request, env, jsonResponse, email, otp);
+    if (!verification.valid) return json({ success: false, error: verification.error }, verification.status || 400);
+
+    await env.APP_DB.prepare(`
+      UPDATE auth_credentials
+      SET must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP
+      WHERE identity_id = ?
+    `).bind(identity.id).run();
+    await env.APP_DB.prepare(`
+      UPDATE auth_identities
+      SET account_status = 'active', password_reset_required = 0,
+          verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(identity.id).run();
+    await env.APP_DB.prepare(`
+      UPDATE store_memberships SET status='active', updated_at=CURRENT_TIMESTAMP
+      WHERE identity_id=? AND status='pending_verification'
+    `).bind(identity.id).run();
+    await env.APP_DB.prepare(`
+      INSERT INTO migration_audit (
+        id, source_system, source_table, record_key, action, detail_json, created_at
+      ) VALUES (?, 'manual', 'auth_activation', ?, 'verified', ?, CURRENT_TIMESTAMP)
+    `).bind(
+      crypto.randomUUID(), identity.id,
+      JSON.stringify({ verifiedBy: "email_otp", newIdentityActivation: true })
+    ).run();
+
+    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request);
+    return json({
+      success: true,
+      message: "تم تفعيل الحساب بنجاح.",
+      user: { id: identity.id, email: identity.email, phone: identity.phone, fullName: identity.display_name }
+    }, 200, { "set-cookie": setSessionCookie(token) });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/auth/password/change") {
+    const context = await getAuthContext(request, env);
+    if (!context) return json({ success: false, error: "يجب تسجيل الدخول أولًا." }, 401);
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+    const newPassword = typeof body.password === "string" ? body.password : typeof body.newPassword === "string" ? body.newPassword : "";
+    if (newPassword.length < MIN_PASSWORD_LENGTH || newPassword.length > 128) {
+      return json({ success: false, error: "كلمة المرور الجديدة يجب ألا تقل عن 10 أحرف." }, 400);
+    }
+    const current = await env.APP_DB.prepare(
+      "SELECT password_hash FROM auth_credentials WHERE identity_id = ? LIMIT 1"
+    ).bind(context.identityId).first<{ password_hash: string | null }>();
+    if (!current?.password_hash || !currentPassword || !await verifyPassword(currentPassword, current.password_hash)) {
+      return json({ success: false, error: "كلمة المرور الحالية غير صحيحة." }, 403);
+    }
+    const passwordHash = await derivePasswordHash(newPassword);
+    await env.APP_DB.prepare(`
+      UPDATE auth_credentials SET password_hash=?, password_algorithm='pbkdf2-sha256',
+        password_changed_at=CURRENT_TIMESTAMP, must_change_password=0
+      WHERE identity_id=?
+    `).bind(passwordHash, context.identityId).run();
+    await env.APP_DB.prepare(`
+      UPDATE auth_identities SET password_reset_required=0, updated_at=CURRENT_TIMESTAMP
+      WHERE id=?
+    `).bind(context.identityId).run();
+    await env.APP_DB.prepare(`
+      UPDATE auth_sessions SET revoked_at=CURRENT_TIMESTAMP
+      WHERE identity_id=? AND revoked_at IS NULL
+    `).bind(context.identityId).run();
+    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, context.identityId, request);
+    return json({ success: true, message: "تم تغيير كلمة المرور بنجاح." }, 200, { "set-cookie": setSessionCookie(token) });
+  }
 
   if (request.method === "POST" && url.pathname === "/api/v1/auth/login") {
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
