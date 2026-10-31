@@ -1,0 +1,47 @@
+# Isolated Cloudflare-native migration preview.
+# This Worker binds only to lab D1/R2 resources. It is not production.
+name = "1toolz-app-native-staging"
+main = "src/index.ts"
+compatibility_date = "2026-10-31"
+workers_dev = true
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "APP_DB"
+database_name = "1toolz-cloudflare-core-lab"
+database_id = "bd6a0b1f-7d11-4c38-9b6b-810383f5a873"
+
+[[d1_databases]]
+binding = "OTP_DB"
+database_name = "1toolz-cutover-otp-lab"
+database_id = "4e2465f9-a757-4f03-bd89-d429eb3a8f24"
+
+[[d1_databases]]
+binding = "WALLET_DB"
+database_name = "1toolz-wallet-ledger-lab"
+database_id = "e04873eb-0fbc-44f8-a136-4db82d29013f"
+
+[[r2_buckets]]
+binding = "R2_IMAGES"
+bucket_name = "abdomedi-product-images"
+
+[[r2_buckets]]
+binding = "R2_BACKUPS"
+bucket_name = "1toolz-cloudflare-backups-lab"
+
+[vars]
+APP_ENV = "cloudflare-native-staging"
+MEDIA_PUBLIC_ORIGIN = "https://abdomedi.com"
+MEDIA_REQUIRE_AUTH = "true"
+OTP_FROM_NAME = "1Toolz"
+OTP_RESEND_FROM = "no-reply@abdomedi.com"
+OTP_BREVO_FROM = "no-reply@abdomedi.com"
+OTP_RESEND_DAILY_LIMIT = "100"
+OTP_BREVO_DAILY_LIMIT = "300"
+BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"
+BOSTA_STAGING_BASE_URL = "https://stg-app.bosta.co"
+TURBO_BASE_URL = "https://platform.turbo.info"
