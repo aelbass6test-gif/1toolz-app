@@ -450,12 +450,16 @@ async function requestOtp(request: Request, env: Env, endpoint: "send" | "verify
       new Date().toISOString()
     ).run();
 
-    identity = await env.CORE_DB.prepare(`
+    const createdIdentity = await env.CORE_DB.prepare(`
       SELECT id, email, phone, display_name, account_status, verified_at
       FROM auth_identities
       WHERE lower(email) = ? AND identity_origin = 'native'
       LIMIT 1
     `).bind(email).first<AuthIdentity>();
+    if (!createdIdentity) {
+      return json(request, env, { success: false, error: "تعذر إنشاء الحساب من الدعوة." }, 500);
+    }
+    identity = createdIdentity;
   }
 
   if (!identity) {
