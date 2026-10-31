@@ -2324,7 +2324,7 @@ export const AppComponent = () => {
         let authUser;
         try {
             authUser = await signUpWithSupabase({
-                email: `${normalizedPhone}@mystore-auth.app`,
+                email: normalizedEmail,
                 password,
                 displayName: fullName,
                 phone: normalizedPhone
