@@ -2366,37 +2366,12 @@ export const getUserByPhone = async (phone: string): Promise<User | null> => {
     return null;
 };
 
-export const createUserDoc = async (user: User): Promise<boolean> => {
-    const supabase = getSupabaseClient();
-    if (!supabase) {
-        console.error('[SUPABASE] Cannot create a user profile: deployment Supabase client is unavailable.');
-        return false;
-    }
-
-    try {
-        const supabasePayload = {
-            full_name: user.fullName,
-            phone: user.phone,
-            email: user.email,
-            stores: user.stores || [],
-            sites: user.sites || [],
-            join_date: user.joinDate || new Date().toISOString(),
-            default_store_id: user.defaultStoreId || null,
-            auto_launch_default_store: user.autoLaunchDefaultStore ?? Boolean(user.defaultStoreId)
-        };
-
-        const { error } = await supabase.from('users').upsert(supabasePayload, { onConflict: 'phone' });
-        if (error) {
-            console.error('[SUPABASE] Failed to persist user profile:', error.message, error.details, error.hint);
-            return false;
-        }
-        return true;
-    } catch (err) {
-        console.error('[SUPABASE] Error creating user profile:', err);
-        return false;
-    }
+export const createUserDoc = async (_user: User): Promise<boolean> => {
+    // Cloudflare /api/v1/auth/register writes the sanitized directory profile
+    // atomically with the new auth identity. This compatibility export is kept
+    // for the existing signup UI and deliberately performs no second write.
+    return true;
 };
-
 export const submitPartnerRequest = async (
     storeIdOrObj: string | (Partial<PartnerPortalRequest> & { storeId: string }),
     maybeReq?: Partial<PartnerPortalRequest>
