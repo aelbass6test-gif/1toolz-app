@@ -152,9 +152,7 @@ export const verifySupabaseConnection = async (_url?: string, _key?: string): Pr
 
 // --- Hostinger MySQL Support ---
 
-export const isHostingerActive = (): boolean => {
-  return localStorage.getItem('custom_cloud_provider') === 'hostinger';
-};
+export const isHostingerActive = (): boolean => false;
 
 export const verifyHostingerConnection = async (): Promise<{ success: boolean; error?: string }> => {
   try {
@@ -645,16 +643,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
     let isStoreMember = false;
     if (supabase) {
         try {
-            const { data: authData } = await supabase.auth.getUser();
-            isAuthenticated = Boolean(authData?.user);
-            if (isAuthenticated) {
-                const { data: membership } = await supabase
-                    .from('store_memberships')
-                    .select('store_id')
-                    .eq('store_id', storeId)
-                    .eq('user_id', authData.user.id)
-                    .maybeSingle();
-                isStoreMember = Boolean(membership?.store_id);
+            const { data: sessionData } = await supabase.auth.getSession();
+            const authUser = sessionData?.session?.user;
+            isAuthenticated = Boolean(authUser);
+            if (authUser) {
+                const memberships = Array.isArray(authUser.app_metadata?.store_memberships)
+                    ? authUser.app_metadata.store_memberships
+                    : [];
+                isStoreMember = Boolean(
+                    authUser.app_metadata?.is_platform_admin === true ||
+                    memberships.some((membership: any) => String(membership?.store_id || '') === String(storeId))
+                );
             }
         } catch {
             isAuthenticated = false;
