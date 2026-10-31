@@ -7,10 +7,13 @@
  */
 
 export interface AuthStatement {
-  bind(...values: Array<string | number | null>): AuthStatement;
+  bind(...values: unknown[]): AuthStatement;
   first<T = Record<string, unknown>>(): Promise<T | null>;
+  all<T = Record<string, unknown>>(): Promise<{ results?: T[] }>;
   run(): Promise<{ success?: boolean; meta?: { changes?: number } }>;
 }
+
+import { handleOtpRequest } from "./otp";
 
 export interface AuthDatabase {
   prepare(sql: string): AuthStatement;
@@ -268,7 +271,7 @@ export async function getAuthContext(request: Request, env: AuthEnv): Promise<Au
 export async function handleAuthRequest(
   request: Request,
   env: AuthEnv,
-  jsonResponse: (request: Request, env: unknown, body: unknown, status?: number) => Response
+  jsonResponse: (request: Request, env: any, body: unknown, status?: number) => Response
 ): Promise<Response> {
   const url = new URL(request.url);
   if (!env.APP_DB || !env.SESSION_HASH_SECRET) {
@@ -353,7 +356,7 @@ export async function handleAuthRequest(
       },
       body: JSON.stringify({ email: identity.email, userName: "1Toolz" })
     });
-    const otpResponse = await handleOtpRequest(otpRequest, env, jsonResponse);
+    const otpResponse = await handleOtpRequest(otpRequest, env as any, jsonResponse);
     const otpBody = await otpResponse.json().catch(() => ({})) as Record<string, unknown>;
     if (!otpResponse.ok || otpBody.success !== true) {
       return json({ success: false, error: otpBody.error || "تعذر إرسال رمز الاستعادة." }, otpResponse.status);
