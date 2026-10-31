@@ -265,7 +265,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       }
       
       try {
-        const emailToUse = authEmail;
+        const emailToUse = userEmail.trim().toLowerCase();
         await signUpWithSupabase({ email: emailToUse, password: userPassword, displayName: fullName.trim(), phone: userPhone.trim() });
         
         const newUser: User = { 
@@ -317,41 +317,24 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     }
 
     try {
-      let userEmailToUse = '';
-      const firestoreUser = await getUserByPhone(resetPhone.trim());
-      
-      if (firestoreUser && firestoreUser.email) {
-        userEmailToUse = firestoreUser.email;
-      } else {
-        const legacyUser = await getUserByPhoneFromSupabase(resetPhone.trim());
-        if (legacyUser && legacyUser.email && legacyUser.email.includes('@') && !legacyUser.email.includes('mystore-auth.app')) {
-          userEmailToUse = legacyUser.email;
-        } else {
-          userEmailToUse = `${resetPhone.trim()}@mystore-auth.app`;
-        }
+      const response = await fetch('/api/v1/auth/recovery/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: resetPhone.trim() })
+      });
+      const result = await response.json();
+      if (!response.ok || result.success !== true) {
+        throw new Error(result.error || 'تعذر بدء استعادة الحساب.');
       }
-      
-      const isGeneratedEmail = userEmailToUse.includes('@mystore-auth.app');
-      
-      if (isGeneratedEmail) {
-        setAuthActionsError('عذراً، لم تقم بربط بريد إلكتروني حقيقي بحسابك سابقاً (تستخدم بريد النظام التلقائي). يرجى التواصل مع الدعم الفني لاستعادة حسابك.');
-        setIsLoading(false);
-        return;
-      }
-      
-      const resetEmailSent = await handleCustomPasswordReset(userEmailToUse);
-      
-      if (resetEmailSent) {
-        setSentToEmail(userEmailToUse);
-        setResetSuccess(true);
-        
-        setTimeout(() => {
-          setShowResetModal(false);
-          setResetSuccess(false);
-          setSentToEmail('');
-          setAuthActionsSuccess(null);
-        }, 8000);
-      }
+      setSentToEmail(result.target || 'البريد المسجل بالحساب');
+      setResetSuccess(true);
+      setAuthActionsError('');
+      setTimeout(() => {
+        setShowResetModal(false);
+        setResetSuccess(false);
+        setSentToEmail('');
+        setAuthActionsSuccess(null);
+      }, 8000);
     } catch (err: any) {
       setAuthActionsError('حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.');
     } finally {
