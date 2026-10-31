@@ -697,6 +697,20 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
 
+    if (url.pathname === "/api/health") {
+      try {
+        const dbReady = Boolean(env.APP_DB && await env.APP_DB.prepare("SELECT 1 AS ok").first());
+        return json(request, env, {
+          success: dbReady,
+          service: "1toolz-cloudflare-native",
+          database: dbReady ? "ready" : "unavailable",
+          environment: "cloudflare-native"
+        }, dbReady ? 200 : 503);
+      } catch {
+        return json(request, env, { success: false, service: "1toolz-cloudflare-native", database: "unavailable" }, 503);
+      }
+    }
+
     // Health and status endpoint
     if (url.pathname === "/health" || url.pathname === "/api") {
       return json(request, env, {
