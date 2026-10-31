@@ -735,7 +735,7 @@ export default {
           : json(request, env, { success: false, error: "خدمة التحقق غير مهيأة." }, 503);
       }
 
-      if (url.pathname.startsWith("/api/v1/auth/")) {
+      if (url.pathname.startsWith("/api/v1/auth/") || url.pathname === "/api/send-account-activation" || url.pathname === "/api/verify-account-activation") {
         return await handleAuthRequest(request, env, json);
       }
 
