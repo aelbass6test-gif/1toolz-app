@@ -621,45 +621,26 @@ export async function handleAuthRequest(
 
   if (request.method === "POST" && url.pathname === "/api/v1/auth/recovery/complete") {
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const phone = normalizePhone(body.phone);
+    const identifier = safeText(body.phoneOrEmail || body.phone || body.email, 254);
+    const emailInput = normalizeEmail(identifier);
+    const phone = normalizePhone(identifier);
     const otp = String(body.otp ?? "").trim();
     const password = typeof body.newPassword === "string" ? body.newPassword : "";
-    if (!phone || !/^\d{6}$/.test(otp) || password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
-      return json({ success: false, error: "تأكد من رقم الهاتف ورمز التحقق، واجعل كلمة المرور 10 أحرف على الأقل." }, 400);
+    const byEmail = EMAIL_RE.test(emailInput);
+    if ((!byEmail && phone.length < 8) || !/^\\d{6}$/.test(otp) || password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
+      return json({ success: false, error: "تأكد من رقم الهاتف أو البريد ورمز التحقق، واجعل كلمة المرور 10 أحرف على الأقل." }, 400);
     }
-    if (!env.OTP_DB || !env.OTP_HASH_SECRET) {
-      return json({ success: false, error: "خدمة التحقق غير مهيأة." }, 503);
-    }
-
-    const identity = await env.APP_DB.prepare(`
-      SELECT id, email, account_status
-      FROM auth_identities
-      WHERE phone = ?
-      ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END
-      LIMIT 1
-    `).bind(phone).first<{ id: string; email: string | null; account_status: string }>();
+    const identity = await env.APP_DB.prepare("SELECT id, email, account_status FROM auth_identities WHERE (? <> '' AND phone = ?) OR (? <> '' AND lower(email) = ?) ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END LIMIT 1")
+      .bind(byEmail ? "" : phone, byEmail ? "" : phone, byEmail ? emailInput : "", byEmail ? emailInput : "")
+      .first<{ id: string; email: string | null; account_status: string }>();
     if (!identity || !identity.email || !EMAIL_RE.test(identity.email) || isSyntheticEmail(identity.email)) {
       return json({ success: false, error: "لا يوجد بريد موثق لاستعادة هذا الحساب. تواصل مع الإدارة للتحقق من الملكية." }, 403);
     }
     if (identity.account_status === "banned" || identity.account_status === "disabled") {
       return json({ success: false, error: "هذا الحساب موقوف. تواصل مع إدارة المنصة." }, 403);
     }
-
-    const otpRequest = new Request(new URL("/api/verify-otp", request.url), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(request.headers.get("Origin") ? { Origin: request.headers.get("Origin")! } : {}),
-        ...(request.headers.get("CF-Connecting-IP") ? { "CF-Connecting-IP": request.headers.get("CF-Connecting-IP")! } : {})
-      },
-      body: JSON.stringify({ email: identity.email, otp })
-    });
-    const otpResponse = await handleOtpRequest(otpRequest, env, jsonResponse);
-    const otpBody = await otpResponse.json().catch(() => ({})) as Record<string, unknown>;
-    if (!otpResponse.ok || otpBody.valid !== true) {
-      return json({ success: false, error: otpBody.message || otpBody.error || "رمز الاستعادة غير صحيح." }, otpResponse.status || 400);
-    }
-
+    const verification = await verifyEmailOtp(request, env, jsonResponse, identity.email, otp);
+    if (!verification.valid) return json({ success: false, error: verification.error || "رمز الاستعادة غير صحيح." }, verification.status || 400);
     const encodedHash = await derivePasswordHash(password);
     const update = await env.APP_DB.prepare(`
       INSERT INTO auth_credentials (
