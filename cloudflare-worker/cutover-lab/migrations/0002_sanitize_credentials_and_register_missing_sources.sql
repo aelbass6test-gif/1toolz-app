@@ -114,7 +114,7 @@ INSERT OR IGNORE INTO migration_audit (
    '{"fields_removed":["api_key","api_secret","apiKey","apiSecret"],"values_read":false,"reprovision":"Worker secrets"}'),
   ('cutover-sanitize-store-settings-20261031','supabase','stores_data',NULL,'sanitized',
    '{"credential_paths_removed":["integration.apiKey","moneyHashConfig.apiKey","moneyHashConfig.webhookSecret","adminAlerts.telegramBotToken","whatsappConfig.token","legacy partner/supplier passwords and passcodes"],"values_read":false}'),
-  ('cutover-register-legacy-users-20261031','supabase','users',NULL,'blocked',
+  ('cutover-register-legacy-users-20261031','supabase','users',NULL,'skipped',
    '{"reason":"directory records are not an authentication authority; reactivation and membership reconciliation required"}'),
-  ('cutover-firestore-export-required-20261031','firebase','firestore_collections',NULL,'blocked',
+  ('cutover-firestore-export-required-20261031','firebase','firestore_collections',NULL,'skipped',
    '{"reason":"current full Firestore export not present in D1 landing copy; stale repository backup is not sufficient"}');
