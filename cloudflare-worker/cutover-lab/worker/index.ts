@@ -294,8 +294,8 @@ async function validateSession(request: Request, env: Env): Promise<SessionIdent
   if (!identity) return null;
 
   await env.CORE_DB.prepare(
-    "UPDATE auth_sessions SET last_seen_at = ? WHERE session_id = ? AND revoked_at IS NULL"
-  ).bind(now, identity.session_id).run();
+    "UPDATE auth_sessions SET last_seen_at = ? WHERE session_id = ? AND revoked_at IS NULL AND last_seen_at < ?"
+  ).bind(now, identity.session_id, new Date(Date.now() - 5 * 60 * 1000).toISOString()).run();
 
   return identity;
 }
@@ -837,7 +837,7 @@ async function approveMembershipClaim(
       SELECT ?, ?, ?, 'store_memberships', ?, 'approve', ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM pending_membership_claims
-        WHERE claim_id = ? AND store_id = ' ?' AND status = 'linked'
+        WHERE claim_id = ? AND store_id = ? AND status = 'linked'
           AND claimed_identity_id = ? AND verified_by_identity_id = ?
       )
     `).bind(crypto.randomUUID(), admin.id, storeId, identityId, crypto.randomUUID(), await sha256Hex(`${claimId}:${identityId}:${assignedRole}`), now, claimId, storeId, identityId, admin.id)
