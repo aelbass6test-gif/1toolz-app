@@ -1,4 +1,6 @@
 import { handleOtpRequest } from "./otp";
+import { handleAuthRequest, getAuthContext, type AuthDatabase } from "./auth";
+import { handleDataRequest } from "./data";
 
 type Fetcher = {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -21,9 +23,13 @@ export interface Env {
   APP_BACKEND_URL?: string;
   MEDIA_PUBLIC_ORIGIN?: string;
   MEDIA_REQUIRE_AUTH?: string;
-  SUPABASE_URL?: string;
-  SUPABASE_PUBLISHABLE_KEY?: string;
-  OTP_DB?: any;
+  /** D1 binding for the Cloudflare-native application database. */
+  APP_DB?: AuthDatabase;
+  /** D1 binding for isolated OTP challenge state. */
+  OTP_DB?: AuthDatabase;
+  /** D1 binding for the immutable merchant wallet ledger. */
+  WALLET_DB?: AuthDatabase;
+  SESSION_HASH_SECRET?: string;
   OTP_HASH_SECRET?: string;
   RESEND_API_KEY?: string;
   BREVO_API_KEY?: string;
@@ -32,7 +38,6 @@ export interface Env {
   OTP_FROM_NAME?: string;
   OTP_RESEND_DAILY_LIMIT?: string;
   OTP_BREVO_DAILY_LIMIT?: string;
-  SUPABASE_WHATSAPP_WEBHOOK_URL?: string;
   META_VERIFY_TOKEN?: string;
   BOSTA_API_KEY?: string;
   BOSTA_PRODUCTION_BASE_URL?: string;
@@ -50,7 +55,6 @@ export interface ExecutionContext {
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
-const SUPABASE_WHATSAPP_WEBHOOK_URL = "https://kwirhppfowzqshltmoga.supabase.co/functions/v1/whatsapp-webhook";
 const MAX_MEDIA_FILE_SIZE = 10 * 1024 * 1024;
 
 /**
@@ -94,53 +98,14 @@ function json(request: Request, env: Env, body: unknown, status = 200): Response
   return new Response(JSON.stringify(body), { status, headers: corsHeaders(request, env) });
 }
 
-async function getSupabaseUserId(request: Request, env: Env): Promise<string | null> {
-  const baseUrlRaw = String(env.SUPABASE_URL || '').trim();
-  const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw.slice(0, -1) : baseUrlRaw;
-  const publishableKey = String(env.SUPABASE_PUBLISHABLE_KEY || '');
-  const authorization = request.headers.get('Authorization') || '';
-  if (!baseUrl || !publishableKey || !authorization.toLowerCase().startsWith('bearer ') || !authorization.slice(7).trim()) return null;
-
-  try {
-    const response = await fetch(`${baseUrl}/auth/v1/user`, {
-      headers: { apikey: publishableKey, Authorization: authorization }
-    });
-    if (!response.ok) return null;
-    const user = await response.json() as { id?: string };
-    return user?.id ? String(user.id) : null;
-  } catch {
-    return null;
-  }
+async function getAuthenticatedIdentity(request: Request, env: Env) {
+  return getAuthContext(request, env);
 }
 
-async function userHasStoreMembership(
-  request: Request,
-  env: Env,
-  userId: string,
-  storeId: string
-): Promise<boolean> {
-  const baseUrlRaw = String(env.SUPABASE_URL || '').trim();
-  const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw.slice(0, -1) : baseUrlRaw;
-  const publishableKey = String(env.SUPABASE_PUBLISHABLE_KEY || '');
-  const authorization = request.headers.get('Authorization') || '';
-  if (!baseUrl || !publishableKey || !userId || !storeId) return false;
-
-  try {
-    const query = new URLSearchParams({
-      select: 'store_id',
-      user_id: `eq.${userId}`,
-      store_id: `eq.${storeId}`,
-      limit: '1'
-    });
-    const response = await fetch(`${baseUrl}/rest/v1/store_memberships?${query.toString()}`, {
-      headers: { apikey: publishableKey, Authorization: authorization }
-    });
-    if (!response.ok) return false;
-    const rows = await response.json() as Array<{ store_id?: string }>;
-    return Array.isArray(rows) && rows.some(row => row.store_id === storeId);
-  } catch {
-    return false;
-  }
+async function userHasStoreMembership(request: Request, env: Env, storeId: string): Promise<boolean> {
+  if (!storeId) return false;
+  const context = await getAuthenticatedIdentity(request, env);
+  return Boolean(context?.memberships.some(membership => membership.store_id === storeId));
 }
 
 function safePathPart(value: unknown, fallback: string): string {
@@ -171,10 +136,10 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
 
     if (request.method === 'DELETE') {
       if (env.MEDIA_REQUIRE_AUTH === 'true') {
-        const userId = await getSupabaseUserId(request, env);
+        const authContext = await getAuthenticatedIdentity(request, env);
         const storeId = key.split('/')[1] || '';
-        if (!userId) return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
-        if (!(await userHasStoreMembership(request, env, userId, storeId))) {
+        if (!authContext) return json(request, env, { success: false, error: 'جلسة الدخول غير صالحة' }, 401);
+        if (!(await userHasStoreMembership(request, env, storeId))) {
           return json(request, env, { success: false, error: 'لا تملك صلاحية حذف صور هذا المتجر' }, 403);
         }
       }
@@ -279,8 +244,8 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
   if (url.pathname !== '/api/media/product-images' || request.method !== 'POST') {
     return json(request, env, { success: false, error: 'مسار الوسائط غير مدعوم' }, 404);
   }
-  const uploadUserId = env.MEDIA_REQUIRE_AUTH === 'true' ? await getSupabaseUserId(request, env) : null;
-  if (env.MEDIA_REQUIRE_AUTH === 'true' && !uploadUserId) {
+  const uploadIdentity = env.MEDIA_REQUIRE_AUTH === 'true' ? await getAuthenticatedIdentity(request, env) : null;
+  if (env.MEDIA_REQUIRE_AUTH === 'true' && !uploadIdentity) {
     return json(request, env, { success: false, error: 'جلسة Supabase غير صالحة' }, 401);
   }
   const form = await request.formData();
@@ -689,7 +654,15 @@ export default {
       if (url.pathname === "/api/send-otp" || url.pathname === "/api/verify-otp") {
         return env.OTP_DB
           ? await handleOtpRequest(request, env, json)
-          : await proxyBackendRequest(request, env);
+          : json(request, env, { success: false, error: "خدمة التحقق غير مهيأة." }, 503);
+      }
+
+      if (url.pathname.startsWith("/api/v1/auth/")) {
+        return await handleAuthRequest(request, env, json);
+      }
+
+      if (url.pathname.startsWith("/api/v1/data/")) {
+        return await handleDataRequest(request, env, json);
       }
 
       // Meta WhatsApp Webhook Route
