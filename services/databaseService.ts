@@ -2947,12 +2947,10 @@ export const resetMerchantAccountData = async (
         }
         if (updatedPartners.length > 0 || updatedSuppliers.length > 0) {
             const settingsResult = await updatePartnerSettings(storeId, updatedPartners, updatedSuppliers);
-            if (settingsResult === false) throw new Error('تعذر تحديث إعدادات الشركاء بعد التنظيف.');
+            if (!settingsResult.success) throw new Error(settingsResult.error || 'تعذر تحديث إعدادات الشركاء بعد التنظيف.');
         }
 
         // 4. Preserve Supabase orders and financial ledgers for auditability.
-        const supabase = getSupabaseClient();
-        void supabase;
 
         return { success: true, remainingOrders, updatedSuppliers, updatedPartners };
     } catch (e) {
