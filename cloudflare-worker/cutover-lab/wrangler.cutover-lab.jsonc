@@ -1,0 +1,41 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "1toolz-cloudflare-cutover-lab",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-10-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.05 }
+  },
+  "d1_databases": [
+    {
+      "binding": "CORE_DB",
+      "database_name": "1toolz-cloudflare-core-lab",
+      "database_id": "bd6a0b1f-7d11-4c38-9b6b-810383f5a873"
+    },
+    {
+      "binding": "OTP_DB",
+      "database_name": "1toolz-cutover-otp-lab",
+      "database_id": "4e2465f9-a757-4f03-bd89-d429eb3a8f24"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "1toolz-cloudflare-backups-lab"
+    }
+  ],
+  "vars": {
+    "APP_ENV": "lab",
+    "APP_ORIGIN": "https://app.abdomedi.com",
+    "OTP_FROM_NAME": "1Toolz",
+    "OTP_RESEND_FROM": "no-reply@abdomedi.com",
+    "OTP_BREVO_FROM": "no-reply@abdomedi.com",
+    "OTP_RESEND_DAILY_LIMIT": "100",
+    "OTP_BREVO_DAILY_LIMIT": "300",
+    "MAIL_FROM": "1Toolz <no-reply@abdomedi.com>"
+  }
+}
