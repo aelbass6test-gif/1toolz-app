@@ -1072,11 +1072,11 @@ async function submitWithdrawal(
     const input: SubmitWithdrawalInput = {
       storeId,
       merchantId,
-      amountMinor: Number.isSafeInteger(body.amountMinor)
-        ? Number(body.amountMinor)
+      amountMinor: typeof body.amountMinor === "number" && Number.isSafeInteger(body.amountMinor)
+        ? body.amountMinor
         : egpToMinor(body.amount, "amount"),
-      transferFeeMinor: body.transferFeeMinor !== undefined
-        ? Number(body.transferFeeMinor)
+      transferFeeMinor: typeof body.transferFeeMinor === "number"
+        ? body.transferFeeMinor
         : body.transferFee !== undefined ? egpToMinor(body.transferFee, "transfer_fee") : 0,
       idempotencyKey: idempotencyKey.trim(),
       payoutMethod: payoutMethod as SubmitWithdrawalInput["payoutMethod"],
@@ -1256,6 +1256,43 @@ async function route(request: Request, env: Env): Promise<Response> {
   const inviteMatch = path.match(/^\/api\/core\/v1\/stores\/([^/]+)\/invitations$/);
   if (inviteMatch && request.method === "POST") {
     return createInvitation(request, env, identity, decodeURIComponent(inviteMatch[1]));
+  }
+  const merchantLinkMatch = path.match(/^\/api\/core\/v1\/stores\/([^/]+)\/merchant-account-links$/);
+  if (merchantLinkMatch && request.method === "POST") {
+    return createMerchantAccountLink(request, env, identity, decodeURIComponent(merchantLinkMatch[1]));
+  }
+  const merchantWalletMatch = path.match(/^\/api\/core\/v1\/stores\/([^/]+)\/merchant-wallet\/([^/]+)$/);
+  if (merchantWalletMatch && request.method === "GET") {
+    const storeId = decodeURIComponent(merchantWalletMatch[1]);
+    const merchantId = decodeURIComponent(merchantWalletMatch[2]);
+    const membership = await getActiveMembership(env, identity.id, storeId);
+    if (!membership) return json(request, env, { success: false, error: "لا تملك عضوية نشطة في هذا المتجر." }, 403);
+    const linkedMerchant = await activeMerchantLink(env, storeId, identity.id);
+    if (!["owner","manager"].includes(membership.role) && linkedMerchant !== merchantId) {
+      return json(request, env, { success: false, error: "لا تملك صلاحية عرض هذه المحفظة." }, 403);
+    }
+    return merchantWalletSnapshot(request, env, storeId, merchantId);
+  }
+  const merchantWithdrawalListMatch = path.match(/^\/api\/core\/v1\/stores\/([^/]+)\/merchant-withdrawals$/);
+  if (merchantWithdrawalListMatch) {
+    const storeId = decodeURIComponent(merchantWithdrawalListMatch[1]);
+    if (request.method === "GET") return merchantWithdrawalList(request, env, identity, storeId);
+    if (request.method === "POST") return submitWithdrawal(request, env, identity, storeId);
+    return json(request, env, { success: false, error: "طريقة الطلب غير مدعومة." }, 405);
+  }
+  const merchantWithdrawalActionMatch = path.match(/^\/api\/core\/v1\/stores\/([^/]+)\/merchant-withdrawals\/([^/]+)\/(processing|approve|reject)$/);
+  if (merchantWithdrawalActionMatch && request.method === "POST") {
+    const state = merchantWithdrawalActionMatch[3] === "approve"
+      ? "approved"
+      : merchantWithdrawalActionMatch[3] === "reject" ? "rejected" : "processing";
+    return transitionWithdrawal(
+      request,
+      env,
+      identity,
+      decodeURIComponent(merchantWithdrawalActionMatch[1]),
+      decodeURIComponent(merchantWithdrawalActionMatch[2]),
+      state
+    );
   }
 
   const storeMatch = path.match(/^\/api\/core\/v1\/stores\/([^/]+)$/);
