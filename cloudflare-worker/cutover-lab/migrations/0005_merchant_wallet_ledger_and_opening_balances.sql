@@ -496,9 +496,10 @@ BEGIN
 END;
 
 
+
 -- Opening wallet balances from the sanitized store settings.
--- Monetary values are converted to integer piastres. Ambiguous duplicate
--- merchant IDs across supplier/partner arrays are not auto-imported.
+-- Monetary values are converted to integer piastres. Ambiguous identities,
+-- negative balances, and non-numeric balance fields are quarantined.
 CREATE TABLE IF NOT EXISTS merchant_account_links (
   store_id TEXT NOT NULL,
   merchant_id TEXT NOT NULL,
@@ -516,11 +517,21 @@ CREATE TABLE IF NOT EXISTS merchant_account_links (
 CREATE INDEX IF NOT EXISTS idx_merchant_account_links_identity
   ON merchant_account_links(identity_id, store_id, status);
 
+CREATE TABLE IF NOT EXISTS merchant_wallet_seed_conflicts (
+  store_id TEXT NOT NULL,
+  merchant_id TEXT NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('duplicate_source_identity','negative_balance','invalid_balance_type')),
+  source_occurrences INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (store_id, merchant_id, reason)
+);
+
 WITH wallet_candidates AS (
   SELECT
     r.record_key AS store_id,
     CAST(json_extract(item.value, '$.id') AS TEXT) AS merchant_id,
-    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor,
+    json_type(item.value, '$.balance') AS balance_type
   FROM app_records r, json_each(r.record_json, '$.settings.suppliers') item
   WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
     AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
@@ -530,24 +541,139 @@ WITH wallet_candidates AS (
   SELECT
     r.record_key AS store_id,
     CAST(json_extract(item.value, '$.id') AS TEXT) AS merchant_id,
-    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor,
+    json_type(item.value, '$.balance') AS balance_type
   FROM app_records r, json_each(r.record_json, '$.settings.partners') item
   WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
     AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
 ),
-unique_wallets AS (
-  SELECT store_id, merchant_id,
-         MAX(0, COALESCE(balance_minor, 0)) AS balance_minor,
-         COUNT(*) AS source_occurrences
+wallet_groups AS (
+  SELECT
+    store_id,
+    merchant_id,
+    COUNT(*) AS source_occurrences,
+    MIN(COALESCE(balance_minor, 0)) AS min_balance_minor,
+    SUM(CASE WHEN balance_type NOT IN ('integer','real') AND balance_type IS NOT NULL THEN 1 ELSE 0 END) AS invalid_balance_types
   FROM wallet_candidates
   GROUP BY store_id, merchant_id
-  HAVING COUNT(*) = 1
+)
+INSERT OR IGNORE INTO merchant_wallet_seed_conflicts (
+  store_id, merchant_id, reason, source_occurrences
+)
+SELECT store_id, merchant_id, 'duplicate_source_identity', source_occurrences
+FROM wallet_groups
+WHERE source_occurrences > 1;
+
+WITH wallet_candidates AS (
+  SELECT
+    r.record_key AS store_id,
+    CAST(json_extract(item.value, '$.id') AS TEXT) AS merchant_id,
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor,
+    json_type(item.value, '$.balance') AS balance_type
+  FROM app_records r, json_each(r.record_json, '$.settings.suppliers') item
+  WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
+    AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
+  UNION ALL
+  SELECT
+    r.record_key,
+    CAST(json_extract(item.value, '$.id') AS TEXT),
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER),
+    json_type(item.value, '$.balance')
+  FROM app_records r, json_each(r.record_json, '$.settings.partners') item
+  WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
+    AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
+),
+wallet_groups AS (
+  SELECT
+    store_id,
+    merchant_id,
+    COUNT(*) AS source_occurrences,
+    MIN(COALESCE(balance_minor, 0)) AS min_balance_minor,
+    SUM(CASE WHEN balance_type NOT IN ('integer','real') AND balance_type IS NOT NULL THEN 1 ELSE 0 END) AS invalid_balance_types
+  FROM wallet_candidates
+  GROUP BY store_id, merchant_id
+)
+INSERT OR IGNORE INTO merchant_wallet_seed_conflicts (
+  store_id, merchant_id, reason, source_occurrences
+)
+SELECT store_id, merchant_id, 'negative_balance', source_occurrences
+FROM wallet_groups
+WHERE source_occurrences = 1 AND min_balance_minor < 0;
+
+WITH wallet_candidates AS (
+  SELECT
+    r.record_key AS store_id,
+    CAST(json_extract(item.value, '$.id') AS TEXT) AS merchant_id,
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor,
+    json_type(item.value, '$.balance') AS balance_type
+  FROM app_records r, json_each(r.record_json, '$.settings.suppliers') item
+  WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
+    AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
+  UNION ALL
+  SELECT
+    r.record_key,
+    CAST(json_extract(item.value, '$.id') AS TEXT),
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER),
+    json_type(item.value, '$.balance')
+  FROM app_records r, json_each(r.record_json, '$.settings.partners') item
+  WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
+    AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
+),
+wallet_groups AS (
+  SELECT
+    store_id,
+    merchant_id,
+    COUNT(*) AS source_occurrences,
+    SUM(CASE WHEN balance_type NOT IN ('integer','real') AND balance_type IS NOT NULL THEN 1 ELSE 0 END) AS invalid_balance_types
+  FROM wallet_candidates
+  GROUP BY store_id, merchant_id
+)
+INSERT OR IGNORE INTO merchant_wallet_seed_conflicts (
+  store_id, merchant_id, reason, source_occurrences
+)
+SELECT store_id, merchant_id, 'invalid_balance_type', source_occurrences
+FROM wallet_groups
+WHERE source_occurrences = 1 AND invalid_balance_types > 0;
+
+WITH wallet_candidates AS (
+  SELECT
+    r.record_key AS store_id,
+    CAST(json_extract(item.value, '$.id') AS TEXT) AS merchant_id,
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER) AS balance_minor,
+    json_type(item.value, '$.balance') AS balance_type
+  FROM app_records r, json_each(r.record_json, '$.settings.suppliers') item
+  WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
+    AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
+  UNION ALL
+  SELECT
+    r.record_key,
+    CAST(json_extract(item.value, '$.id') AS TEXT),
+    CAST(ROUND(CAST(json_extract(item.value, '$.balance') AS REAL) * 100) AS INTEGER),
+    json_type(item.value, '$.balance')
+  FROM app_records r, json_each(r.record_json, '$.settings.partners') item
+  WHERE r.source_system = 'supabase' AND r.source_table = 'stores_data'
+    AND NULLIF(CAST(json_extract(item.value, '$.id') AS TEXT), '') IS NOT NULL
+),
+valid_wallets AS (
+  SELECT
+    c.store_id,
+    c.merchant_id,
+    MAX(0, COALESCE(c.balance_minor, 0)) AS balance_minor
+  FROM wallet_candidates c
+  JOIN (
+    SELECT store_id, merchant_id
+    FROM wallet_candidates
+    GROUP BY store_id, merchant_id
+    HAVING COUNT(*) = 1
+       AND MIN(COALESCE(balance_minor, 0)) >= 0
+       AND SUM(CASE WHEN balance_type NOT IN ('integer','real') AND balance_type IS NOT NULL THEN 1 ELSE 0 END) = 0
+  ) ok USING (store_id, merchant_id)
 )
 INSERT OR IGNORE INTO merchant_wallets (
   store_id, merchant_id, currency_code, balance_minor, reserved_minor
 )
 SELECT store_id, merchant_id, 'EGP', balance_minor, 0
-FROM unique_wallets;
+FROM valid_wallets;
 
 INSERT OR IGNORE INTO merchant_wallet_ledger (
   id, store_id, merchant_id, request_id, reference_key, entry_type,
@@ -582,9 +708,24 @@ SELECT
   'copied',
   json_object(
     'wallet_count', COUNT(*),
-    'source', 'settings.suppliers+settings.partners',
     'amount_unit', 'piastres',
     'opening_ledger', 'created',
-    'duplicate_merchant_ids', 'excluded_pending_review'
+    'source', 'settings.suppliers+settings.partners'
   )
 FROM merchant_wallets;
+
+INSERT OR IGNORE INTO migration_audit (
+  id, source_system, source_table, record_key, action, detail_json
+)
+SELECT
+  'wallet-seed-conflicts-' || lower(hex(randomblob(16))),
+  'supabase',
+  'stores_data',
+  NULL,
+  'conflict',
+  json_object(
+    'conflict_count', COUNT(*),
+    'action', 'excluded_from_wallet_import_pending_manual_review'
+  )
+FROM merchant_wallet_seed_conflicts
+HAVING COUNT(*) > 0;
