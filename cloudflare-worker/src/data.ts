@@ -376,7 +376,11 @@ export async function handleDataRequest(
     }
 
     let filters: Filter[];
-    try { filters = parseFilters(url); } catch {
+    let orGroups: Filter[][];
+    try {
+      filters = parseFilters(url);
+      orGroups = parseOrFilters(url);
+    } catch {
       return json({ success: false, error: "فلاتر التحديث غير صالحة." }, 400);
     }
     const allowUpsert = request.headers.get("x-d1-upsert") === "true";
