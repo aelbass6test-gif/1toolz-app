@@ -1,0 +1,35 @@
+name: Cloudflare-native migration validation
+
+on:
+  push:
+    branches: [migration/cloudflare-native]
+  pull_request:
+    branches: [migration/cloudflare-native]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-package-lock
+      - name: D1 wallet ledger regression tests
+        run: npm run test:d1-wallet-ledger
+      - name: Type-check complete application
+        run: npm run lint
+      - name: Build frontend and Workers
+        run: npm run build
