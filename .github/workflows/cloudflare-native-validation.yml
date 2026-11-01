@@ -29,6 +29,8 @@ jobs:
         run: npm install --no-package-lock
       - name: D1 wallet ledger regression tests
         run: npm run test:d1-wallet-ledger
+      - name: Core D1 migration-chain regression test
+        run: npm run test:d1-core-schema
       - name: Type-check complete application
         run: npm run lint
       - name: Build frontend and Workers

@@ -14,6 +14,7 @@ not_found_handling = "single-page-application"
 binding = "APP_DB"
 database_name = "1toolz-cloudflare-core-lab"
 database_id = "bd6a0b1f-7d11-4c38-9b6b-810383f5a873"
+migrations_dir = "d1-core-migrations"
 
 [[d1_databases]]
 binding = "OTP_DB"

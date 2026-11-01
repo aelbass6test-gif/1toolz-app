@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "audit:firebase": "node scripts/audit_firebase_references.mjs",
+    "test:d1-core-schema": "tsx tests/d1-core-schema.test.ts",
     "test:supabase-membership": "tsx tests/supabase-membership.test.ts",
     "test:d1-wallet-ledger": "tsx tests/d1-wallet-ledger.test.ts"
   },
