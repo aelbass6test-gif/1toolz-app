@@ -1,0 +1,172 @@
+path	firebase_refs	supabase_refs	classification	notes
+.env.example	0	1	configuration/dependency	Supabase
+.github/workflows/migration-branch-checks.yml	3	3	review required	Both
+App.tsx	50	58	runtime frontend/backend dependency	Both
+README.md	0	3	review required	Supabase
+bun.lock	279	45	development/test-only or documentation	Both
+cloudflare-worker/d1-core-migrations/0002_seed_legacy_identities_pending.sql	0	6	review required	Supabase
+cloudflare-worker/media-worker.js	0	3	review required	Supabase
+cloudflare-worker/src/auth.ts	1	2	review required	Both
+cloudflare-worker/src/data.ts	0	2	review required	Supabase
+cloudflare-worker/src/index.ts	0	1	review required	Supabase
+cloudflare-worker/src/otp.ts	0	1	review required	Supabase
+cloudflare-worker/wallet-lab/README.md	1	5	review required	Both
+cloudflare-worker/wallet-lab/merchant-wallet-ledger.ts	0	1	review required	Supabase
+cloudflare-worker/wrangler.toml	0	1	review required	Supabase
+components/AccountSettingsPage.tsx	0	9	runtime frontend/backend dependency	Supabase
+components/AdminPage.tsx	1	32	runtime frontend/backend dependency	Both
+components/AgencyHubPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/ApiKeysManager.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/AppsPage.tsx	0	4	runtime frontend/backend dependency	Supabase
+components/BulkOrderSettlementModal.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/CollectionsReportPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/CommandPalette.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/CreateDropshippingOrderPage.tsx	0	7	runtime frontend/backend dependency	Supabase
+components/CreateOrderPage.tsx	0	15	runtime frontend/backend dependency	Supabase
+components/CustomerOrderActionPage.tsx	0	15	runtime frontend/backend dependency	Supabase
+components/CustomerQuoteApprovalPage.tsx	15	0	runtime frontend/backend dependency	Firebase/Firestore
+components/CustomersPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/Dashboard.tsx	0	3	runtime frontend/backend dependency	Supabase
+components/DeveloperSettingsPage.tsx	4	15	runtime frontend/backend dependency	Both
+components/DropshippingPage.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/EmployeeAccountSettingsPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/EmployeeLayout.tsx	1	15	runtime frontend/backend dependency	Both
+components/EmployeeLoginPage.tsx	2	0	runtime frontend/backend dependency	Firebase/Firestore
+components/EmployeesPage.tsx	0	3	runtime frontend/backend dependency	Supabase
+components/FailedDeliveryCompensationPage.tsx	1	1	runtime frontend/backend dependency	Both
+components/FirebaseActionPage.tsx	1	3	runtime frontend/backend dependency	Both
+components/FloatingChat.tsx	0	21	runtime frontend/backend dependency	Supabase
+components/Header.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/InventoryAudit.tsx	0	55	runtime frontend/backend dependency	Supabase
+components/InvoiceAttachmentUploader.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/ManageSitesPage.tsx	1	1	runtime frontend/backend dependency	Both
+components/MediaLibraryModal.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/MerchantPortal.tsx	2	6	runtime frontend/backend dependency	Both
+components/MerchantSettlementPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/MerchantsPage.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/OrderForm.tsx	0	3	runtime frontend/backend dependency	Supabase
+components/OrderSlideOverDrawer.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/OrderWhatsAppChatModal.tsx	2	21	runtime frontend/backend dependency	Both
+components/OrdersList.tsx	0	9	runtime frontend/backend dependency	Supabase
+components/POSPage.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/PartnerPortal.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/PartnerProfilePage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/PartnerProfileTab.tsx	1	0	runtime frontend/backend dependency	Firebase/Firestore
+components/PartnersPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/ProductDetailPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/ProductsPage.tsx	1	7	runtime frontend/backend dependency	Both
+components/QuotationsPage.tsx	2	3	runtime frontend/backend dependency	Both
+components/ReportsPage.tsx	0	3	runtime frontend/backend dependency	Supabase
+components/ReviewsPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/SettingsPage.tsx	2	0	runtime frontend/backend dependency	Firebase/Firestore
+components/ShippingPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/SignUpPage.tsx	5	2	runtime frontend/backend dependency	Both
+components/SmartUpdatesWidget.tsx	2	0	runtime frontend/backend dependency	Firebase/Firestore
+components/StorefrontPage.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/SuppliersPage.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/TeamChatPage.tsx	0	17	runtime frontend/backend dependency	Supabase
+components/UserMigrationCenter.tsx	5	3	runtime frontend/backend dependency	Both
+components/WarehouseSubmitPage.tsx	9	22	runtime frontend/backend dependency	Both
+components/WebhookMonitorPage.tsx	0	9	runtime frontend/backend dependency	Supabase
+components/WhatsAppPage.tsx	0	2	runtime frontend/backend dependency	Supabase
+components/api-docs/DocWuiltGraphQLTab.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/audit/AuditSettings.tsx	1	0	runtime frontend/backend dependency	Firebase/Firestore
+components/audit/SharedAuditsTab.tsx	0	3	runtime frontend/backend dependency	Supabase
+components/crm/CRMAnalyticsTab.tsx	0	1	runtime frontend/backend dependency	Supabase
+components/crm/crmUtils.ts	0	1	runtime frontend/backend dependency	Supabase
+create-demo-order.ts	6	0	review required	Firebase/Firestore
+data/backups/full_firestore_backup_2026-10-22T16-58-37-430Z.json	0	1	review required	Supabase
+data/backups/full_firestore_backup_latest.json	0	1	review required	Supabase
+data/backups/isolated_restore_env.json	0	1	review required	Supabase
+data/backups/stores_data_backup_2026-10-22T16-29-57-159Z.json	0	1	review required	Supabase
+data/backups/stores_data_backup_latest.json	0	1	review required	Supabase
+docs/cloudflare-native-phase2-2026-11-01/01-fresh-start-parity.md	3	4	development/test-only or documentation	Both
+docs/cloudflare-native-phase2-2026-11-01/03-dependency-replacement-map.md	19	10	development/test-only or documentation	Both
+docs/cloudflare-native-phase2-2026-11-01/07-staging-readiness-checklist.md	1	1	development/test-only or documentation	Both
+docs/cloudflare-native-phase2-2026-11-01/08-blockers-and-next-actions.md	2	3	development/test-only or documentation	Both
+docs/cloudflare-native-remediation-audit-2026-11-01.md	6	5	development/test-only or documentation	Both
+docs/delta_rollback_plan.md	1	0	development/test-only or documentation	Firebase/Firestore
+docs/firebase-to-supabase-migration.md	46	63	development/test-only or documentation	Both
+docs/firestore-domain-inventory.md	49	29	development/test-only or documentation	Both
+docs/product-image-upload.md	1	3	development/test-only or documentation	Both
+docs/supabase-identity-cutover-design.md	12	23	development/test-only or documentation	Both
+docs/test_results_and_reconciliation_report.md	19	0	development/test-only or documentation	Firebase/Firestore
+docs/whatsapp-inbox-schema.md	0	6	development/test-only or documentation	Supabase
+firebase-applet-config.json	3	0	configuration/dependency	Firebase/Firestore
+firebase-blueprint.json	1	0	review required	Firebase/Firestore
+firestore.rules	1	0	review required	Firebase/Firestore
+get_settings.ts	5	0	review required	Firebase/Firestore
+list_products.ts	5	0	review required	Firebase/Firestore
+package.json	3	5	configuration/dependency	Both
+project_verified_audit.zip	16	10	review required	Both
+public/assets/aistudio/1toolz-audit-and-ai-studio-instructions_d902d77b.md	7	1	review required	Both
+public/assets/aistudio/_____________________131f4e09.html	1	1	review required	Both
+scripts/archive/admin-inspect-orders.cjs	6	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/check-fees.js	13	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/check_supply_orders.js	14	2	development/test-only or documentation	Both
+scripts/archive/debug-order-esm.js	14	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/debug-order-find.js	14	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/debug-order-one.js	6	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/debug-wallet.js	5	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/dump-store-keys.js	13	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/dump_store.js	11	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/find-238.js	15	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/find-active-store.cjs	9	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/find-order-one.ts	16	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/find-orders-subcol.js	15	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/find-specific-orders.cjs	12	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/find-zahra-orders.js	12	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/fix-wallet-txs.js	6	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/fix-wallet.cjs	6	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/get_columns.js	10	7	development/test-only or documentation	Both
+scripts/archive/inspect-360-real.cjs	8	0	development/test-only or documentation	Firebase/Firestore
+scripts/archive/inspect-360.cjs	7	0	development/test-only or documentation	Firebase/Firestore
+scripts/audit_firebase_references.mjs	35	0	development/test-only or documentation	Firebase/Firestore
+scripts/backup_firestore.ts	8	0	development/test-only or documentation	Firebase/Firestore
+scripts/buildBostaData.js	0	1	development/test-only or documentation	Supabase
+scripts/execute_restore_proof.ts	10	0	development/test-only or documentation	Firebase/Firestore
+scripts/reconcile_orders_audit.ts	2	2	development/test-only or documentation	Both
+scripts/verify_backup_restore.ts	1	0	development/test-only or documentation	Firebase/Firestore
+server.ts	71	73	runtime frontend/backend dependency	Both
+services/adminAlertsService.ts	0	6	runtime frontend/backend dependency	Supabase
+services/auditService.ts	0	23	runtime frontend/backend dependency	Supabase
+services/cloudflareClient.ts	0	2	runtime frontend/backend dependency	Supabase
+services/databaseService.ts	19	240	runtime frontend/backend dependency	Both
+services/firebaseClient.ts	11	0	runtime adapter	Firebase/Firestore
+services/mailService.ts	1	0	runtime frontend/backend dependency	Firebase/Firestore
+services/orderQuotaLedgerService.ts	8	0	runtime frontend/backend dependency	Firebase/Firestore
+services/reportShareService.ts	7	14	runtime frontend/backend dependency	Both
+services/supabaseAuthService.ts	0	3	runtime adapter	Supabase
+services/supabaseMembershipService.ts	0	3	runtime adapter	Supabase
+services/userMigrationService.ts	29	16	runtime frontend/backend dependency	Both
+shared_manus_file.md	8	0	review required	Firebase/Firestore
+src/hooks/useAuthActions.ts	0	2	runtime frontend/backend dependency	Supabase
+src/hooks/useLiveCollaboration.ts	0	44	runtime frontend/backend dependency	Supabase
+src/pages/MaintenancePage.tsx	7	0	runtime frontend/backend dependency	Firebase/Firestore
+src/utils/maintenanceSync.ts	0	4	runtime frontend/backend dependency	Supabase
+supabase/functions/admin-add-store-owner/index.ts	0	15	runtime backend function to port	Supabase
+supabase/functions/admin-create-user/index.ts	0	13	runtime backend function to port	Supabase
+supabase/functions/admin-delete-user/index.ts	0	15	runtime backend function to port	Supabase
+supabase/functions/admin-list-users/index.ts	0	10	runtime backend function to port	Supabase
+supabase/functions/admin-update-user/index.ts	0	12	runtime backend function to port	Supabase
+supabase/functions/merchant-portal-requests/index.ts	0	18	runtime backend function to port	Supabase
+supabase/functions/store-manage-employee/index.ts	1	39	runtime backend function to port	Both
+supabase/functions/whatsapp-webhook/index.ts	0	25	runtime backend function to port	Supabase
+supabase/migrations/20260920003307_whatsapp_inbox_schema.sql	0	3	review required	Supabase
+supabase/migrations/20260920035000_whatsapp_auth_rls.sql	0	1	review required	Supabase
+supabase/migrations/20261030060149_supabase_auth_foundation.sql	1	1	review required	Both
+supabase/migrations/20261030060634_secure_supabase_user_directory.sql	0	1	review required	Supabase
+supabase/migrations/20261030062127_secure_chat_messages_for_supabase_auth.sql	0	1	review required	Supabase
+supabase/migrations/20261030063423_preserve_trusted_admin_flag_on_auth_enrollment.sql	0	1	review required	Supabase
+tests/firestore-abac-rules.test.ts	9	0	development/test-only or documentation	Firebase/Firestore
+tests/merchant-quota-ledger.test.ts	2	2	development/test-only or documentation	Both
+tests/supabase-membership.test.ts	0	1	development/test-only or documentation	Supabase
+tsconfig.json	0	1	configuration/dependency	Supabase
+utils/merchantAnalytics.ts	0	3	review required	Supabase
+utils/merchantProducts.ts	0	1	review required	Supabase
+utils/pdfHelper.ts	0	1	review required	Supabase
+utils/reportGenerator.ts	0	1	review required	Supabase
+utils/syncIntegrity.ts	0	2	review required	Supabase
+utils/webNotificationService.ts	0	1	review required	Supabase
+utils/whatsappService.ts	0	1	review required	Supabase
+vite.config.ts	2	3	configuration/dependency	Both
