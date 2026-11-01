@@ -273,7 +273,7 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' },
       customMetadata: { storeId, productId, originalName: file.name }
     });
-    const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || 'https://abdomedi.com').replace(/\/$/, '');
+    const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || new URL(request.url).origin).replace(/\/$/, '');
     images.push({ key, url: `${publicOrigin}/${key}`, filename, contentType: file.type, size: file.size });
   }
   return json(request, env, { success: true, images });
@@ -292,8 +292,9 @@ function bostaBase(env: Env, staging: boolean) {
   return (staging ? env.BOSTA_STAGING_BASE_URL : env.BOSTA_PRODUCTION_BASE_URL) || "https://app.bosta.co";
 }
 
-function turboBase(env: Env, staging: boolean) {
-  return ((staging ? env.TURBO_STAGING_BASE_URL || env.TURBO_BASE_URL : env.TURBO_BASE_URL) || "https://platform.turbo.info").replace(/\/$/, "");
+function turboBase(env: Env, staging: boolean): string | null {
+  if (staging && !env.TURBO_STAGING_BASE_URL) return null;
+  return ((staging ? env.TURBO_STAGING_BASE_URL : env.TURBO_BASE_URL) || "https://platform.turbo.info").replace(/\/$/, "");
 }
 
 async function readBody(request: Request): Promise<any> {

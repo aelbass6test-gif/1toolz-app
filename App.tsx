@@ -2026,121 +2026,53 @@ export const AppComponent = () => {
         navigate('/welcome');
     };
 
-    const startOtpFlow = async (user: User, sessionInfo: { isEmployee: boolean, storeId: string } | null, password?: string) => {
+    const startOtpFlow = async (user: User, sessionInfo: { isEmployee: boolean, storeId: string } | null) => {
         setUserForOtp(user);
         setSessionInfoForOtp(sessionInfo);
         setOtpError('');
         setOtpTargetEmail(user.email || '');
-
-        const payload = JSON.stringify({
-            phone: user.phone,
-            email: user.email,
-            userName: user.fullName
-        });
-
-        const sendReq = async (url: string) => {
-            const resp = await fetch(url, {
+        try {
+            const resp = await fetch('/api/v1/auth/send-login-otp', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: payload
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' }
             });
             const data = await resp.json().catch(() => ({}));
-            return { ok: resp.ok, status: resp.status, data };
-        };
-
-        try {
-            const primaryUrl = AUTH_OTP_API_BASE ? `${AUTH_OTP_API_BASE}/api/send-otp` : '/api/send-otp';
-            let res = await sendReq(primaryUrl);
-
-            // If primary remote endpoint rejected origin (403 / "مصدر الطلب غير مسموح") or network failed, fallback to local backend
-            if ((!res.ok || res.status === 403 || res.data?.error?.includes('مصدر الطلب')) && primaryUrl !== '/api/send-otp') {
-                console.warn('[AUTH] Primary OTP URL rejected or failed. Trying same-origin fallback...');
-                const fallbackRes = await sendReq('/api/send-otp').catch(() => null);
-                if (fallbackRes && (fallbackRes.ok || !fallbackRes.data?.error?.includes('مصدر الطلب'))) {
-                    res = fallbackRes;
-                }
-            }
-
-            if (res.data?.email) {
-                setOtpTargetEmail(res.data.email);
-            }
-            if (!res.ok || !res.data?.success) {
-                setOtpError(res.data?.error || 'تعذر إرسال رمز التحقق إلى البريد الإلكتروني.');
-            }
-        } catch (err: any) {
-            console.warn('[AUTH] Error sending OTP:', err);
-            try {
-                const fbRes = await sendReq('/api/send-otp');
-                if (fbRes.data?.email) setOtpTargetEmail(fbRes.data.email);
-                if (!fbRes.ok || !fbRes.data?.success) {
-                    setOtpError(fbRes.data?.error || 'تعذر إرسال رمز التحقق إلى البريد الإلكتروني.');
-                }
-            } catch (fbErr: any) {
-                setOtpError('تعذر الاتصال بخادم إرسال الرمز.');
-            }
+            if (typeof data.target === 'string') setOtpTargetEmail(data.target);
+            if (!resp.ok || data.success !== true) setOtpError(data.error || 'تعذر إرسال رمز التحقق.');
+        } catch {
+            setOtpError('تعذر الاتصال بخادم إرسال الرمز.');
         }
     };
 
     const handleOtpVerification = async (otp: string) => {
         if (!userForOtp) return;
         setOtpError('');
-
-        const payload = JSON.stringify({ 
-            phone: userForOtp.phone,
-            email: userForOtp.email || otpTargetEmail, 
-            otp 
-        });
-
-        const verifyReq = async (url: string) => {
-            const resp = await fetch(url, {
+        try {
+            const resp = await fetch('/api/v1/auth/verify-login-otp', {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
-                body: payload
+                body: JSON.stringify({ otp })
             });
             const data = await resp.json().catch(() => ({}));
-            return { ok: resp.ok, status: resp.status, data };
-        };
-
-        try {
-            const primaryUrl = AUTH_OTP_API_BASE ? `${AUTH_OTP_API_BASE}/api/verify-otp` : '/api/verify-otp';
-            let res = await verifyReq(primaryUrl);
-
-            if ((!res.ok || res.status === 403 || res.data?.error?.includes('مصدر الطلب')) && primaryUrl !== '/api/verify-otp') {
-                const fallbackRes = await verifyReq('/api/verify-otp').catch(() => null);
-                if (fallbackRes && (fallbackRes.ok || fallbackRes.data?.valid)) {
-                    res = fallbackRes;
-                }
-            }
-
-            if (res.ok && res.data?.valid) {
+            if (resp.ok && data.success === true && data.verified === true) {
                 completeLogin(userForOtp, sessionInfoForOtp);
             } else {
-                setOtpError(res.data?.message || res.data?.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
+                setOtpError(data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
             }
-        } catch (err: any) {
-            console.error('Error verifying OTP:', err);
-            try {
-                const fbRes = await verifyReq('/api/verify-otp');
-                if (fbRes.ok && fbRes.data?.valid) {
-                    completeLogin(userForOtp, sessionInfoForOtp);
-                    return;
-                }
-                setOtpError(fbRes.data?.message || fbRes.data?.error || 'حدث خطأ أثناء التحقق من الرمز.');
-            } catch {
-                setOtpError('حدث خطأ أثناء التحقق من الرمز. يرجى المحاولة مرة أخرى.');
-            }
+        } catch {
+            setOtpError('حدث خطأ أثناء التحقق من الرمز. يرجى المحاولة مرة أخرى.');
         }
     };
 
     const handleOtpCancel = () => {
+        void fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
         setUserForOtp(null);
         setSessionInfoForOtp(null);
         setOtpError('');
         setOtpTargetEmail('');
     };
-    
-    // Supabase identity linking is intentionally server-controlled. Never create
-    // shadow accounts or grant store memberships from this client callback.
 
     const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null, password?: string) => {
         setUsers(prev => {
@@ -2285,18 +2217,15 @@ export const AppComponent = () => {
         }
 
         const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
-        const authEmail = `${authPhone}@mystore-auth.app`;
-        try {
-            await signInWithSupabase(authEmail, password);
-        } catch (err: any) {
-            if (err?.code === 'fetch_error' || /network/i.test(String(err?.message || ''))) {
-                throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-            }
-            if (['invalid_credentials','user_not_found','invalid_email'].includes(String(err?.code || '')) || /invalid login credentials/i.test(String(err?.message || ''))) {
-                throw new Error("بيانات الدخول غير صحيحة أو الحساب لم يتم تفعيله بعد. استخدم استعادة كلمة المرور أو تواصل مع مدير المتجر لإعادة تفعيل الحساب.");
-            }
-            console.error('[AUTH] Employee login failed:', err);
-            throw new Error("تعذر تسجيل الدخول حاليًا. حاول مرة أخرى أو تواصل مع الدعم.");
+        const response = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login: authPhone, password })
+        });
+        const authResult = await response.json().catch(() => ({}));
+        if (!response.ok || authResult.success !== true || authResult.requiresMfa !== true) {
+            throw new Error(authResult.error || 'بيانات الدخول غير صحيحة أو الحساب لم يتم تفعيله بعد.');
         }
 
         const targetUser = (isOwnerSession && recognizedOwnerUser) ? recognizedOwnerUser : await db.getUserByPhone(authPhone);
@@ -2305,9 +2234,9 @@ export const AppComponent = () => {
         }
 
         if (isOwnerSession) {
-            startOtpFlow(targetUser, null, password);
+            startOtpFlow(targetUser, null);
         } else {
-            startOtpFlow(targetUser, { isEmployee: true, storeId: storeId }, password);
+            startOtpFlow(targetUser, { isEmployee: true, storeId: storeId });
         }
     };
 
@@ -3838,7 +3767,7 @@ export const AppComponent = () => {
     return (
         <Suspense fallback={<GlobalLoader />}>
             <Routes>
-                <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user, password) => startOtpFlow(user, null, password)} users={users} setUsers={setUsers} />} />
+                <Route path="/owner-login" element={<SignUpPage onPasswordSuccess={(user, password) => startOtpFlow(user, null)} users={users} setUsers={setUsers} />} />
                 <Route path="/employee-login" element={<EmployeeLoginPage allStoresData={allStoresData} users={users} onLoginAttempt={handleEmployeeLogin} onRegisterRequest={handleEmployeeRegisterRequest} />} />
                 <Route path="/auth/action" element={<FirebaseActionPage />} />
                 <Route path="/auth/action/" element={<FirebaseActionPage />} />
