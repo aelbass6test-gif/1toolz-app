@@ -273,7 +273,7 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' },
       customMetadata: { storeId, productId, originalName: file.name }
     });
-    const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || 'https://abdomedi.com').replace(/\/$/, '');
+    const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || new URL(request.url).origin).replace(/\/$/, '');
     images.push({ key, url: `${publicOrigin}/${key}`, filename, contentType: file.type, size: file.size });
   }
   return json(request, env, { success: true, images });

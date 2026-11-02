@@ -28,7 +28,7 @@ database_id = "e04873eb-0fbc-44f8-a136-4db82d29013f"
 
 [[r2_buckets]]
 binding = "R2_IMAGES"
-bucket_name = "abdomedi-product-images"
+bucket_name = "1toolz-product-images-lab"
 
 [[r2_buckets]]
 binding = "R2_BACKUPS"
@@ -36,7 +36,7 @@ bucket_name = "1toolz-cloudflare-backups-lab"
 
 [vars]
 APP_ENV = "cloudflare-native-staging"
-MEDIA_PUBLIC_ORIGIN = "https://abdomedi.com"
+MEDIA_PUBLIC_ORIGIN = "https://1toolz-app-native-staging.app1toolz.workers.dev"
 MEDIA_REQUIRE_AUTH = "true"
 OTP_FROM_NAME = "1Toolz"
 OTP_RESEND_FROM = "no-reply@abdomedi.com"
