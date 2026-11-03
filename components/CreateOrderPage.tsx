@@ -695,7 +695,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
 
         triggerWebhooks(orderWithId, settings);
         
-        // Sync with forceSync using complete updated state to bypass React async delay
+        // Sync with forceSync using complete updated state to bypass React async delay.
+        // Keep the cloud result so the UI never reports a cloud save when only local backup succeeded.
+        let cloudSaveResult: { success: boolean; error?: string } | undefined;
         const currentStoreId = activeStore?.id;
         if (forceSync && allStoresData && currentStoreId && allStoresData[currentStoreId]) {
             const storeData = allStoresData[currentStoreId];
@@ -719,9 +721,9 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                     cashHandovers: updatedHandovers
                 }
             };
-            await forceSync(updatedStoreData);
+            cloudSaveResult = await forceSync(updatedStoreData);
         } else if (forceSync) {
-            await forceSync();
+            cloudSaveResult = await forceSync();
         }
 
         // --- 2. Interactive WhatsApp Automation Message ---
@@ -816,6 +818,12 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             }
         }
         
+        // A failed cloud sync must be visible; the order remains in the local backup.
+        if (forceSync && cloudSaveResult?.success !== true) {
+            console.error('[ORDER-CREATE] Order is only locally saved; cloud persistence failed:', cloudSaveResult?.error);
+            window.alert('تم إنشاء الطلب وحفظه على هذا الجهاز، لكن لم نتأكد من حفظه على السحابة. لا تنشئ الطلب مرة أخرى؛ افحص حالة الاتصال والمزامنة ثم راجع الطلب قبل المتابعة.');
+        }
+
         // تشغيل صوت واحتفالات نجاح تسجيل الطلب
         triggerCelebration('create_order', settings);
         
