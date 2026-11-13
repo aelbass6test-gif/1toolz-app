@@ -169,13 +169,21 @@ async function verifyPassword(password: string, encoded: string): Promise<boolea
   return constantTimeEqual(new Uint8Array(derived), expectedHash);
 }
 
+export function isSixDigitOtp(value: unknown): value is string {
+  return typeof value === "string" && /^\d{6}$/.test(value);
+}
+
+export function phoneFromSyntheticLogin(value: string): string | null {
+  const match = value.trim().match(/^(.+)@mystore-auth\.app$/i);
+  return match ? normalizePhone(match[1]) : null;
+}
+
 function isSyntheticEmail(value: string): boolean {
-  return /@mystore-auth\.app$/i.test(value) || /@example\.(com|net|org)$/i.test(value);
+  return phoneFromSyntheticLogin(value) !== null || /@example\.(com|net|org)$/i.test(value);
 }
 
 async function lookupIdentity(db: AuthDatabase, login: string): Promise<AuthIdentity | null> {
-  const syntheticAlias = login.match(/^(.+)@mystore-auth\\.app$/i);
-  const phoneLogin = normalizePhone(syntheticAlias ? syntheticAlias[1] : login);
+  const phoneLogin = phoneFromSyntheticLogin(login) || normalizePhone(login);
   const emailLogin = normalizeEmail(login);
   const rows = await db.prepare(`
     SELECT id, legacy_source, legacy_user_key, email, phone, display_name,
@@ -287,7 +295,8 @@ async function createSession(
   db: AuthDatabase,
   secret: string,
   identityId: string,
-  request: Request
+  request: Request,
+  mfaVerified = false
 ): Promise<string> {
   const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
   const token = bytesToHex(tokenBytes);
@@ -299,14 +308,16 @@ async function createSession(
   const result = await db.prepare(`
     INSERT INTO auth_sessions (
       session_id, identity_id, refresh_token_hash, created_at, expires_at,
-      last_seen_at, revoked_at, user_agent_hash
+      last_seen_at, revoked_at, mfa_verified_at, user_agent_hash
     ) VALUES (?, ?, ?, CURRENT_TIMESTAMP,
-      datetime('now', ?), CURRENT_TIMESTAMP, NULL, ?)
+      datetime('now', ?), CURRENT_TIMESTAMP, NULL,
+      CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
   `).bind(
     sessionId,
     identityId,
     tokenHash,
     `+${SESSION_TTL_SECONDS} seconds`,
+    mfaVerified ? 1 : 0,
     userAgentHash
   ).run();
 
@@ -314,6 +325,21 @@ async function createSession(
     throw new Error("session_create_failed");
   }
   return token;
+}
+
+async function getPendingSessionIdentity(request: Request, env: AuthEnv): Promise<(AuthIdentity & { session_id: string }) | null> {
+  if (!env.APP_DB || !env.SESSION_HASH_SECRET) return null;
+  const token = readCookie(request, SESSION_COOKIE);
+  if (!token || !/^[0-9a-f]{64}$/i.test(token)) return null;
+  const tokenHash = await hmacHex(env.SESSION_HASH_SECRET, `session:${token}`);
+  return env.APP_DB.prepare(`
+    SELECT s.session_id, a.id, a.legacy_source, a.legacy_user_key, a.email, a.phone,
+           a.display_name, a.account_status, a.password_reset_required
+    FROM auth_sessions s JOIN auth_identities a ON a.id = s.identity_id
+    WHERE s.refresh_token_hash = ? AND s.revoked_at IS NULL
+      AND s.expires_at > CURRENT_TIMESTAMP AND s.mfa_verified_at IS NULL
+      AND a.account_status = 'active' LIMIT 1
+  `).bind(tokenHash).first<AuthIdentity & { session_id: string }>();
 }
 
 export async function getAuthContext(request: Request, env: AuthEnv): Promise<AuthContext | null> {
@@ -329,6 +355,7 @@ export async function getAuthContext(request: Request, env: AuthEnv): Promise<Au
     JOIN auth_credentials c ON c.identity_id = a.id
     WHERE s.refresh_token_hash = ?
       AND s.revoked_at IS NULL
+      AND s.mfa_verified_at IS NOT NULL
       AND s.expires_at > CURRENT_TIMESTAMP
       AND a.account_status = 'active'
       AND c.must_change_password = 0
@@ -471,7 +498,7 @@ export async function handleAuthRequest(
     const email = normalizeEmail(body.email);
     const phone = normalizePhone(body.phone);
     const otp = String(body.code ?? "").trim();
-    if (!EMAIL_RE.test(email) || phone.length < 8 || !/^\\d{6}$/.test(otp)) {
+    if (!EMAIL_RE.test(email) || phone.length < 8 || !isSixDigitOtp(otp)) {
       return json({ success: false, error: "رقم الهاتف والبريد وكود التفعيل مطلوبون." }, 400);
     }
     const identity = await env.APP_DB.prepare(`
@@ -510,7 +537,7 @@ export async function handleAuthRequest(
       JSON.stringify({ verifiedBy: "email_otp", newIdentityActivation: true })
     ).run();
 
-    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request);
+    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request, true);
     return json({
       success: true,
       message: "تم تفعيل الحساب بنجاح.",
@@ -547,7 +574,7 @@ export async function handleAuthRequest(
       UPDATE auth_sessions SET revoked_at=CURRENT_TIMESTAMP
       WHERE identity_id=? AND revoked_at IS NULL
     `).bind(context.identityId).run();
-    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, context.identityId, request);
+    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, context.identityId, request, true);
     return json({ success: true, message: "تم تغيير كلمة المرور بنجاح." }, 200, { "set-cookie": setSessionCookie(token) });
   }
 
@@ -583,10 +610,11 @@ export async function handleAuthRequest(
       return json({ success: false, error: "بيانات الدخول غير صحيحة." }, 401);
     }
 
-    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request);
+    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request, false);
     const headers = new Headers({ "set-cookie": setSessionCookie(token) });
     return json({
       success: true,
+      requiresMfa: true,
       user: {
         id: identity.id,
         phone: identity.phone,
@@ -594,6 +622,31 @@ export async function handleAuthRequest(
         fullName: identity.display_name
       }
     }, 200, headers);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/auth/send-login-otp") {
+    const session = await getPendingSessionIdentity(request, env);
+    if (!session) return json({ success: false, error: "جلسة الدخول غير صالحة." }, 401);
+    if (!session.email || !EMAIL_RE.test(session.email) || isSyntheticEmail(session.email)) {
+      return json({ success: false, error: "لا يوجد بريد موثق صالح لهذه الجلسة." }, 400);
+    }
+    const sent = await sendEmailOtp(request, env, jsonResponse, session.email, session.display_name || "1Toolz");
+    if (!sent.success) return json({ success: false, error: sent.error }, sent.status || 503);
+    return json({ success: true, target: sent.target, expiresInSeconds: sent.expiresInSeconds });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/v1/auth/verify-login-otp") {
+    const session = await getPendingSessionIdentity(request, env);
+    if (!session) return json({ success: false, error: "جلسة الدخول غير صالحة أو منتهية." }, 401);
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const otp = String(body.otp ?? "").trim();
+    if (!isSixDigitOtp(otp)) return json({ success: false, error: "رمز التحقق يجب أن يتكون من ستة أرقام." }, 400);
+    const verification = await verifyEmailOtp(request, env, jsonResponse, session.email || "", otp);
+    if (!verification.valid) return json({ success: false, error: verification.error }, verification.status || 400);
+    await env.APP_DB!.prepare(
+      "UPDATE auth_sessions SET mfa_verified_at = CURRENT_TIMESTAMP WHERE session_id = ? AND revoked_at IS NULL"
+    ).bind(session.session_id).run();
+    return json({ success: true, verified: true });
   }
 
   if (request.method === "POST" && url.pathname === "/api/v1/auth/recovery/request") {
@@ -627,7 +680,7 @@ export async function handleAuthRequest(
     const otp = String(body.otp ?? "").trim();
     const password = typeof body.newPassword === "string" ? body.newPassword : "";
     const byEmail = EMAIL_RE.test(emailInput);
-    if ((!byEmail && phone.length < 8) || !/^\\d{6}$/.test(otp) || password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
+    if ((!byEmail && phone.length < 8) || !isSixDigitOtp(otp) || password.length < MIN_PASSWORD_LENGTH || password.length > 128) {
       return json({ success: false, error: "تأكد من رقم الهاتف أو البريد ورمز التحقق، واجعل كلمة المرور 10 أحرف على الأقل." }, 400);
     }
     const identity = await env.APP_DB.prepare("SELECT id, email, account_status FROM auth_identities WHERE (? <> '' AND phone = ?) OR (? <> '' AND lower(email) = ?) ORDER BY CASE WHEN account_status = 'active' THEN 0 ELSE 1 END LIMIT 1")
@@ -682,7 +735,7 @@ export async function handleAuthRequest(
       JSON.stringify({ verifiedBy: "email_otp", membershipsActivated: true })
     ).run();
 
-    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request);
+    const token = await createSession(env.APP_DB, env.SESSION_HASH_SECRET, identity.id, request, true);
     return json({
       success: true,
       message: "تم تفعيل كلمة المرور وتسجيل الدخول بنجاح."

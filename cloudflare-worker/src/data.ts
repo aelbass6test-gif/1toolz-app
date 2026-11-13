@@ -88,7 +88,7 @@ function canWriteTable(role: string, permissions: string[], table: string, actio
 async function tableIsRegistered(db: DataDatabase, table: string): Promise<boolean> {
   const row = await db.prepare(`
     SELECT 1 AS available FROM app_table_registry
-    WHERE source_system='supabase' AND source_table=?
+    WHERE source_system IN ('manual', 'supabase') AND source_table=?
       AND migration_status IN ('copied','verified') LIMIT 1
   `).bind(table).first<{ available: number }>();
   return Boolean(row);
