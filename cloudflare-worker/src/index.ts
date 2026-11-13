@@ -14,6 +14,7 @@ type R2Object = {
 type R2Bucket = {
   put(key: string, value: ArrayBuffer | ArrayBufferView | ReadableStream | string | Blob, options?: { httpMetadata?: Record<string, string>; customMetadata?: Record<string, string> }): Promise<void>;
   get(key: string): Promise<R2Object | null>;
+  delete(key: string | string[]): Promise<void>;
 };
 
 export interface Env {
@@ -149,6 +150,9 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       }
       try {
         await (env.R2_IMAGES as any).delete(key);
+        if (env.APP_DB) {
+          await env.APP_DB.prepare("UPDATE file_metadata SET deleted_at=CURRENT_TIMESTAMP WHERE bucket='R2_IMAGES' AND object_key=? AND deleted_at IS NULL").bind(key).run();
+        }
         return json(request, env, { success: true, message: 'تم حذف الصورة من مساحة التخزين بنجاح', key });
       } catch (err: any) {
         return json(request, env, { success: false, error: err?.message || 'فشل حذف الصورة من التخزين' }, 500);
@@ -233,6 +237,11 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
       } else {
         await (env.R2_IMAGES as any).delete(cleanedKeys);
       }
+      if (env.APP_DB) {
+        for (const key of cleanedKeys) {
+          await env.APP_DB.prepare("UPDATE file_metadata SET deleted_at=CURRENT_TIMESTAMP WHERE bucket='R2_IMAGES' AND object_key=? AND deleted_at IS NULL").bind(key).run();
+        }
+      }
       return json(request, env, { 
         success: true, 
         message: `تم حذف ${cleanedKeys.length} صورة من مساحة التخزين بنجاح`, 
@@ -263,18 +272,38 @@ async function handleMedia(request: Request, env: Env): Promise<Response> {
   if (!files.length) return json(request, env, { success: false, error: 'لم يتم اختيار أي صورة' }, 400);
   if (files.length > 20) return json(request, env, { success: false, error: 'الحد الأقصى 20 صورة في الطلب الواحد' }, 413);
 
-  const images: Array<{ key: string; url: string; filename: string; contentType: string; size: number }> = [];
+  const images: Array<{ key: string; url: string; filename: string; contentType: string; size: number; fileId: string }> = [];
+  const writtenKeys: string[] = [];
   for (const file of files) {
     if (!file.type.startsWith('image/')) return json(request, env, { success: false, error: `الملف ${file.name} ليس صورة` }, 415);
     if (file.size > MAX_MEDIA_FILE_SIZE) return json(request, env, { success: false, error: `حجم ${file.name} أكبر من 10 ميجابايت` }, 413);
     const filename = safeFilename(file.name);
-    const key = `images/${storeId}/${productId}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${filename}`;
+    const fileId = crypto.randomUUID();
+    const key = `images/${storeId}/${productId}/${fileId}-${filename}`;
     await env.R2_IMAGES.put(key, file.stream(), {
       httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' },
       customMetadata: { storeId, productId, originalName: file.name }
     });
+    writtenKeys.push(key);
+    if (env.APP_DB) {
+      try {
+        await env.APP_DB.prepare(`
+          INSERT INTO file_metadata
+            (id, store_id, owner_id, bucket, object_key, entity_type, entity_id,
+             original_name, content_type, size_bytes, visibility)
+          VALUES (?, ?, ?, 'R2_IMAGES', ?, 'product_image', ?, ?, ?, ?, 'public')
+        `).bind(fileId, storeId, uploadIdentity?.identityId || null, key, productId,
+          file.name, file.type, file.size).run();
+      } catch (metadataError) {
+        await env.R2_IMAGES.delete(writtenKeys);
+        return json(request, env, { success: false, error: 'تعذر تسجيل بيانات الملف في D1؛ تم إلغاء الرفع.' }, 503);
+      }
+    } else {
+      await env.R2_IMAGES.delete(writtenKeys);
+      return json(request, env, { success: false, error: 'قاعدة D1 غير مهيأة؛ لم يتم اعتماد الرفع.' }, 503);
+    }
     const publicOrigin = (env.MEDIA_PUBLIC_ORIGIN || new URL(request.url).origin).replace(/\/$/, '');
-    images.push({ key, url: `${publicOrigin}/${key}`, filename, contentType: file.type, size: file.size });
+    images.push({ key, url: `${publicOrigin}/${key}`, filename, contentType: file.type, size: file.size, fileId });
   }
   return json(request, env, { success: true, images });
 }
