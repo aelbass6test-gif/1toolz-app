@@ -2,10 +2,12 @@ node_modules/
 dist/
 dist-test/
 cloudflare-worker/dist/
+.wrangler/
 .env
 .env.*
 !.env.example
 .dev.env.json
+.dev.vars
 .dev.pid
 cloud_sql_proxy
 captured.json
