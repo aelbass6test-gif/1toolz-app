@@ -148,7 +148,7 @@ export async function verifyBearerToken(
     const valid = await crypto.subtle.verify(
       "HMAC",
       key,
-      sigBytes,
+      sigBytes as unknown as BufferSource,
       new TextEncoder().encode(payloadB64)
     );
     if (!valid) return null;
@@ -337,7 +337,9 @@ export async function handleAuthRequest(
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
-  const body = request.method === "GET" || request.method === "HEAD" ? {} : await request.json().catch(() => ({}));
+  const body = request.method === "GET" || request.method === "HEAD"
+    ? {}
+    : await request.json().catch(() => ({} as Record<string, any>)) as Record<string, any>;
 
   // GET /api/auth/me
   if (path === "/api/auth/me" && request.method === "GET") {

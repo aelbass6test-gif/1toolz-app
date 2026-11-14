@@ -388,7 +388,9 @@ export async function handleDbRequest(
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
-  const body = request.method === "GET" || request.method === "HEAD" ? {} : await request.json().catch(() => ({}));
+  const body = request.method === "GET" || request.method === "HEAD"
+    ? {}
+    : await request.json().catch(() => ({} as Record<string, any>)) as Record<string, any>;
 
   // 0. Health / Verification
   if (path === "/api/db/health") {

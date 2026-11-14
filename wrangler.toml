@@ -14,8 +14,15 @@ database_name = "abdomedi-otp"
 database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
 migrations_dir = "cloudflare-worker/migrations"
 
+[[r2_buckets]]
+binding = "R2_IMAGES"
+bucket_name = "abdomedi-product-images"
+
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
+APP_BACKEND_URL = "https://api.abdomedi.com"
+MEDIA_PUBLIC_ORIGIN = "https://abdomedi.com"
+MEDIA_REQUIRE_AUTH = "true"
 BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"
 BOSTA_STAGING_BASE_URL = "https://stg-app.bosta.co"
 META_VERIFY_TOKEN = "abdomedi_whatsapp_meta_token"
