@@ -7,11 +7,14 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { createServer } from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
-import { db, auth } from "./services/firebaseClient";
-import { doc, getDoc, setDoc, getDocs, collection, query, where, limit } from "firebase/firestore";
+import { getServerD1Database } from "./server/cfDatabaseAdapter";
+import type { D1LikeDatabase } from "./cloudflare-worker/src/d1Types";
+import { handleAuthRequest, hashPasswordPbkdf2 } from "./cloudflare-worker/src/auth";
+import { handleDbRequest, getStoreDataFromD1, saveStoreDataToD1 } from "./cloudflare-worker/src/dbApi";
+import { handleNativeWhatsAppWebhook } from "./cloudflare-worker/src/whatsappWebhook";
+import { registerServerStoreDataAdapter } from "./services/orderQuotaLedgerService";
 
 import { trimTrailingSlash } from "hono/trailing-slash";
 import { appendShippingTimeline, buildEventKey, getEventAt, mapBostaStatus, mapTurboStatus, shouldApplyShippingUpdate } from './utils/shippingStatus';
@@ -463,38 +466,73 @@ function hasChanged(existing: any, incoming: any): boolean {
     return false;
 }
 
-// Simple bounded in-memory cache for store settings to reduce Firestore read hits
+// Simple bounded in-memory cache for store settings
 const storeCache = new Map<string, { data: any, timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const MAX_STORE_CACHE_SIZE = 300;
 
-async function getCachedStore(db: any, storeId: string) {
+async function getCachedStore(d1: D1LikeDatabase, storeId: string) {
     const cached = storeCache.get(storeId);
     const now = Date.now();
     if (cached && (now - cached.timestamp < CACHE_TTL)) {
         return cached.data;
     }
-    
-    try {
-        const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
-        const { data: storeRow, error } = await supabase
-            .from('stores_data')
-            .select('settings')
-            .eq('id', storeId)
-            .single();
 
-        if (storeRow) {
-            const data = { id: storeId, settings: storeRow.settings };
+    try {
+        const data = await getStoreDataFromD1(d1, storeId);
+        if (data) {
+            if (storeCache.size >= MAX_STORE_CACHE_SIZE) {
+                const oldestKey = storeCache.keys().next().value;
+                if (oldestKey) storeCache.delete(oldestKey);
+            }
             storeCache.set(storeId, { data, timestamp: now });
             return data;
         }
     } catch (e) {
-        console.error(`[SUPABASE-CACHE] Error fetching store ${storeId}:`, e);
+        console.error(`[CF-D1-CACHE] Error fetching store ${storeId}:`, e);
     }
     return null;
 }
 
 async function startServer() {
+  // Initialize Cloudflare D1 adapter (Remote D1 HTTP API or local D1-compatible SQLite)
+  const cfD1 = getServerD1Database();
+
+  const cfJson = (_req: Request, _env: any, body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    });
+
+  // Wire atomic quota/settlement ledger service to Cloudflare D1
+  registerServerStoreDataAdapter({
+    getStoreData: (sId: string) => getStoreDataFromD1(cfD1, sId),
+    saveStoreData: async (sId: string, updatedData: any) => {
+      await saveStoreDataToD1(cfD1, sId, cleanUndefined(updatedData));
+      storeCache.delete(sId);
+      return true;
+    },
+    getIdempotency: async (key: string) => {
+      const row = await cfD1.prepare("SELECT result_json, expires_at FROM idempotency_records WHERE key = ?").bind(key).first<any>();
+      if (!row || (row.expires_at && Date.now() > Number(row.expires_at))) return null;
+      try {
+        return JSON.parse(row.result_json);
+      } catch {
+        return null;
+      }
+    },
+    saveIdempotency: async (key: string, result: any, expiresAt: number) => {
+      await cfD1
+        .prepare(
+          `INSERT INTO idempotency_records (key, result_json, timestamp, expires_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET result_json = excluded.result_json, timestamp = excluded.timestamp, expires_at = excluded.expires_at`
+        )
+        .bind(key, JSON.stringify(result), Date.now(), expiresAt)
+        .run();
+    }
+  });
+
   // Ensure MySQL tables are created if configured
   await ensureMysqlTables();
 
@@ -512,6 +550,20 @@ async function startServer() {
   });
 
   app.use("/*", cors());
+
+  // --- CLOUDFLARE D1 AUTH & DATABASE API PARITY ROUTES ---
+  app.all("/api/auth/*", async (c) => {
+    return handleAuthRequest(c.req.raw, process.env as any, cfD1, cfJson);
+  });
+
+  app.all("/api/db/*", async (c) => {
+    const res = await handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
+    if (c.req.method === "PUT" || c.req.method === "POST" || c.req.method === "DELETE") {
+      const m = c.req.path.match(/^\/api\/db\/stores\/([^/]+)/);
+      if (m?.[1]) storeCache.delete(decodeURIComponent(m[1]));
+    }
+    return res;
+  });
 
   // --- MEDIA UPLOAD & DELETE PROXY (Cloudflare R2 / app.abdomedi.com) ---
   app.post("/api/media/product-images", async (c) => {
@@ -573,7 +625,7 @@ async function startServer() {
     }
   });
 
-  // --- SHARED REPORTS IN-MEMORY & CLOUD CACHE ---
+  // --- SHARED REPORTS IN-MEMORY & CLOUDFLARE D1 CACHE ---
   const sharedReportsCache = new Map<string, { content: string; createdAt: number }>();
 
   app.post("/api/shared-reports", async (c) => {
@@ -582,22 +634,16 @@ async function startServer() {
       if (!id || !content) {
         return c.json({ error: "Missing id or content" }, 400);
       }
-      // Save to memory cache
       sharedReportsCache.set(id, { content, createdAt: Date.now() });
 
-      // Save to Firestore
-      try {
-        if (db) {
-          const reportRef = doc(db, 'shared_reports', id);
-          await setDoc(reportRef, {
-            id,
-            content,
-            createdAt: new Date().toISOString()
-          }, { merge: true });
-        }
-      } catch (fbErr) {
-        console.warn("[Server] Firestore shared report write fallback:", fbErr);
-      }
+      await cfD1
+        .prepare(
+          `INSERT INTO shared_reports (id, content, created_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET content = excluded.content`
+        )
+        .bind(String(id), String(content), new Date().toISOString())
+        .run();
 
       return c.json({ success: true, id });
     } catch (err: any) {
@@ -613,27 +659,15 @@ async function startServer() {
         return c.json({ error: "Report ID required" }, 400);
       }
 
-      // 1. Check in-memory cache
       const cached = sharedReportsCache.get(id);
       if (cached?.content) {
         return c.json({ content: cached.content });
       }
 
-      // 2. Check Firestore
-      if (db) {
-        try {
-          const reportRef = doc(db, 'shared_reports', id);
-          const snap = await getDoc(reportRef);
-          if (snap.exists()) {
-            const data = snap.data();
-            if (data?.content) {
-              sharedReportsCache.set(id, { content: data.content, createdAt: Date.now() });
-              return c.json({ content: data.content });
-            }
-          }
-        } catch (fbErr) {
-          console.warn("[Server] Firestore shared report read fallback:", fbErr);
-        }
+      const row = await cfD1.prepare("SELECT content FROM shared_reports WHERE id = ?").bind(id).first<any>();
+      if (row?.content) {
+        sharedReportsCache.set(id, { content: row.content, createdAt: Date.now() });
+        return c.json({ content: row.content });
       }
 
       return c.json({ error: "Report not found" }, 404);
@@ -825,7 +859,7 @@ async function startServer() {
     }
   });
 
-  // Supabase Client is initialized where needed or as a global if requested
+  // --- CLOUDFLARE D1 DATABASE IS PRIMARY ---
   // --- API ROUTES ---
   
   app.post("/api/gemini", async (c) => {
@@ -880,15 +914,18 @@ async function startServer() {
       const userName = (body.userName || "العميل العزيز").trim();
       const storeName = (body.storeName || "").trim();
 
-      // If no direct email was provided in request, attempt to resolve from database by phone
+      // If no direct email was provided in request, attempt to resolve from Cloudflare D1 by phone
       if (!email && phone) {
         try {
-          const userDoc = await getDoc(doc(db, "users", phone));
-          if (userDoc.exists() && userDoc.data()?.email) {
-            email = userDoc.data().email.trim().toLowerCase();
+          const uRow = await cfD1.prepare("SELECT email FROM users WHERE phone = ?").bind(phone).first<any>();
+          if (uRow?.email) {
+            email = String(uRow.email).trim().toLowerCase();
+          } else {
+            const empRow = await cfD1.prepare("SELECT email FROM employees WHERE phone = ? OR id = ? LIMIT 1").bind(phone, phone).first<any>();
+            if (empRow?.email) email = String(empRow.email).trim().toLowerCase();
           }
         } catch (dbErr) {
-          console.warn("[AUTH-OTP] Could not fetch email from DB for phone:", phone, dbErr);
+          console.warn("[AUTH-OTP] Could not fetch email from D1 for phone:", phone, dbErr);
         }
       }
 
@@ -1137,40 +1174,41 @@ async function startServer() {
       const seenStoreIds = new Set<string>();
       let matchedUserName = 'العميل العزيز';
 
-      // 1. Search in Firestore users collection (Owner Accounts)
+      // 1. Search in Cloudflare D1 users table (Owner Accounts)
       try {
-        const usersCol = collection(db, "users");
-        const userSnap = await getDocs(usersCol);
-        for (const uDoc of userSnap.docs) {
-          const uData = uDoc.data();
-          const userEmail = (uData.email || "").trim().toLowerCase();
-          const userPhone = (uData.phone || uDoc.id || "").trim();
+        const usersRes = await cfD1.prepare("SELECT * FROM users").all<any>();
+        for (const uRow of usersRes.results || []) {
+          const userEmail = (uRow.email || "").trim().toLowerCase();
+          const userPhone = (uRow.phone || "").trim();
 
           const emailMatch = userEmail === rawEmail;
           const phoneMatch = phone && userPhone && (userPhone.replace(/\D/g, '') === phone.replace(/\D/g, ''));
 
           if (emailMatch || phoneMatch) {
-            if (uData.fullName && matchedUserName === 'العميل العزيز') {
-              matchedUserName = uData.fullName;
+            if (uRow.full_name && matchedUserName === 'العميل العزيز') {
+              matchedUserName = uRow.full_name;
             }
-            // All stores in uData.stores are owned stores
-            if (Array.isArray(uData.stores)) {
-              for (const s of uData.stores) {
+            let storesList: any[] = [];
+            let ownedIds: string[] = [];
+            try { storesList = JSON.parse(uRow.stores_json || "[]"); } catch {}
+            try { ownedIds = JSON.parse(uRow.owned_store_ids_json || "[]"); } catch {}
+
+            if (Array.isArray(storesList)) {
+              for (const s of storesList) {
                 if (s && s.id && !seenStoreIds.has(s.id)) {
                   seenStoreIds.add(s.id);
                   matchedStores.push({
                     id: s.id,
                     name: s.name || `متجر ${s.id}`,
                     userType: 'owner',
-                    roleLabel: uData.isAdmin ? 'مسؤول النظام ومالك المتجر' : 'مالك المتجر (Store Owner)',
+                    roleLabel: Number(uRow.is_admin) ? 'مسؤول النظام ومالك المتجر' : 'مالك المتجر (Store Owner)',
                     details: 'مسجل كمالك معتمد في لوحة الإدارة'
                   });
                 }
               }
             }
-            // All stores in ownedStoreIds are owned stores
-            if (Array.isArray(uData.ownedStoreIds)) {
-              for (const sId of uData.ownedStoreIds) {
+            if (Array.isArray(ownedIds)) {
+              for (const sId of ownedIds) {
                 if (sId && !seenStoreIds.has(sId)) {
                   seenStoreIds.add(sId);
                   matchedStores.push({
@@ -1186,23 +1224,22 @@ async function startServer() {
           }
         }
       } catch (usersErr) {
-        console.warn("[RECOVER-STORE-CODE] Error querying users collection:", usersErr);
+        console.warn("[RECOVER-STORE-CODE] Error querying users table:", usersErr);
       }
 
-      // 2. Search in Firestore stores_data collection (Employee Accounts)
+      // 2. Search in Cloudflare D1 employees & stores_data (Employee Accounts)
       try {
-        const storesCol = collection(db, "stores_data");
-        const storesSnap = await getDocs(storesCol);
-        for (const sDoc of storesSnap.docs) {
-          const sData = sDoc.data();
-          const storeId = sDoc.id;
-          const storeName = sData.name || sData.settings?.storeName || storeId;
-          const employees = sData.settings?.employees || [];
-
+        const storesRes = await cfD1.prepare("SELECT id, name, settings_json FROM stores_data").all<any>();
+        const storeNameMap = new Map<string, string>();
+        for (const sRow of storesRes.results || []) {
+          let sSettings: any = {};
+          try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+          const sName = sRow.name || sSettings.storeName || sRow.id;
+          storeNameMap.set(sRow.id, sName);
+          const employees = sSettings.employees || [];
           for (const emp of employees) {
             const empEmail = (emp.email || "").trim().toLowerCase();
             const empPhone = (emp.phone || emp.id || "").trim();
-
             const emailMatch = empEmail === rawEmail;
             const phoneMatch = phone && empPhone && (empPhone.replace(/\D/g, '') === phone.replace(/\D/g, ''));
 
@@ -1210,13 +1247,11 @@ async function startServer() {
               if (emp.name && matchedUserName === 'العميل العزيز') {
                 matchedUserName = emp.name;
               }
-              // If not already recorded as owner of this store, record as employee
-              const existingIdx = matchedStores.findIndex(m => m.id === storeId);
-              if (existingIdx === -1) {
-                seenStoreIds.add(storeId);
+              if (!matchedStores.some(m => m.id === sRow.id)) {
+                seenStoreIds.add(sRow.id);
                 matchedStores.push({
-                  id: storeId,
-                  name: storeName,
+                  id: sRow.id,
+                  name: sName,
                   userType: 'employee',
                   roleLabel: emp.role ? `موظف (${emp.role})` : 'موظف معتمد في المتجر',
                   details: `طاقم العمل والعمليات - حالة الحساب: ${emp.status === 'active' ? 'نشط' : (emp.status || 'معتمد')}`
@@ -1225,8 +1260,31 @@ async function startServer() {
             }
           }
         }
+
+        const empRes = await cfD1.prepare("SELECT store_id, phone, email, name, status, data_json FROM employees").all<any>();
+        for (const empRow of empRes.results || []) {
+          const empEmail = (empRow.email || "").trim().toLowerCase();
+          const empPhone = (empRow.phone || "").trim();
+          const emailMatch = empEmail === rawEmail;
+          const phoneMatch = phone && empPhone && (empPhone.replace(/\D/g, '') === phone.replace(/\D/g, ''));
+          if (emailMatch || phoneMatch) {
+            if (empRow.name && matchedUserName === 'العميل العزيز') matchedUserName = empRow.name;
+            if (!matchedStores.some(m => m.id === empRow.store_id)) {
+              let empObj: any = {};
+              try { empObj = JSON.parse(empRow.data_json || "{}"); } catch {}
+              seenStoreIds.add(empRow.store_id);
+              matchedStores.push({
+                id: empRow.store_id,
+                name: storeNameMap.get(empRow.store_id) || empRow.store_id,
+                userType: 'employee',
+                roleLabel: empObj.role ? `موظف (${empObj.role})` : 'موظف معتمد في المتجر',
+                details: `طاقم العمل والعمليات - حالة الحساب: ${empRow.status === 'active' ? 'نشط' : (empRow.status || 'معتمد')}`
+              });
+            }
+          }
+        }
       } catch (storesErr) {
-        console.warn("[RECOVER-STORE-CODE] Error querying stores_data collection:", storesErr);
+        console.warn("[RECOVER-STORE-CODE] Error querying employees/stores_data:", storesErr);
       }
 
       // 3. Fallback: if no store record was found at all
@@ -1322,12 +1380,12 @@ async function startServer() {
       let matchedEmail = "";
       let matchedStoreId = requestedStoreId;
 
-      // 1. Search in stores_data collection
+      // 1. Search in Cloudflare D1 employees & stores_data
       try {
         if (requestedStoreId) {
-          const storeDocSnap = await getDoc(doc(db, "stores_data", requestedStoreId)).catch(() => null);
-          if (storeDocSnap && storeDocSnap.exists()) {
-            const employees = storeDocSnap.data()?.settings?.employees || [];
+          const storeData = await getStoreDataFromD1(cfD1, requestedStoreId);
+          if (storeData) {
+            const employees = storeData.settings?.employees || [];
             const emp = employees.find((e: any) => {
               const eEmail = (e.email || "").trim().toLowerCase();
               const ePhone = (e.phone || e.id || "").trim();
@@ -1342,48 +1400,61 @@ async function startServer() {
           }
         }
 
-        // If not found yet, scan across all stores
         if (!matchedPhone && !matchedEmail) {
-          const storesSnap = await getDocs(collection(db, "stores_data")).catch(() => null);
-          if (storesSnap) {
-            for (const sDoc of storesSnap.docs) {
-              const employees = sDoc.data()?.settings?.employees || [];
-              const emp = employees.find((e: any) => {
-                const eEmail = (e.email || "").trim().toLowerCase();
-                const ePhone = (e.phone || e.id || "").trim();
-                const ePhoneDigits = ePhone.replace(/\D/g, "");
-                return eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input;
-              });
-              if (emp) {
-                matchedEmployeeName = emp.name || matchedEmployeeName;
-                matchedPhone = emp.phone || emp.id || "";
-                matchedEmail = (emp.email || "").trim().toLowerCase();
-                matchedStoreId = sDoc.id;
-                break;
-              }
+          const empRows = await cfD1.prepare("SELECT store_id, id, phone, email, name FROM employees").all<any>();
+          for (const emp of empRows.results || []) {
+            const eEmail = (emp.email || "").trim().toLowerCase();
+            const ePhone = (emp.phone || emp.id || "").trim();
+            const ePhoneDigits = ePhone.replace(/\D/g, "");
+            if (eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input) {
+              matchedEmployeeName = emp.name || matchedEmployeeName;
+              matchedPhone = emp.phone || emp.id || "";
+              matchedEmail = eEmail;
+              matchedStoreId = emp.store_id;
+              break;
+            }
+          }
+        }
+
+        if (!matchedPhone && !matchedEmail) {
+          const allStores = await cfD1.prepare("SELECT id, settings_json FROM stores_data").all<any>();
+          for (const sRow of allStores.results || []) {
+            let sSettings: any = {};
+            try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+            const emp = (sSettings.employees || []).find((e: any) => {
+              const eEmail = (e.email || "").trim().toLowerCase();
+              const ePhone = (e.phone || e.id || "").trim();
+              const ePhoneDigits = ePhone.replace(/\D/g, "");
+              return eEmail === inputLower || (inputDigits && ePhoneDigits === inputDigits) || ePhone === input;
+            });
+            if (emp) {
+              matchedEmployeeName = emp.name || matchedEmployeeName;
+              matchedPhone = emp.phone || emp.id || "";
+              matchedEmail = (emp.email || "").trim().toLowerCase();
+              matchedStoreId = sRow.id;
+              break;
             }
           }
         }
       } catch (storeErr) {
-        console.warn("[EMP-RESET] Error querying stores_data:", storeErr);
+        console.warn("[EMP-RESET] Error querying employees/stores_data:", storeErr);
       }
 
-      // 2. Also check users collection in Firestore
+      // 2. Also check Cloudflare D1 users table
       try {
         if (!matchedEmail || !matchedEmail.includes("@") || matchedEmail.includes("mystore-auth.app")) {
           const phoneKey = matchedPhone || inputDigits || input;
           if (phoneKey) {
-            const userSnap = await getDoc(doc(db, "users", phoneKey)).catch(() => null);
-            if (userSnap && userSnap.exists()) {
-              const uData = userSnap.data();
-              if (uData.fullName && matchedEmployeeName === "الموظف العزيز") {
-                matchedEmployeeName = uData.fullName;
+            const uRow = await cfD1.prepare("SELECT * FROM users WHERE phone = ? OR email = ? LIMIT 1").bind(phoneKey, inputLower).first<any>();
+            if (uRow) {
+              if (uRow.full_name && matchedEmployeeName === "الموظف العزيز") {
+                matchedEmployeeName = uRow.full_name;
               }
-              if (uData.email && uData.email.includes("@") && !uData.email.includes("mystore-auth.app")) {
-                matchedEmail = uData.email.trim().toLowerCase();
+              if (uRow.email && uRow.email.includes("@") && !uRow.email.includes("mystore-auth.app")) {
+                matchedEmail = String(uRow.email).trim().toLowerCase();
               }
-              if (uData.phone && !matchedPhone) {
-                matchedPhone = uData.phone;
+              if (uRow.phone && !matchedPhone) {
+                matchedPhone = uRow.phone;
               }
             }
           }
@@ -1509,45 +1580,47 @@ async function startServer() {
         }, 400);
       }
 
-      // Update password in Firebase Authentication directly without storing password hashes in Firestore
+      // Update password directly in Cloudflare D1 (users & employees)
       const authPhone = record.phone || inputDigits || input;
-      const firebaseEmail = record.email || `${authPhone}@mystore-auth.app`;
-      const firebaseApiKey = "AIzaSyDe0wW1dG5lQph7u2SJoilpIjMRdm80hDo";
-
+      const nowIso = new Date().toISOString();
       try {
-        // Use Firebase Auth Identity Toolkit to update credentials
-        const updateRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${firebaseApiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: firebaseEmail,
-            password: newPassword,
-            returnSecureToken: false
-          })
-        });
-        const updateData = await updateRes.json().catch(() => ({}));
-        if (updateData?.error?.message?.includes("EMAIL_NOT_FOUND")) {
-          // If user account wasn't in Firebase Auth yet, provision in Firebase Auth
-          await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${firebaseApiKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: firebaseEmail,
-              password: newPassword,
-              returnSecureToken: false
-            })
-          });
+        const pwHash = await hashPasswordPbkdf2(newPassword);
+
+        await cfD1
+          .prepare(
+            `UPDATE employees SET password_hash = ?, updated_at = ? WHERE phone = ? OR id = ? OR lower(email) = lower(?)`
+          )
+          .bind(pwHash, nowIso, authPhone, authPhone, record.email || "")
+          .run();
+
+        const existingUser = await cfD1.prepare("SELECT phone FROM users WHERE phone = ?").bind(authPhone).first<any>();
+        if (existingUser) {
+          await cfD1
+            .prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE phone = ?")
+            .bind(pwHash, nowIso, authPhone)
+            .run();
         }
 
-        // Update Firestore user record with metadata only (NO password stored in Firestore)
-        const userRef = doc(db, "users", authPhone);
-        await setDoc(userRef, {
-          lastPasswordReset: new Date().toISOString(),
-          authProvider: "firebase"
-        }, { merge: true });
-        console.log(`[EMP-RESET] Successfully updated credentials in Firebase Auth for user ${firebaseEmail}`);
+        if (record.storeId) {
+          const storeData = await getStoreDataFromD1(cfD1, record.storeId);
+          if (storeData && Array.isArray(storeData.settings?.employees)) {
+            const updatedEmps = storeData.settings.employees.map((e: any) => {
+              const ep = String(e.phone || e.id || "").trim();
+              const ee = String(e.email || "").trim().toLowerCase();
+              if (ep === authPhone || (record.email && ee === record.email.toLowerCase())) {
+                return { ...e, password: pwHash, updatedAt: nowIso };
+              }
+              return e;
+            });
+            storeData.settings.employees = updatedEmps;
+            await saveStoreDataToD1(cfD1, record.storeId, storeData);
+            storeCache.delete(record.storeId);
+          }
+        }
+
+        console.log(`[EMP-RESET] Successfully updated PBKDF2 password hash in Cloudflare D1 for ${authPhone}`);
       } catch (authErr) {
-        console.warn("[EMP-RESET] Error updating Firebase Auth credentials:", authErr);
+        console.warn("[EMP-RESET] Error updating Cloudflare D1 credentials:", authErr);
       }
 
       // Clean up reset store
@@ -1569,9 +1642,9 @@ async function startServer() {
 
   app.get("/api/smtp-config", async (c) => {
     try {
-      const docSnap = await getDoc(doc(db, "settings", "smtp")).catch(() => null);
-      if (docSnap && docSnap.exists()) {
-        const data = docSnap.data();
+      const row = await cfD1.prepare("SELECT value_json FROM app_settings WHERE key = 'smtp'").first<any>();
+      if (row?.value_json) {
+        const data = JSON.parse(row.value_json);
         return c.json({
           configured: !!(data.user || data.resendApiKey || data.brevoApiKey),
           provider: data.provider || 'smtp',
@@ -1611,9 +1684,18 @@ async function startServer() {
 
       updateMailConfigLocalCache(configData);
 
-      await setDoc(doc(db, "settings", "smtp"), configData, { merge: true }).catch((err) => {
-        console.warn("[SMTP-CONFIG] Firestore write fallback:", err?.message || err);
-      });
+      const existingRow = await cfD1.prepare("SELECT value_json FROM app_settings WHERE key = 'smtp'").first<any>();
+      const existingData = existingRow?.value_json ? JSON.parse(existingRow.value_json) : {};
+      const merged = { ...existingData, ...configData };
+
+      await cfD1
+        .prepare(
+          `INSERT INTO app_settings (key, value_json, updated_at) VALUES ('smtp', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
+        )
+        .bind(JSON.stringify(merged), new Date().toISOString())
+        .run();
+
       return c.json({ success: true, message: "تم حفظ إعدادات خادم البريد بنجاح!" });
     } catch (e: any) {
       console.error("[SMTP-CONFIG] Error saving SMTP config:", e);
@@ -1760,17 +1842,10 @@ async function startServer() {
     let matchingStoreData: any = null;
     let matchingKeyObj: any = null;
 
-    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
-
-    // 1. If explicit store ID provided, check it first
+    // 1. If explicit store ID provided, check it first in Cloudflare D1
     if (headerStoreId) {
       try {
-        const { data: sData, error } = await supabase
-          .from('stores_data')
-          .select('*')
-          .eq('id', headerStoreId)
-          .single();
-          
+        const sData = await getStoreDataFromD1(cfD1, headerStoreId);
         if (sData) {
           const keys = sData.settings?.storeApiKeys || [];
           const found = keys.find((k: any) => k.key === rawKey);
@@ -1785,23 +1860,20 @@ async function startServer() {
       }
     }
 
-    // 2. If not found yet, scan all stores_data
+    // 2. If not found yet, scan stores_data in Cloudflare D1
     if (!matchingKeyObj) {
       try {
-        const { data: allStores, error } = await supabase
-          .from('stores_data')
-          .select('*');
-
-        if (allStores) {
-          for (const sData of allStores) {
-            const keys = sData.settings?.storeApiKeys || [];
-            const found = keys.find((k: any) => k.key === rawKey);
-            if (found) {
-              matchingStoreId = sData.id;
-              matchingStoreData = sData;
-              matchingKeyObj = found;
-              break;
-            }
+        const storesRes = await cfD1.prepare("SELECT id, settings_json FROM stores_data").all<any>();
+        for (const sRow of storesRes.results || []) {
+          let sSettings: any = {};
+          try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+          const keys = sSettings?.storeApiKeys || [];
+          const found = keys.find((k: any) => k.key === rawKey);
+          if (found) {
+            matchingStoreId = sRow.id;
+            matchingStoreData = await getStoreDataFromD1(cfD1, sRow.id);
+            matchingKeyObj = found;
+            break;
           }
         }
       } catch (e) {
@@ -1853,7 +1925,7 @@ async function startServer() {
       }
     }
 
-    // Asynchronously bump lastUsedAt
+    // Asynchronously bump lastUsedAt in D1
     try {
       const updatedKeys = (matchingStoreData.settings?.storeApiKeys || []).map((k: any) => {
         if (k.id === matchingKeyObj.id) {
@@ -1861,8 +1933,8 @@ async function startServer() {
         }
         return k;
       });
-      const storeRef = doc(db, "stores_data", matchingStoreId!);
-      setDoc(storeRef, { settings: { storeApiKeys: updatedKeys } }, { merge: true }).catch(() => {});
+      matchingStoreData.settings.storeApiKeys = updatedKeys;
+      saveStoreDataToD1(cfD1, matchingStoreId!, matchingStoreData).catch(() => {});
     } catch (e) {}
 
     return {
@@ -1946,55 +2018,14 @@ async function startServer() {
     });
   });
 
-  // Helper adapter for atomic server-side StoreData operations against Firestore
-  const createFirestoreStoreDataAdapter = (targetStoreId: string) => ({
+  // Helper adapter for atomic server-side StoreData operations against Cloudflare D1
+  const createD1StoreDataAdapter = (_targetStoreId: string) => ({
     async getStoreData(sId: string) {
-      const storeSnap = await getDoc(doc(db, "stores_data", sId));
-      if (!storeSnap.exists()) return null;
-      const storeDocData = storeSnap.data() as any;
-      // Reconcile orders from top-level orders collection + stores_data.orders
-      let collectionOrders: any[] = [];
-      try {
-        const ordersSnap = await getDocs(query(collection(db, "orders"), where("store_id", "==", sId)));
-        collectionOrders = ordersSnap.docs.map(d => d.data());
-      } catch (e) {
-        console.warn("[API] Failed to read orders collection during atomic adapter load:", e);
-      }
-      const existingStoreOrders = Array.isArray(storeDocData.orders) ? storeDocData.orders : [];
-      const mergedMap = new Map<string, any>();
-      for (const o of existingStoreOrders) {
-        if (o && o.id) mergedMap.set(String(o.id), o);
-      }
-      for (const o of collectionOrders) {
-        if (!o || !o.id) continue;
-        const prev = mergedMap.get(String(o.id));
-        if (!prev) {
-          mergedMap.set(String(o.id), o);
-        } else {
-          const prevTime = Date.parse(prev.updatedAt || prev.date || "") || 0;
-          const nextTime = Date.parse(o.updatedAt || o.date || "") || 0;
-          if (nextTime >= prevTime) mergedMap.set(String(o.id), { ...prev, ...o });
-        }
-      }
-      return {
-        ...storeDocData,
-        orders: Array.from(mergedMap.values()),
-      };
+      return await getStoreDataFromD1(cfD1, sId);
     },
     async saveStoreData(sId: string, updatedData: any) {
-      const storeRef = doc(db, "stores_data", sId);
-      await setDoc(storeRef, cleanUndefined(updatedData), { merge: true });
-      // Also persist the newly created/updated orders in the top-level orders collection
-      if (Array.isArray(updatedData.orders) && updatedData.orders.length > 0) {
-        const newestOrder = updatedData.orders[0];
-        if (newestOrder && newestOrder.id) {
-          await setDoc(
-            doc(db, "orders", String(newestOrder.id)),
-            cleanUndefined({ ...newestOrder, store_id: sId, updatedAt: new Date().toISOString() }),
-            { merge: true }
-          );
-        }
-      }
+      await saveStoreDataToD1(cfD1, sId, cleanUndefined(updatedData));
+      storeCache.delete(sId);
       return true;
     },
   });
@@ -2019,7 +2050,7 @@ async function startServer() {
         body.id ||
         `api_order_${auth.storeId}_${body.customerPhone}_${body.totalPrice || body.total || 0}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 
-      const adapter = createFirestoreStoreDataAdapter(auth.storeId!);
+      const adapter = createD1StoreDataAdapter(auth.storeId!);
       const atomicRes = await createOrderAtomic(adapter, {
         storeId: auth.storeId!,
         actorId: `api_key:${auth.keyObj.id || auth.keyObj.name || "default"}`,
@@ -2112,7 +2143,6 @@ async function startServer() {
         return c.json({ error: "اسم المنتج وسعر البيع مطلوبان" }, 400);
       }
 
-      const storeRef = doc(db, "stores_data", auth.storeId!);
       const currentProducts = auth.storeData?.settings?.products || [];
 
       const newProduct = {
@@ -2129,9 +2159,9 @@ async function startServer() {
       };
 
       const updatedProducts = [newProduct, ...currentProducts];
-      await setDoc(storeRef, { 
-        settings: { products: cleanUndefined(updatedProducts) } 
-      }, { merge: true });
+      auth.storeData.settings = { ...(auth.storeData.settings || {}), products: cleanUndefined(updatedProducts) };
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2170,7 +2200,6 @@ async function startServer() {
         return c.json({ error: "اسم العميل ورقم الهاتف مطلوبان" }, 400);
       }
 
-      const storeRef = doc(db, "stores_data", auth.storeId!);
       const currentCustomers = auth.storeData?.customers || [];
 
       const newCustomer = {
@@ -2185,8 +2214,9 @@ async function startServer() {
         createdAt: new Date().toISOString()
       };
 
-      const updated = [newCustomer, ...currentCustomers];
-      await setDoc(storeRef, { customers: cleanUndefined(updated) }, { merge: true });
+      auth.storeData.customers = cleanUndefined([newCustomer, ...currentCustomers]);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2241,8 +2271,9 @@ async function startServer() {
       };
 
       currentOrders[orderIndex] = updatedOrder;
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+      auth.storeData.orders = cleanUndefined(currentOrders);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2490,8 +2521,9 @@ async function startServer() {
       };
 
       currentOrders[orderIndex] = updatedOrder;
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+      auth.storeData.orders = cleanUndefined(currentOrders);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2539,8 +2571,9 @@ async function startServer() {
       };
 
       currentOrders[orderIndex] = updatedOrder;
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+      auth.storeData.orders = cleanUndefined(currentOrders);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2590,8 +2623,9 @@ async function startServer() {
       };
 
       currentOrders[orderIndex] = updatedOrder;
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+      auth.storeData.orders = cleanUndefined(currentOrders);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       // Turbo Auto-Send Logic
       const turboConfig = auth.storeData?.settings?.turboConfig;
@@ -2600,17 +2634,19 @@ async function startServer() {
         createTurboShipmentInternal(updatedOrder, turboConfig)
           .then(async (result) => {
             console.log(`[TURBO-AUTO-SEND-SUCCESS] Order ${updatedOrder.id} -> ${result.waybillNumber}`);
-            // Update order with waybill number
-            const finalOrders = [...currentOrders];
-            const idx = finalOrders.findIndex(o => o.id === updatedOrder.id);
-            if (idx !== -1) {
-              finalOrders[idx] = { 
-                ...finalOrders[idx], 
-                waybillNumber: result.waybillNumber,
-                shipmentId: result.shipmentId,
-                notes: (finalOrders[idx].notes || "") + `\n[تلقائي] تم التصدير لتربو: ${result.waybillNumber}`
-              };
-              await setDoc(storeRef, { orders: cleanUndefined(finalOrders) }, { merge: true });
+            const latestStore = await getStoreDataFromD1(cfD1, auth.storeId!);
+            if (latestStore && Array.isArray(latestStore.orders)) {
+              const idx = latestStore.orders.findIndex((o: any) => o.id === updatedOrder.id);
+              if (idx !== -1) {
+                latestStore.orders[idx] = { 
+                  ...latestStore.orders[idx], 
+                  waybillNumber: result.waybillNumber,
+                  shipmentId: result.shipmentId,
+                  notes: (latestStore.orders[idx].notes || "") + `\n[تلقائي] تم التصدير لتربو: ${result.waybillNumber}`
+                };
+                await saveStoreDataToD1(cfD1, auth.storeId!, cleanUndefined(latestStore));
+                storeCache.delete(auth.storeId!);
+              }
             }
           })
           .catch(err => {
@@ -2659,8 +2695,10 @@ async function startServer() {
         return c.json({ error: `الطلب غير موجود لحذفه: [${id}]` }, 404);
       }
 
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(filtered) }, { merge: true });
+      auth.storeData.orders = cleanUndefined(filtered);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      await cfD1.prepare("DELETE FROM orders WHERE store_id = ? AND (id = ? OR order_number = ?)").bind(auth.storeId!, id, id).run();
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2727,8 +2765,9 @@ async function startServer() {
       };
 
       currentOrders[orderIndex] = updatedOrder;
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { orders: cleanUndefined(currentOrders) }, { merge: true });
+      auth.storeData.orders = cleanUndefined(currentOrders);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2802,8 +2841,9 @@ async function startServer() {
         lastAdjustedReason: reason || `تعديل عبر API (${auth.keyObj.name})`
       };
 
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { settings: { products: cleanUndefined(products) } }, { merge: true });
+      auth.storeData.settings = { ...(auth.storeData.settings || {}), products: cleanUndefined(products) };
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -2863,8 +2903,9 @@ async function startServer() {
       const currentLogs = auth.storeData?.messageLogs || [];
       const updatedLogs = [logEntry, ...currentLogs.slice(0, 100)];
 
-      const storeRef = doc(db, "stores_data", auth.storeId!);
-      await setDoc(storeRef, { messageLogs: cleanUndefined(updatedLogs) }, { merge: true });
+      auth.storeData.messageLogs = cleanUndefined(updatedLogs);
+      await saveStoreDataToD1(cfD1, auth.storeId!, auth.storeData);
+      storeCache.delete(auth.storeId!);
 
       return c.json({
         success: true,
@@ -3414,10 +3455,9 @@ async function startServer() {
       let targetStoreId: string = "";
 
       if (storeId) {
-        const docRef = doc(db, "stores_data", storeId);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          targetStoreDoc = snap.data();
+        const sData = await getStoreDataFromD1(cfD1, storeId);
+        if (sData) {
+          targetStoreDoc = sData;
           targetStoreId = storeId;
         }
       }
@@ -3425,40 +3465,36 @@ async function startServer() {
       // If storeId not provided, search by API Key if present
       if (!targetStoreDoc && authKey) {
         const cleanKey = authKey.replace(/^Bearer\s+/i, "").trim();
-        const storesCol = collection(db, "stores_data");
-        const allStores = await getDocs(storesCol);
-        for (const sDoc of allStores.docs) {
-          const sData = sDoc.data();
-          const apiKeys = sData.settings?.storeApiKeys || [];
+        const storesRes = await cfD1.prepare("SELECT id, settings_json FROM stores_data").all<any>();
+        for (const sRow of storesRes.results || []) {
+          let sSettings: any = {};
+          try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+          const apiKeys = sSettings?.storeApiKeys || [];
           if (apiKeys.some((k: any) => k.key === cleanKey)) {
-            targetStoreDoc = sData;
-            targetStoreId = sDoc.id;
+            targetStoreDoc = await getStoreDataFromD1(cfD1, sRow.id);
+            targetStoreId = sRow.id;
             break;
           }
         }
       }
 
-      // If still not identified, search across stores for the order number or phone
+      // If still not identified, search across D1 orders/stores for order number or phone
       if (!targetStoreDoc && (orderRef || rawPhone)) {
-        const storesCol = collection(db, "stores_data");
-        const allStores = await getDocs(storesCol);
-        for (const sDoc of allStores.docs) {
-          const sData = sDoc.data();
-          const orders = sData.orders || [];
-          const found = orders.some((o: any) => {
-            if (orderRef && (String(o.orderNumber) === String(orderRef) || o.id === String(orderRef))) {
-              return true;
-            }
-            if (rawPhone && (o.customerPhone === rawPhone || o.customerPhone?.replace(/\D/g, '').endsWith(rawPhone.replace(/\D/g, '').slice(-9)))) {
-              return true;
-            }
-            return false;
-          });
-          if (found) {
-            targetStoreDoc = sData;
-            targetStoreId = sDoc.id;
-            break;
+        const ordRes = await cfD1.prepare("SELECT store_id, id, order_number, customer_phone FROM orders ORDER BY updated_at DESC LIMIT 300").all<any>();
+        const foundRow = (ordRes.results || []).find((o: any) => {
+          if (orderRef && (String(o.order_number) === String(orderRef) || String(o.id) === String(orderRef))) {
+            return true;
           }
+          if (rawPhone && o.customer_phone) {
+            const p1 = String(o.customer_phone).replace(/\D/g, '');
+            const p2 = String(rawPhone).replace(/\D/g, '');
+            return p1 === p2 || p1.endsWith(p2.slice(-9));
+          }
+          return false;
+        });
+        if (foundRow?.store_id) {
+          targetStoreDoc = await getStoreDataFromD1(cfD1, foundRow.store_id);
+          targetStoreId = foundRow.store_id;
         }
       }
 
@@ -3555,9 +3591,10 @@ async function startServer() {
       updatedOrder.updatedAt = nowIso;
       orders[orderIndex] = updatedOrder;
 
-      // Save to Firestore
-      const storeRefDoc = doc(db, "stores_data", targetStoreId);
-      await setDoc(storeRefDoc, { orders: cleanUndefined(orders) }, { merge: true });
+      // Save to Cloudflare D1
+      targetStoreDoc.orders = cleanUndefined(orders);
+      await saveStoreDataToD1(cfD1, targetStoreId, targetStoreDoc);
+      storeCache.delete(targetStoreId);
 
       console.log(`[AKKED-CALLBACK] Order ${updatedOrder.orderNumber} successfully updated to status: ${updatedOrder.status}, action: ${appliedAction}`);
 
@@ -3751,11 +3788,9 @@ async function startServer() {
       let targets: any[] = subscriptions || [];
       if ((!targets || targets.length === 0) && storeId) {
         try {
-          const storeRef = doc(db, "stores_data", storeId);
-          const snap = await getDoc(storeRef);
-          if (snap.exists()) {
-            const storeSettings = snap.data()?.settings;
-            targets = storeSettings?.storeWebhooks || storeSettings?.webhookIntegrations || [];
+          const sData = await getStoreDataFromD1(cfD1, storeId);
+          if (sData?.settings) {
+            targets = sData.settings.storeWebhooks || sData.settings.webhookIntegrations || [];
           }
         } catch (dbErr) {
           console.error("[WEBHOOK-DISPATCH] Store lookup error:", dbErr);
@@ -3897,20 +3932,19 @@ async function startServer() {
 
   const updateStoreDomainSettings = async (storeId: string, updates: any) => {
       try {
-          const storeRef = doc(db, "stores_data", storeId);
-          const storeSnap = await getDoc(storeRef);
-          if (storeSnap.exists()) {
-              const data = storeSnap.data();
+          const data = await getStoreDataFromD1(cfD1, storeId);
+          if (data) {
               const newSettings = cleanUndefined({
                   ...(data.settings || {}),
                   ...updates
               });
-              await setDoc(storeRef, { settings: newSettings }, { merge: true });
-              storeCache.set(storeId, { data: { ...data, settings: newSettings }, timestamp: Date.now() });
+              const updatedStore = { ...data, settings: newSettings };
+              await saveStoreDataToD1(cfD1, storeId, updatedStore);
+              storeCache.set(storeId, { data: updatedStore, timestamp: Date.now() });
               return true;
           }
       } catch (e) {
-          console.error(`[DOMAIN-AUTOMATION] Firestore update error for ${storeId}:`, e);
+          console.error(`[DOMAIN-AUTOMATION] D1 update error for ${storeId}:`, e);
       }
       return false;
   };
@@ -4890,72 +4924,10 @@ async function startServer() {
     }
   };
 
-  // Supabase Client Manager & Sync Helper
-  const supabaseClientsMap = new Map<string, SupabaseClient>();
-
-  const getSupabaseClientInstance = (url?: string | null, key?: string | null): SupabaseClient | null => {
-    const targetUrl = (url || process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "").trim();
-    const targetKey = (key || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
-    if (!targetUrl || !targetKey || !targetUrl.startsWith("http")) return null;
-    const cacheKey = `${targetUrl}_${targetKey}`;
-    if (supabaseClientsMap.has(cacheKey)) {
-      return supabaseClientsMap.get(cacheKey)!;
-    }
-    try {
-      const client = createClient(targetUrl, targetKey);
-      supabaseClientsMap.set(cacheKey, client);
-      return client;
-    } catch (e) {
-      console.error("[SUPABASE-SERVER] Failed to create Supabase client:", e);
-      return null;
-    }
-  };
-
-  const getAllActiveSupabaseClients = async (): Promise<Array<{ client: SupabaseClient; storeId?: string }>> => {
-    const clients: Array<{ client: SupabaseClient; storeId?: string }> = [];
-    const seenKeys = new Set<string>();
-
-    // 1. Check environment variables
-    const envUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const envKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-    if (envUrl && envKey && envUrl.startsWith("http")) {
-      const defaultClient = getSupabaseClientInstance(envUrl, envKey);
-      if (defaultClient) {
-        seenKeys.add(`${envUrl}_${envKey}`);
-        clients.push({ client: defaultClient });
-      }
-    }
-
-    // 2. Check all stores in Firestore stores_data for custom Supabase credentials
-    try {
-      const storesSnap = await getDocs(collection(db, "stores_data"));
-      for (const storeDoc of storesSnap.docs) {
-        const sData = storeDoc.data();
-        const sSettings = sData.settings || {};
-        const sUrl = sSettings.supabaseUrl || sSettings.custom_cloud_url;
-        const sKey = sSettings.supabaseAnonKey || sSettings.custom_cloud_anon_key;
-        if (sUrl && sKey && typeof sUrl === "string" && sUrl.startsWith("http")) {
-          const cKey = `${sUrl}_${sKey}`;
-          if (!seenKeys.has(cKey)) {
-            seenKeys.add(cKey);
-            const cl = getSupabaseClientInstance(sUrl, sKey);
-            if (cl) {
-              clients.push({ client: cl, storeId: storeDoc.id });
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error("[SUPABASE-SERVER] Error checking stores for Supabase config:", e);
-    }
-
-    return clients;
-  };
-
   // Cache to prevent duplicate processing of the same message in polling
   const processedMessageIds = new Set<string>();
 
-  // Unified WhatsApp Customer Message & Action Processor
+  // Unified WhatsApp Customer Message & Action Processor (Cloudflare D1)
   const processCustomerWhatsAppAction = async ({
     phone,
     text,
@@ -5023,132 +4995,24 @@ async function startServer() {
 
     const candidates: Array<{ order: any; storeDocId: string; storeData: any; score: number; sourceDb?: string }> = [];
 
-    // --- Search 0: Search Supabase orders table across all active Supabase clients ---
+    // --- Search 1: Search Cloudflare D1 orders table ---
     try {
-      const sbClients = await getAllActiveSupabaseClients();
-      for (const { client: sbClient, storeId: sbStoreId } of sbClients) {
-        let sbOrders: any[] = [];
+      const allOrdersRes = await cfD1
+        .prepare("SELECT store_id, id, order_number, customer_phone, status, date, updated_at, data_json FROM orders ORDER BY updated_at DESC LIMIT 500")
+        .all<any>();
 
-        if (basePhone) {
-          for (const cand of phoneCandidates.slice(0, 10)) {
-            const { data: byPhone } = await sbClient
-              .from("orders")
-              .select("*")
-              .or(`customer_phone.eq.${cand},customerPhone.eq.${cand}`)
-              .limit(10);
-            if (byPhone && byPhone.length > 0) sbOrders.push(...byPhone);
-          }
-        }
+      for (const row of allOrdersRes.results || []) {
+        let ord: any = null;
+        try { ord = JSON.parse(row.data_json || "{}"); } catch { continue; }
+        const storeId = row.store_id || ord.storeId || ord.store_id || "default";
 
-        if (extractedOrderNumber) {
-          const { data: byNum } = await sbClient
-            .from("orders")
-            .select("*")
-            .or(`id.eq.${extractedOrderNumber},order_number.eq.${extractedOrderNumber},orderNumber.eq.${extractedOrderNumber}`)
-            .limit(5);
-          if (byNum && byNum.length > 0) sbOrders.push(...byNum);
-        }
-
-        for (const ord of sbOrders) {
-          const oPhone = (ord.customer_phone || ord.customerPhone || "").replace(/\D/g, "");
-          const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
-          const isNumMatch = extractedOrderNumber && (String(ord.order_number || ord.orderNumber) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
-
-          if (isPhoneMatch || isNumMatch) {
-            let score = 0;
-            if (isNumMatch) score += 1000;
-            if (isPhoneMatch) score += 100;
-
-            const ordStatus = ord.status || "";
-            const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'بالانتظار التأكيد', 'draft', 'pending'].includes(ordStatus);
-            if (isPending) score += 50;
-            if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
-            if (ordStatus !== 'ملغي' && ordStatus !== 'تم_التوصيل' && ordStatus !== 'تم_التحصيل') score += 20;
-
-            const orderDate = new Date(ord.date || ord.created_at || ord.createdAt || 0).getTime();
-            score += (orderDate / 1e13);
-
-            const sId = ord.store_id || ord.storeId || sbStoreId || 'default';
-            const alreadyIn = candidates.some(c => c.order.id === ord.id);
-            if (!alreadyIn) {
-              candidates.push({
-                order: {
-                  ...ord,
-                  id: ord.id,
-                  orderNumber: ord.order_number || ord.orderNumber,
-                  customerPhone: ord.customer_phone || ord.customerPhone,
-                  customerName: ord.customer_name || ord.customerName,
-                  customerAddress: ord.customer_address || ord.customerAddress,
-                  shippingCompany: ord.shipping_company || ord.shippingCompany,
-                  totalPrice: ord.total_price || ord.totalPrice,
-                  whatsappLogs: ord.whatsapp_logs || ord.whatsappLogs || (ord.details?.whatsappLogs) || [],
-                  auditLogs: ord.audit_logs || ord.auditLogs || (ord.details?.auditLogs) || []
-                },
-                storeDocId: sId,
-                storeData: null,
-                score: score + 15,
-                sourceDb: "supabase"
-              });
-            }
-          }
-        }
-      }
-    } catch (sbSearchErr) {
-      console.error("[SUPABASE-SEARCH] Error searching Supabase orders:", sbSearchErr);
-    }
-
-    // --- Search 1: Search standalone Firestore orders collection ---
-    try {
-      const ordersRef = collection(db, "orders");
-      let matchedDocs: any[] = [];
-      
-      if (basePhone) {
-        const qPhone = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
-        const qSnap = await getDocs(qPhone);
-        matchedDocs.push(...qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
-      }
-      
-      if (basePhone) {
-        const qPhoneSnake = query(ordersRef, where("customer_phone", "in", phoneCandidates.slice(0, 10)));
-        const qSnap = await getDocs(qPhoneSnake);
-        matchedDocs.push(...qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
-      }
-
-      if (extractedOrderNumber) {
-        const qNum1 = query(ordersRef, where("orderNumber", "==", extractedOrderNumber));
-        const qSnap1 = await getDocs(qNum1);
-        matchedDocs.push(...qSnap1.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
-
-        const qNum2 = query(ordersRef, where("order_number", "==", extractedOrderNumber));
-        const qSnap2 = await getDocs(qNum2);
-        matchedDocs.push(...qSnap2.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
-        
-        const qNum3 = query(ordersRef, where("orderNumber", "==", Number(extractedOrderNumber)));
-        const qSnap3 = await getDocs(qNum3);
-        matchedDocs.push(...qSnap3.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
-
-        const qNum4 = query(ordersRef, where("order_number", "==", Number(extractedOrderNumber)));
-        const qSnap4 = await getDocs(qNum4);
-        matchedDocs.push(...qSnap4.docs.map(doc => ({ id: doc.id, ...doc.data() as any })));
-      }
-
-      // Deduplicate matchedDocs by doc ID
-      const uniqueDocsMap = new Map();
-      for (const d of matchedDocs) {
-        uniqueDocsMap.set(d.id, d);
-      }
-      const uniqueMatchedDocs = Array.from(uniqueDocsMap.values());
-
-      const storesSnap = await getDocs(collection(db, "stores_data"));
-      const storesMap = new Map(storesSnap.docs.map(doc => [doc.id, doc.data()]));
-
-      for (const ord of uniqueMatchedDocs) {
-        const storeId = ord.storeId || ord.store_id;
-        const storeData = storeId ? storesMap.get(storeId) : null;
-
-        const oPhone = (ord.customerPhone || ord.customer_phone || "").replace(/\D/g, "");
+        const oPhone = String(ord.customerPhone || ord.customer_phone || row.customer_phone || "").replace(/\D/g, "");
         const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
-        const isNumMatch = extractedOrderNumber && (String(ord.orderNumber || ord.order_number) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
+        const isNumMatch = extractedOrderNumber && (
+          String(ord.orderNumber || ord.order_number || row.order_number) === String(extractedOrderNumber) ||
+          String(ord.id || row.id) === String(extractedOrderNumber) ||
+          String(ord.id || row.id).includes(String(extractedOrderNumber))
+        );
 
         if (isPhoneMatch || isNumMatch) {
           let score = 0;
@@ -5157,128 +5021,48 @@ async function startServer() {
 
           const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'بالانتظار التأكيد', 'draft', 'pending'].includes(ord.status);
           if (isPending) score += 50;
-          if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
+          if (ord.notes && String(ord.notes).includes('[واتساب]')) score += 30;
           if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
 
-          const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
+          const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || row.updated_at || 0).getTime();
           score += (orderDate / 1e13);
 
-          const alreadyIn = candidates.some(c => c.order.id === ord.id);
+          const alreadyIn = candidates.some(c => c.order.id === (ord.id || row.id));
           if (!alreadyIn) {
             candidates.push({
-              order: ord,
-              storeDocId: storeId || "default",
-              storeData: storeData,
+              order: { ...ord, id: ord.id || row.id, storeId },
+              storeDocId: storeId,
+              storeData: null,
               score,
-              sourceDb: "firestore"
+              sourceDb: "cloudflare_d1"
             });
           }
         }
       }
     } catch (err) {
-      console.error("Error searching standalone orders in processCustomerWhatsAppAction:", err);
-    }
-
-    // --- Search 2: Search stores_data documents (for legacy nested orders compatibility) ---
-    try {
-      const storesSnap = await getDocs(collection(db, "stores_data"));
-      for (const storeDoc of storesSnap.docs) {
-        const storeData = storeDoc.data();
-        const orders = storeData.orders || [];
-        for (const ord of orders) {
-          const oPhone = (ord.customerPhone || ord.customer_phone || "").replace(/\D/g, "");
-          const isPhoneMatch = basePhone && phoneCandidates.some(c => oPhone === c || oPhone.endsWith(basePhone) || basePhone.endsWith(oPhone));
-          const isNumMatch = extractedOrderNumber && (String(ord.orderNumber || ord.order_number) === String(extractedOrderNumber) || String(ord.id) === String(extractedOrderNumber) || String(ord.id).includes(String(extractedOrderNumber)));
-
-          if (isPhoneMatch || isNumMatch) {
-            let score = 0;
-            if (isNumMatch) score += 1000;
-            if (isPhoneMatch) score += 100;
-
-            const isPending = ['في_انتظار_المكالمة', 'جاري_المراجعة', 'جديد', 'معلق', 'مؤجل', 'بانتظار_التأكيد', 'بالانتظار التأكيد', 'draft', 'pending'].includes(ord.status);
-            if (isPending) score += 50;
-            if (ord.notes && ord.notes.includes('[واتساب]')) score += 30;
-            if (ord.status !== 'ملغي' && ord.status !== 'تم_التوصيل' && ord.status !== 'تم_التحصيل') score += 20;
-
-            const orderDate = new Date(ord.date || ord.createdAt || ord.updatedAt || 0).getTime();
-            score += (orderDate / 1e13);
-
-            const ordId = ord.id;
-            const alreadyExists = candidates.some(c => c.order.id === ordId && c.storeDocId === storeDoc.id);
-            if (!alreadyExists) {
-              candidates.push({
-                order: ord,
-                storeDocId: storeDoc.id,
-                storeData: storeData,
-                score,
-                sourceDb: "stores_data"
-              });
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Error searching legacy stores_data in processCustomerWhatsAppAction:", err);
+      console.error("[D1-WHATSAPP-SEARCH] Error searching orders table:", err);
     }
 
     if (candidates.length > 0) {
       candidates.sort((a, b) => b.score - a.score);
       matchedOrder = candidates[0].order;
       matchedStoreDocId = candidates[0].storeDocId;
-      matchedStoreData = candidates[0].storeData;
-    }
-
-    // Fallback to direct get if provided explicitly
-    if (!matchedOrder && (orderId || basePhone)) {
-      try {
-        if (orderId) {
-          const ordSnap = await getDoc(doc(db, "orders", orderId));
-          if (ordSnap.exists()) {
-            matchedOrder = { id: ordSnap.id, ...ordSnap.data() as any };
-            const sId = matchedOrder.storeId || matchedOrder.store_id;
-            if (sId) {
-              matchedStoreDocId = sId;
-              const sSnap = await getDoc(doc(db, "stores_data", sId));
-              if (sSnap.exists()) {
-                matchedStoreData = sSnap.data();
-              }
-            }
-          }
-        }
-        if (!matchedOrder && basePhone) {
-          const ordersRef = collection(db, "orders");
-          const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
-          const qSnap = await getDocs(q);
-          if (!qSnap.empty) {
-            const orderDocs = qSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-            orderDocs.sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
-            matchedOrder = orderDocs[0];
-            const sId = matchedOrder.storeId || matchedOrder.store_id;
-            if (sId) {
-              matchedStoreDocId = sId;
-              const sSnap = await getDoc(doc(db, "stores_data", sId));
-              if (sSnap.exists()) {
-                matchedStoreData = sSnap.data();
-              }
-            }
-          }
-        }
-      } catch (_) {}
+      matchedStoreData = await getStoreDataFromD1(cfD1, matchedStoreDocId);
     }
 
     // If customer contacted without an existing order (e.g. from Facebook / Meta Ads Click-to-WhatsApp),
-    // automatically capture their lead and message so the merchant sees it instantly in both Supabase & Firestore!
+    // automatically capture their lead and message so the merchant sees it instantly in Cloudflare D1!
     if (!matchedOrder) {
       console.log(`[WHATSAPP-PROCESSOR] Creating new ad lead/inquiry for customer with phone: ${phone}, text: "${text}"`);
       
-      let targetStoreId = matchedStoreDocId || "default";
+      let targetStoreId = matchedStoreDocId || "main_store";
       if (!matchedStoreDocId) {
         try {
-          const storesSnap = await getDocs(collection(db, "stores_data"));
-          if (!storesSnap.empty) {
-            targetStoreId = storesSnap.docs[0].id;
+          const firstStore = await cfD1.prepare("SELECT id FROM stores_data LIMIT 1").first<any>();
+          if (firstStore?.id) {
+            targetStoreId = firstStore.id;
             matchedStoreDocId = targetStoreId;
-            matchedStoreData = storesSnap.docs[0].data();
+            matchedStoreData = await getStoreDataFromD1(cfD1, targetStoreId);
           }
         } catch (_) {}
       }
@@ -5314,6 +5098,7 @@ async function startServer() {
         actionTaken: referral ? `استفسار جديد من إعلان ممول (ID: ${referral.source_id})` : 'استفسار جديد من إعلان واتساب'
       };
 
+      const nowIso = new Date().toISOString();
       const newLeadOrder = {
         id: newOrderId,
         storeId: targetStoreId,
@@ -5328,7 +5113,7 @@ async function startServer() {
         customer_address: "",
         governorate: "القاهرة",
         status: "جديد",
-        date: new Date().toISOString(),
+        date: nowIso,
         total: 0,
         totalPrice: 0,
         total_price: 0,
@@ -5341,47 +5126,60 @@ async function startServer() {
         auditLogs: [
           {
             id: Math.random().toString(36).substr(2, 9),
-            timestamp: new Date().toISOString(),
+            timestamp: nowIso,
             action: "استقبال رسالة واتساب من عميل جديد",
             details: `العميل أرسل: "${text}" عبر إعلان واتساب.` + (adDetails ? ` ${adDetails}` : ""),
             userEmail: "WhatsApp Bot"
           }
         ],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        createdAt: nowIso,
+        updatedAt: nowIso
       };
 
-      // 1. Save to Supabase
-      try {
-        const sbClients = await getAllActiveSupabaseClients();
-        for (const { client: sbClient } of sbClients) {
-          try {
-            await sbClient.from("orders").insert(newLeadOrder);
-          } catch (sbErr) {
-            console.error("[SUPABASE-INSERT-LEAD-ERR]", sbErr);
-          }
-        }
-      } catch (sbLeadErr) {
-        console.error("[SUPABASE-LEAD-EXCEPTION]", sbLeadErr);
-      }
-
-      // 2. Save to standalone Firestore orders collection
-      await setDoc(doc(db, "orders", newOrderId), newLeadOrder, { merge: true }).catch(err => {
-        console.error("[WHATSAPP-PROCESSOR] Error creating new lead in orders:", err);
-      });
-
-      // 3. Also save to stores_data
+      // Save to Cloudflare D1 orders & stores_data
       if (matchedStoreDocId && matchedStoreData) {
         const existingOrders = matchedStoreData.orders || [];
-        await setDoc(doc(db, "stores_data", matchedStoreDocId), {
-          ...matchedStoreData,
-          orders: [newLeadOrder, ...existingOrders],
-          lastUpdated: new Date().toISOString()
-        }, { merge: true }).catch(err => {
-          console.error("[WHATSAPP-PROCESSOR] Error adding lead to stores_data:", err);
+        matchedStoreData.orders = [newLeadOrder, ...existingOrders];
+        await saveStoreDataToD1(cfD1, matchedStoreDocId, cleanUndefined(matchedStoreData)).catch(err => {
+          console.error("[WHATSAPP-PROCESSOR] Error saving lead to D1 stores_data:", err);
         });
         storeCache.delete(matchedStoreDocId);
+      } else {
+        await cfD1
+          .prepare(
+            `INSERT INTO orders (store_id, id, order_number, customer_name, customer_phone, status, date, total_price, updated_at, version, data_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 1, ?)`
+          )
+          .bind(targetStoreId, newOrderId, orderNumber, displayName, phone || "", "جديد", nowIso, nowIso, JSON.stringify(cleanUndefined(newLeadOrder)))
+          .run()
+          .catch(() => {});
       }
+
+      // Log into whatsapp_conversations & whatsapp_messages
+      const convId = `waconv_${targetStoreId}_${newOrderId}`;
+      await cfD1
+        .prepare(
+          `INSERT INTO whatsapp_conversations (id, store_id, order_id, customer_phone, last_message_at, status, updated_at, data_json)
+           VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`
+        )
+        .bind(convId, targetStoreId, newOrderId, phone || "", nowIso, nowIso, JSON.stringify({
+          id: convId, store_id: targetStoreId, order_id: newOrderId, customer_phone: phone || "", customer_name: displayName,
+          last_message_preview: text.slice(0, 120), last_message_at: nowIso, last_message_direction: 'incoming'
+        }))
+        .run()
+        .catch(() => {});
+
+      await cfD1
+        .prepare(
+          `INSERT INTO whatsapp_messages (id, store_id, conversation_id, order_id, direction, body, occurred_at, data_json)
+           VALUES (?, ?, ?, ?, 'incoming', ?, ?, ?)`
+        )
+        .bind(initialIncomingLog.id, targetStoreId, convId, newOrderId, text, nowIso, JSON.stringify({
+          id: initialIncomingLog.id, store_id: targetStoreId, conversation_id: convId, order_id: newOrderId,
+          customer_phone: phone || "", provider: "meta_cloud", direction: "incoming", body: text, occurred_at: nowIso
+        }))
+        .run()
+        .catch(() => {});
 
       return {
         success: true,
@@ -5531,134 +5329,69 @@ async function startServer() {
     ];
 
     // ==========================================
-    // 0. Update in Supabase across all active clients
+    // 1. Update in Cloudflare D1 (stores_data + orders + whatsapp tables)
     // ==========================================
+    const nowUpdateIso = new Date().toISOString();
+    const sIdTarget = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId || "main_store";
+
     try {
-      const sbClients = await getAllActiveSupabaseClients();
-      for (const { client: sbClient } of sbClients) {
-        const supabaseUpdatePayload: any = {
-          status: updatedStatus,
-          customer_address: customerAddress,
-          customerAddress: customerAddress,
-          governorate: updatedGovernorate || matchedOrder.governorate,
-          notes: notes,
-          audit_logs: updatedAuditLogs,
-          auditLogs: updatedAuditLogs,
-          whatsapp_logs: updatedWhatsappLogs,
-          whatsappLogs: updatedWhatsappLogs,
-          updated_at: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-
-        const matchedId = matchedOrder.id;
-        const matchedNum = matchedOrder.orderNumber || matchedOrder.order_number;
-
-        if (matchedId) {
-          await sbClient.from("orders").update(supabaseUpdatePayload).eq("id", matchedId);
-        }
-        if (matchedNum) {
-          await sbClient.from("orders").update(supabaseUpdatePayload).or(`order_number.eq.${matchedNum},orderNumber.eq.${matchedNum}`);
-        }
-
-        // Also update in stores_data table if orders array exists
-        const sId = matchedStoreDocId || matchedOrder.store_id || matchedOrder.storeId;
-        if (sId) {
-          // --- Ensure whatsapp_messages is the primary source of truth ---
-          try {
-            let convId: string | null = null;
-            const { data: conv } = await sbClient.from("whatsapp_conversations").select("id").eq("order_id", matchedOrder.id).limit(1).maybeSingle();
-            if (conv?.id) {
-              convId = conv.id;
-            } else {
-              const { data: newConv } = await sbClient.from("whatsapp_conversations").insert({
-                store_id: sId,
-                order_id: matchedOrder.id,
-                customer_phone: phone || matchedOrder.customerPhone || matchedOrder.customer_phone || "",
-                customer_name: contactName || matchedOrder.customerName || matchedOrder.customer_name || "العميل",
-                last_message_preview: (replyMessage || text || "").slice(0, 120),
-                last_message_at: new Date().toISOString(),
-                last_message_direction: replyMessage ? 'outgoing' : 'incoming'
-              }).select("id").single();
-              convId = newConv?.id || null;
-            }
-
-            if (convId) {
-              await sbClient.from("whatsapp_messages").insert({
-                conversation_id: convId,
-                store_id: sId,
-                order_id: matchedOrder.id,
-                customer_phone: phone || matchedOrder.customerPhone || "",
-                provider: "meta_cloud",
-                provider_message_id: messageId || incomingMsgLog.id,
-                direction: "incoming",
-                message_type: "text",
-                body: text,
-                sender_name: contactName || matchedOrder.customerName || "العميل",
-                sender_phone: phone,
-                recipient_phone: "store",
-                status: "received",
-                occurred_at: incomingMsgLog.timestamp,
-                metadata: { source: source, action: actionName }
-              });
-
-              if (replyMessage && replyMsgLog) {
-                await sbClient.from("whatsapp_messages").insert({
-                  conversation_id: convId,
-                  store_id: sId,
-                  order_id: matchedOrder.id,
-                  customer_phone: phone || matchedOrder.customerPhone || "",
-                  provider: "meta_cloud",
-                  provider_message_id: replyMsgLog.id,
-                  direction: "outgoing",
-                  message_type: "text",
-                  body: replyMessage,
-                  sender_name: "المتجر (رد تلقائي)",
-                  recipient_phone: phone,
-                  status: "sent",
-                  occurred_at: replyMsgLog.timestamp,
-                  sent_at: replyMsgLog.timestamp,
-                  metadata: { source: "auto_reply", action: actionName }
-                });
-
-                await sbClient.from("whatsapp_conversations").update({
-                  last_message_preview: replyMessage.slice(0, 120),
-                  last_message_at: replyMsgLog.timestamp,
-                  last_message_direction: "outgoing"
-                }).eq("id", convId);
-              }
-            }
-          } catch (waMsgErr) {
-            console.error("[WHATSAPP-MESSAGES-PRIMARY-SOURCE-ERR]", waMsgErr);
-          }
-
-          const { data: sDoc } = await sbClient.from("stores_data").select("*").eq("id", sId).single();
-          if (sDoc && sDoc.orders && Array.isArray(sDoc.orders)) {
-            const updatedSbOrders = sDoc.orders.map((o: any) => {
-              if (o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber) {
-                return {
-                  ...o,
-                  status: updatedStatus,
-                  customerAddress: customerAddress || o.customerAddress,
-                  governorate: updatedGovernorate || o.governorate,
-                  notes: notes,
-                  auditLogs: updatedAuditLogs,
-                  whatsappLogs: updatedWhatsappLogs,
-                  updatedAt: new Date().toISOString()
-                };
-              }
-              return o;
-            });
-            await sbClient.from("stores_data").update({ orders: updatedSbOrders, updated_at: new Date().toISOString() }).eq("id", sId);
-          }
-        }
+      let convId = `waconv_${sIdTarget}_${matchedOrder.id}`;
+      const existingConv = await cfD1.prepare("SELECT id FROM whatsapp_conversations WHERE order_id = ? LIMIT 1").bind(matchedOrder.id).first<any>();
+      if (existingConv?.id) {
+        convId = existingConv.id;
+      } else {
+        await cfD1
+          .prepare(
+            `INSERT INTO whatsapp_conversations (id, store_id, order_id, customer_phone, last_message_at, status, updated_at, data_json)
+             VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`
+          )
+          .bind(convId, sIdTarget, matchedOrder.id, phone || matchedOrder.customerPhone || "", nowUpdateIso, nowUpdateIso, JSON.stringify({
+            id: convId, store_id: sIdTarget, order_id: matchedOrder.id,
+            customer_phone: phone || matchedOrder.customerPhone || "",
+            customer_name: contactName || matchedOrder.customerName || "العميل",
+            last_message_preview: (replyMessage || text || "").slice(0, 120),
+            last_message_at: nowUpdateIso,
+            last_message_direction: replyMessage ? 'outgoing' : 'incoming'
+          }))
+          .run()
+          .catch(() => {});
       }
-    } catch (sbUpdateErr) {
-      console.error("[SUPABASE-UPDATE-ERR] Error updating Supabase order:", sbUpdateErr);
+
+      await cfD1
+        .prepare(
+          `INSERT INTO whatsapp_messages (id, store_id, conversation_id, order_id, direction, body, occurred_at, data_json)
+           VALUES (?, ?, ?, ?, 'incoming', ?, ?, ?)`
+        )
+        .bind(incomingMsgLog.id, sIdTarget, convId, matchedOrder.id, text, incomingMsgLog.timestamp, JSON.stringify({
+          ...incomingMsgLog, conversation_id: convId, store_id: sIdTarget, order_id: matchedOrder.id,
+          provider: "meta_cloud", body: text, occurred_at: incomingMsgLog.timestamp
+        }))
+        .run()
+        .catch(() => {});
+
+      if (replyMessage && replyMsgLog) {
+        await cfD1
+          .prepare(
+            `INSERT INTO whatsapp_messages (id, store_id, conversation_id, order_id, direction, body, occurred_at, data_json)
+             VALUES (?, ?, ?, ?, 'outgoing', ?, ?, ?)`
+          )
+          .bind(replyMsgLog.id, sIdTarget, convId, matchedOrder.id, replyMessage, replyMsgLog.timestamp, JSON.stringify({
+            ...replyMsgLog, conversation_id: convId, store_id: sIdTarget, order_id: matchedOrder.id,
+            provider: "meta_cloud", body: replyMessage, occurred_at: replyMsgLog.timestamp
+          }))
+          .run()
+          .catch(() => {});
+
+        await cfD1
+          .prepare("UPDATE whatsapp_conversations SET last_message_at = ?, updated_at = ? WHERE id = ?")
+          .bind(replyMsgLog.timestamp, nowUpdateIso, convId)
+          .run()
+          .catch(() => {});
+      }
+    } catch (waMsgErr) {
+      console.error("[D1-WHATSAPP-MESSAGES-ERR]", waMsgErr);
     }
 
-    // ==========================================
-    // 1. Update in Firestore stores_data
-    // ==========================================
     if (matchedStoreDocId && matchedStoreData) {
       const orderList = matchedStoreData.orders || [];
       const updatedOrders = orderList.map((o: any) => {
@@ -5671,57 +5404,30 @@ async function startServer() {
             notes: notes,
             auditLogs: updatedAuditLogs,
             whatsappLogs: updatedWhatsappLogs,
-            updatedAt: new Date().toISOString()
+            updatedAt: nowUpdateIso
           };
         }
         return o;
       });
-
-      await setDoc(doc(db, "stores_data", matchedStoreDocId), {
-        ...matchedStoreData,
-        orders: updatedOrders,
-        lastUpdated: new Date().toISOString()
-      }, { merge: true });
-
+      matchedStoreData.orders = cleanUndefined(updatedOrders);
+      await saveStoreDataToD1(cfD1, matchedStoreDocId, matchedStoreData).catch(() => {});
       storeCache.delete(matchedStoreDocId);
-    }
-
-    // ==========================================
-    // 2. Update standalone Firestore orders collection
-    // ==========================================
-    try {
-      let cleanOrderId = matchedOrder.id;
-      if (matchedStoreDocId && cleanOrderId.startsWith(matchedStoreDocId + "_")) {
-        cleanOrderId = cleanOrderId.substring(matchedStoreDocId.length + 1);
-      } else if (matchedOrder.storeId && cleanOrderId.startsWith(matchedOrder.storeId + "_")) {
-        cleanOrderId = cleanOrderId.substring(matchedOrder.storeId.length + 1);
-      } else if (matchedOrder.store_id && cleanOrderId.startsWith(matchedOrder.store_id + "_")) {
-        cleanOrderId = cleanOrderId.substring(matchedOrder.store_id.length + 1);
-      }
-
-      const orderDocIds = Array.from(new Set([
-        matchedOrder.id,
-        cleanOrderId,
-        matchedStoreDocId ? `${matchedStoreDocId}_${cleanOrderId}` : null,
-        matchedOrder.storeId ? `${matchedOrder.storeId}_${cleanOrderId}` : null,
-        matchedOrder.store_id ? `${matchedOrder.store_id}_${cleanOrderId}` : null
-      ])).filter(Boolean) as string[];
-
-      for (const oDocId of orderDocIds) {
-        await setDoc(doc(db, "orders", oDocId), {
-          status: updatedStatus,
-          customerAddress,
-          governorate: updatedGovernorate || matchedOrder.governorate,
-          notes,
-          auditLogs: updatedAuditLogs,
-          whatsappLogs: updatedWhatsappLogs,
-          updatedAt: new Date().toISOString()
-        }, { merge: true }).catch((err) => {
-          console.error(`[WHATSAPP-PROCESSOR] Error updating standalone order doc ${oDocId}:`, err);
-        });
-      }
-    } catch (e: any) {
-      console.error("[WHATSAPP-PROCESSOR] Exception during standalone orders updates:", e);
+    } else {
+      const updatedOrderPayload = {
+        ...matchedOrder,
+        status: updatedStatus,
+        customerAddress: customerAddress || matchedOrder.customerAddress,
+        governorate: updatedGovernorate || matchedOrder.governorate,
+        notes,
+        auditLogs: updatedAuditLogs,
+        whatsappLogs: updatedWhatsappLogs,
+        updatedAt: nowUpdateIso
+      };
+      await cfD1
+        .prepare("UPDATE orders SET status = ?, updated_at = ?, version = version + 1, data_json = ? WHERE id = ?")
+        .bind(updatedStatus, nowUpdateIso, JSON.stringify(cleanUndefined(updatedOrderPayload)), matchedOrder.id)
+        .run()
+        .catch(() => {});
     }
 
     // AUTO-CREATE Bosta Delivery if Order is Confirmed and Shipping Company is Bosta
@@ -5741,7 +5447,7 @@ async function startServer() {
              method: "POST",
              headers: { 
                  "Content-Type": "application/json",
-                 "Origin": matchedStoreData.settings?.customAppDomain || process.env.APP_URL || "https://ais-dev-xcte2r3fyl5agkthujufx4-222930444647.europe-west1.run.app"
+                 "Origin": matchedStoreData.settings?.customAppDomain || process.env.APP_URL || "https://app.abdomedi.com"
              },
              body: JSON.stringify({
                  order: bostaOrderPayload,
@@ -5752,18 +5458,15 @@ async function startServer() {
              if (data.success && data.trackingNumber && matchedStoreDocId) {
                 const trackingNum = data.trackingNumber;
                 const deliveryId = data.deliveryId || trackingNum;
-                
-                const storeRef = doc(db, "stores_data", matchedStoreDocId);
-                const storeSnap = await getDoc(storeRef);
-                if (storeSnap.exists()) {
-                   const sData = storeSnap.data();
-                   const currentOrders = sData.orders || [];
-                   const idx = currentOrders.findIndex((o: any) => o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber);
+                const latestStore = await getStoreDataFromD1(cfD1, matchedStoreDocId);
+                if (latestStore && Array.isArray(latestStore.orders)) {
+                   const idx = latestStore.orders.findIndex((o: any) => o.id === matchedOrder.id || o.orderNumber === matchedOrder.orderNumber);
                    if (idx !== -1) {
-                      currentOrders[idx].waybillNumber = trackingNum;
-                      currentOrders[idx].bostaTrackingNumber = trackingNum;
-                      currentOrders[idx].bostaDeliveryId = deliveryId;
-                      await setDoc(storeRef, { orders: currentOrders }, { merge: true });
+                      latestStore.orders[idx].waybillNumber = trackingNum;
+                      latestStore.orders[idx].bostaTrackingNumber = trackingNum;
+                      latestStore.orders[idx].bostaDeliveryId = deliveryId;
+                      await saveStoreDataToD1(cfD1, matchedStoreDocId, cleanUndefined(latestStore));
+                      storeCache.delete(matchedStoreDocId);
                    }
                 }
              }
@@ -5784,18 +5487,19 @@ async function startServer() {
         let config: any = null;
 
         if (storeId) {
-          const storeRow = await getCachedStore(db, storeId);
+          const storeRow = await getCachedStore(cfD1, storeId);
           if (storeRow?.settings?.whatsappConfig) {
             config = storeRow.settings.whatsappConfig;
           }
         }
 
         if (!config) {
-          const storesSnap = await getDocs(collection(db, "stores_data"));
-          for (const sDoc of storesSnap.docs) {
-            const sData = sDoc.data() as any;
-            if (sData.settings?.whatsappConfig?.isActive) {
-              config = sData.settings.whatsappConfig;
+          const storesRes = await cfD1.prepare("SELECT settings_json FROM stores_data").all<any>();
+          for (const sRow of storesRes.results || []) {
+            let sSettings: any = {};
+            try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+            if (sSettings?.whatsappConfig?.isActive) {
+              config = sSettings.whatsappConfig;
               break;
             }
           }
@@ -5887,18 +5591,19 @@ async function startServer() {
       let config = body.config;
       const storeId = body.storeId;
       if (!config && storeId) {
-        const storeRow = await getCachedStore(db, storeId);
+        const storeRow = await getCachedStore(cfD1, storeId);
         if (storeRow?.settings?.whatsappConfig) {
           config = storeRow.settings.whatsappConfig;
         }
       }
 
       if (!config) {
-        const storesSnap = await getDocs(collection(db, "stores_data"));
-        for (const sDoc of storesSnap.docs) {
-          const sData = sDoc.data() as any;
-          if (sData.settings?.whatsappConfig?.isActive) {
-            config = sData.settings.whatsappConfig;
+        const storesRes = await cfD1.prepare("SELECT settings_json FROM stores_data").all<any>();
+        for (const sRow of storesRes.results || []) {
+          let sSettings: any = {};
+          try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+          if (sSettings?.whatsappConfig?.isActive) {
+            config = sSettings.whatsappConfig;
             break;
           }
         }
@@ -5944,18 +5649,19 @@ async function startServer() {
       const storeId = body.storeId;
 
       if (!config && storeId) {
-        const storeRow = await getCachedStore(db, storeId);
+        const storeRow = await getCachedStore(cfD1, storeId);
         if (storeRow?.settings?.whatsappConfig) {
           config = storeRow.settings.whatsappConfig;
         }
       }
 
       if (!config) {
-        const storesSnap = await getDocs(collection(db, "stores_data"));
-        for (const sDoc of storesSnap.docs) {
-          const sData = sDoc.data() as any;
-          if (sData.settings?.whatsappConfig?.isActive) {
-            config = sData.settings.whatsappConfig;
+        const storesRes = await cfD1.prepare("SELECT settings_json FROM stores_data").all<any>();
+        for (const sRow of storesRes.results || []) {
+          let sSettings: any = {};
+          try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+          if (sSettings?.whatsappConfig?.isActive) {
+            config = sSettings.whatsappConfig;
             break;
           }
         }
@@ -6035,12 +5741,13 @@ async function startServer() {
   // Background Auto-Sync Worker for WhatsApp replies (every 15 seconds)
   setInterval(async () => {
     try {
-      const storesSnap = await getDocs(collection(db, "stores_data"));
+      const storesRes = await cfD1.prepare("SELECT settings_json FROM stores_data").all<any>();
       let config: any = null;
-      for (const sDoc of storesSnap.docs) {
-        const sData = sDoc.data() as any;
-        if (sData.settings?.whatsappConfig?.isActive) {
-          config = sData.settings.whatsappConfig;
+      for (const sRow of storesRes.results || []) {
+        let sSettings: any = {};
+        try { sSettings = JSON.parse(sRow.settings_json || "{}"); } catch {}
+        if (sSettings?.whatsappConfig?.isActive) {
+          config = sSettings.whatsappConfig;
           break;
         }
       }
@@ -6199,87 +5906,47 @@ async function startServer() {
 
     if (!messageId || !recipientPhone) return;
 
-    // Search for the order(s) belonging to this phone number
     const cleanPhone = recipientPhone.replace(/\D/g, "");
     const basePhone = cleanPhone.startsWith("20") ? cleanPhone.substring(2) : (cleanPhone.startsWith("0") ? cleanPhone.substring(1) : cleanPhone);
     const phoneCandidates = [recipientPhone, cleanPhone, basePhone, "0" + basePhone, "20" + basePhone];
 
-    // 1. Update in Supabase
+    // Update in Cloudflare D1 orders & stores_data
     try {
-      const sbClients = await getAllActiveSupabaseClients();
-      for (const { client: sbClient } of sbClients) {
-        for (const p of phoneCandidates) {
-          const { data: ords } = await sbClient.from("orders").select("*").or(`customer_phone.eq.${p},customerPhone.eq.${p}`).limit(10);
-          if (ords && ords.length > 0) {
-            for (const ord of ords) {
-              const logs = ord.whatsapp_logs || ord.whatsappLogs || (ord.details?.whatsappLogs) || [];
-              let changed = false;
-              const updatedLogs = logs.map((log: any) => {
-                if (log.id === messageId) {
-                  changed = true;
-                  return { ...log, status: status === 'read' ? 'read' : (status === 'delivered' ? 'delivered' : status) };
-                }
-                return log;
-              });
-              if (changed) {
-                await sbClient.from("orders").update({
-                  whatsapp_logs: updatedLogs,
-                  whatsappLogs: updatedLogs,
-                  updated_at: new Date().toISOString(),
-                  updatedAt: new Date().toISOString()
-                }).eq("id", ord.id);
-              }
-            }
+      const ordRes = await cfD1
+        .prepare("SELECT store_id, id, customer_phone, data_json FROM orders ORDER BY updated_at DESC LIMIT 300")
+        .all<any>();
+
+      for (const row of ordRes.results || []) {
+        const orderData = JSON.parse(row.data_json || "{}");
+        const oPhone = String(orderData.customerPhone || row.customer_phone || "").replace(/\D/g, "");
+        if (!phoneCandidates.some(p => p === oPhone || oPhone.endsWith(basePhone))) continue;
+
+        const logs = orderData.whatsappLogs || [];
+        let changed = false;
+        const updatedLogs = logs.map((log: any) => {
+          if (log.id === messageId) {
+            changed = true;
+            return { ...log, status: status === 'read' ? 'read' : (status === 'delivered' ? 'delivered' : status) };
           }
+          return log;
+        });
+
+        if (changed) {
+          const nowIso = new Date().toISOString();
+          orderData.whatsappLogs = updatedLogs;
+          orderData.updatedAt = nowIso;
+          await cfD1
+            .prepare("UPDATE orders SET updated_at = ?, data_json = ? WHERE store_id = ? AND id = ?")
+            .bind(nowIso, JSON.stringify(cleanUndefined(orderData)), row.store_id, row.id)
+            .run();
+
+          storeCache.delete(row.store_id);
+          console.log(`[WHATSAPP-STATUS] Updated message ${messageId} to ${status} for order ${row.id}`);
+          break;
         }
       }
-    } catch (sbErr) {
-      console.error("[SUPABASE-STATUS-UPDATE-ERR]", sbErr);
-    }
-
-    // 2. Update in Firestore
-    const ordersRef = collection(db, "orders");
-    const q = query(ordersRef, where("customerPhone", "in", phoneCandidates.slice(0, 10)));
-    const qSnap = await getDocs(q);
-
-    if (qSnap.empty) return;
-
-    for (const ordDoc of qSnap.docs) {
-      const orderData = ordDoc.data() as any;
-      const logs = orderData.whatsappLogs || [];
-      
-      let changed = false;
-      const updatedLogs = logs.map((log: any) => {
-        if (log.id === messageId) {
-          changed = true;
-          return { ...log, status: status === 'read' ? 'read' : (status === 'delivered' ? 'delivered' : status) };
-        }
-        return log;
-      });
-
-      if (changed) {
-        await setDoc(ordDoc.ref, { whatsappLogs: updatedLogs, updatedAt: new Date().toISOString() }, { merge: true });
-        
-        // Also update in stores_data if applicable
-        const storeId = orderData.storeId || orderData.store_id;
-        if (storeId) {
-          const storeRef = doc(db, "stores_data", storeId);
-          const storeSnap = await getDoc(storeRef);
-          if (storeSnap.exists()) {
-            const storeData = storeSnap.data();
-            const storeOrders = storeData.orders || [];
-            const updatedStoreOrders = storeOrders.map((o: any) => {
-              if (o.id === ordDoc.id) {
-                return { ...o, whatsappLogs: updatedLogs, updatedAt: new Date().toISOString() };
-              }
-              return o;
-            });
-            await setDoc(storeRef, { orders: updatedStoreOrders, lastUpdated: new Date().toISOString() }, { merge: true });
-          }
-        }
-        console.log(`[WHATSAPP-STATUS] Updated message ${messageId} to ${status} for order ${ordDoc.id}`);
-        break;
-      }
+    } catch (err) {
+      console.error("[D1-WA-STATUS-ERR]", err);
     }
   }
 
@@ -6463,225 +6130,41 @@ async function startServer() {
         return pCore === phoneCore || pCore.endsWith(phoneCore) || phoneCore.endsWith(pCore) || (phoneCore.length >= 8 && pCore.includes(phoneCore));
       };
 
-      // 0. Search in Supabase across all active clients
+      // Search directly in Cloudflare D1 orders table
       try {
-        const sbClients = await getAllActiveSupabaseClients();
-        for (const { client: sbClient } of sbClients) {
-          if (orderId) {
-            const { data: byId } = await sbClient.from("orders").select("*").eq("id", orderId).limit(1);
-            if (byId && byId.length > 0) {
-              const ordData = byId[0];
-              const matchPhone = checkPhoneMatch(ordData.customer_phone || ordData.customerPhone || ordData.phone);
-              if (!phoneCore || matchPhone) {
-                foundOrder = {
-                  id: ordData.id,
-                  orderNumber: ordData.order_number || ordData.orderNumber,
-                  customerName: ordData.customer_name || ordData.customerName,
-                  customerPhone: ordData.customer_phone || ordData.customerPhone,
-                  customerAddress: ordData.customer_address || ordData.customerAddress,
-                  governorate: ordData.governorate,
-                  totalPrice: ordData.total_price || ordData.totalPrice || ordData.total,
-                  status: ordData.status,
-                  items: ordData.items,
-                  date: ordData.date || ordData.created_at,
-                  storeId: ordData.store_id || ordData.storeId
-                };
-                break;
-              }
-            }
-          }
-          if (!foundOrder && (orderNumber || orderId)) {
-            const targetNum = orderNumber || orderId;
-            const { data: byNum } = await sbClient.from("orders").select("*").or(`order_number.eq.${targetNum},orderNumber.eq.${targetNum}`).limit(5);
-            if (byNum && byNum.length > 0) {
-              for (const ordData of byNum) {
-                const matchPhone = checkPhoneMatch(ordData.customer_phone || ordData.customerPhone || ordData.phone);
-                if (!phoneCore || matchPhone) {
-                  foundOrder = {
-                    id: ordData.id,
-                    orderNumber: ordData.order_number || ordData.orderNumber,
-                    customerName: ordData.customer_name || ordData.customerName,
-                    customerPhone: ordData.customer_phone || ordData.customerPhone,
-                    customerAddress: ordData.customer_address || ordData.customerAddress,
-                    governorate: ordData.governorate,
-                    totalPrice: ordData.total_price || ordData.totalPrice || ordData.total,
-                    status: ordData.status,
-                    items: ordData.items,
-                    date: ordData.date || ordData.created_at,
-                    storeId: ordData.store_id || ordData.storeId
-                  };
-                  break;
-                }
-              }
-            }
-          }
-          if (!foundOrder && phoneCore) {
-            const phoneCandidates = [phoneCore, "0" + phoneCore, "20" + phoneCore, "+20" + phoneCore, "0020" + phoneCore];
-            for (const p of phoneCandidates) {
-              const { data: byPhone } = await sbClient.from("orders").select("*").or(`customer_phone.eq.${p},customerPhone.eq.${p}`).limit(5);
-              if (byPhone && byPhone.length > 0) {
-                const ordData = byPhone[0];
-                foundOrder = {
-                  id: ordData.id,
-                  orderNumber: ordData.order_number || ordData.orderNumber,
-                  customerName: ordData.customer_name || ordData.customerName,
-                  customerPhone: ordData.customer_phone || ordData.customerPhone,
-                  customerAddress: ordData.customer_address || ordData.customerAddress,
-                  governorate: ordData.governorate,
-                  totalPrice: ordData.total_price || ordData.totalPrice || ordData.total,
-                  status: ordData.status,
-                  items: ordData.items,
-                  date: ordData.date || ordData.created_at,
-                  storeId: ordData.store_id || ordData.storeId
-                };
-                break;
-              }
-            }
-          }
-        }
-      } catch (sbLookErr) {
-        console.warn("Supabase public-details lookup notice:", sbLookErr);
-      }
+        const targetNum = orderNumber || orderId;
+        const rowsRes = await cfD1
+          .prepare("SELECT store_id, id, order_number, customer_phone, data_json FROM orders ORDER BY updated_at DESC LIMIT 500")
+          .all<any>();
 
-      // 1. Direct indexed search in primary standalone orders collection (Fast O(1))
-      try {
-        if (!foundOrder && orderId) {
-          const directSnap = await getDoc(doc(db, "orders", orderId)).catch(() => null);
-          if (directSnap?.exists()) {
-            const ordData = { id: directSnap.id, ...directSnap.data() as any };
-            const matchPhone = checkPhoneMatch(ordData.customerPhone || ordData.phone || ordData.customer_phone || ordData.mobile || ordData.tel || ordData.whatsapp);
-            if (!phoneCore || matchPhone) {
-              foundOrder = ordData;
+        for (const row of rowsRes.results || []) {
+          const ordData = JSON.parse(row.data_json || "{}");
+          const oId = String(ordData.id || row.id || '').trim().replace(/^#/, '');
+          const oNum = String(ordData.orderNumber || row.order_number || '').trim().replace(/^#/, '');
+
+          const matchId = orderId && (oId === orderId || oNum === orderId || oId.endsWith(orderId) || orderId.endsWith(oId));
+          const matchNum = targetNum && (oNum === targetNum || oId === targetNum);
+          const matchPhone = checkPhoneMatch(ordData.customerPhone || row.customer_phone || ordData.phone || ordData.mobile);
+
+          let isMatch = false;
+          if (orderId || orderNumber) {
+            if (matchId) isMatch = true;
+            else if (matchNum) isMatch = phoneCore ? Boolean(matchPhone) : true;
+          } else if (phoneCore) {
+            isMatch = Boolean(matchPhone);
+          }
+
+          if (isMatch) {
+            foundOrder = { ...ordData, id: oId || row.id, storeId: row.store_id || ordData.storeId };
+            const cachedStore = await getCachedStore(cfD1, foundOrder.storeId);
+            if (cachedStore) {
+              storeName = cachedStore.settings?.general?.storeName || cachedStore.settings?.storeName || cachedStore.name || storeName;
             }
-          }
-        }
-
-        if (!foundOrder && (orderNumber || orderId)) {
-          const targetNum = orderNumber || orderId;
-          const q1 = query(collection(db, "orders"), where("orderNumber", "==", targetNum), limit(5));
-          const snap1 = await getDocs(q1).catch(() => null);
-          if (snap1 && !snap1.empty) {
-            for (const ordDoc of snap1.docs) {
-              const ordData = { id: ordDoc.id, ...ordDoc.data() as any };
-              if (!phoneCore || checkPhoneMatch(ordData.customerPhone || ordData.phone || ordData.customer_phone || ordData.mobile)) {
-                foundOrder = ordData;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!foundOrder && (orderNumber || orderId)) {
-          const targetNum = orderNumber || orderId;
-          const q2 = query(collection(db, "orders"), where("order_number", "==", targetNum), limit(5));
-          const snap2 = await getDocs(q2).catch(() => null);
-          if (snap2 && !snap2.empty) {
-            for (const ordDoc of snap2.docs) {
-              const ordData = { id: ordDoc.id, ...ordDoc.data() as any };
-              if (!phoneCore || checkPhoneMatch(ordData.customerPhone || ordData.phone || ordData.customer_phone || ordData.mobile)) {
-                foundOrder = ordData;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!foundOrder && phoneCore) {
-          const phoneCandidates = [phoneCore, "0" + phoneCore, "20" + phoneCore, "+20" + phoneCore, "0020" + phoneCore];
-          const qPhone = query(collection(db, "orders"), where("customerPhone", "in", phoneCandidates), limit(10));
-          const snapPhone = await getDocs(qPhone).catch(() => null);
-          if (snapPhone && !snapPhone.empty) {
-            foundOrder = { id: snapPhone.docs[0].id, ...snapPhone.docs[0].data() as any };
-          }
-        }
-
-        if (foundOrder && (foundOrder.storeId || foundOrder.store_id)) {
-          const cachedStore = await getCachedStore(db, foundOrder.storeId || foundOrder.store_id);
-          if (cachedStore) {
-            storeName = cachedStore.settings?.general?.storeName || cachedStore.settings?.storeName || cachedStore.name || storeName;
+            break;
           }
         }
       } catch (e) {
-        console.warn("Fast orders lookup notice:", e);
-      }
-
-      // 2. Fallback search across stores_data if not found in primary collection
-      if (!foundOrder) {
-        try {
-          const storesSnap = await getDocs(query(collection(db, "stores_data"), limit(25)));
-          for (const storeDoc of storesSnap.docs) {
-            const storeData = storeDoc.data();
-            const orders = storeData.orders || (storeData.storeData && storeData.storeData.orders) || [];
-            for (const ord of orders) {
-              const oId = String(ord.id || '').trim().replace(/^#/, '');
-              const oNum = String(ord.orderNumber || '').trim().replace(/^#/, '');
-
-              const matchId = orderId && (oId === orderId || oNum === orderId || oId.endsWith(orderId) || orderId.endsWith(oId));
-              const matchNum = orderNumber && (oNum === orderNumber || oId === orderNumber);
-              const matchPhone = checkPhoneMatch(ord.customerPhone || ord.phone || ord.customer_phone || ord.mobile || ord.tel || ord.whatsapp);
-
-              let isMatch = false;
-              if (orderId || orderNumber) {
-                if (matchId) {
-                  isMatch = true;
-                } else if (matchNum) {
-                  isMatch = phoneCore ? Boolean(matchPhone) : true;
-                }
-              } else if (phoneCore) {
-                isMatch = Boolean(matchPhone);
-              }
-
-              if (isMatch) {
-                foundOrder = ord;
-                storeName = storeData.settings?.general?.storeName || storeData.settings?.storeName || storeData.name || "متجرنا";
-                break;
-              }
-            }
-            if (foundOrder) break;
-          }
-        } catch (e) {
-          console.warn("stores_data search notice:", e);
-        }
-      }
-
-      // 3. Last-resort safety bounded fallback search in orders collection
-      if (!foundOrder) {
-        try {
-          const ordersSnap = await getDocs(query(collection(db, "orders"), limit(50)));
-          for (const ordDoc of ordersSnap.docs) {
-            const ordData = { id: ordDoc.id, ...ordDoc.data() as any };
-            const oId = String(ordData.id || ordDoc.id || '').trim().replace(/^#/, '');
-            const oNum = String(ordData.orderNumber || '').trim().replace(/^#/, '');
-
-            const matchId = orderId && (oId === orderId || oNum === orderId || oId.endsWith(orderId) || orderId.endsWith(oId) || ordDoc.id.endsWith(orderId));
-            const matchNum = orderNumber && (oNum === orderNumber || oId === orderNumber || ordDoc.id.endsWith(orderNumber));
-            const matchPhone = checkPhoneMatch(ordData.customerPhone || ordData.phone || ordData.customer_phone || ordData.mobile || ordData.tel || ordData.whatsapp);
-
-            let isMatch = false;
-            if (orderId || orderNumber) {
-              if (matchId) {
-                isMatch = true;
-              } else if (matchNum) {
-                isMatch = phoneCore ? Boolean(matchPhone) : true;
-              }
-            } else if (phoneCore) {
-              isMatch = Boolean(matchPhone);
-            }
-
-            if (isMatch) {
-              foundOrder = ordData;
-              if (ordData.storeId || ordData.store_id) {
-                const cachedStore = await getCachedStore(db, ordData.storeId || ordData.store_id);
-                if (cachedStore) {
-                  storeName = cachedStore.settings?.general?.storeName || cachedStore.settings?.storeName || cachedStore.name || storeName;
-                }
-              }
-              break;
-            }
-          }
-        } catch (e) {
-          console.warn("orders collection fallback lookup notice:", e);
-        }
+        console.warn("[CF-D1] public-details lookup error:", e);
       }
 
       if (!foundOrder) {
@@ -6798,7 +6281,7 @@ async function startServer() {
 
     try {
         const payload = await c.req.json();
-        const storeRow = await getCachedStore(db, storeId);
+        const storeRow = await getCachedStore(cfD1, storeId);
         if (!storeRow) {
             console.warn(`[WEBHOOK] Warning: Store ${storeId} not found in database. Still returning 200 for platform compatibility.`);
             return c.json({ message: "Store not found, but webhook received" }, 200);
@@ -6816,11 +6299,19 @@ async function startServer() {
             if ((event === "ORDER_PLACED" || event === "ORDER_UPDATED") && wuiltPayload?.order ) {
                 const mappedOrder = mapWuiltOrder(wuiltPayload.order, storeId, settings);
                 if (mappedOrder) {
-                    const orderSnap = await getDoc(doc(db, "orders", mappedOrder.id));
-                    const existing = orderSnap.exists() ? orderSnap.data() : null;
-                    
+                    const row = await cfD1.prepare("SELECT data_json FROM orders WHERE store_id = ? AND id = ?").bind(storeId, mappedOrder.id).first<any>();
+                    const existing = row?.data_json ? JSON.parse(row.data_json) : null;
+                    const nowIso = new Date().toISOString();
+
                     if (!existing) {
-                        await setDoc(doc(db, "orders", mappedOrder.id), cleanUndefined(mappedOrder), { merge: true });
+                        const cleanOrd = cleanUndefined(mappedOrder);
+                        await cfD1.prepare(
+                          `INSERT INTO orders (store_id, id, order_number, customer_name, customer_phone, status, date, total_price, updated_at, version, data_json)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+                        ).bind(
+                          storeId, cleanOrd.id, cleanOrd.orderNumber || null, cleanOrd.customerName || null, cleanOrd.customerPhone || null,
+                          cleanOrd.status || "جاري_المراجعة", cleanOrd.date || nowIso, Number(cleanOrd.totalPrice || 0), nowIso, JSON.stringify(cleanOrd)
+                        ).run();
                     } else {
                         const preserveStatuses = ["تم_التحصيل", "مدفوعة", "تمت_الاعادة_لشركة_الشحن", "مرتجع_جزئي", "مؤرشف", "تم_الاستبدال"];
                         const incomingOrder = { ...mappedOrder };
@@ -6831,11 +6322,14 @@ async function startServer() {
                              incomingOrder.status = existing.status;
                         }
                         
-                        // ONLY write if something actually changed
                         if (hasChanged(existing, incomingOrder)) {
-                            await setDoc(doc(db, "orders", mappedOrder.id), cleanUndefined(incomingOrder), { merge: true });
+                            const cleanOrd = cleanUndefined({ ...existing, ...incomingOrder });
+                            await cfD1.prepare("UPDATE orders SET status = ?, total_price = ?, updated_at = ?, version = version + 1, data_json = ? WHERE store_id = ? AND id = ?")
+                              .bind(cleanOrd.status || existing.status, Number(cleanOrd.totalPrice || 0), nowIso, JSON.stringify(cleanOrd), storeId, mappedOrder.id)
+                              .run();
                         }
                     }
+                    storeCache.delete(storeId);
                 }
             }
         }
@@ -6858,7 +6352,7 @@ async function startServer() {
     console.log(`[SYNC-DEBUG] ${c.req.method} /api/sync/platform/${platform}/${storeId}/preview`);
 
     try {
-        const storeRow = await getCachedStore(db, storeId);
+        const storeRow = await getCachedStore(cfD1, storeId);
         if (!storeRow) return c.json({ error: "Store not found" }, 404);
         const config = storeRow.settings?.platformConfigs?.[platform];
         if (!config || !config.apiKey) return c.json({ error: "API Key not configured" }, 400);
@@ -6944,7 +6438,7 @@ async function startServer() {
     console.log(`[SYNC-DEBUG] ${c.req.method} /api/sync/platform/${platform}/${storeId}`);
 
     try {
-        const storeRow = await getCachedStore(db, storeId);
+        const storeRow = await getCachedStore(cfD1, storeId);
         if (!storeRow) return c.json({ error: "Store not found" }, 404);
         const settings = storeRow.settings || {};
         const config = settings.platformConfigs?.[platform];
@@ -6980,31 +6474,39 @@ async function startServer() {
         const mapper = type === "products" ? mapWuiltProduct : (item: any) => mapWuiltOrder(item, storeId, settings);
         const mappedItems = itemsToProcess.map((item: any) => mapper(item, storeId)).filter(Boolean);
         
-        const q = query(collection(db, table), where('store_id', '==', storeId));
-        const existingSnap = await getDocs(q);
-        const existingDataMap = new Map();
-        existingSnap.docs.forEach(docSnap => {
-            existingDataMap.set(docSnap.id, docSnap.data());
-        });
+        const existingRes = await cfD1.prepare(`SELECT id, data_json FROM ${table} WHERE store_id = ?`).bind(storeId).all<any>();
+        const existingDataMap = new Map<string, any>();
+        for (const r of existingRes.results || []) {
+            try { existingDataMap.set(r.id, JSON.parse(r.data_json || "{}")); } catch {}
+        }
 
         let updatedCount = 0;
+        const nowIso = new Date().toISOString();
         for (const item of mappedItems) {
             const existingData = existingDataMap.get(item.id);
-            
             if (!existingData || hasChanged(existingData, item)) {
-                await setDoc(doc(db, table, item.id), cleanUndefined(item), { merge: true });
+                const cleanItem = cleanUndefined(item);
+                if (table === "products") {
+                  await cfD1.prepare(
+                    `INSERT INTO products (store_id, id, name, sku, stock, updated_at, data_json)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(store_id, id) DO UPDATE SET name = excluded.name, sku = excluded.sku, stock = excluded.stock, updated_at = excluded.updated_at, data_json = excluded.data_json`
+                  ).bind(storeId, cleanItem.id, cleanItem.name || "", cleanItem.sku || "", Number(cleanItem.stockQuantity || 0), nowIso, JSON.stringify(cleanItem)).run();
+                } else {
+                  await cfD1.prepare(
+                    `INSERT INTO orders (store_id, id, order_number, customer_name, customer_phone, status, date, total_price, updated_at, version, data_json)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                     ON CONFLICT(store_id, id) DO UPDATE SET status = excluded.status, total_price = excluded.total_price, updated_at = excluded.updated_at, version = orders.version + 1, data_json = excluded.data_json`
+                  ).bind(storeId, cleanItem.id, cleanItem.orderNumber || null, cleanItem.customerName || null, cleanItem.customerPhone || null, cleanItem.status || "جاري_المراجعة", cleanItem.date || nowIso, Number(cleanItem.totalPrice || 0), nowIso, JSON.stringify(cleanItem)).run();
+                }
                 updatedCount++;
             }
         }
+        storeCache.delete(storeId);
 
         return c.json({ success: true, processed: mappedItems.length, actualWrites: updatedCount });
     } catch (error: any) {
         console.error(`[SYNC-ERROR]`, error);
-        if (error.code === 'resource-exhausted') {
-            return c.json({ 
-                error: "تم تجاوز حصة العمليات المجانية في قاعدة البيانات (Quota Exceeded). سيتم تصفير الحصة خلال 24 ساعة. يرجى مراجعة إعدادات Firebase." 
-            }, 429);
-        }
         return c.json({ error: error.message }, 500); 
     }
   });
@@ -9206,7 +8708,7 @@ async function startServer() {
         }
       }
 
-      // 2. Fetch local Firestore orders for this phone
+      // 2. Fetch local Cloudflare D1 orders for this phone
       let localDelivered = 0;
       let localReturned = 0;
       let localPending = 0;
@@ -9214,34 +8716,36 @@ async function startServer() {
 
       try {
         const last8 = cleanPhone.slice(-8);
-        const qPhone = query(collection(db, "orders"), where("customerPhone", "==", cleanPhone), limit(25));
-        const snap = await getDocs(qPhone).catch(() => null);
+        const rowsRes = await cfD1
+          .prepare("SELECT customer_phone, status, data_json FROM orders WHERE customer_phone LIKE ? ORDER BY updated_at DESC LIMIT 50")
+          .bind(`%${last8}%`)
+          .all<any>();
 
-        if (snap) {
-          snap.forEach((docSnap) => {
-            const data = docSnap.data();
-            const p1 = (data.customerPhone || "").replace(/\D/g, "");
-            const p2 = (data.customerPhone2 || "").replace(/\D/g, "");
-            
-            if ((p1 && p1.slice(-8) === last8) || (p2 && p2.slice(-8) === last8)) {
-              const st = String(data.status || "").toLowerCase();
-              const wasDispatched = Boolean(
-                data.trackingNumber || data.bostaTrackingNumber || data.shipmentId || data.awb ||
-                data.sentToShippingAt || data.shippedAt || /قيد.?الشحن|تم.?الارسال|تم.?الإرسال|قيد.?التوصيل|out.?for.?delivery|shipped/.test(st)
-              );
-              if ((st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) && !wasDispatched) {
-                return;
-              }
-              localTotal++;
-              if (st.includes("سلم") || st.includes("تسليم") || st.includes("delivered") || st.includes("تم الاستلام")) {
-                localDelivered++;
-              } else if (st.includes("مرتجع") || st.includes("returned") || st.includes("مرفوض") || st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) {
-                localReturned++;
-              } else {
-                localPending++;
-              }
+        const rows = rowsRes?.results || [];
+        for (const r of rows) {
+          let data: any = {};
+          try { data = r.data_json ? JSON.parse(r.data_json) : {}; } catch {}
+          const p1 = (data.customerPhone || r.customer_phone || "").replace(/\D/g, "");
+          const p2 = (data.customerPhone2 || "").replace(/\D/g, "");
+
+          if ((p1 && p1.slice(-8) === last8) || (p2 && p2.slice(-8) === last8)) {
+            const st = String(data.status || r.status || "").toLowerCase();
+            const wasDispatched = Boolean(
+              data.trackingNumber || data.bostaTrackingNumber || data.shipmentId || data.awb ||
+              data.sentToShippingAt || data.shippedAt || /قيد.?الشحن|تم.?الارسال|تم.?الإرسال|قيد.?التوصيل|out.?for.?delivery|shipped/.test(st)
+            );
+            if ((st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) && !wasDispatched) {
+              continue;
             }
-          });
+            localTotal++;
+            if (st.includes("سلم") || st.includes("تسليم") || st.includes("delivered") || st.includes("تم الاستلام")) {
+              localDelivered++;
+            } else if (st.includes("مرتجع") || st.includes("returned") || st.includes("مرفوض") || st.includes("ملغي") || st.includes("إلغاء") || st.includes("canceled") || st.includes("cancelled")) {
+              localReturned++;
+            } else {
+              localPending++;
+            }
+          }
         }
       } catch (_) {}
 
@@ -9256,7 +8760,7 @@ async function startServer() {
         totalReturned = bostaReturned;
         totalPending = bostaPending;
       } else {
-        // Fallback to local Firestore orders if Bosta record not found
+        // Fallback to local Cloudflare D1 orders if Bosta record not found
         totalDelivered = localDelivered;
         totalReturned = localReturned;
         totalPending = localPending;
@@ -11097,50 +10601,49 @@ async function startServer() {
 
       let updatedOrderCount = 0;
 
-      // Update in Firestore
+      // Update in Cloudflare D1
       try {
-        const ordersRef = collection(db, "orders");
-        let matchedDocs: any[] = [];
-
-        // 1. Search by waybillNumber
-        if (trackingNumber) {
-          const q1 = query(ordersRef, where("waybillNumber", "==", String(trackingNumber)));
-          const snap1 = await getDocs(q1);
-          if (!snap1.empty) {
-            matchedDocs = snap1.docs;
-          } else {
-            // Search by bostaTrackingNumber
-            const q2 = query(ordersRef, where("bostaTrackingNumber", "==", String(trackingNumber)));
-            const snap2 = await getDocs(q2);
-            if (!snap2.empty) matchedDocs = snap2.docs;
-          }
+        interface MatchedOrderRow {
+          id: string;
+          storeId: string;
+          data: any;
         }
+        const matchedDocs: MatchedOrderRow[] = [];
+        const allOrdersRes = await cfD1
+          .prepare("SELECT store_id, id, order_number, data_json FROM orders ORDER BY updated_at DESC LIMIT 2000")
+          .all<any>();
+        const allOrderRows = allOrdersRes?.results || [];
 
-        // 2. Search by bostaDeliveryId if not found
-        if (matchedDocs.length === 0 && bostaDeliveryId) {
-          const q3 = query(ordersRef, where("bostaDeliveryId", "==", String(bostaDeliveryId)));
-          const snap3 = await getDocs(q3);
-          if (!snap3.empty) matchedDocs = snap3.docs;
-        }
+        const tnStr = trackingNumber ? String(trackingNumber) : "";
+        const bIdStr = bostaDeliveryId ? String(bostaDeliveryId) : "";
+        const refStr = businessRef ? String(businessRef) : "";
 
-        // 3. Search by orderNumber / businessReference if not found
-        if (matchedDocs.length === 0 && businessRef) {
-          const q4 = query(ordersRef, where("orderNumber", "==", String(businessRef)));
-          const snap4 = await getDocs(q4);
-          if (!snap4.empty) matchedDocs = snap4.docs;
-          else {
-            // Check direct document ID
-            const docSnap = await getDoc(doc(db, "orders", String(businessRef)));
-            if (docSnap.exists()) matchedDocs = [docSnap];
+        for (const row of allOrderRows) {
+          let oData: any = {};
+          try { oData = row.data_json ? JSON.parse(row.data_json) : {}; } catch {}
+          if (!oData || typeof oData !== "object") continue;
+
+          const hitTrack = tnStr && (String(oData.waybillNumber || "") === tnStr || String(oData.bostaTrackingNumber || "") === tnStr || String(oData.trackingNumber || "") === tnStr);
+          const hitDelivery = bIdStr && String(oData.bostaDeliveryId || "") === bIdStr;
+          const hitRef = refStr && (String(oData.orderNumber || row.order_number || "") === refStr || String(row.id) === refStr || String(oData.id || "") === refStr);
+
+          if (hitTrack || hitDelivery || hitRef) {
+            matchedDocs.push({
+              id: String(row.id),
+              storeId: String(row.store_id || oData.storeId || oData.store_id || "main_store"),
+              data: oData
+            });
           }
         }
 
         // Helper to send WhatsApp notification on status change if configured
-        const sendStatusWhatsAppNotification = async (orderData: any, statusTitle: string, trackNum: string, statusReason?: string) => {
+        const sendStatusWhatsAppNotification = async (orderData: any, targetStoreId: string, statusTitle: string, trackNum: string, statusReason?: string) => {
           try {
-            const storeSnap = await getDoc(doc(db, "stores_data", "main_store")).catch(() => null);
-            const globalSettingsSnap = await getDoc(doc(db, "settings", "global")).catch(() => null);
-            const storeSettings = storeSnap?.exists() ? storeSnap.data()?.settings : globalSettingsSnap?.exists() ? globalSettingsSnap.data() : null;
+            const storeData = await getStoreDataFromD1(cfD1, targetStoreId || "main_store").catch(() => null);
+            const globalRow = await cfD1.prepare("SELECT value_json FROM app_settings WHERE key = 'global'").first<any>().catch(() => null);
+            let globalData: any = null;
+            try { globalData = globalRow?.value_json ? JSON.parse(globalRow.value_json) : null; } catch {}
+            const storeSettings = storeData?.settings || globalData;
 
             const bostaCfg = storeSettings?.bostaConfig;
             const waCfg = storeSettings?.whatsappConfig;
@@ -11185,7 +10688,6 @@ async function startServer() {
                   `نتمنى لك يوماً سعيداً من فريق *${storeName}*! ❤️`;
               }
 
-              // Send WhatsApp message through internal proxy endpoint logic
               if (waCfg.providerType === "meta_cloud") {
                 const phoneNumberId = waCfg.phoneNumberId || waCfg.instanceId;
                 const accessToken = waCfg.accessToken || waCfg.token;
@@ -11231,7 +10733,7 @@ async function startServer() {
         };
 
         for (const orderDoc of matchedDocs) {
-          const currentData = orderDoc.data();
+          const currentData = orderDoc.data;
           const shippingUpdate = {
             carrier: 'bosta',
             externalStatus: String(stateValue || ''),
@@ -11253,12 +10755,13 @@ async function startServer() {
 
           if (newStatus !== oldStatus) {
             try {
-              const globalSettingsRef = doc(db, "settings", "global");
-              const globalSettingsSnap = await getDoc(globalSettingsRef).catch(() => null);
-              if (globalSettingsSnap?.exists()) {
-                const currentSettings = globalSettingsSnap.data();
+              const globalRow = await cfD1.prepare("SELECT value_json FROM app_settings WHERE key = 'global'").first<any>().catch(() => null);
+              let currentSettings: any = null;
+              try { currentSettings = globalRow?.value_json ? JSON.parse(globalRow.value_json) : null; } catch {}
+
+              if (currentSettings) {
                 const empId = currentData.assignedEmployeeId || currentData.assignedTo || currentData.createdBy;
-                if (empId && currentSettings.employees) {
+                if (empId && Array.isArray(currentSettings.employees)) {
                   const employees = [...currentSettings.employees];
                   const empIndex = employees.findIndex((e: any) => e.id === empId || e.phone === empId);
                   if (empIndex !== -1) {
@@ -11312,7 +10815,15 @@ async function startServer() {
                         }
 
                         employees[empIndex] = targetEmployee;
-                        await setDoc(globalSettingsRef, { employees }, { merge: true });
+                        const updatedGlobal = { ...currentSettings, employees };
+                        await cfD1
+                          .prepare(
+                            `INSERT INTO app_settings (key, value_json, updated_at)
+                             VALUES ('global', ?, ?)
+                             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`
+                          )
+                          .bind(JSON.stringify(updatedGlobal), new Date().toISOString())
+                          .run();
                         console.log(`[BOSTA-WEBHOOK] Calculated and updated commission for employee ${empId}: Balance ${targetEmployee.balance}`);
                       }
                     }
@@ -11325,11 +10836,9 @@ async function startServer() {
 
             // Wallet/Financial Reversal for pre-shipping statuses
             try {
-              const storeId = currentData.storeId || currentData.store_id || "main_store";
-              const storeRef = doc(db, "stores_data", storeId);
-              const storeSnap = await getDoc(storeRef).catch(() => null);
-              if (storeSnap?.exists()) {
-                const storeData = storeSnap.data();
+              const storeId = orderDoc.storeId || currentData.storeId || currentData.store_id || "main_store";
+              const storeData = await getStoreDataFromD1(cfD1, storeId).catch(() => null);
+              if (storeData) {
                 const wallet = storeData.wallet || { balance: 0, transactions: [] };
 
                 const preShippingStatuses = [
@@ -11422,7 +10931,7 @@ async function startServer() {
                       transactions: [...refundTransactions, ...(wallet.transactions || [])]
                     };
 
-                    await setDoc(storeRef, { wallet: updatedWallet }, { merge: true });
+                    await saveStoreDataToD1(cfD1, storeId, cleanUndefined({ ...storeData, wallet: updatedWallet }));
                     currentData.shippingAndInsuranceDeducted = false;
                     currentData.inspectionFeeDeducted = false;
                     console.log(`[BOSTA-WEBHOOK] Automatically refunded shipping fees to store ${storeId} wallet: Total ${totalRefund}`);
@@ -11434,17 +10943,18 @@ async function startServer() {
             }
           }
 
+          const nowIso = new Date().toISOString();
           const updatePayload: any = {
             shippingAndInsuranceDeducted: currentData.shippingAndInsuranceDeducted || false,
             inspectionFeeDeducted: currentData.inspectionFeeDeducted || false,
             bostaStatus: stateValue || currentData.bostaStatus || "",
             bostaStatusCode: stateCode !== null ? stateCode : (currentData.bostaStatusCode || null),
             bostaReason: reason || currentData.bostaReason || "",
-            bostaLastWebhookAt: new Date().toISOString(),
+            bostaLastWebhookAt: nowIso,
             lastShippingEventAt: eventAt,
             lastShippingEventKey: eventKey,
             shipmentTimeline: appendShippingTimeline(currentData, shippingUpdate, eventKey),
-            updatedAt: new Date().toISOString()
+            updatedAt: nowIso
           };
 
           if (mappedStatus) {
@@ -11465,14 +10975,31 @@ async function startServer() {
           const logNote = `\n[تحديث بوسطة تلقائي ${new Date().toLocaleTimeString('ar-EG')}]: ${stateArabic} ${reason ? `(${reason})` : ''}`;
           updatePayload.notes = (currentData.notes || "") + logNote;
 
-          await setDoc(doc(db, "orders", orderDoc.id), updatePayload, { merge: true });
+          const mergedOrder = cleanUndefined({ ...currentData, ...updatePayload });
+          await cfD1
+            .prepare("UPDATE orders SET status = ?, updated_at = ?, version = version + 1, data_json = ? WHERE store_id = ? AND id = ?")
+            .bind(mergedOrder.status || oldStatus || "", nowIso, JSON.stringify(mergedOrder), orderDoc.storeId, orderDoc.id)
+            .run();
+
+          // Keep stores_data snapshot synchronized as well
+          try {
+            const latestStore = await getStoreDataFromD1(cfD1, orderDoc.storeId);
+            if (latestStore && Array.isArray(latestStore.orders)) {
+              const idx = latestStore.orders.findIndex((o: any) => String(o.id) === orderDoc.id);
+              if (idx !== -1) {
+                latestStore.orders[idx] = mergedOrder;
+                await saveStoreDataToD1(cfD1, orderDoc.storeId, cleanUndefined(latestStore));
+              }
+            }
+          } catch {}
+
           console.log(`[BOSTA-WEBHOOK] Successfully updated order #${currentData.orderNumber || orderDoc.id} to ${mappedStatus || currentData.status}`);
           updatedOrderCount++;
 
           // Invoke Atomic Carrier Event & Settlement Service for Merchant Orders
           if (currentData.merchantId) {
             try {
-              const storeId = currentData.storeId || currentData.store_id || "main_store";
+              const storeId = orderDoc.storeId || currentData.storeId || currentData.store_id || "main_store";
               const isDelivered = newStatus === "تم_توصيلها" || stateCode === 45;
               const isReturned = newStatus === "مرتجع" || stateCode === 46;
               if (isDelivered || isReturned) {
@@ -11491,7 +11018,7 @@ async function startServer() {
 
           // Trigger Admin Alerts for Deliveries and Returns
           if (newStatus !== oldStatus) {
-            const storeId = currentData.storeId || currentData.store_id || "main_store";
+            const storeId = orderDoc.storeId || currentData.storeId || currentData.store_id || "main_store";
             if (newStatus === "تم_توصيلها") {
               sendAdminAlert(storeId, "orderDelivered", `✅ *تم توصيل شحنة بنجاح (بوسطة)*\nالطلب: #${currentData.orderNumber || orderDoc.id}\nرقم التتبع: ${trackingNumber}\nالعميل: ${currentData.customerName || currentData.phone}\nالمبلغ المُحصل: ${currentData.totalPrice || currentData.productPrice} ج.م`).catch(() => {});
             } else if (newStatus === "مرتجع") {
@@ -11501,12 +11028,12 @@ async function startServer() {
 
           // Trigger automatic WhatsApp status update to customer
           const effectiveTrackNum = String(trackingNumber || currentData.waybillNumber || currentData.bostaTrackingNumber || businessRef || "");
-          sendStatusWhatsAppNotification(currentData, stateArabic, effectiveTrackNum, reason);
+          sendStatusWhatsAppNotification(currentData, orderDoc.storeId, stateArabic, effectiveTrackNum, reason);
         }
 
-        // Save incoming webhook log into Firestore bosta_webhook_logs collection
+        // Save incoming webhook log into Cloudflare D1 webhook_logs table
         const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        await setDoc(doc(db, "bosta_webhook_logs", logId), {
+        const logPayload = {
           trackingNumber: trackingNumber || businessRef || null,
           businessReference: businessRef || null,
           bostaDeliveryId: bostaDeliveryId || null,
@@ -11517,9 +11044,22 @@ async function startServer() {
           matchedOrdersCount: updatedOrderCount,
           rawPayload: body,
           receivedAt: new Date().toISOString()
-        });
+        };
+        await cfD1
+          .prepare(
+            `INSERT INTO webhook_logs (id, store_id, source, event_type, success, status_code, occurred_at, data_json)
+             VALUES (?, ?, 'bosta', ?, 1, 200, ?, ?)`
+          )
+          .bind(
+            logId,
+            matchedDocs[0]?.storeId || "main_store",
+            String(stateValue || mappedStatus || "bosta_event"),
+            logPayload.receivedAt,
+            JSON.stringify(logPayload)
+          )
+          .run();
       } catch (dbErr: any) {
-        console.error("[BOSTA-WEBHOOK] Firestore update warning:", dbErr.message);
+        console.error("[BOSTA-WEBHOOK] D1 update warning:", dbErr.message);
       }
 
       return c.json({
@@ -11558,25 +11098,61 @@ async function startServer() {
     });
   });
 
-  // Fetch recent webhook logs
+  // Fetch recent webhook logs from Cloudflare D1
   app.get("/api/webhooks/bosta/logs", async (c) => {
     try {
-      const snap = await getDocs(collection(db, "bosta_webhook_logs"));
-      const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      logs.sort((a: any, b: any) => new Date(b.receivedAt || 0).getTime() - new Date(a.receivedAt || 0).getTime());
-      return c.json({ success: true, logs: logs.slice(0, 30) });
+      const res = await cfD1
+        .prepare("SELECT id, store_id, source, event_type, occurred_at, data_json FROM webhook_logs WHERE source = 'bosta' ORDER BY occurred_at DESC LIMIT 30")
+        .all<any>();
+      const logs = (res?.results || []).map((row: any) => {
+        let parsed: any = {};
+        try { parsed = row.data_json ? JSON.parse(row.data_json) : {}; } catch {}
+        return {
+          id: row.id,
+          store_id: row.store_id,
+          source: row.source,
+          event_type: row.event_type,
+          receivedAt: row.occurred_at,
+          ...parsed
+        };
+      });
+      return c.json({ success: true, logs });
     } catch (err: any) {
       return c.json({ success: false, error: err.message, logs: [] });
     }
   });
 
-  // Fetch all recent webhook logs (Direct from Supabase)
+  // Fetch all recent webhook logs from Cloudflare D1
   app.get("/api/webhooks/all", async (c) => {
-    return c.json({ 
-      success: true, 
-      message: "Please fetch directly from Supabase client for better security and live updates.",
-      logs: [] 
-    });
+    try {
+      const storeId = c.req.query("storeId");
+      const res = storeId
+        ? await cfD1
+            .prepare("SELECT id, store_id, source, event_type, success, status_code, occurred_at, data_json FROM webhook_logs WHERE store_id = ? ORDER BY occurred_at DESC LIMIT 50")
+            .bind(storeId)
+            .all<any>()
+        : await cfD1
+            .prepare("SELECT id, store_id, source, event_type, success, status_code, occurred_at, data_json FROM webhook_logs ORDER BY occurred_at DESC LIMIT 50")
+            .all<any>();
+      const logs = (res?.results || []).map((row: any) => {
+        let parsed: any = {};
+        try { parsed = row.data_json ? JSON.parse(row.data_json) : {}; } catch {}
+        return {
+          id: row.id,
+          store_id: row.store_id,
+          source: row.source,
+          event_type: row.event_type,
+          success: Boolean(row.success),
+          status_code: row.status_code,
+          occurred_at: row.occurred_at,
+          created_at: row.occurred_at,
+          ...parsed
+        };
+      });
+      return c.json({ success: true, logs });
+    } catch (err: any) {
+      return c.json({ success: false, error: err.message, logs: [] });
+    }
   });
 
   // Webhook Simulator for Testing
@@ -11633,12 +11209,12 @@ async function startServer() {
         return c.json({ success: false, error: "Store ID is required for Turbo webhook" }, 400);
       }
 
-      const storeSnap = await getDoc(doc(db, "stores_data", storeId)).catch(() => null);
-      if (!storeSnap?.exists()) {
+      const storeData = await getStoreDataFromD1(cfD1, storeId).catch(() => null);
+      if (!storeData) {
         return c.json({ success: false, error: "Unknown store" }, 404);
       }
 
-      const turboConfig = storeSnap.data()?.settings?.turboConfig;
+      const turboConfig = storeData?.settings?.turboConfig;
       const expectedToken = String(turboConfig?.webhookToken || "").trim();
       const authHeader = c.req.header("Authorization") || "";
       const token = authHeader.replace(/^Bearer\s+/i, "").trim();
@@ -11690,30 +11266,30 @@ async function startServer() {
       console.log(`[TURBO-WEBHOOK] Decoded tracking: ${trackingNumber}, remoteId: ${remoteOrderId}, status: ${turboStatus}, mappedTo: ${mappedStatus}`);
 
       let updatedOrderCount = 0;
-      const ordersRef = collection(db, "orders");
-      let matchedDocs: any[] = [];
+      const storeOrdersRes = await cfD1
+        .prepare("SELECT store_id, id, order_number, data_json FROM orders WHERE store_id = ? ORDER BY updated_at DESC LIMIT 2000")
+        .bind(storeId)
+        .all<any>();
+      const matchedDocs: Array<{ id: string; storeId: string; data: any }> = [];
 
-      // 1. Search by remote_order_id (Direct Doc ID or Field)
-      if (remoteOrderId) {
-        const docSnap = await getDoc(doc(db, "orders", remoteOrderId)).catch(() => null);
-        if (docSnap?.exists()) {
-          matchedDocs = [docSnap];
-        } else {
-          const qRemote = query(ordersRef, where("id", "==", remoteOrderId));
-          const snapRemote = await getDocs(qRemote);
-          if (!snapRemote.empty) matchedDocs = snapRemote.docs;
+      for (const row of (storeOrdersRes?.results || [])) {
+        let oData: any = {};
+        try { oData = row.data_json ? JSON.parse(row.data_json) : {}; } catch {}
+        if (!oData || typeof oData !== "object") continue;
+
+        const hitRemote = remoteOrderId && (String(row.id) === remoteOrderId || String(oData.id || "") === remoteOrderId);
+        const hitTrack = trackingNumber && (String(oData.waybillNumber || "") === trackingNumber || String(oData.trackingNumber || "") === trackingNumber);
+        if (hitRemote || hitTrack) {
+          matchedDocs.push({
+            id: String(row.id),
+            storeId: String(row.store_id || storeId),
+            data: oData
+          });
         }
       }
 
-      // 2. Search by waybillNumber if still not found
-      if (matchedDocs.length === 0 && trackingNumber) {
-        const q1 = query(ordersRef, where("waybillNumber", "==", trackingNumber));
-        const snap1 = await getDocs(q1);
-        if (!snap1.empty) matchedDocs = snap1.docs;
-      }
-
       for (const orderDoc of matchedDocs) {
-        const currentData = orderDoc.data();
+        const currentData = orderDoc.data;
         const shippingUpdate = {
           carrier: 'turbo',
           externalStatus: String(body.status_text || body.status || body.state || ''),
@@ -11741,6 +11317,7 @@ async function startServer() {
         }
         const oldStatus = currentData.status;
         const newStatus = mappedStatus || oldStatus;
+        const nowIso = new Date().toISOString();
 
         const updatePayload: any = {
           turboStatus: turboStatus,
@@ -11748,11 +11325,11 @@ async function startServer() {
           turboOrderType: body.order_type ?? null,
           turboMissionCode: body.mission_code ?? null,
           turboReturnStatus: body.return_status ?? null,
-          turboLastWebhookAt: new Date().toISOString(),
+          turboLastWebhookAt: nowIso,
           lastShippingEventAt: eventAt,
           lastShippingEventKey: eventKey,
           shipmentTimeline: appendShippingTimeline(currentData, shippingUpdate, eventKey),
-          updatedAt: new Date().toISOString()
+          updatedAt: nowIso
         };
 
         if (mappedStatus) {
@@ -11763,7 +11340,6 @@ async function startServer() {
           updatePayload.waybillNumber = trackingNumber;
         }
 
-        // Add to history log in notes
         let logNote = `\n[تحديث تربو تلقائي ${new Date().toLocaleTimeString('ar-EG')}]: ${statusArabic}`;
         if (captainName) logNote += `\nالمندوب: ${captainName} (${captainPhone})`;
         if (delayReason) logNote += `\nسبب التأخير: ${delayReason}`;
@@ -11771,13 +11347,29 @@ async function startServer() {
 
         updatePayload.notes = (currentData.notes || "") + logNote;
 
-        await setDoc(doc(db, "orders", orderDoc.id), updatePayload, { merge: true });
+        const mergedOrder = cleanUndefined({ ...currentData, ...updatePayload });
+        await cfD1
+          .prepare("UPDATE orders SET status = ?, updated_at = ?, version = version + 1, data_json = ? WHERE store_id = ? AND id = ?")
+          .bind(mergedOrder.status || oldStatus || "", nowIso, JSON.stringify(mergedOrder), orderDoc.storeId, orderDoc.id)
+          .run();
+
+        try {
+          const latestStore = await getStoreDataFromD1(cfD1, orderDoc.storeId);
+          if (latestStore && Array.isArray(latestStore.orders)) {
+            const idx = latestStore.orders.findIndex((o: any) => String(o.id) === orderDoc.id);
+            if (idx !== -1) {
+              latestStore.orders[idx] = mergedOrder;
+              await saveStoreDataToD1(cfD1, orderDoc.storeId, cleanUndefined(latestStore));
+            }
+          }
+        } catch {}
+
         console.log(`[TURBO-WEBHOOK] Updated order ${orderDoc.id} status from ${oldStatus} to ${newStatus}`);
         updatedOrderCount++;
 
         // Trigger Admin Alerts for Deliveries and Returns
         if (newStatus !== oldStatus) {
-          const storeIdStr = currentData.storeId || currentData.store_id || "main_store";
+          const storeIdStr = orderDoc.storeId || currentData.storeId || currentData.store_id || "main_store";
           if (newStatus === "تم_توصيلها") {
             sendAdminAlert(storeIdStr, "orderDelivered", `✅ *تم توصيل شحنة بنجاح (تربو)*\nالطلب: #${currentData.orderNumber || orderDoc.id}\nرقم التتبع: ${trackingNumber}\nالعميل: ${currentData.customerName || currentData.phone}\nالمبلغ المُحصل: ${currentData.totalPrice || currentData.productPrice} ج.م`).catch(() => {});
           } else if (newStatus === "مرتجع") {
@@ -11786,16 +11378,29 @@ async function startServer() {
         }
       }
 
-      // Log webhook reception
+      // Log webhook reception in Cloudflare D1 webhook_logs table
       const logId = `log_${Date.now()}_turbo`;
-      await setDoc(doc(db, "turbo_webhook_logs", logId), {
+      const turboLogPayload = {
         trackingNumber,
         remoteOrderId,
         status: turboStatus,
         rawPayload: body,
         matchedOrdersCount: updatedOrderCount,
         receivedAt: new Date().toISOString()
-      });
+      };
+      await cfD1
+        .prepare(
+          `INSERT INTO webhook_logs (id, store_id, source, event_type, success, status_code, occurred_at, data_json)
+           VALUES (?, ?, 'turbo', ?, 1, 200, ?, ?)`
+        )
+        .bind(
+          logId,
+          storeId,
+          String(mappedStatus || turboStatus || "turbo_event"),
+          turboLogPayload.receivedAt,
+          JSON.stringify(turboLogPayload)
+        )
+        .run();
 
       return c.json({ 
         success: true, 

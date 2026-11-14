@@ -35,18 +35,7 @@ import {
   HelpCircle,
   Info
 } from 'lucide-react';
-import { db } from '../../services/firebaseClient';
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  onSnapshot, 
-  query, 
-  where,
-  orderBy 
-} from 'firebase/firestore';
+import { cfFetch, subscribePolling } from '../../services/cloudflareClient';
 import { MaintenanceRequest } from '../../types';
 import MaintenanceForm from '../../components/maintenance/MaintenanceForm';
 import { ConfirmationModal } from '../../components/ConfirmationModal';
@@ -99,28 +88,23 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({
   useEffect(() => {
     if (!currentStoreId) return;
 
-    const q = query(
-      collection(db, 'maintenance_requests'),
-      where('storeId', '==', currentStoreId),
-      orderBy('receivedDate', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as MaintenanceRequest[];
-      setRequests(data);
-      setLoading(false);
-    }, (error) => {
-      const msg = String(error?.message || error);
-      if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
-        console.warn('[Maintenance] Firestore quota reached. Loading from local/cached state.');
-      } else {
-        console.warn('[Maintenance] Requests notice:', msg);
+    const unsubscribe = subscribePolling(
+      async () => {
+        const res = await cfFetch<{ requests?: MaintenanceRequest[] }>(
+          `/api/db/maintenance?storeId=${encodeURIComponent(currentStoreId)}`
+        );
+        return Array.isArray(res?.requests) ? res.requests : [];
+      },
+      (data) => {
+        setRequests(data);
+        setLoading(false);
+      },
+      15000,
+      (error) => {
+        console.warn('[Maintenance] Polling notice:', error?.message || error);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
 
     return () => unsubscribe();
   }, [currentStoreId]);
@@ -491,10 +475,18 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({
         }
       }
 
-      await updateDoc(doc(db, 'maintenance_requests', request.id), {
-        ...dataToSave,
-        updatedAt: new Date().toISOString()
-      });
+      const updatedRes = await cfFetch<{ request?: MaintenanceRequest }>(
+        `/api/db/maintenance/${encodeURIComponent(request.id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            updates: { ...dataToSave, updatedAt: new Date().toISOString() }
+          })
+        }
+      );
+      if (updatedRes?.request) {
+        setRequests(prev => prev.map(r => r.id === request.id ? updatedRes.request! : r));
+      }
 
       showToast(`تم تحديث حالة الطلب إلى "${getStatusInfo(nextStatus).label}" بنجاح وتسوية الحسابات.`);
     } catch (error) {
@@ -735,19 +727,35 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({
       }
 
       if (editingRequest?.id) {
-        await updateDoc(doc(db, 'maintenance_requests', editingRequest.id), {
-          ...finalData,
-          updatedAt: new Date().toISOString()
-        });
+        const res = await cfFetch<{ request?: MaintenanceRequest }>(
+          `/api/db/maintenance/${encodeURIComponent(editingRequest.id)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({
+              updates: { ...finalData, updatedAt: new Date().toISOString() }
+            })
+          }
+        );
+        if (res?.request) {
+          setRequests(prev => prev.map(r => r.id === editingRequest.id ? res.request! : r));
+        }
         showToast('تم تحديث بيانات الصيانة والتسويات المالية بنجاح.');
       } else {
-        await addDoc(collection(db, 'maintenance_requests'), {
-          ...finalData,
-          storeId: currentStoreId,
-          orderNumber,
-          createdAt: new Date().toISOString(),
-          receivedDate: data.receivedDate || new Date().toISOString().split('T')[0]
+        const res = await cfFetch<{ request?: MaintenanceRequest }>('/api/db/maintenance', {
+          method: 'POST',
+          body: JSON.stringify({
+            request: {
+              ...finalData,
+              storeId: currentStoreId,
+              orderNumber,
+              createdAt: new Date().toISOString(),
+              receivedDate: data.receivedDate || new Date().toISOString().split('T')[0]
+            }
+          })
         });
+        if (res?.request) {
+          setRequests(prev => [res.request!, ...prev]);
+        }
         showToast('تم فتح وتسجيل طلب صيانة جديد بنجاح.');
       }
       setIsFormOpen(false);
@@ -806,12 +814,23 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({
         });
       }
 
-      await updateDoc(doc(db, 'maintenance_requests', request.id), {
-        waybillOrderId: companionOrderId,
-        shippingStatus: 'pickup_requested',
-        status: 'ready_for_shipping',
-        updatedAt: new Date().toISOString()
-      });
+      const wbRes = await cfFetch<{ request?: MaintenanceRequest }>(
+        `/api/db/maintenance/${encodeURIComponent(request.id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            updates: {
+              waybillOrderId: companionOrderId,
+              shippingStatus: 'pickup_requested',
+              status: 'ready_for_shipping',
+              updatedAt: new Date().toISOString()
+            }
+          })
+        }
+      );
+      if (wbRes?.request) {
+        setRequests(prev => prev.map(r => r.id === request.id ? wbRes.request! : r));
+      }
 
       showToast('تم إنشاء بوليصة شحن الصيانة وتسجيلها بنجاح!');
     } catch (error) {
@@ -827,7 +846,8 @@ const MaintenancePage: React.FC<MaintenancePageProps> = ({
       if (requestToDelete) {
         rollbackRequestFinancials(requestToDelete);
       }
-      await deleteDoc(doc(db, 'maintenance_requests', deleteId));
+      await cfFetch(`/api/db/maintenance/${encodeURIComponent(deleteId)}`, { method: 'DELETE' });
+      setRequests(prev => prev.filter(r => r.id !== deleteId));
       showToast('تم حذف طلب الصيانة وسجلاته المعلقة نهائياً وتصفية كافة الحركات المالية والمبيعات المرتبطة به.');
     } catch (error) {
       console.error('Error deleting request:', error);

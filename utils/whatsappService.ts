@@ -1,5 +1,4 @@
 import { Order, Settings, WhatsAppConfig } from '../types';
-import { getSupabaseClient } from '../services/databaseService';
 
 /**
  * دالة مساعدة لتوحيد وتنظيف أرقام الهواتف المتوافقة مع WhatsApp

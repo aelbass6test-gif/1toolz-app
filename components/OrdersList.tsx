@@ -76,7 +76,8 @@ import {
   Wallet as WalletIcon,
   Store as StoreIcon,
 } from "lucide-react";
-import { deleteStoreItem, getSupabaseClient } from "../services/databaseService";
+import { deleteStoreItem } from "../services/databaseService";
+import { cfFetch } from "../services/cloudflareClient";
 import {
   Order,
   Settings,
@@ -592,8 +593,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     });
   }, [orders]);
   useEffect(() => {
-    // Removed redundant 10s UI polling to conserve Firestore/Supabase quota. 
-    // Real-time listeners or manual refresh provide sufficient synchronization.
+    // Polling is handled by App.tsx Cloudflare D1 real-time sync.
   }, [onRefresh]);
 
   const handleManualRefresh = async () => {
@@ -2126,19 +2126,18 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       return;
     }
 
-    // Logic for deleting related maintenance request...
-    if (deleteRelated && orderToDelete.orderType === "maintenance") {
-      const supabase = getSupabaseClient();
-      if (supabase && orderToDelete.orderNumber) {
-        supabase
-          .from("maintenance_requests")
-          .delete()
-          .or(`orderNumber.eq.${orderToDelete.orderNumber},order_number.eq.${orderToDelete.orderNumber}`)
-          .then(() => {})
-          .catch((err) =>
-            console.error("Error deleting maintenance request:", err),
+    // Logic for deleting related maintenance request in Cloudflare D1...
+    if (deleteRelated && orderToDelete.orderType === "maintenance" && orderToDelete.orderNumber && activeStore?.id) {
+      cfFetch<{ requests?: any[] }>(`/api/db/maintenance?storeId=${encodeURIComponent(activeStore.id)}`)
+        .then((res) => {
+          const matching = (res?.requests || []).filter(
+            (r: any) => r.orderNumber === orderToDelete.orderNumber || r.order_number === orderToDelete.orderNumber
           );
-      }
+          return Promise.all(
+            matching.map((m: any) => cfFetch(`/api/db/maintenance/${encodeURIComponent(m.id)}`, { method: "DELETE" }))
+          );
+        })
+        .catch((err) => console.error("Error deleting maintenance request:", err));
     }
 
     const orderIdToDelete = orderToDelete.id;

@@ -1,12 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { 
-  verifyPasswordResetCode, 
-  confirmPasswordReset, 
-  applyActionCode,
-  Auth
-} from 'firebase/auth';
-import { auth } from '../services/firebaseClient';
+import { cfFetch } from '../services/cloudflareClient';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   CheckCircle2, 
@@ -28,8 +22,7 @@ export default function FirebaseActionPage() {
   const navigate = useNavigate();
   
   const mode = searchParams.get('mode') as Mode;
-  const oobCode = searchParams.get('oobCode');
-  const apiKey = searchParams.get('apiKey');
+  const oobCode = searchParams.get('oobCode') || searchParams.get('token');
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,41 +35,7 @@ export default function FirebaseActionPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [resetting, setResetting] = useState(false);
 
-  useEffect(() => {
-    console.log('Action Page Loaded:', { mode, hasCode: !!oobCode, hasApiKey: !!apiKey });
-
-    if (!mode || !oobCode) {
-      setError('رابط غير صالح. يرجى التأكد من الرابط المرسل إليك في البريد الإلكتروني.');
-      setLoading(false);
-      return;
-    }
-
-    const handleAction = async () => {
-      try {
-        if (mode === 'resetPassword') {
-          const userEmail = await verifyPasswordResetCode(auth, oobCode);
-          setEmail(userEmail);
-          setLoading(false);
-        } else if (mode === 'verifyEmail') {
-          await applyActionCode(auth, oobCode);
-          setSuccess(true);
-          setLoading(false);
-          triggerConfetti();
-        } else {
-          setError('نوع العملية غير مدعوم حالياً.');
-          setLoading(false);
-        }
-      } catch (err: any) {
-        console.error('Firebase Action Error:', err);
-        handleFirebaseError(err.code);
-        setLoading(false);
-      }
-    };
-
-    handleAction();
-  }, [mode, oobCode]);
-
-  const handleFirebaseError = (code: string) => {
+  const handleActionError = (code?: string, fallbackMsg?: string) => {
     switch (code) {
       case 'auth/expired-action-code':
         setError('انتهت صلاحية هذا الرابط. يرجى طلب رابط جديد.');
@@ -94,9 +53,44 @@ export default function FirebaseActionPage() {
         setError('كلمة المرور ضعيفة جداً. يجب أن تتكون من 6 أحرف على الأقل.');
         break;
       default:
-        setError('حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.');
+        setError(fallbackMsg || 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.');
     }
   };
+
+  useEffect(() => {
+    if (!mode || !oobCode) {
+      setError('رابط غير صالح. يرجى التأكد من الرابط المرسل إليك في البريد الإلكتروني.');
+      setLoading(false);
+      return;
+    }
+
+    const handleAction = async () => {
+      try {
+        if (mode === 'resetPassword') {
+          const res = await cfFetch<{ success: boolean; email?: string }>(`/api/auth/action?mode=resetPassword&oobCode=${encodeURIComponent(oobCode)}`);
+          setEmail(res.email || null);
+          setLoading(false);
+        } else if (mode === 'verifyEmail') {
+          await cfFetch('/api/auth/action', {
+            method: 'POST',
+            body: JSON.stringify({ mode: 'verifyEmail', oobCode })
+          });
+          setSuccess(true);
+          setLoading(false);
+          triggerConfetti();
+        } else {
+          setError('نوع العملية غير مدعوم حالياً.');
+          setLoading(false);
+        }
+      } catch (err: any) {
+        console.error('Auth Action Error:', err);
+        handleActionError(err?.code, err?.message);
+        setLoading(false);
+      }
+    };
+
+    void handleAction();
+  }, [mode, oobCode]);
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,13 +110,16 @@ export default function FirebaseActionPage() {
     setError(null);
     
     try {
-      await confirmPasswordReset(auth, oobCode, newPassword);
+      await cfFetch('/api/auth/action', {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'resetPassword', oobCode, newPassword })
+      });
       setSuccess(true);
       setResetting(false);
       triggerConfetti();
     } catch (err: any) {
       console.error('Confirm Reset Error:', err);
-      handleFirebaseError(err.code);
+      handleActionError(err?.code, err?.message);
       setResetting(false);
     }
   };

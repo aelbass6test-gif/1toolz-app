@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { whatsappService, normalizeWhatsAppPhone } from '../utils/whatsappService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
-import { getSupabaseClient } from '../services/databaseService';
+import { cfFetch, subscribePolling } from '../services/cloudflareClient';
 
 interface OrderWhatsAppChatModalProps {
   order?: Order | null;
@@ -162,64 +162,52 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     }
   };
 
-  // Canonical inbox stream: use whatsapp_messages when a conversation exists,
+  // Canonical inbox stream: use Cloudflare D1 whatsapp_messages when available,
   // while retaining the legacy order log as a compatibility fallback.
   useEffect(() => {
-    let cancelled = false;
-    const supabase = getSupabaseClient();
-    if (!supabase || !activeOrder?.id) {
+    const effectiveStoreId = storeId || 'main_store';
+    if (!activeOrder?.id) {
       setLiveConversationId(null);
       setLiveMessages([]);
       return;
     }
 
+    let cancelled = false;
+
     const loadConversation = async () => {
-      const { data: conversation } = await supabase
-        .from('whatsapp_conversations')
-        .select('id')
-        .eq('order_id', activeOrder.id)
-        .limit(1)
-        .maybeSingle();
-      if (cancelled) return;
-      setLiveConversationId(conversation?.id || null);
-      if (!conversation?.id) {
-        setLiveMessages([]);
-        return;
+      try {
+        const convRes = await cfFetch<{ success: boolean; conversations: any[] }>(
+          `/api/db/whatsapp/${encodeURIComponent(effectiveStoreId)}/conversations?orderId=${encodeURIComponent(activeOrder.id)}`
+        );
+        if (cancelled) return;
+        const conversation = convRes?.conversations?.[0] || null;
+        setLiveConversationId(conversation?.id || null);
+      } catch {
+        if (!cancelled) setLiveConversationId(null);
       }
-      const { data: initialMessages } = await supabase
-        .from('whatsapp_messages')
-        .select('*')
-        .eq('conversation_id', conversation.id)
-        .order('occurred_at', { ascending: true });
-      if (!cancelled) setLiveMessages(initialMessages || []);
     };
 
     void loadConversation();
-    return () => { cancelled = true; };
-  }, [activeOrder?.id]);
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-    if (!supabase || !liveConversationId) return;
-    const channel = supabase
-      .channel(`whatsapp-messages-${liveConversationId}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'whatsapp_messages',
-        filter: `conversation_id=eq.${liveConversationId}`
-      }, (payload: any) => {
-        if (payload.eventType === 'INSERT') {
-          setLiveMessages(prev => prev.some(item => item.id === payload.new.id) ? prev : [...prev, payload.new]);
-        } else if (payload.eventType === 'UPDATE') {
-          setLiveMessages(prev => prev.map(item => item.id === payload.new.id ? { ...item, ...payload.new } : item));
-        } else if (payload.eventType === 'DELETE') {
-          setLiveMessages(prev => prev.filter(item => item.id !== payload.old.id));
+    const unsubscribe = subscribePolling(
+      () =>
+        cfFetch<{ success: boolean; messages: any[] }>(
+          `/api/db/whatsapp/${encodeURIComponent(effectiveStoreId)}/messages?orderId=${encodeURIComponent(activeOrder.id)}`
+        ),
+      (res) => {
+        if (!cancelled && Array.isArray(res?.messages)) {
+          setLiveMessages(res.messages);
         }
-      })
-      .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [liveConversationId]);
+      },
+      4500,
+      () => {}
+    );
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [activeOrder?.id, storeId]);
 
   // Keep activeOrder synchronized when props change
   useEffect(() => {
@@ -420,47 +408,67 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
         storeDisplayName
       ) as any;
 
-      const supabase = getSupabaseClient();
+      const effectiveStoreId = storeId || 'main_store';
       let conversationId = liveConversationId;
-      if (supabase && activeOrder.id && storeId) {
-        if (!conversationId) {
-          const created = await supabase
-            .from('whatsapp_conversations')
-              .insert({
-              store_id: storeId,
-              order_id: activeOrder.id,
-              customer_phone: phone,
-              customer_name: activeOrder.customerName || ''
-            })
-            .select('id')
-            .single();
-          conversationId = created.data?.id || null;
-          if (conversationId) setLiveConversationId(conversationId);
-        }
-        if (conversationId) {
-          await supabase.from('whatsapp_messages').insert({
-            conversation_id: conversationId,
-            store_id: storeId,
-            order_id: activeOrder.id,
-            customer_phone: phone,
-            provider: whatsappConfig.providerType === 'direct_web' ? 'direct_web' : 'meta_cloud',
-            provider_message_id: res.messageId || `local_${Date.now()}`,
-            direction: 'outgoing',
-            message_type: buttons?.length ? 'interactive' : 'text',
-            body: textToSend,
-            sender_name: `${storeDisplayName} (المتجر)`,
-            recipient_phone: phone,
-            status: res.success ? 'sent' : 'failed',
-            buttons: buttons || [],
-            occurred_at: new Date().toISOString(),
-            sent_at: res.success ? new Date().toISOString() : null,
-            metadata: { source: 'dashboard_manual_send', type }
-          });
+      if (activeOrder.id) {
+        try {
+          if (!conversationId) {
+            const convRes = await cfFetch<{ success: boolean; conversation: any }>(
+              `/api/db/whatsapp/${encodeURIComponent(effectiveStoreId)}/conversations`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  conversation: {
+                    id: `waconv_${effectiveStoreId}_${activeOrder.id}`,
+                    store_id: effectiveStoreId,
+                    order_id: activeOrder.id,
+                    customer_phone: phone,
+                    customer_name: activeOrder.customerName || ''
+                  }
+                })
+              }
+            );
+            conversationId = convRes?.conversation?.id || null;
+            if (conversationId) setLiveConversationId(conversationId);
+          }
+
+          if (conversationId) {
+            const msgRes = await cfFetch<{ success: boolean; message: any }>(
+              `/api/db/whatsapp/${encodeURIComponent(effectiveStoreId)}/messages`,
+              {
+                method: 'POST',
+                body: JSON.stringify({
+                  message: {
+                    conversation_id: conversationId,
+                    store_id: effectiveStoreId,
+                    order_id: activeOrder.id,
+                    customer_phone: phone,
+                    provider: whatsappConfig.providerType === 'direct_web' ? 'direct_web' : 'meta_cloud',
+                    provider_message_id: res.messageId || `local_${Date.now()}`,
+                    direction: 'outgoing',
+                    message_type: buttons?.length ? 'interactive' : 'text',
+                    body: textToSend,
+                    sender_name: `${storeDisplayName} (المتجر)`,
+                    recipient_phone: phone,
+                    status: res.success ? 'sent' : 'failed',
+                    buttons: buttons || [],
+                    occurred_at: new Date().toISOString(),
+                    sent_at: res.success ? new Date().toISOString() : null,
+                    metadata: { source: 'dashboard_manual_send', type }
+                  }
+                })
+              }
+            );
+            if (msgRes?.message) {
+              setLiveMessages(prev => prev.some(item => item.id === msgRes.message.id) ? prev : [...prev, msgRes.message]);
+            }
+          }
+        } catch (dbErr) {
+          console.warn('[WA-MODAL] D1 message log notice:', dbErr);
         }
       }
 
-      // whatsapp_messages is the canonical message ledger. Do not mirror new
-      // messages into the legacy Firestore/order whatsappLogs fields.
+      // whatsapp_messages in Cloudflare D1 is the canonical message ledger.
 
       if (res.success) {
         setStatusMsg({ type: 'success', text: 'تم إرسال الرسالة بنجاح عبر الواتساب! ✅' });
@@ -550,7 +558,7 @@ export const OrderWhatsAppChatModal: React.FC<OrderWhatsAppChatModalProps> = ({
     } catch (err: any) {
       const isCookieCheck = err.message && (err.message.includes('Unexpected token') || err.message.includes('JSON') || err.message.includes('parse') || err.message.includes('DOCTYPE'));
       if (isCookieCheck) {
-        // Fallback to direct client-side Firestore state simulation so that it works seamlessly even under Google cookie walls
+        // Fallback to direct client-side D1/state simulation so that it works seamlessly even under strict cookie walls
         const isCancel = actionText.includes('إلغاء');
         const updatedStatus = isCancel ? 'ملغي' : 'قيد_التنفيذ';
         

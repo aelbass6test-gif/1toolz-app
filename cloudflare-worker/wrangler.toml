@@ -14,6 +14,18 @@ not_found_handling = "single-page-application"
 binding = "R2_IMAGES"
 bucket_name = "abdomedi-product-images"
 
+[[d1_databases]]
+binding = "OTP_DB"
+database_name = "abdomedi-otp"
+database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
+migrations_dir = "migrations"
+
+[[d1_databases]]
+binding = "APP_DB"
+database_name = "abdomedi-otp"
+database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
+migrations_dir = "migrations"
+
 # After the first successful deploy, attach the custom domain from
 # Cloudflare Dashboard or uncomment this block if your account supports it.
 # [[routes]]

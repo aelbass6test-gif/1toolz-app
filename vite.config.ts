@@ -132,7 +132,6 @@ export default defineConfig(({ mode }) => {
           output: {
             manualChunks(id) {
               if (id.includes('node_modules')) {
-                if (id.includes('firebase')) return 'vendor-firebase';
                 if (id.includes('recharts')) return 'vendor-recharts';
                 if (id.includes('xlsx')) return 'vendor-xlsx';
                 if (id.includes('html2pdf') || id.includes('jspdf') || id.includes('html-to-image')) return 'vendor-pdf';
@@ -140,7 +139,6 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('@vis.gl') || id.includes('google-maps')) return 'vendor-maps';
                 if (id.includes('qrcode')) return 'vendor-qrcode';
                 if (id.includes('lucide-react')) return 'vendor-lucide';
-                if (id.includes('@supabase')) return 'vendor-supabase';
                 if (id.includes('framer-motion') || id.includes('motion')) return 'vendor-motion';
                 if (id.includes('date-fns')) return 'vendor-date-fns';
                 if (id.includes('dexie')) return 'vendor-dexie';

@@ -57,7 +57,7 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
   // Saving state
   const [isSaving, setIsSaving] = useState(false);
 
-  // Save profile updates to settings and Firestore
+  // Save profile updates to settings and Cloudflare D1
   const handleSaveProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setIsSaving(true);

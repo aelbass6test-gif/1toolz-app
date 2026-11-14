@@ -1,4 +1,8 @@
 import { handleOtpRequest } from "./otp";
+import { handleAuthRequest, verifyBearerToken } from "./auth";
+import { handleDbRequest } from "./dbApi";
+import { handleNativeWhatsAppWebhook } from "./whatsappWebhook";
+import type { D1LikeDatabase } from "./d1Types";
 
 type Fetcher = {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
@@ -21,8 +25,10 @@ export interface Env {
   APP_BACKEND_URL?: string;
   MEDIA_PUBLIC_ORIGIN?: string;
   MEDIA_REQUIRE_AUTH?: string;
-  OTP_DB?: any;
+  OTP_DB?: D1LikeDatabase;
+  APP_DB?: D1LikeDatabase;
   OTP_HASH_SECRET?: string;
+  AUTH_SECRET?: string;
   RESEND_API_KEY?: string;
   BREVO_API_KEY?: string;
   OTP_RESEND_FROM?: string;
@@ -30,7 +36,6 @@ export interface Env {
   OTP_FROM_NAME?: string;
   OTP_RESEND_DAILY_LIMIT?: string;
   OTP_BREVO_DAILY_LIMIT?: string;
-  SUPABASE_WHATSAPP_WEBHOOK_URL?: string;
   META_VERIFY_TOKEN?: string;
   BOSTA_API_KEY?: string;
   BOSTA_PRODUCTION_BASE_URL?: string;
@@ -47,8 +52,6 @@ export interface ExecutionContext {
 }
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
-
-const SUPABASE_WHATSAPP_WEBHOOK_URL = "https://kwirhppfowzqshltmoga.supabase.co/functions/v1/whatsapp-webhook";
 const MAX_MEDIA_FILE_SIZE = 10 * 1024 * 1024;
 
 /**
@@ -369,25 +372,11 @@ function bostaHeaders(key: string, content = false): Record<string, string> {
 function turboHeaders() { return { "content-type": "application/json", accept: "application/json" }; }
 
 /* -------------------------------------------------------------------------- */
-/* WhatsApp / Meta Cloud API Webhook Edge Handler                              */
+/* WhatsApp / Meta Cloud API Webhook Edge Handler (Native Cloudflare D1)       */
 /* -------------------------------------------------------------------------- */
 async function handleWhatsAppWebhook(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
-  const target = env.SUPABASE_WHATSAPP_WEBHOOK_URL || SUPABASE_WHATSAPP_WEBHOOK_URL;
-  const targetUrl = new URL(target);
-  const incomingUrl = new URL(request.url);
-  incomingUrl.searchParams.forEach((value, key) => targetUrl.searchParams.set(key, value));
-  const response = await fetch(targetUrl.toString(), {
-    method: request.method,
-    headers: {
-      "content-type": request.headers.get("content-type") || "application/json",
-      "x-hub-signature-256": request.headers.get("x-hub-signature-256") || "",
-    },
-    body: request.method === "GET" ? undefined : await request.text(),
-  });
-  return new Response(response.body, {
-    status: response.status,
-    headers: { "content-type": response.headers.get("content-type") || "application/json" },
-  });
+  const db = env.APP_DB || env.OTP_DB || null;
+  return await handleNativeWhatsAppWebhook(request, env, db, json);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -615,10 +604,22 @@ export default {
     }
 
     try { 
+      const db = env.APP_DB || env.OTP_DB;
+
       if (url.pathname === "/api/send-otp" || url.pathname === "/api/verify-otp") {
-        return env.OTP_DB
-          ? await handleOtpRequest(request, env, json)
+        return db
+          ? await handleOtpRequest(request, { ...env, OTP_DB: db }, json)
           : await proxyBackendRequest(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/auth/")) {
+        if (!db) return json(request, env, { success: false, error: "قاعدة بيانات Cloudflare D1 غير مهيأة" }, 503);
+        return await handleAuthRequest(request, env, db, json);
+      }
+
+      if (url.pathname.startsWith("/api/db/") || url.pathname === "/api/shared-reports" || url.pathname.startsWith("/api/shared-reports/")) {
+        if (!db) return json(request, env, { success: false, error: "قاعدة بيانات Cloudflare D1 غير مهيأة" }, 503);
+        return await handleDbRequest(request, env, db, json);
       }
 
       // Meta WhatsApp Webhook Route
@@ -627,6 +628,13 @@ export default {
       }
 
       if (url.pathname.startsWith('/images/') || url.pathname === '/api/media/product-images' || url.pathname === '/api/media/delete') {
+        if (request.method !== 'GET' && request.method !== 'HEAD' && env.MEDIA_REQUIRE_AUTH === 'true') {
+          const authHeader = request.headers.get('authorization') || '';
+          const verified = authHeader ? await verifyBearerToken(authHeader, env, db) : null;
+          if (!authHeader && !verified) {
+            return json(request, env, { success: false, error: 'يجب تسجيل الدخول قبل إدارة الصور' }, 401);
+          }
+        }
         return await handleMedia(request, env);
       }
 

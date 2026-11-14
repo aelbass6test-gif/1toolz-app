@@ -318,7 +318,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
       console.error(e);
     }
 
-    // Persist directly to user's permanent document in Firestore and Supabase
+    // Persist directly to user's permanent document in Cloudflare D1
     db.createUserDoc(updatedUser).catch(err => {
       console.warn('Sync user doc with pinned store failed:', err);
     });

@@ -1357,7 +1357,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       setAuthenticatedMerchant(prev => prev ? applyPatch(prev) : prev);
 
-      // 4. Persist to Firestore
+      // 4. Persist to Cloudflare D1
       if (targetStore) {
         await db.updatePartnerSettings(targetStore, nextPartners, nextSuppliers);
       }
@@ -3745,7 +3745,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         throw new Error('تعذر تحديث بيانات الحساب، يرجى المحاولة لاحقاً');
       }
 
-      // Cleanup standalone request doc in Firestore if it exists
+      // Cleanup standalone request doc in Cloudflare D1 if it exists
       if (request.id && targetStore) {
         await db.updateMerchantRequestStatus(request.id, targetStore, 'approved', {
           approvedBy: 'الموكل (موافقة ذاتية)',

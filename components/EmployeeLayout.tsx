@@ -37,9 +37,7 @@ import {
 } from 'lucide-react';
 import FloatingChat, { FloatingChatHandles } from './FloatingChat';
 import IosInstallPrompt from './IosInstallPrompt';
-import { db } from '../services/firebaseClient';
-import { doc, setDoc, deleteDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
-import { isSupabaseActive } from '../services/databaseService';
+import { cfFetch, subscribePolling } from '../services/cloudflareClient';
 
 interface EmployeeLayoutProps {
     currentUser: User | null;
@@ -223,48 +221,56 @@ export const EmployeeLayout: React.FC<EmployeeLayoutProps> = ({
     const canManageOrders = Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('ORDERS_MANAGE') || currentUser?.permissions?.includes('ORDERS_VIEW'));
     const canUsePOS = Boolean(currentUser?.isAdmin || currentUser?.permissions?.includes('POS_VIEW') || currentUser?.permissions?.includes('POS_MANAGE'));
 
-    // Presence Sync in Firestore
+    // Presence Sync in Cloudflare D1
     useEffect(() => {
-        if (!currentUser || !activeStoreId || isSupabaseActive()) return;
-
-        const presenceDocRef = doc(db, 'presence', `${activeStoreId}_${currentUser.phone}`);
+        if (!currentUser || !activeStoreId) return;
 
         const updateStatus = async () => {
             try {
-                await setDoc(presenceDocRef, {
-                    userId: currentUser.phone,
-                    userName: currentUser.fullName,
-                    storeId: activeStoreId,
-                    shiftStatus: shiftStatus,
-                    lastSeen: Date.now()
-                }, { merge: true });
+                await cfFetch(`/api/db/presence/${encodeURIComponent(activeStoreId)}`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId: currentUser.phone,
+                        userName: currentUser.fullName,
+                        shiftStatus: shiftStatus,
+                        lastSeen: Date.now()
+                    })
+                });
             } catch (err) {
                 console.warn('Failed to update presence status:', err);
             }
         };
 
-        updateStatus();
+        void updateStatus();
         const interval = setInterval(updateStatus, 120000); // every 2 mins
 
-        const q = query(collection(db, 'presence'), where('storeId', '==', activeStoreId));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const usersMap: Record<string, { lastSeen: number }> = {};
-            const now = Date.now();
-            snapshot.docs.forEach(docSnap => {
-                const data = docSnap.data();
-                if (data.lastSeen && (now - data.lastSeen) < 300000) {
-                    usersMap[data.userId] = { lastSeen: data.lastSeen };
-                }
-            });
-            setOnlineUsers(usersMap);
-        }, (error) => {
-            console.warn('[EmployeeLayout] Presence listener notice:', error?.message);
-        });
+        const unsubscribe = subscribePolling(
+            async () => cfFetch<{ items?: any[]; presence?: any[] }>(`/api/db/presence/${encodeURIComponent(activeStoreId)}`),
+            (data) => {
+                const list = Array.isArray(data?.items) ? data.items : (Array.isArray(data?.presence) ? data.presence : []);
+                const usersMap: Record<string, { lastSeen: number }> = {};
+                const now = Date.now();
+                list.forEach((item: any) => {
+                    const lastSeen = Number(item.lastSeen || item.last_seen || 0);
+                    const uid = item.userId || item.user_id;
+                    if (uid && lastSeen && (now - lastSeen) < 300000) {
+                        usersMap[uid] = { lastSeen };
+                    }
+                });
+                setOnlineUsers(usersMap);
+            },
+            25000,
+            (error) => {
+                console.warn('[EmployeeLayout] Presence polling notice:', error?.message);
+            }
+        );
 
         return () => {
             clearInterval(interval);
             unsubscribe();
-            deleteDoc(presenceDocRef).catch(() => {});
+            cfFetch(`/api/db/presence/${encodeURIComponent(activeStoreId)}/${encodeURIComponent(currentUser.phone)}`, {
+                method: 'DELETE'
+            }).catch(() => {});
         };
     }, [currentUser, activeStoreId, shiftStatus]);
 

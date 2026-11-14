@@ -163,7 +163,7 @@ export default function AuditSettings({
                         <ShieldCheck className="text-emerald-500" size={24} />
                         <h4 className="text-xs font-black text-slate-800 dark:text-white">الأمان والمزامنة الموحدة</h4>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed font-bold">
-                            جميع التغييرات المبرمجة هنا ترفع لحظياً لقاعدة البيانات السحابية Firestore ويتم تحديث هواتف الموظفين في الميدان دون الحاجة لطلب تحديث الصفحة أو الخوف من ضياع الأرصدة.
+                            جميع التغييرات المبرمجة هنا ترفع لحظياً لقاعدة البيانات السحابية Cloudflare D1 ويتم تحديث هواتف الموظفين في الميدان دون الحاجة لطلب تحديث الصفحة أو الخوف من ضياع الأرصدة.
                         </p>
                     </div>
                 </div>

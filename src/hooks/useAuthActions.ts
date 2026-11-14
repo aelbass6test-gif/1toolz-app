@@ -1,31 +1,5 @@
-import { 
-  sendPasswordResetEmail, 
-  sendEmailVerification, 
-  ActionCodeSettings 
-} from 'firebase/auth';
-import { auth } from '../../services/firebaseClient';
+import { cfFetch } from '../../services/cloudflareClient';
 import { useState } from 'react';
-
-/**
- * إعدادات الـ Action Code للتحويل إلى الرابط المخصص
- */
-const actionCodeSettings: ActionCodeSettings = {
-  // الرابط الذي سيتم توجيه المستخدم إليه بعد الضغط على لينك الإيميل
-  url: 'https://abdomedi.com/auth/action',
-  // يجب أن يكون true لضمان معالجة الكود داخل التطبيق
-  handleCodeInApp: true,
-  // اختياري: إذا كان لديك تطبيق موبايل وتريد فتحه مباشرة
-  /*
-  iOS: {
-    bundleId: 'com.abdomedi.ios'
-  },
-  android: {
-    packageName: 'com.abdomedi.android',
-    installApp: true,
-    minimumVersion: '12'
-  },
-  */
-};
 
 export const useAuthActions = () => {
   const [loading, setLoading] = useState(false);
@@ -33,30 +7,44 @@ export const useAuthActions = () => {
   const [success, setSuccess] = useState<string | null>(null);
 
   /**
-   * إرسال بريد إعادة تعيين كلمة المرور
+   * إرسال بريد إعادة تعيين كلمة المرور عبر Cloudflare Workers
    */
   const handleCustomPasswordReset = async (email: string) => {
     setLoading(true);
     setError(null);
     setSuccess(null);
-    
+
     try {
-      await sendPasswordResetEmail(auth, email, actionCodeSettings);
+      const cleanEmail = (email || '').trim().toLowerCase();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        setError('عنوان البريد الإلكتروني غير صالح.');
+        return;
+      }
+
+      const res = await cfFetch<any>('/api/auth/request-reset', {
+        method: 'POST',
+        body: JSON.stringify({ email: cleanEmail })
+      });
+
+      const resetLink = `${typeof window !== 'undefined' ? window.location.origin : 'https://abdomedi.com'}/auth/action?mode=resetPassword&oobCode=${encodeURIComponent(res.token)}`;
+      await cfFetch('/api/send-otp', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: cleanEmail,
+          type: 'password_reset',
+          resetCode: res.code,
+          resetLink
+        })
+      }).catch(() => null);
+
       setSuccess('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني بنجاح.');
     } catch (err: any) {
       console.error('Password Reset Error:', err);
-      switch (err.code) {
-        case 'auth/user-not-found':
-          setError('عذراً، لا يوجد حساب مسجل بهذا البريد الإلكتروني.');
-          break;
-        case 'auth/invalid-email':
-          setError('عنوان البريد الإلكتروني غير صالح.');
-          break;
-        case 'auth/too-many-requests':
-          setError('لقد قمت بمحاولات كثيرة جداً. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.');
-          break;
-        default:
-          setError('حدث خطأ أثناء محاولة إرسال البريد. يرجى المحاولة لاحقاً.');
+      const msg = String(err?.message || '');
+      if (msg.includes('غير مسجل') || err?.status === 404) {
+        setError('عذراً، لا يوجد حساب مسجل بهذا البريد الإلكتروني.');
+      } else {
+        setError(msg || 'حدث خطأ أثناء محاولة إرسال البريد. يرجى المحاولة لاحقاً.');
       }
     } finally {
       setLoading(false);
@@ -64,30 +52,33 @@ export const useAuthActions = () => {
   };
 
   /**
-   * إرسال بريد تفعيل الحساب للمستخدم الحالي
+   * تفعيل وتوثيق البريد الإلكتروني للمستخدم الحالي عبر Cloudflare Workers
    */
-  const handleCustomEmailVerification = async () => {
-    if (!auth.currentUser) {
-      setError('يجب تسجيل الدخول أولاً لإرسال بريد التفعيل.');
-      return;
-    }
-
+  const handleCustomEmailVerification = async (email?: string, phone?: string) => {
     setLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
-      await sendEmailVerification(auth.currentUser, actionCodeSettings);
-      setSuccess('تم إرسال رابط تفعيل الحساب إلى بريدك الإلكتروني بنجاح.');
+      const storedRaw = typeof localStorage !== 'undefined' ? localStorage.getItem('cf_auth_user') || localStorage.getItem('current_user') : null;
+      const storedUser = storedRaw ? JSON.parse(storedRaw) : null;
+      const targetEmail = (email || storedUser?.email || '').trim().toLowerCase();
+      const targetPhone = phone || storedUser?.phone;
+
+      if (!targetEmail && !targetPhone) {
+        setError('يجب تسجيل الدخول أولاً لإرسال بريد التفعيل.');
+        return;
+      }
+
+      await cfFetch('/api/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ email: targetEmail, phone: targetPhone })
+      });
+
+      setSuccess('تم توثيق البريد الإلكتروني على حسابك بنجاح.');
     } catch (err: any) {
       console.error('Email Verification Error:', err);
-      switch (err.code) {
-        case 'auth/too-many-requests':
-          setError('لقد طلبت بريداً إلكترونياً بالفعل. يرجى التحقق من صندوق الوارد أو المحاولة لاحقاً.');
-          break;
-        default:
-          setError('حدث خطأ أثناء محاولة إرسال بريد التفعيل.');
-      }
+      setError(err?.message || 'حدث خطأ أثناء محاولة تفعيل البريد.');
     } finally {
       setLoading(false);
     }

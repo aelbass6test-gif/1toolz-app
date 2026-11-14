@@ -1611,6 +1611,7 @@ export interface SharedAudit {
   logs: SharedAuditLogEntry[];
   assignments: SharedAuditAssignment[];
   presence: Record<string, SharedAuditPresence>;
+  locks?: Record<string, { userId: string; userName: string; lockedAt: string }>;
   conflicts: SharedAuditConflict[];
   unlockReason?: string;
   unlockedBy?: string;

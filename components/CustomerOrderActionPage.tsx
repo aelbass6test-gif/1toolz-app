@@ -15,7 +15,7 @@ import {
   Check,
   ArrowRight
 } from 'lucide-react';
-import { getSupabaseClient } from '../services/databaseService';
+import { cfFetch } from '../services/cloudflareClient';
 import { db as localDb } from '../src/lib/db';
 
 interface CustomerOrderActionPageProps {
@@ -225,22 +225,23 @@ export const CustomerOrderActionPage: React.FC<CustomerOrderActionPageProps> = (
         }
       }
 
-      // Strategy 5: Direct Supabase Query in 'orders' table
-      const supabase = getSupabaseClient();
-      if (!targetOrder && supabase) {
+      // Strategy 5: Direct Cloudflare D1 Query in 'orders' table
+      if (!targetOrder) {
         try {
-          const { data: ords } = await supabase.from('orders').select('*').limit(30);
-          if (ords) {
-            for (const ordData of ords) {
-              if (matchesOrder(ordData)) {
-                targetOrder = ordData;
-                foundStoreId = ordData.storeId || ordData.store_id || null;
-                break;
-              }
+          const params = new URLSearchParams();
+          if (qCleanId) params.set('orderId', qCleanId);
+          if (qCleanNum) params.set('orderNumber', qCleanNum);
+          if (qPhoneCore || qRawPhone) params.set('phone', qPhoneCore || qRawPhone);
+          const cfRes = await cfFetch<{ orders?: any[] }>(`/api/db/orders/customer-lookup?${params.toString()}`);
+          if (Array.isArray(cfRes?.orders)) {
+            const match = cfRes.orders.find(matchesOrder);
+            if (match) {
+              targetOrder = match;
+              foundStoreId = match.storeId || match.store_id || null;
             }
           }
-        } catch (sbErr) {
-          console.warn('Supabase orders search note:', sbErr);
+        } catch (cfErr) {
+          console.warn('Cloudflare D1 orders search note:', cfErr);
         }
       }
 
@@ -321,21 +322,19 @@ export const CustomerOrderActionPage: React.FC<CustomerOrderActionPageProps> = (
         notes: `${currentOrder.notes || ''} [بوابة العميل: ${actionType === 'confirm' ? 'تأكيد الطلب' : actionType === 'cancel' ? 'إلغاء الطلب' : `تعديل العنوان إلى: ${newAddress}`}]`.trim()
       };
 
-      // 1. Direct Supabase Update (Orders Table)
-      const supabase = getSupabaseClient();
-      if (supabase) {
+      // 1. Direct Cloudflare D1 Order Update
+      if (currentStoreId && currentOrder.id) {
         try {
-          const docId = currentOrder.id;
-          if (docId) {
-            await supabase.from('orders').update({
-              status: targetStatus,
-              customer_address: updatedOrderObj.customerAddress,
-              notes: updatedOrderObj.notes,
-              updated_at: updatedOrderObj.updatedAt
-            }).eq('id', docId);
-          }
-        } catch (sbErr) {
-          console.warn('Direct Supabase orders table update notice:', sbErr);
+          await cfFetch(`/api/db/stores/${encodeURIComponent(currentStoreId)}/item`, {
+            method: 'POST',
+            body: JSON.stringify({
+              collectionName: 'orders',
+              itemId: currentOrder.id,
+              item: updatedOrderObj
+            })
+          });
+        } catch (cfErr) {
+          console.warn('Direct Cloudflare D1 orders update notice:', cfErr);
         }
       }
 

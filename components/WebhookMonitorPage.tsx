@@ -13,7 +13,7 @@ import {
 } from '../services/webhookDispatcherService';
 import { audioSynth } from '../utils/audioSynth';
 import { Settings, Order } from '../types';
-import { getSupabaseClient } from '../services/databaseService';
+import { cfFetch } from '../services/cloudflareClient';
 
 interface WebhookMonitorPageProps {
   settings: Settings;
@@ -79,40 +79,39 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
   const [simulateModalOpen, setSimulateModalOpen] = useState(false);
   const [simulationResult, setSimulationResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Sync logs from Supabase for "Direct & Secure Search"
+  // Sync logs from Cloudflare D1 webhook_logs
   const refreshLogs = async () => {
-    const supabase = getSupabaseClient();
-    if (!supabase || !activeStoreId) {
-      console.log('[WEBHOOK] Supabase client or activeStoreId pending for log refresh');
-      return;
-    }
-
     try {
-      const { data, error } = await supabase
-        .from('webhook_logs')
-        .select('*')
-        .eq('store_id', activeStoreId)
-        .order('occurred_at', { ascending: false })
-        .limit(200);
+      const storeKey = encodeURIComponent(activeStoreId || 'main_store');
+      const res = await cfFetch<{ success: boolean; logs: any[] }>(`/api/db/whatsapp/${storeKey}/webhook-logs`);
+      const data = Array.isArray(res?.logs) ? res.logs : [];
 
-      if (error) throw error;
-
-      const formatted: InboundWebhookEvent[] = (data || []).map(o => ({
+      const formatted: InboundWebhookEvent[] = data.map((o: any) => ({
         id: o.id,
-        source: o.source as any,
-        sourceLabel: o.source === 'meta_whatsapp' ? 'WhatsApp (Meta)' : (o.source === 'bosta' ? 'Bosta' : (o.source === 'turbo' ? 'Turbo' : o.source)),
-        eventType: o.event_type,
-        timestamp: o.occurred_at,
+        source: (o.source === 'meta_whatsapp' ? 'whatsapp' : o.source) as any,
+        sourceLabel:
+          o.source === 'meta_whatsapp' || o.source === 'whatsapp'
+            ? 'WhatsApp (Meta)'
+            : o.source === 'bosta'
+            ? 'Bosta'
+            : o.source === 'turbo'
+            ? 'Turbo'
+            : o.source || 'Webhook',
+        eventType: o.event_type || o.eventType || 'event',
+        timestamp: o.occurred_at || o.timestamp || new Date().toISOString(),
         statusCode: o.status_code || (o.success ? 200 : 500),
-        statusText: o.success ? 'OK' : 'Error',
-        durationMs: 0,
-        success: o.success,
+        statusText: o.success !== false ? 'OK' : 'Error',
+        durationMs: o.durationMs || 0,
+        success: o.success !== false,
+        trackingNumber: o.trackingNumber,
+        orderNumber: o.orderNumber,
         payload: o.payload,
         headers: o.headers,
-        error: o.error_message
+        error: o.error_message || o.error
       }));
 
-      // Add outbound logs from local storage if any (to keep the combined view)
+      // Add local inbound + outbound logs if any
+      const inboundLocal = getStoredInboundLogs();
       const outboundRaw = getStoredWebhookLogs();
       const outboundFormatted: InboundWebhookEvent[] = outboundRaw.map(o => ({
         id: o.id || `out_${o.eventId}_${Math.random()}`,
@@ -129,14 +128,18 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
         error: o.error
       }));
 
-      const combined = [...formatted, ...outboundFormatted].sort((a, b) => 
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+      const seen = new Set<string>();
+      const combined = [...formatted, ...inboundLocal, ...outboundFormatted]
+        .filter(item => {
+          if (!item.id || seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        })
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       setLogs(combined);
     } catch (err) {
-      console.error('Failed to fetch webhook logs from Supabase:', err);
-      // Fallback to local logs
+      console.warn('Failed to fetch webhook logs from Cloudflare D1, using local logs:', err);
       setLogs(getStoredInboundLogs());
     }
   };

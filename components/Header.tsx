@@ -47,7 +47,6 @@ import {
     BellRing,
     Volume2
 } from 'lucide-react';
-import { getSupabaseRestrictedStatus, isSupabaseActive, checkSupabaseConnection } from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
 import { CommandPalette } from './CommandPalette';
@@ -286,7 +285,6 @@ const Header: React.FC<HeaderProps> = ({
     }, [inventoryAlerts.length]);
 
     const location = useLocation();
-    const [isRestricted, setIsRestricted] = useState(getSupabaseRestrictedStatus());
 
     const isStoreManagementOrCreationPage = useMemo(() => {
         const path = location.pathname;
@@ -332,14 +330,7 @@ const Header: React.FC<HeaderProps> = ({
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    useEffect(() => {
-        const handleRestrictionChange = () => {
-            setIsRestricted(getSupabaseRestrictedStatus());
-        };
-        window.addEventListener('supabase_restricted_changed', handleRestrictionChange);
-        return () => window.removeEventListener('supabase_restricted_changed', handleRestrictionChange);
-    }, []);
-    
+
     const handleLogout = () => {
         setIsUserMenuOpen(false);
         onLogout();
@@ -453,22 +444,12 @@ const Header: React.FC<HeaderProps> = ({
                                         <span>غير متصل</span>
                                     </span>
                                 ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border border-emerald-500/20" title="المتجر متصل بالسحابة وتعمل التحديثات لحظياً">
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border border-emerald-500/20" title="المتجر متصل بقاعدة بيانات Cloudflare D1 السحابية">
                                         <span className="relative flex h-1.5 w-1.5">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                                         </span>
-                                        <span>سحابي مباشر</span>
-                                    </span>
-                                )}
-
-                                {isRestricted && (
-                                    <span 
-                                        title="تم التحويل التلقائي لقاعدة بيانات Firebase Firestore الأساسية بسبب تجاوز كوتة Supabase"
-                                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:bg-amber-500/25 dark:text-amber-300 border border-amber-500/30"
-                                    >
-                                        <ShieldAlert size={11} className="text-amber-600 dark:text-amber-400" />
-                                        <span>Firebase نشط (كوتة Supabase)</span>
+                                        <span>Cloudflare D1</span>
                                     </span>
                                 )}
                             </div>

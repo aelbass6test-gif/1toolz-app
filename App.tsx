@@ -4,12 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
-import { onSnapshot, collection, query, where, doc, getDocs } from 'firebase/firestore';
-import { db as firebaseDb, auth } from './services/firebaseClient';
-import { getSupabaseClient } from './services/databaseService';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth } from 'firebase/auth';
-import { getApps, initializeApp } from 'firebase/app';
-import firebaseConfig from './firebase-applet-config.json';
+import { cfFetch, cfAuthLogin, cfAuthEmployeeLogin, cfAuthLogout, subscribePolling } from './services/cloudflareClient';
 import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
 import { verifyPasswordSecure } from './utils/syncIntegrity';
@@ -235,68 +230,38 @@ const MainLayout = ({
             return;
         }
 
-        let unsubAudit: (() => void) | undefined;
-        let unsubChat: (() => void) | undefined;
+        const storeKey = encodeURIComponent(activeStore.id);
 
-        try {
-            const qAudit = query(
-                collection(firebaseDb, 'shared_audits'),
-                where('storeId', '==', activeStore.id)
-            );
-            unsubAudit = onSnapshot(qAudit, (snapshot) => {
-                const list: any[] = [];
-                snapshot.forEach(docSnap => {
-                    list.push({ id: docSnap.id, ...docSnap.data() });
-                });
-                setSharedAudits(list);
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    console.warn('[Notification] Firestore quota reached for shared_audits. Using cached data seamlessly.');
-                    db.markFirestoreQuotaExhausted();
-                    try { if (unsubAudit) unsubAudit(); } catch (_) {}
-                } else {
-                    console.warn('[Notification] shared_audits notice:', msg);
+        const unsubAudit = subscribePolling(
+            () => cfFetch<{ success: boolean; audits: any[] }>(`/api/db/audits/${storeKey}`),
+            (res) => {
+                if (Array.isArray(res?.audits)) {
+                    setSharedAudits(res.audits);
                 }
-            });
-        } catch (e) {
-            console.warn('[Notification] shared_audits subscription notice:', e);
-        }
+            },
+            15000,
+            (err) => console.warn('[Notification] shared_audits polling notice:', err?.message || err)
+        );
 
-        try {
-            const qChat = query(
-                collection(firebaseDb, 'chat_messages'),
-                where('storeId', '==', activeStore.id)
-            );
-            unsubChat = onSnapshot(qChat, (snapshot) => {
-                const list: any[] = [];
-                snapshot.forEach(docSnap => {
-                    const d = docSnap.data();
-                    list.push({
-                        id: docSnap.id,
-                        senderId: d.senderId,
-                        receiverId: d.receiverId,
-                        content: d.content,
-                        createdAt: d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-                    });
-                });
+        const unsubChat = subscribePolling(
+            () => cfFetch<{ success: boolean; messages: any[] }>(`/api/db/chat/${storeKey}`),
+            (res) => {
+                const list = (res?.messages || []).map((d: any) => ({
+                    id: d.id,
+                    senderId: d.sender_id ?? d.senderId,
+                    receiverId: d.receiver_id ?? d.receiverId,
+                    content: d.content,
+                    createdAt: d.created_at ?? d.createdAt ?? new Date().toISOString()
+                }));
                 setChatMessages(list);
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    console.warn('[Notification] Firestore quota reached for chat_messages. Using cached data seamlessly.');
-                    db.markFirestoreQuotaExhausted();
-                    try { if (unsubChat) unsubChat(); } catch (_) {}
-                } else {
-                    console.warn('[Notification] chat_messages notice:', msg);
-                }
-            });
-        } catch (e) {
-            console.warn('[Notification] chat_messages subscription notice:', e);
-        }
+            },
+            10000,
+            (err) => console.warn('[Notification] chat_messages polling notice:', err?.message || err)
+        );
+
         return () => {
-            if (unsubAudit) unsubAudit();
-            if (unsubChat) unsubChat();
+            unsubAudit();
+            unsubChat();
         };
     }, [activeStore?.id]);
 
@@ -871,45 +836,21 @@ const OwnerLayoutWrapper = ({
             setAllPartnerRequests([]);
             return;
         }
-        let legacy: db.PartnerPortalRequest[] = [];
-        let merchants: db.PartnerPortalRequest[] = [];
-        const publish = () => {
-            const mappedMerchants = merchants.map(r => ({
-                ...r,
-                partnerId: String((r as any).merchantId || ''),
-                partnerName: String((r as any).merchantName || ''),
-                isMerchantRequest: true
-            } as db.PartnerPortalRequest));
-            setAllPartnerRequests([...legacy, ...mappedMerchants]);
-        };
-        const unsubs: Array<() => void> = [];
-        try {
-            const legacyQuery = query(collection(firebaseDb, 'partner_requests'), where('storeId', '==', activeStoreId));
-            unsubs.push(onSnapshot(legacyQuery, snapshot => {
-                legacy = [];
-                snapshot.forEach(docSnap => legacy.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
-                publish();
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    db.markFirestoreQuotaExhausted();
-                }
-            }));
-            const merchantQuery = query(collection(firebaseDb, 'merchant_requests'), where('storeId', '==', activeStoreId));
-            unsubs.push(onSnapshot(merchantQuery, snapshot => {
-                merchants = [];
-                snapshot.forEach(docSnap => merchants.push({ id: docSnap.id, ...docSnap.data() } as db.PartnerPortalRequest));
-                publish();
-            }, (err) => {
-                const msg = String(err?.message || err);
-                if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                    db.markFirestoreQuotaExhausted();
-                }
-            }));
-        } catch (e) {
-            console.warn('[Notification] request subscriptions error:', e);
-        }
-        return () => unsubs.forEach(unsub => unsub());
+        const unsub = subscribePolling(
+            () => db.getPartnerRequests(activeStoreId),
+            (list) => {
+                setAllPartnerRequests(
+                    (list || []).map((r) => ({
+                        ...r,
+                        partnerId: String(r.partnerId || (r as any).merchantId || ''),
+                        partnerName: String(r.partnerName || (r as any).merchantName || '')
+                    }))
+                );
+            },
+            12000,
+            (err) => console.warn('[Notification] request polling error:', err?.message || err)
+        );
+        return () => unsub();
     }, [activeStoreId]);
 
     const pendingRequestsCounts = useMemo(() => {
@@ -1662,7 +1603,7 @@ export const AppComponent = () => {
         return () => clearTimeout(timer);
     }, [users, allStoresData, activeStoreId, isInitialLoad]);
 
-    // 2. Network sync debounce (Firebase)
+    // 2. Network sync debounce (Cloudflare D1)
     useEffect(() => {
         if (isInitialLoad) {
             isFirstSyncAfterLoadRef.current = true;
@@ -1774,7 +1715,7 @@ export const AppComponent = () => {
 
         debounceTimer.current = setTimeout(() => {
             executeCloudSync();
-        }, 3000); // 3000ms debounce to reduce Firestore write frequency and prevent quota exhaustion
+        }, 3000); // 3000ms debounce to batch rapid UI edits efficiently before Cloudflare D1 sync
 
         return () => {
             if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1830,77 +1771,11 @@ export const AppComponent = () => {
         localStorage.setItem('theme', theme);
     }, [theme, location.pathname, isStandaloneStorefront]);
 
-    // Proactive background migration for legacy accounts when Admin loads user list
-    useEffect(() => {
-        if (currentUser?.isAdmin && users && users.length > 0) {
-            migrateLegacyUsersToAuth(users);
-        }
-    }, [currentUser, users]);
-
-    // Helper to wait for Firebase Auth to initialize and return the authenticated user
-    const getCurrentAuthenticatedUser = (): Promise<any> => {
-        return new Promise((resolve) => {
-            const unsubscribe = auth.onAuthStateChanged((user) => {
-                unsubscribe();
-                resolve(user);
-            });
-        });
-    };
-
-    // Background migration for legacy accounts using a secondary auth instance
-    const getMigrationAuth = () => {
-        const migrationApp = getApps().find(app => app.name === "MigrationApp") 
-            || initializeApp(firebaseConfig, "MigrationApp");
-        return getAuth(migrationApp);
-    };
-
-    const migrateLegacyUsersToAuth = async (usersToMigrate: User[]) => {
-        try {
-            const mAuth = getMigrationAuth();
-            console.log(`[MIGRATION] Starting background migration check for ${usersToMigrate.length} users...`);
-            // Run sequentially in the background to avoid rate limits
-            for (const user of usersToMigrate) {
-                if (!user.phone) continue;
-                const password = user.password;
-                if (!password) {
-                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: No legacy password stored in legacy database.`);
-                    continue;
-                }
-                if (password.length < 6) {
-                    console.log(`[MIGRATION] Skipping background migration for user ${user.phone}: Password is shorter than 6 characters (does not meet Firebase Auth security requirements).`);
-                    continue;
-                }
-                
-                // Use real email if available, otherwise generated one
-                const email = (user.email && user.email.includes('@') && !user.email.includes('mystore-auth.app'))
-                    ? user.email
-                    : `${user.phone.trim()}@mystore-auth.app`;
-                
-                try {
-                    await createUserWithEmailAndPassword(mAuth, email, password);
-                    console.log(`[MIGRATION] Successfully created Firebase Auth account for legacy user ${user.phone}.`);
-                } catch (err: any) {
-                    if (err.code === 'auth/email-already-in-use') {
-                        // Already exists, skip
-                    } else if (err.code === 'auth/operation-not-allowed') {
-                        console.error('[MIGRATION] Email/Password provider is not enabled in Firebase project! Please enable it in the console.');
-                        break; // Stop if provider is disabled to avoid spamming errors
-                    } else {
-                        console.error(`[MIGRATION] Error migrating user ${user.phone}:`, err);
-                    }
-                }
-            }
-        } catch (migrationErr) {
-            console.error('[MIGRATION] Fatal migration error:', migrationErr);
-        }
-    };
-
     const loadData = async () => {
         setIsInitialLoad(true);
         isRefreshing.current = true;
         try {
-            // We no longer fetch all users on load to prevent Firestore permission errors.
-            // Admin users will fetch the global users list when needed or via the snapshot listener.
+            // Users list is loaded via global endpoint when needed or for admin sessions.
             setUsers([]);
             
             // Check if there is a store ID in the path (e.g. /store/:storeId/partner-portal or /store/:storeId)
@@ -1933,53 +1808,22 @@ export const AppComponent = () => {
 
             let foundStoreId: string | null = previewId;
             
-            if (!foundStoreId && !isExactMainDomain && !db.getIsFirestoreQuotaExhausted()) {
-                // 1. HIGH-PERFORMANCE DIRECT LOOKUP IN STORES_DATA COLLECTION
-                // This bypasses Firebase Auth guest list restriction and quota issues
+            if (!foundStoreId && !isExactMainDomain) {
+                // High-performance domain/subdomain lookup in Cloudflare D1 stores_data table
                 try {
-                    console.log('[STOREFRONT-LOOKUP] Attempting direct stores_data query for:', host);
-                    
-                    if (host.endsWith('.abdomedi.com')) {
-                        const sub = host.split('.')[0].toLowerCase();
-                        if (sub && sub !== 'www' && sub !== 'app' && sub !== 'fallback') {
-                            const qSub = query(collection(firebaseDb, 'stores_data'), where('settings.subdomain', '==', sub));
-                            const subSnap = await db.WITH_TIMEOUT(getDocs(qSub), 5000);
-                            if (!subSnap.empty) {
-                                foundStoreId = subSnap.docs[0].id;
-                                console.log('[STOREFRONT-LOOKUP] Matched store ID via subdomain query:', foundStoreId);
-                            }
-                        }
-                    }
-                    
-                    if (!foundStoreId) {
-                        const qCD = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', hostNoWww));
-                        const cdSnap = await db.WITH_TIMEOUT(getDocs(qCD), 5000);
-                        if (!cdSnap.empty) {
-                            foundStoreId = cdSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customDomain query:', foundStoreId);
-                        }
-                    }
-
-                    if (!foundStoreId) {
-                        const qCAD = query(collection(firebaseDb, 'stores_data'), where('settings.customAppDomain', '==', hostNoWww));
-                        const cadSnap = await db.WITH_TIMEOUT(getDocs(qCAD), 5000);
-                        if (!cadSnap.empty) {
-                            foundStoreId = cadSnap.docs[0].id;
-                            console.log('[STOREFRONT-LOOKUP] Matched store ID via customAppDomain query:', foundStoreId);
-                        }
-                    }
-
-                    if (!foundStoreId && host !== hostNoWww) {
-                        const qCDHost = query(collection(firebaseDb, 'stores_data'), where('settings.customDomain', '==', host));
-                        const cdHostSnap = await db.WITH_TIMEOUT(getDocs(qCDHost), 5000);
-                        if (!cdHostSnap.empty) {
-                            foundStoreId = cdHostSnap.docs[0].id;
-                        }
+                    console.log('[STOREFRONT-LOOKUP] Attempting Cloudflare D1 stores_data query for:', host);
+                    const hostSub = host.endsWith('.abdomedi.com') ? host.split('.')[0].toLowerCase() : '';
+                    const subParam = (hostSub && hostSub !== 'www' && hostSub !== 'app' && hostSub !== 'fallback') ? hostSub : '';
+                    const lookupRes = await cfFetch<any>(
+                        `/api/db/stores/resolve-domain?host=${encodeURIComponent(host)}&subdomain=${encodeURIComponent(subParam)}`,
+                        { timeoutMs: 5000 }
+                    );
+                    if (lookupRes?.found && lookupRes.storeId) {
+                        foundStoreId = lookupRes.storeId;
+                        console.log('[STOREFRONT-LOOKUP] Matched store ID via Cloudflare D1:', foundStoreId);
                     }
                 } catch (lookupErr) {
-                    const msg = String((lookupErr as any)?.message || lookupErr);
-                    if (msg.includes('quota') || msg.includes('resource-exhausted')) db.markFirestoreQuotaExhausted();
-                    console.error('[STOREFRONT-LOOKUP] Error in direct stores_data lookup:', lookupErr);
+                    console.error('[STOREFRONT-LOOKUP] Error in Cloudflare D1 domain lookup:', lookupErr);
                 }
             }
             
@@ -2088,6 +1932,7 @@ export const AppComponent = () => {
     }, []);
 
     const handleLogout = () => {
+        void cfAuthLogout();
         setCurrentUser(null);
         setActiveStoreId(null);
         setIsEmployeeSession(false);
@@ -2211,40 +2056,7 @@ export const AppComponent = () => {
         setOtpTargetEmail('');
     };
     
-    const syncSupabaseAuth = async (user: User, password?: string, storeId?: string) => {
-        const supabase = getSupabaseClient();
-        if (!supabase || !password) return;
-        const email = user.email || `${user.phone}@mystore-auth.app`;
-        let { data } = await supabase.auth.signInWithPassword({ email, password });
-        if (!data.session) {
-            const signup = await supabase.auth.signUp({
-                email,
-                password,
-                options: { data: { phone: user.phone, full_name: user.fullName } }
-            });
-            data = signup.data;
-            if (signup.error && !signup.error.message.toLowerCase().includes('already')) {
-                console.warn('[SUPABASE AUTH] Could not create shadow session:', signup.error.message);
-                return;
-            }
-            if (!data.session) {
-                const retry = await supabase.auth.signInWithPassword({ email, password });
-                data = retry.data;
-            }
-        }
-        const supabaseUserId = data.user?.id;
-        if (!supabaseUserId) return;
-        const memberships = [
-            ...(user.stores || []).map(store => ({ user_id: supabaseUserId, store_id: store.id, role: user.isAdmin ? 'owner' : 'staff' })),
-            ...(storeId ? [{ user_id: supabaseUserId, store_id: storeId, role: 'staff' }] : [])
-        ];
-        if (memberships.length > 0) {
-            await supabase.from('store_memberships').upsert(memberships, { onConflict: 'user_id,store_id' });
-        }
-    };
-
-    const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null, password?: string) => {
-        void syncSupabaseAuth(user, password, sessionInfo?.storeId);
+    const completeLogin = (user: User, sessionInfo: {isEmployee: boolean, storeId: string} | null, _password?: string) => {
         setUsers(prev => {
             if (!prev.some(u => u.phone === user.phone)) {
                 return [...prev, user];
@@ -2387,123 +2199,38 @@ export const AppComponent = () => {
         }
 
         const authPhone = (isOwnerSession && recognizedOwnerUser ? recognizedOwnerUser.phone : (employeeRecord?.phone || employeeRecord?.id || phone)).trim();
-        const firebaseEmail = `${authPhone}@mystore-auth.app`;
-        console.log('[AUTH] Login attempt for phone:', authPhone, isOwnerSession ? '(Owner Mode)' : '(Employee Mode)');
+        console.log('[AUTH] Cloudflare D1 login attempt for phone:', authPhone, isOwnerSession ? '(Owner Mode)' : '(Employee Mode)');
+
+        let authenticatedUser: User | null = null;
         try {
-             await signInWithEmailAndPassword(auth, firebaseEmail, password);
-             console.log('[AUTH] Firebase Auth login successful for employee:', authPhone);
-        } catch (err: any) {
-             const isUserNotFoundOrInvalid = err?.code === 'auth/user-not-found' || 
-                                            err?.code === 'auth/invalid-credential' || 
-                                            err?.message?.includes('user-not-found') || 
-                                            err?.message?.includes('invalid-credential');
-             if (isUserNotFoundOrInvalid) {
-                  console.log('[MIGRATION] Employee Auth failed. Checking Supabase for custom email or legacy account:', authPhone);
-                  // Search ONLY in Supabase for user
-                  const legacyUser = await db.getUserByPhoneFromSupabase(authPhone);
-                  
-                  if (legacyUser) {
-                      // 1. Check if they have a CUSTOM email
-                      if (legacyUser.email && legacyUser.email !== firebaseEmail) {
-                          console.log('[AUTH] Found custom email for employee in Supabase, trying login with:', legacyUser.email);
-                          try {
-                              await signInWithEmailAndPassword(auth, legacyUser.email, password);
-                              console.log('[AUTH] Firebase Auth custom email login successful for employee:', authPhone);
-                              return; // Success
-                          } catch (secondErr: any) {
-                              console.log('[AUTH] Custom email login failed for employee:', secondErr.code);
-                              // Continue to legacy check
-                          }
-                      }
-
-                      console.log('[MIGRATION] Legacy user found in Supabase. Verifying old password...');
-                      const storedPassword = legacyUser.password;
-                      if (storedPassword === password) {
-                          // Check if old password meets security length requirement (>= 6)
-                          if (password.length < 6) {
-                              console.warn('[MIGRATION] Weak password detected (<6 characters) during legacy employee login:', authPhone);
-                              throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                          }
-                          
-                          // Use real email if available, otherwise generated one
-                          const emailToCreate = legacyUser.email || firebaseEmail;
-                          
-                          const migratedLegacyUser: User = {
-                              ...legacyUser,
-                              migrationStatus: 'migrated',
-                              migratedAt: new Date().toISOString(),
-                              legacyVerified: true
-                          };
-
-                          try {
-                              console.log('[MIGRATION] Creating Firebase Auth account for legacy employee:', authPhone, 'using email:', emailToCreate);
-                              await createUserWithEmailAndPassword(auth, emailToCreate, password);
-                              console.log('[MIGRATION] Creating Firestore user doc for legacy employee:', authPhone);
-                              await db.createUserDoc(migratedLegacyUser);
-                          } catch (createErr: any) {
-                              if (createErr.code === 'auth/email-already-in-use') {
-                                  console.log('[MIGRATION] Firebase Auth account already exists for legacy employee, attempting sign-in...');
-                                  try {
-                                      // Try signing in with BOTH potential emails
-                                      try {
-                                          await signInWithEmailAndPassword(auth, emailToCreate, password);
-                                      } catch (signInErr: any) {
-                                          if (emailToCreate !== firebaseEmail) {
-                                              await signInWithEmailAndPassword(auth, firebaseEmail, password);
-                                          } else {
-                                              throw signInErr;
-                                          }
-                                      }
-                                      // If sign-in succeeds now, ensure Firestore doc exists
-                                      console.log('[MIGRATION] Sign-in successful for existing account, checking Firestore doc...');
-                                      const existingFsUser = await db.getUserByPhone(authPhone);
-                                      if (!existingFsUser) {
-                                          await db.createUserDoc(migratedLegacyUser);
-                                      }
-                                  } catch (signInErr: any) {
-                                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                                          console.warn('[MIGRATION] Existing account found but password mismatch for legacy employee:', authPhone);
-                                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                                      }
-                                      console.error('[MIGRATION] Sign-in failed after email-already-in-use:', signInErr);
-                                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                                  }
-                              } else {
-                                  console.error('[MIGRATION] On-the-fly signup failed for legacy employee:', createErr);
-                                  if (createErr.code === 'auth/weak-password') {
-                                      throw new Error("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                                  }
-                                  throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                              }
-                          }
-                      } else {
-                          console.log('[MIGRATION] Legacy password mismatch for employee:', authPhone);
-                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                      }
-                  } else {
-                      console.log('[MIGRATION] Legacy user not found in Supabase for employee:', authPhone);
-                      const fsUser = await db.getUserByPhone(authPhone);
-                      if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
-                          console.log('[AUTH] Employee password verified from Firestore record:', authPhone);
-                      } else {
-                          throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                      }
-                  }
-             } else {
-                  if (err.code === 'auth/network-request-failed') {
-                      throw new Error("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
-                  }
-                  console.error('[AUTH] Employee login Firebase Auth failure:', err);
-                  const fsUser = await db.getUserByPhone(authPhone);
-                  if (fsUser && fsUser.password && (await verifyPasswordSecure(password, fsUser.password)).valid) {
-                      console.log('[AUTH] Employee password verified from Firestore record (post-reset):', authPhone);
-                  } else {
-                      throw new Error("رقم الهاتف أو كلمة المرور غير صحيحة.");
-                  }
-             }
+            if (isOwnerSession) {
+                const loginRes = await cfAuthLogin(authPhone, password);
+                authenticatedUser = loginRes.user;
+            } else {
+                const empRes = await cfAuthEmployeeLogin(storeId, authPhone, password);
+                authenticatedUser = empRes.user || (empRes.employee ? {
+                    fullName: empRes.employee.name || authPhone,
+                    phone: empRes.employee.phone || empRes.employee.id || authPhone,
+                    email: empRes.employee.email || '',
+                    stores: [],
+                    joinDate: new Date().toISOString()
+                } : null);
+            }
+        } catch (authErr: any) {
+            // Fallback check for locally imported/hashed records not yet hashed on Worker
+            const d1User = await db.getUserByPhone(authPhone);
+            if (d1User && d1User.password && (await verifyPasswordSecure(password, d1User.password)).valid) {
+                authenticatedUser = d1User;
+            } else {
+                const msg = String(authErr?.message || '');
+                if (msg.includes('Failed to fetch') || msg.includes('Network')) {
+                    throw new Error("فشل الاتصال بخادم Cloudflare. يرجى التحقق من اتصال الإنترنت.");
+                }
+                throw new Error(msg || "رقم الهاتف أو كلمة المرور غير صحيحة.");
+            }
         }
 
-        const targetUser = (isOwnerSession && recognizedOwnerUser) ? recognizedOwnerUser : await db.getUserByPhone(authPhone);
+        const targetUser = (isOwnerSession && recognizedOwnerUser) ? recognizedOwnerUser : (authenticatedUser || await db.getUserByPhone(authPhone));
         if (!targetUser) {
             throw new Error(isOwnerSession ? "لم يتم العثور على بيانات المالك." : "لم يتم العثور على بيانات الموظف.");
         }
@@ -2534,17 +2261,21 @@ export const AppComponent = () => {
             throw new Error("لديك بالفعل طلب انضمام معلق أو أنت موظف في هذا المتجر.");
         }
 
-        const firebaseEmail = `${phone.trim()}@mystore-auth.app`;
         try {
-            const userCred = await createUserWithEmailAndPassword(auth, firebaseEmail, password);
-            if (!userCred.user) {
-                throw new Error("فشل إنشاء حساب المصادقة.");
-            }
+            await cfFetch('/api/auth/signup', {
+                method: 'POST',
+                body: JSON.stringify({
+                    fullName,
+                    phone: phone.trim(),
+                    email: email || `${phone.trim()}@abdomedi.com`,
+                    password
+                })
+            });
         } catch (err: any) {
-            if (err.code === 'auth/email-already-in-use') {
+            if (err?.code === 'auth/email-already-in-use' || err?.status === 409) {
                 throw new Error("هذا الرقم مسجل بالفعل في نظام المصادقة.");
             }
-            throw new Error("حدث خطأ أثناء التسجيل.");
+            throw new Error(err?.message || "حدث خطأ أثناء التسجيل.");
         }
 
         const newUser: User = { fullName, phone, email, joinDate: new Date().toISOString() };
@@ -2618,7 +2349,7 @@ export const AppComponent = () => {
         
         handleSetActiveStore(newStore.id);
 
-        // Persist to local & Firestore database immediately
+        // Persist to local & Cloudflare D1 database immediately
         db.saveStoreData(newStore, newStoreData).catch(err => {
             console.warn('[NEW-STORE-SYNC] Failed to save new store to DB:', err);
         });
@@ -2712,268 +2443,50 @@ export const AppComponent = () => {
             return () => {};
         }
 
-        if (db.isSupabaseActive()) {
-            const supabase = getSupabaseClient();
-            if (!supabase || !activeStoreId) {
-                return () => {};
-            }
+        console.log('[REALTIME] Setting up Cloudflare D1 live sync polling...');
 
-            console.log('[REALTIME] Custom Supabase cloud active: subscribing to live orders updates.');
-            refreshStoreDataRef.current = refreshStoreData;
-            activeStoreRef.current = activeStore;
-            allStoresDataRef.current = allStoresData;
-
-            const notifyWhatsAppMessage = (message: any) => {
-                if (message.direction !== 'incoming') return;
-                const messageKey = String(message.provider_message_id || message.id || '');
-                if (!messageKey || notifiedWhatsAppMessagesRef.current.has(messageKey)) return;
-                notifiedWhatsAppMessagesRef.current.add(messageKey);
-                if (notifiedWhatsAppMessagesRef.current.size > 250) {
-                    const oldest = notifiedWhatsAppMessagesRef.current.values().next().value;
-                    if (oldest) notifiedWhatsAppMessagesRef.current.delete(oldest);
-                }
-                const action = message.metadata?.action;
-                const title = action === 'confirm' ? 'تأكيد طلب جديد عبر واتساب' : action === 'cancel' ? 'إلغاء طلب عبر واتساب' : 'رسالة جديدة من عميل';
-                const body = message.body || 'وصلت رسالة جديدة من العميل.';
-                audioSynth.playTone(action === 'confirm' ? 'success' : action === 'cancel' ? 'warning' : 'info');
-                if ('Notification' in window) {
-                    if (Notification.permission === 'granted') {
-                        new Notification(title, { body, tag: `whatsapp-${message.id}` });
-                    } else if (Notification.permission === 'default') {
-                        void Notification.requestPermission().then(permission => {
-                            if (permission === 'granted') new Notification(title, { body, tag: `whatsapp-${message.id}` });
-                        });
-                    }
-                }
-            };
-
-            const messagesChannel = supabase
-                .channel(`whatsapp-inbox-realtime-${activeStoreId}`)
-                .on('postgres_changes', {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'whatsapp_messages',
-                    filter: `store_id=eq.${activeStoreId}`
-                }, (payload: any) => {
-                    if (isSavingRef.current || isDirtyRef.current) return;
-                    console.log('[REALTIME] WhatsApp message received:', payload.new?.id);
-                    notifyWhatsAppMessage(payload.new);
-                })
-                .subscribe((status: string) => console.log(`[REALTIME] WhatsApp messages channel status: ${status}`));
-
-            const channel = supabase
-                .channel(`orders-realtime-${activeStoreId}`)
-                .on(
-                    'postgres_changes',
-                    {
-                        event: '*',
-                        schema: 'public',
-                        table: 'orders',
-                        filter: `store_id=eq.${activeStoreId}`
-                    },
-                    (payload: any) => {
-                        if (isSavingRef.current || isDirtyRef.current) return;
-
-                        const eventType = payload.eventType;
-                        const incoming = eventType === 'DELETE' ? payload.old : payload.new;
-                        if (!incoming?.id) return;
-
-                        console.log(`[REALTIME] Supabase orders change received: ${eventType}`, incoming.id);
-                        isRefreshing.current = true;
-                        setAllStoresData(prev => {
-                            const store = prev[activeStoreId];
-                            if (!store) return prev;
-                            const currentOrders = store.orders || [];
-
-                            if (eventType === 'DELETE') {
-                                return {
-                                    ...prev,
-                                    [activeStoreId]: {
-                                        ...store,
-                                        orders: currentOrders.filter((order: any) => order.id !== incoming.id)
-                                    }
-                                };
-                            }
-
-                            const existingIndex = currentOrders.findIndex((order: any) => order.id === incoming.id);
-                            const nextOrder = {
-                                ...(existingIndex >= 0 ? currentOrders[existingIndex] : {}),
-                                ...incoming,
-                                whatsappLogs: incoming.whatsappLogs || incoming.whatsapp_logs || (existingIndex >= 0 ? (currentOrders[existingIndex] as any).whatsappLogs : []),
-                                whatsapp_logs: incoming.whatsapp_logs || incoming.whatsappLogs || (existingIndex >= 0 ? (currentOrders[existingIndex] as any).whatsapp_logs : []),
-                                updatedAt: incoming.updatedAt || incoming.updated_at,
-                                updated_at: incoming.updated_at || incoming.updatedAt,
-                                items: Array.isArray(incoming.items)
-                                    ? incoming.items
-                                    : (existingIndex >= 0 ? currentOrders[existingIndex].items || [] : [])
-                            };
-                            const nextOrders = [...currentOrders];
-                            if (existingIndex >= 0) nextOrders[existingIndex] = nextOrder;
-                            else nextOrders.unshift(nextOrder);
-
-                            return {
-                                ...prev,
-                                [activeStoreId]: { ...store, orders: nextOrders }
-                            };
-                        });
-                    }
-                )
-                .subscribe((status: string) => {
-                    console.log(`[REALTIME] Supabase orders channel status: ${status}`);
-                });
-
-            // Custody and treasury must follow the same Supabase source as orders.
-            // Refresh the normalized store snapshot after any financial change so
-            // holders, handovers, and treasury balances cannot drift between tabs.
-            const financeChannel = supabase
-                .channel(`finance-realtime-${activeStoreId}`);
-            let financeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-            let financeRefreshInFlight = false;
-            const refreshFinanceOnly = () => {
-                if (financeRefreshTimer) clearTimeout(financeRefreshTimer);
-                financeRefreshTimer = setTimeout(async () => {
-                    if (financeRefreshInFlight) return;
-                    financeRefreshInFlight = true;
-                    try {
-                        const [holdersResult, handoversResult, accountsResult, treasuryTxResult] = await Promise.all([
-                            supabase.from('cash_holders').select('*').eq('store_id', activeStoreId),
-                            supabase.from('cash_handovers').select('*').eq('store_id', activeStoreId),
-                            supabase.from('treasury_accounts').select('*').eq('store_id', activeStoreId),
-                            supabase.from('treasury_transactions').select('*').eq('store_id', activeStoreId)
-                        ]);
-                        if (holdersResult.error || handoversResult.error || accountsResult.error || treasuryTxResult.error) return;
-                        const cashHolders = (holdersResult.data || []).map((h: any) => ({
-                            ...h,
-                            userId: h.userId || h.user_id || '',
-                            userName: h.userName || h.user_name || '',
-                            currentBalance: Number(h.currentBalance ?? h.current_balance ?? 0),
-                            lastUpdated: h.lastUpdated || h.last_updated || ''
-                        }));
-                        const cashHandovers = (handoversResult.data || []).map((h: any) => ({
-                            ...h,
-                            fromUserId: h.fromUserId || h.from_user_id || '',
-                            fromUserName: h.fromUserName || h.from_user_name || '',
-                            toUserId: h.toUserId || h.to_user_id || '',
-                            toUserName: h.toUserName || h.to_user_name || '',
-                            amount: Number(h.amount ?? 0),
-                            orderNumber: h.orderNumber || h.order_number || '',
-                            isVirtual: Boolean(h.isVirtual ?? h.is_virtual ?? false)
-                        }));
-                        const treasury = {
-                            accounts: (accountsResult.data || []).map((a: any) => ({ ...a, balance: Number(a.balance ?? 0), accountNumber: a.accountNumber || a.account_number || '', beneficiaryName: a.beneficiaryName || a.beneficiary_name || '', bankName: a.bankName || a.bank_name || '', walletNumber: a.walletNumber || a.wallet_number || '', walletName: a.walletName || a.wallet_name || '' })),
-                            transactions: (treasuryTxResult.data || []).map((tx: any) => ({ ...tx, fromAccountId: tx.fromAccountId || tx.from_account_id || '', toAccountId: tx.toAccountId || tx.to_account_id || '', amount: Number(tx.amount ?? 0) }))
-                        };
-                        isRefreshing.current = true;
-                        setAllStoresData(prev => {
-                            const store = prev[activeStoreId];
-                            if (!store) return prev;
-                            return { ...prev, [activeStoreId]: { ...store, settings: { ...store.settings, cashHolders, cashHandovers }, treasury } };
-                        });
-                    } finally {
-                        financeRefreshInFlight = false;
-                        financeRefreshTimer = null;
-                    }
-                }, 500);
-            };
-            ['cash_holders', 'cash_handovers', 'treasury_accounts', 'treasury_transactions'].forEach((table) => {
-                financeChannel.on('postgres_changes', {
-                    event: '*',
-                    schema: 'public',
-                    table,
-                    filter: `store_id=eq.${activeStoreId}`
-                }, (payload: any) => {
-                    if (isSavingRef.current || isDirtyRef.current) return;
-                    const changedId = payload.new?.id || payload.old?.id || payload.new?.user_id || payload.old?.user_id;
-                    console.log(`[REALTIME] Supabase ${table} change received: ${payload.eventType}`, changedId || 'unknown');
-                    refreshFinanceOnly();
-                });
-            });
-            financeChannel.subscribe((status: string) => {
-                console.log(`[REALTIME] Supabase finance channel status: ${status}`);
-            });
-
-            return () => {
-                console.log('[REALTIME] Removing Supabase orders subscription.');
-                void supabase.removeChannel(channel);
-                void supabase.removeChannel(messagesChannel);
-                void supabase.removeChannel(financeChannel);
-                if (financeRefreshTimer) clearTimeout(financeRefreshTimer);
-            };
-        }
-
-        console.log('[REALTIME] Setting up Firestore snapshots...');
-        
-        // Update refs with current values
         refreshStoreDataRef.current = refreshStoreData;
         refreshGlobalDataRef.current = refreshGlobalData;
         activeStoreRef.current = activeStore;
         allStoresDataRef.current = allStoresData;
-        
-        const unsubscribers: (() => void)[] = [];
 
-        const handleRealtimeError = (err: any, label: string) => {
-            const msg = String(err?.message || err);
-            if (msg.includes('quota') || msg.includes('resource-exhausted') || (err as any)?.code === 'resource-exhausted') {
-                console.warn(`[REALTIME] Firestore quota reached on ${label}. Switching to offline cache mode & Supabase seamlessly.`);
-                db.markFirestoreQuotaExhausted();
-                try {
-                    unsubscribers.forEach(fn => fn());
-                    unsubscribers.length = 0;
-                } catch (_) {}
-            } else {
-                console.warn(`[REALTIME] Notice on ${label}:`, msg);
+        const notifyWhatsAppMessage = (message: any) => {
+            if (message?.direction !== 'incoming') return;
+            const messageKey = String(message.provider_message_id || message.id || '');
+            if (!messageKey || notifiedWhatsAppMessagesRef.current.has(messageKey)) return;
+            notifiedWhatsAppMessagesRef.current.add(messageKey);
+            if (notifiedWhatsAppMessagesRef.current.size > 250) {
+                const oldest = notifiedWhatsAppMessagesRef.current.values().next().value;
+                if (oldest) notifiedWhatsAppMessagesRef.current.delete(oldest);
+            }
+            const action = message.metadata?.action;
+            const title = action === 'confirm' ? 'تأكيد طلب جديد عبر واتساب' : action === 'cancel' ? 'إلغاء طلب عبر واتساب' : 'رسالة جديدة من عميل';
+            const body = message.body || 'وصلت رسالة جديدة من العميل.';
+            audioSynth.playTone(action === 'confirm' ? 'success' : action === 'cancel' ? 'warning' : 'info');
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    new Notification(title, { body, tag: `whatsapp-${message.id}` });
+                } else if (Notification.permission === 'default') {
+                    void Notification.requestPermission().then(permission => {
+                        if (permission === 'granted') new Notification(title, { body, tag: `whatsapp-${message.id}` });
+                    });
+                }
             }
         };
 
-        if (activeStoreId && !db.getIsFirestoreQuotaExhausted()) {
-            // Listen for changes on store configuration
-            const unsubStore = onSnapshot(doc(firebaseDb, 'stores_data', activeStoreId), (snap) => {
-                if (snap.exists() && !isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    const snapData = snap.data() as any;
-                    console.log('[REALTIME] Store settings change detected via Firestore snapshot');
-                    isRefreshing.current = true;
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        
-                        // Smart merge: Update settings, orders, wallet, and treasury if provided in the summary document
-                        return {
-                            ...prev,
-                            [activeStoreId]: {
-                                ...store,
-                                name: snapData.name || store.name,
-                                settings: {
-                                    ...store.settings,
-                                    ...(snapData.settings || {})
-                                },
-                                orders: snapData.orders || store.orders,
-                                wallet: snapData.wallet || store.wallet,
-                                treasury: snapData.treasury || store.treasury,
-                                quotations: snapData.quotations || store.quotations
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'stores_data'));
-            unsubscribers.push(unsubStore);
+        const unsubscribers: (() => void)[] = [];
 
-            // Listen for changes on orders
-            const qOrders = query(collection(firebaseDb, 'orders'), where('storeId', '==', activeStoreId));
-            const unsubOrders = onSnapshot(qOrders, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    console.log('[REALTIME] Orders change detected via Firestore snapshot');
-                    isRefreshing.current = true;
-                    const newOrders = snap.docs.map(doc => {
-                        const data = doc.data();
-                        const docItems = Array.isArray(data.items) ? data.items : (data.items && typeof data.items === 'object' ? Object.values(data.items) : []);
-                        return { 
-                            id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
-                            ...data,
-                            items: docItems
-                        } as Order;
-                    });
+        if (activeStoreId) {
+            const unsubStorePoll = subscribePolling(
+                async () => {
+                    if (isSavingRef.current || isDirtyRef.current) return null;
+                    return await db.getStoreData(activeStoreId, true);
+                },
+                (remoteStoreData) => {
+                    if (!remoteStoreData || isSavingRef.current || isDirtyRef.current) return;
+                    const sanitizedStore = sanitizeData(remoteStoreData as StoreData);
+                    const newOrders = sanitizedStore.orders || [];
 
-                    // 🔔 Web Notifications & Manager Alert for incoming new pending orders
                     if (!hasInitialOrdersLoadedRef.current) {
                         knownOrderIdsRef.current = new Set(newOrders.map(o => o.id));
                         hasInitialOrdersLoadedRef.current = true;
@@ -2982,7 +2495,6 @@ export const AppComponent = () => {
                             if (!knownOrderIdsRef.current.has(order.id)) {
                                 knownOrderIdsRef.current.add(order.id);
                                 if (isPendingOrderStatus(order.status)) {
-                                    console.log('🔔 [WEB NOTIFICATION] Incoming pending order detected:', order.id);
                                     showOrderWebNotification(order, {
                                         storeName: activeStoreRef.current?.name || 'متجري'
                                     });
@@ -2992,287 +2504,49 @@ export const AppComponent = () => {
                     }
 
                     setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: { ...store, orders: newOrders }
-                        };
+                        const existing = prev[activeStoreId];
+                        if (existing && JSON.stringify(existing) === JSON.stringify(sanitizedStore)) {
+                            return prev;
+                        }
+                        isRefreshing.current = true;
+                        return { ...prev, [activeStoreId]: sanitizedStore };
                     });
-                }
-            }, (err) => handleRealtimeError(err, 'orders'));
-            unsubscribers.push(unsubOrders);
+                },
+                12000
+            );
+            unsubscribers.push(unsubStorePoll);
 
-            // Listen for changes on products
-            const qProducts = query(collection(firebaseDb, 'products'), where('storeId', '==', activeStoreId));
-            const unsubProducts = onSnapshot(qProducts, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    console.log('[REALTIME] Products change detected via Firestore snapshot');
-                    isRefreshing.current = true;
-                    const newProducts = snap.docs.map(doc => ({ 
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id, 
-                        ...doc.data() 
-                    } as Product));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: { 
-                                ...store, 
-                                settings: { ...store.settings, products: newProducts } 
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'products'));
-            unsubscribers.push(unsubProducts);
-
-            // Listen for changes on employees
-            const qEmployees = query(collection(firebaseDb, 'employees'), where('storeId', '==', activeStoreId));
-            const unsubEmployees = onSnapshot(qEmployees, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    console.log('[REALTIME] Employees change detected via Firestore snapshot');
-                    isRefreshing.current = true;
-                    const newEmployees = snap.docs.map(doc => {
-                        const data = doc.data() || {};
-                        const phone = doc.id.split('_').pop() || '';
-                        const emp: Employee = {
-                            id: data.id || phone,
-                            name: data.name || '',
-                            email: data.email || '',
-                            phone: data.phone || phone,
-                            permissions: data.permissions || [],
-                            status: data.status || 'active'
-                        };
-                        return emp;
-                    });
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: { 
-                                ...store, 
-                                settings: { ...store.settings, employees: newEmployees } 
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'employees'));
-            unsubscribers.push(unsubEmployees);
-            
-            // Listen for changes on purchase returns
-            const qPurchaseReturns = query(collection(firebaseDb, 'purchase_returns'), where('storeId', '==', activeStoreId));
-            const unsubPurchaseReturns = onSnapshot(qPurchaseReturns, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    console.log('[REALTIME] Purchase Returns change detected via Firestore snapshot');
-                    isRefreshing.current = true;
-                    const newPurchaseReturns = snap.docs.map(doc => ({ 
-                        id: doc.id.split('_').pop() || doc.id, 
-                        ...doc.data() 
-                    } as PurchaseReturn));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        // Avoid updating if data is identical to prevent loops
-                        if (JSON.stringify(store.settings.purchaseReturns) === JSON.stringify(newPurchaseReturns)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: { 
-                                ...store, 
-                                settings: { ...store.settings, purchaseReturns: newPurchaseReturns } 
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'purchase_returns'));
-            unsubscribers.push(unsubPurchaseReturns);
-
-            // Listen for changes on order returns
-            const qOrderReturns = query(collection(firebaseDb, 'order_returns'), where('storeId', '==', activeStoreId));
-            const unsubOrderReturns = onSnapshot(qOrderReturns, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    isRefreshing.current = true;
-                    const newOrderReturns = snap.docs.map(doc => ({ 
-                        id: doc.id.split('_').pop() || doc.id, 
-                        ...doc.data() 
-                    } as OrderReturn));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        if (JSON.stringify(store.settings.orderReturns) === JSON.stringify(newOrderReturns)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: { 
-                                ...store, 
-                                settings: { ...store.settings, orderReturns: newOrderReturns } 
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'order_returns'));
-            unsubscribers.push(unsubOrderReturns);
-
-            // Listen for changes on cash holders (Custody balances)
-            const qCashHolders = query(collection(firebaseDb, 'cash_holders'), where('storeId', '==', activeStoreId));
-            const unsubCashHolders = onSnapshot(qCashHolders, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    isRefreshing.current = true;
-                    const newCashHolders = snap.docs.map(doc => {
-                        const data = doc.data();
-                        return { 
-                            ...data,
-                            userId: data.userId || data.user_id || doc.id.split('_').pop() || doc.id,
-                        } as any;
-                    });
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        if (JSON.stringify(store.settings.cashHolders) === JSON.stringify(newCashHolders)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: { 
-                                ...store, 
-                                settings: { ...store.settings, cashHolders: newCashHolders } 
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'cash_holders'));
-            unsubscribers.push(unsubCashHolders);
-
-            // Listen for changes on treasury accounts
-            const qTreasuryAccounts = query(collection(firebaseDb, 'treasury_accounts'), where('storeId', '==', activeStoreId));
-            const unsubTreasuryAccounts = onSnapshot(qTreasuryAccounts, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    isRefreshing.current = true;
-                    const newAccounts = snap.docs.map(doc => ({
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
-                        ...doc.data()
-                    } as TreasuryAccount));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        const currentAccounts = store.treasury?.accounts || [];
-                        if (JSON.stringify(currentAccounts) === JSON.stringify(newAccounts)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: {
-                                ...store,
-                                treasury: { ...(store.treasury || { accounts: [], transactions: [] }), accounts: newAccounts }
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'treasury_accounts'));
-            unsubscribers.push(unsubTreasuryAccounts);
-
-            // Listen for changes on treasury transactions
-            const qTreasuryTx = query(collection(firebaseDb, 'treasury_transactions'), where('storeId', '==', activeStoreId));
-            const unsubTreasuryTx = onSnapshot(qTreasuryTx, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    isRefreshing.current = true;
-                    const newTxs = snap.docs.map(doc => ({
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
-                        ...doc.data()
-                    } as TreasuryTransaction));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        const currentTxs = store.treasury?.transactions || [];
-                        if (JSON.stringify(currentTxs) === JSON.stringify(newTxs)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: {
-                                ...store,
-                                treasury: { ...(store.treasury || { accounts: [], transactions: [] }), transactions: newTxs }
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'treasury_transactions'));
-            unsubscribers.push(unsubTreasuryTx);
-
-            // Listen for changes on partners
-            const qPartners = query(collection(firebaseDb, 'partners'), where('storeId', '==', activeStoreId));
-            const unsubPartners = onSnapshot(qPartners, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    isRefreshing.current = true;
-                    const newPartners = snap.docs.map(doc => ({
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
-                        ...doc.data()
-                    } as Partner));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        if (JSON.stringify(store.settings?.partners) === JSON.stringify(newPartners)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: {
-                                ...store,
-                                settings: { ...store.settings, partners: newPartners }
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'partners'));
-            unsubscribers.push(unsubPartners);
-
-            // Listen for changes on partner transactions
-            const qPartnerTx = query(collection(firebaseDb, 'partner_transactions'), where('storeId', '==', activeStoreId));
-            const unsubPartnerTx = onSnapshot(qPartnerTx, (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    isRefreshing.current = true;
-                    const newPartnerTxs = snap.docs.map(doc => ({
-                        id: doc.id.startsWith(activeStoreId + '_') ? doc.id.substring(activeStoreId.length + 1) : doc.id,
-                        ...doc.data()
-                    } as PartnerTransaction));
-                    setAllStoresData(prev => {
-                        const store = prev[activeStoreId];
-                        if (!store) return prev;
-                        if (JSON.stringify(store.settings?.partnerTransactions) === JSON.stringify(newPartnerTxs)) return prev;
-                        return {
-                            ...prev,
-                            [activeStoreId]: {
-                                ...store,
-                                settings: { ...store.settings, partnerTransactions: newPartnerTxs }
-                            }
-                        };
-                    });
-                }
-            }, (err) => handleRealtimeError(err, 'partner_transactions'));
-            unsubscribers.push(unsubPartnerTx);
+            const unsubWaPoll = subscribePolling(
+                async () => {
+                    if (isSavingRef.current || isDirtyRef.current) return [];
+                    const res = await cfFetch<{ success: boolean; messages: any[] }>(`/api/db/whatsapp/${encodeURIComponent(activeStoreId)}/messages`);
+                    return res?.messages || [];
+                },
+                (messages) => {
+                    if (!Array.isArray(messages)) return;
+                    messages.slice(-10).forEach(notifyWhatsAppMessage);
+                },
+                18000
+            );
+            unsubscribers.push(unsubWaPoll);
         }
 
-        // Listen for user collections change (Admin only)
-        let unsubUsers = () => {};
         if (currentUser?.isAdmin) {
-            unsubUsers = onSnapshot(collection(firebaseDb, 'users'), (snap) => {
-                if (!isSavingRef.current && !isDirtyRef.current && !snap.metadata.hasPendingWrites) {
-                    console.log('[REALTIME] Users collection change detected via Firestore snapshot');
+            const unsubUsersPoll = subscribePolling(
+                async () => {
+                    if (isSavingRef.current || isDirtyRef.current) return null;
+                    return await db.getGlobalData(true);
+                },
+                (globalData) => {
+                    if (!globalData?.users || isSavingRef.current || isDirtyRef.current) return;
                     isRefreshing.current = true;
-                    const updatedUsers = snap.docs.map(doc => {
-                        const data = doc.data();
-                        return {
-                            fullName: data.fullName || '',
-                            phone: doc.id,
-                            password: data.password || '',
-                            email: data.email || '',
-                            stores: data.stores || [],
-                            sites: data.sites || [],
-                            isAdmin: data.isAdmin || false,
-                            isBanned: data.isBanned || false,
-                            joinDate: data.joinDate || ''
-                        } as User;
-                    });
-                    setUsers(updatedUsers);
-                }
-            }, (err) => handleRealtimeError(err, 'users'));
-            unsubscribers.push(unsubUsers);
+                    setUsers(prev => JSON.stringify(prev) === JSON.stringify(globalData.users) ? prev : globalData.users);
+                },
+                25000
+            );
+            unsubscribers.push(unsubUsersPoll);
         }
 
-        // No redundant polling - onSnapshot handles real-time updates efficiently.
         // Background Auto-Sync for Platforms (Wuilt, etc.)
         const autoSyncInterval = setInterval(async () => {
             if (activeStoreId && !isSavingRef.current && activeStoreRef.current) {
@@ -3285,12 +2559,10 @@ export const AppComponent = () => {
                         console.log(`[AUTO-SYNC] Triggering background sync for ${platformId}...`);
                         try {
                             isRefreshing.current = true;
-                            
                             const response = await fetch(`/api/sync/platform/${platformId}/${activeStoreId}?type=orders`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' }
                             });
-                            
                             if (response.ok) {
                                 console.log(`[AUTO-SYNC] Successfully synced orders for ${platformId}`);
                                 await refreshStoreDataRef.current(activeStoreId);
@@ -3307,11 +2579,11 @@ export const AppComponent = () => {
         }, 120000); // Every 2 minutes
 
         return () => {
-            console.log('[REALTIME] Unsubscribing Firestore listeners and background intervals.');
+            console.log('[REALTIME] Stopping Cloudflare D1 live sync polling.');
             unsubscribers.forEach(unsub => unsub());
             clearInterval(autoSyncInterval);
         };
-    }, [activeStoreId, dbSyncMode]); 
+    }, [activeStoreId, dbSyncMode, currentUser?.isAdmin]);
 
     // 🔔 Global Manager Alert Actions Listener (Web Notification Click & Status Updates)
     useEffect(() => {
@@ -3455,7 +2727,7 @@ export const AppComponent = () => {
         setSaveMessage('جاري سحب البيانات كلياً من السحاب للمحلي...');
         try {
             isSavingRef.current = true;
-            // Force pull remote data directly from Firestore bypassing local cache
+            // Force pull remote data directly from Cloudflare D1 bypassing local cache
             const remoteData = await db.getStoreData(activeStoreId, true);
             if (remoteData) {
                 setAllStoresData(prev => ({

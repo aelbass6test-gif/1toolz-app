@@ -7,8 +7,7 @@ import { getLatestProductCost, calculateInsuranceFee, getStandardShippingFee, ca
 import { OrderPreConfirmationModal } from './OrderPreConfirmationModal';
 import { OrderConfirmationSummary } from './OrderConfirmationSummary';
 import { triggerWebhooks } from '../utils/webhook';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc } from 'firebase/firestore';
+import { cfFetch } from '../services/cloudflareClient';
 import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
 
@@ -615,8 +614,10 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
                 laborCost: 0
             };
 
-            addDoc(collection(db, 'maintenance_requests'), maintenanceRequest)
-                .catch(err => console.error("Error creating linked maintenance request:", err));
+            cfFetch('/api/db/maintenance', {
+                method: 'POST',
+                body: JSON.stringify({ request: maintenanceRequest })
+            }).catch(err => console.error("Error creating linked maintenance request:", err));
         }
         // ----------------------------------
 

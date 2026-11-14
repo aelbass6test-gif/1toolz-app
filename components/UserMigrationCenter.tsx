@@ -113,7 +113,7 @@ export const UserMigrationCenter: React.FC<{ onUserMigrated?: () => void }> = ({
                         </div>
                         <h2 className="text-2xl sm:text-3xl font-black">مركز ترحيل المستخدمين الآمن</h2>
                         <p className="text-white/80 text-sm max-w-2xl font-medium leading-relaxed">
-                            يتم نسخ وترحيل حسابات المستخدمين أولاً إلى المنظومة السحابية الجديدة (Firebase) مع إبقاء تسجيل الدخول القديم متاحاً ومفعلاً كمسار مؤقت، مع ضمان عدم حذف أي بيانات قديمة لحين التحقق النهائي.
+                            يتم التحقق ومزامنة حسابات المستخدمين والمتاجر مباشرة على قاعدة بيانات Cloudflare D1 السحابية فائقة السرعة مع الحفاظ الكامل على النسخة المحلية في المتصفح (Zero Data Loss).
                         </p>
                     </div>
 
@@ -175,27 +175,27 @@ export const UserMigrationCenter: React.FC<{ onUserMigrated?: () => void }> = ({
                     </div>
                     <h4 className="font-black text-slate-800 dark:text-slate-100 text-sm">مطابقة الحسابات</h4>
                     <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-                        فحص سجلات Supabase وربط الهواتف والمتاجر دون لمس أي بيانات أصلية.
+                        فحص السجلات المحلية وربط الهواتف والمتاجر قبل المزامنة دون لمس أي بيانات أصلية.
                     </p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative">
                     <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-black text-xs mb-1">
-                        <ShieldCheck size={16} /> المرحلة 2: مسار تسجيل دخول مزدوج
+                        <ShieldCheck size={16} /> المرحلة 2: تسجيل دخول موحد
                     </div>
-                    <h4 className="font-black text-slate-800 dark:text-slate-100 text-sm">مسار احتياطي مؤقت نشط</h4>
+                    <h4 className="font-black text-slate-800 dark:text-slate-100 text-sm">جلسات مشفرة على Cloudflare</h4>
                     <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-                        تسجيل الدخول القديم شغال 100% ويقوم بالترقية الذكية التلقائية عند أول دخول للمستخدم.
+                        تشفير PBKDF2 وجلسات HMAC سريعة بدون أي قيود كوتا يومية.
                     </p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs relative">
                     <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-black text-xs mb-1">
-                        <HardDrive size={16} /> المرحلة 3: الترحيل التدريجي
+                        <HardDrive size={16} /> المرحلة 3: المزامنة السحابية
                     </div>
-                    <h4 className="font-black text-slate-800 dark:text-slate-100 text-sm">ترحيل بدون حذف (Zero-Loss)</h4>
+                    <h4 className="font-black text-slate-800 dark:text-slate-100 text-sm">حفظ آمن (Zero-Loss)</h4>
                     <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 leading-relaxed">
-                        نسخ بيانات المستخدمين إلى Firestore مع الاحتفاظ بـ Supabase كمرجع احتياطي دائم.
+                        حفظ بيانات المستخدمين والمتاجر مباشرة في Cloudflare D1 مع بقاء IndexedDB للعمل بدون إنترنت.
                     </p>
                 </div>
 
@@ -221,11 +221,11 @@ export const UserMigrationCenter: React.FC<{ onUserMigrated?: () => void }> = ({
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <div className="text-emerald-600 dark:text-emerald-400 text-xs font-black">تم الترحيل لفايربيس</div>
+                    <div className="text-emerald-600 dark:text-emerald-400 text-xs font-black">محفوظ على Cloudflare D1</div>
                     <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
                         {summary?.migratedUsersCount ?? 0}
                     </div>
-                    <div className="text-[10px] text-emerald-600/70 font-bold mt-1">جاهزون في المنظومة الجديدة</div>
+                    <div className="text-[10px] text-emerald-600/70 font-bold mt-1">نشط وجاهز سحابياً</div>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
@@ -308,8 +308,8 @@ export const UserMigrationCenter: React.FC<{ onUserMigrated?: () => void }> = ({
                                 <th className="py-3 px-4">المستخدم</th>
                                 <th className="py-3 px-4">الهاتف</th>
                                 <th className="py-3 px-4">الصلاحية</th>
-                                <th className="py-3 px-4">المسار القديم (Supabase)</th>
-                                <th className="py-3 px-4">المنظومة الجديدة (Firebase)</th>
+                                <th className="py-3 px-4">الذاكرة المحلية (IndexedDB)</th>
+                                <th className="py-3 px-4">سحابة Cloudflare D1</th>
                                 <th className="py-3 px-4">حالة المطابقة</th>
                                 <th className="py-3 px-4 text-center">الإجراء الآمن</th>
                             </tr>
@@ -343,22 +343,22 @@ export const UserMigrationCenter: React.FC<{ onUserMigrated?: () => void }> = ({
                                             )}
                                         </td>
                                         <td className="py-3.5 px-4">
-                                            {u.inSupabase ? (
+                                            {u.inLocalCache ? (
                                                 <span className="inline-flex items-center gap-1 text-emerald-600 font-bold">
-                                                    <Check size={14} /> محفوظ كنسخة قديمة
+                                                    <Check size={14} /> محفوظ محلياً
                                                 </span>
                                             ) : (
                                                 <span className="text-slate-400">-</span>
                                             )}
                                         </td>
                                         <td className="py-3.5 px-4">
-                                            {u.inFirestore ? (
+                                            {u.inCloudflareD1 ? (
                                                 <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-black">
-                                                    <CheckCircle2 size={14} /> نشط في السحابة
+                                                    <CheckCircle2 size={14} /> نشط في D1
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center gap-1 text-amber-600 font-black">
-                                                    <Clock size={14} /> بالمسار المؤقت
+                                                    <Clock size={14} /> بانتظار الرفع
                                                 </span>
                                             )}
                                         </td>
@@ -369,16 +369,16 @@ export const UserMigrationCenter: React.FC<{ onUserMigrated?: () => void }> = ({
                                                 </span>
                                             ) : u.migrationStatus === 'migrated' ? (
                                                 <span className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-black inline-flex items-center gap-1">
-                                                    <CheckCircle2 size={12} /> مرحّل
+                                                    <CheckCircle2 size={12} /> متزامن
                                                 </span>
                                             ) : (
                                                 <span className="px-2.5 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[10px] font-black inline-flex items-center gap-1">
-                                                    <Clock size={12} /> بانتظار النسخ
+                                                    <Clock size={12} /> بانتظار المزامنة
                                                 </span>
                                             )}
                                         </td>
                                         <td className="py-3.5 px-4 text-center">
-                                            {!u.inFirestore ? (
+                                            {!u.inCloudflareD1 ? (
                                                 <button
                                                     onClick={() => handleSingleMigrate(u.phone)}
                                                     disabled={migratingPhone === u.phone || batchLoading}

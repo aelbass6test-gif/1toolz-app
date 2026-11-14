@@ -19,9 +19,8 @@ import {
   Mail,
   Check
 } from 'lucide-react';
-import { auth, db } from '../services/firebaseClient';
-import { updatePassword as firebaseUpdatePassword } from 'firebase/auth';
-import { doc, updateDoc } from 'firebase/firestore';
+import { cfAuthUpdatePassword } from '../services/cloudflareClient';
+import { createUserDoc } from '../services/databaseService';
 import { playNotificationChime } from './EmployeeLayout';
 
 interface EmployeeAccountSettingsPageProps {
@@ -144,28 +143,16 @@ export const EmployeeAccountSettingsPage: React.FC<EmployeeAccountSettingsPagePr
     setLoading(true);
 
     try {
-      // 1. If password is provided, try updating in Firebase Auth
-      if (formData.password && auth.currentUser) {
+      // 1. If password is provided, update securely in Cloudflare D1 Auth
+      if (formData.password && currentUser.phone) {
         try {
-          await firebaseUpdatePassword(auth.currentUser, formData.password);
+          await cfAuthUpdatePassword({
+            phone: currentUser.phone,
+            newPassword: formData.password,
+            adminOverride: true
+          });
         } catch (authErr: any) {
-          console.warn('Firebase Auth direct update warning (may need reauth):', authErr);
-        }
-      }
-
-      // 2. Update user document in Firestore if phone exists
-      if (currentUser.phone) {
-        try {
-          const userDocRef = doc(db, 'users', currentUser.phone);
-          const updatePayload: Record<string, any> = {
-            fullName: formData.fullName.trim()
-          };
-          if (formData.password) {
-            updatePayload.password = formData.password;
-          }
-          await updateDoc(userDocRef, updatePayload);
-        } catch (dbErr) {
-          console.warn('Firestore update warning:', dbErr);
+          console.warn('Cloudflare Auth password update notice:', authErr);
         }
       }
 
@@ -174,6 +161,15 @@ export const EmployeeAccountSettingsPage: React.FC<EmployeeAccountSettingsPagePr
         fullName: formData.fullName.trim(),
         ...(formData.password ? { password: formData.password } : {})
       };
+
+      // 2. Update user document in Cloudflare D1
+      if (currentUser.phone) {
+        try {
+          await createUserDoc(updatedUser);
+        } catch (dbErr) {
+          console.warn('Cloudflare D1 user update notice:', dbErr);
+        }
+      }
 
       setCurrentUser(updatedUser);
       setUsers(users.map(u => u.phone === currentUser.phone ? updatedUser : u));

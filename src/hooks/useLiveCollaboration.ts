@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { auth } from '../../services/firebaseClient';
-import { getSupabaseClient } from '../../services/databaseService';
+import { cfFetch, getStoredCfAuthUser, subscribePolling } from '../../services/cloudflareClient';
 import { SharedAudit, SharedAuditPresence } from '../../types';
 
 export function useLiveCollaboration(auditId: string, currentUserName: string = 'User') {
@@ -8,60 +7,50 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
     const [lockedItems, setLockedItems] = useState<Record<string, { userId: string; userName: string; lockedAt: string }>>({});
     const [auditData, setAuditData] = useState<SharedAudit | null>(null);
 
-    const currentUserId = auth.currentUser?.uid || 'anonymous';
+    const authUser = getStoredCfAuthUser<any>();
+    const currentUserId = authUser?.phone || authUser?.id || currentUserName || 'anonymous';
     const lastLockedItemRef = useRef<string | null>(null);
+
+    const applyAuditSnapshot = useCallback((data: SharedAudit | null) => {
+        if (!data) return;
+        setAuditData(data);
+        const presenceMap = data.presence || {};
+        const activeCollaborators = Object.values(presenceMap)
+            .filter((p: any) => p.userId !== currentUserId) as SharedAuditPresence[];
+        setCollaborators(activeCollaborators);
+        setLockedItems(data.locks || {});
+    }, [currentUserId]);
 
     useEffect(() => {
         if (!auditId) return;
 
-        const supabase = getSupabaseClient();
-        if (!supabase) return;
-
-        let channel: any;
-
-        const loadInitialData = async () => {
-            const { data } = await supabase.from('shared_audits').select('*').eq('id', auditId).single();
-            if (data) {
-                setAuditData(data as SharedAudit);
-                const presenceMap = data.presence || {};
-                const activeCollaborators = Object.values(presenceMap)
-                    .filter((p: any) => p.userId !== currentUserId) as SharedAuditPresence[];
-                setCollaborators(activeCollaborators);
-                const locksMap = data.locks || {};
-                setLockedItems(locksMap);
-            }
-        };
-
-        loadInitialData();
-
-        channel = supabase.channel('public:shared_audits:' + auditId)
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_audits', filter: 'id=eq.' + auditId }, (payload: any) => {
-                const data = payload.new;
-                if (data) {
-                    setAuditData(data as SharedAudit);
-                    const presenceMap = data.presence || {};
-                    const activeCollaborators = Object.values(presenceMap)
-                        .filter((p: any) => p.userId !== currentUserId) as SharedAuditPresence[];
-                    setCollaborators(activeCollaborators);
-                    const locksMap = data.locks || {};
-                    setLockedItems(locksMap);
-                }
-            })
-            .subscribe();
+        const unsubscribe = subscribePolling(
+            async () => {
+                const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+                    `/api/db/audits/item/${encodeURIComponent(auditId)}`
+                );
+                return res?.audit || null;
+            },
+            (audit) => applyAuditSnapshot(audit),
+            5000
+        );
 
         const cleanup = async () => {
             try {
-                const sb = getSupabaseClient();
-                if (!sb) return;
-                const { data } = await sb.from('shared_audits').select('presence, locks').eq('id', auditId).single();
-                if (data) {
-                    const presence = data.presence || {};
-                    const locks = data.locks || {};
+                const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+                    `/api/db/audits/item/${encodeURIComponent(auditId)}`
+                );
+                if (res?.audit) {
+                    const presence = { ...(res.audit.presence || {}) };
+                    const locks = { ...(res.audit.locks || {}) };
                     delete presence[currentUserId];
                     if (lastLockedItemRef.current) {
                         delete locks[lastLockedItemRef.current];
                     }
-                    await sb.from('shared_audits').update({ presence, locks }).eq('id', auditId);
+                    await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ presence, locks })
+                    });
                 }
             } catch (err) {
                 console.error('Failed to cleanup presence/locks', err);
@@ -71,32 +60,33 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
         window.addEventListener('beforeunload', cleanup);
 
         return () => {
-            if (channel) {
-                supabase.removeChannel(channel);
-            }
-            cleanup();
+            unsubscribe();
+            void cleanup();
             window.removeEventListener('beforeunload', cleanup);
         };
-    }, [auditId, currentUserId]);
+    }, [auditId, currentUserId, applyAuditSnapshot]);
 
     useEffect(() => {
         if (!auditId || !currentUserId) return;
 
         const interval = setInterval(async () => {
-            const supabase = getSupabaseClient();
-            if (!supabase) return;
             const now = new Date().toISOString();
-            
             try {
-                const { data } = await supabase.from('shared_audits').select('presence').eq('id', auditId).single();
-                if (data) {
-                    const presence = data.presence || {};
+                const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+                    `/api/db/audits/item/${encodeURIComponent(auditId)}`
+                );
+                if (res?.audit) {
+                    const presence = { ...(res.audit.presence || {}) };
                     if (presence[currentUserId]) {
-                        presence[currentUserId].lastActive = now;
-                        await supabase.from('shared_audits').update({ presence }).eq('id', auditId);
+                        presence[currentUserId] = { ...presence[currentUserId], lastActive: now };
+                        await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ presence })
+                        });
                     }
                 }
-            } catch (err) {
+            } catch {
+                // Ignore heartbeat failures
             }
         }, 30000);
 
@@ -105,24 +95,24 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
 
     const broadcastPresence = useCallback(async (itemKey: string) => {
         if (!auditId || !currentUserId) return;
-        
-        const supabase = getSupabaseClient();
-        if (!supabase) return;
         const now = new Date().toISOString();
 
         try {
-            const { data } = await supabase.from('shared_audits').select('presence').eq('id', auditId).single();
-            if (data) {
-                const presence = data.presence || {};
-                presence[currentUserId] = {
-                    userId: currentUserId,
-                    userName: currentUserName,
-                    status: 'online',
-                    activeProductId: itemKey,
-                    lastActive: now
-                };
-                await supabase.from('shared_audits').update({ presence }).eq('id', auditId);
-            }
+            const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+                `/api/db/audits/item/${encodeURIComponent(auditId)}`
+            );
+            const presence = { ...(res?.audit?.presence || {}) };
+            presence[currentUserId] = {
+                userId: currentUserId,
+                userName: currentUserName,
+                status: 'online',
+                activeProductId: itemKey,
+                lastActive: now
+            };
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ presence })
+            });
         } catch (err) {
             console.error('Failed to broadcast presence', err);
         }
@@ -130,25 +120,25 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
 
     const lockItem = useCallback(async (productId: string) => {
         if (!auditId || !currentUserId) return;
-        
-        const supabase = getSupabaseClient();
-        if (!supabase) return;
 
         try {
-            const { data } = await supabase.from('shared_audits').select('locks').eq('id', auditId).single();
-            if (data) {
-                const locks = data.locks || {};
-                if (lastLockedItemRef.current && lastLockedItemRef.current !== productId) {
-                    delete locks[lastLockedItemRef.current];
-                }
-                locks[productId] = {
-                    userId: currentUserId,
-                    userName: currentUserName,
-                    lockedAt: new Date().toISOString()
-                };
-                await supabase.from('shared_audits').update({ locks }).eq('id', auditId);
-                lastLockedItemRef.current = productId;
+            const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+                `/api/db/audits/item/${encodeURIComponent(auditId)}`
+            );
+            const locks = { ...(res?.audit?.locks || {}) };
+            if (lastLockedItemRef.current && lastLockedItemRef.current !== productId) {
+                delete locks[lastLockedItemRef.current];
             }
+            locks[productId] = {
+                userId: currentUserId,
+                userName: currentUserName,
+                lockedAt: new Date().toISOString()
+            };
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ locks })
+            });
+            lastLockedItemRef.current = productId;
         } catch (err) {
             console.error('Failed to lock item', err);
         }
@@ -156,19 +146,19 @@ export function useLiveCollaboration(auditId: string, currentUserName: string = 
 
     const unlockItem = useCallback(async (productId: string) => {
         if (!auditId || !currentUserId) return;
-        
-        const supabase = getSupabaseClient();
-        if (!supabase) return;
-        
+
         try {
-            const { data } = await supabase.from('shared_audits').select('locks').eq('id', auditId).single();
-            if (data) {
-                const locks = data.locks || {};
-                delete locks[productId];
-                await supabase.from('shared_audits').update({ locks }).eq('id', auditId);
-                if (lastLockedItemRef.current === productId) {
-                    lastLockedItemRef.current = null;
-                }
+            const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+                `/api/db/audits/item/${encodeURIComponent(auditId)}`
+            );
+            const locks = { ...(res?.audit?.locks || {}) };
+            delete locks[productId];
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ locks })
+            });
+            if (lastLockedItemRef.current === productId) {
+                lastLockedItemRef.current = null;
             }
         } catch (err) {
             console.error('Failed to unlock item', err);

@@ -2,13 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { User, Store, StoreData, Employee, Permission, PERMISSIONS, Transaction, WithdrawRequest, Settings } from '../types';
 import { INITIAL_SETTINGS } from '../constants';
 import { createUserDoc } from '../services/databaseService';
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import firebaseConfig from '../firebase-applet-config.json';
-
-const secondaryApp = getApps().find(app => app.name === "SecondaryAppForAdmin") 
-    || initializeApp(firebaseConfig, "SecondaryAppForAdmin");
-const secondaryAuth = getAuth(secondaryApp);
+import { cfAuthCreateUser } from '../services/cloudflareClient';
 import { 
     Users, Store as StoreIcon, Activity, Search, ShieldAlert, LogIn, Ban, CheckCircle, 
     Lock, Unlock, LayoutDashboard, TrendingUp, MessageSquare, Send, UserPlus, Clock, 
@@ -438,7 +432,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
 
         if (storeIds.length === 0) return;
 
-        // Fetch each store's data in parallel from remote firebase
+        // Fetch each store's data in parallel from Cloudflare D1
         const promises = storeIds.map(async (id) => {
           try {
             const data = await db.getStoreData(id, true); // true to force remote
@@ -616,7 +610,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         const updatedUsers = users.filter(u => u.phone !== user.phone);
         setUsers(updatedUsers);
         
-        // Update global users list in Firebase
+        // Update global users list in Cloudflare D1
         await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
         
         await inAppAlert(`تم حذف المستخدم ${user.fullName} وجميع متاجره بنجاح.`, { type: 'success' });
@@ -679,17 +673,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         return;
     }
 
-    const firebaseEmail = `${newUserData.phone.trim()}@mystore-auth.app`;
-    
-    try {
-        await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, newUserData.password || 'password123');
-        await secondaryAuth.signOut();
-    } catch (err: any) {
-        setAddUserError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
-        return;
-    }
-
-    const newUser: User = {
+    let newUser: User = {
         fullName: newUserData.fullName,
         phone: newUserData.phone.trim(),
         email: newUserData.email,
@@ -698,6 +682,20 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
         joinDate: new Date().toISOString(),
         stores: []
     };
+
+    try {
+        const res = await cfAuthCreateUser({
+            fullName: newUserData.fullName,
+            phone: newUserData.phone.trim(),
+            email: newUserData.email,
+            password: newUserData.password || 'password123',
+            isAdmin: newUserData.isAdmin
+        });
+        if (res?.user) newUser = res.user;
+    } catch (err: any) {
+        setAddUserError(`فشل في إنشاء الحساب في نظام المصادقة: ${err.message}`);
+        return;
+    }
 
     const success = await createUserDoc(newUser);
     if (!success) {

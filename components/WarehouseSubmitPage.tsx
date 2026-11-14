@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getSupabaseClient } from '../services/databaseService';
+import { cfFetch } from '../services/cloudflareClient';
 import { 
     ClipboardList, CheckCircle, CheckCircle2, AlertCircle, Search, Save, Package, 
     Lock, ArrowLeft, Info, HelpCircle, Loader2, RefreshCw, User, FileText, 
@@ -122,10 +122,14 @@ export default function WarehouseSubmitPage() {
 
         if (auditId) {
             try {
-                const supabase = getSupabaseClient();
-                if(supabase) await supabase.from('shared_audits').update({ draftCounts: newCounts, draftNotes: itemNotes, lastSavedAt: new Date().toISOString() }).eq('id', auditId);
+                await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        updates: { draftCounts: newCounts, draftNotes: itemNotes, lastSavedAt: new Date().toISOString() }
+                    })
+                });
             } catch (err) {
-                console.warn('Firestore draft update error:', err);
+                console.warn('Cloudflare D1 draft update error:', err);
             }
         }
     };
@@ -504,7 +508,7 @@ export default function WarehouseSubmitPage() {
         audioSynth.playTone('click');
     };
 
-    // Load the audit document from Firestore
+    // Load the audit document from Cloudflare D1
     const fetchAudit = async () => {
         if (!auditId) {
             setError('رابط الجرد غير صالح');
@@ -516,18 +520,15 @@ export default function WarehouseSubmitPage() {
             setLoading(true);
             let data: SharedAudit | null = null;
 
-            const supabase = getSupabaseClient();
-            if (supabase) {
-                const { data: sbData, error: sbErr } = await supabase.from('shared_audits').select('*').eq('id', auditId).single();
-                if (!sbErr && sbData) {
-                    data = sbData as SharedAudit;
-                }
+            const cfRes = await cfFetch<{ audit?: SharedAudit }>(`/api/db/audits/item/${encodeURIComponent(auditId)}`);
+            if (cfRes?.audit) {
+                data = cfRes.audit;
             }
 
             if (data) {
                 setAudit(data);
                 
-                // Initialize form values from loaded data (preserve saved local identity if Firestore data is empty)
+                // Initialize form values from loaded data (preserve saved local identity if cloud data is empty)
                 const savedLocalName = (auditId && localStorage.getItem(`audit_manager_name_${auditId}`)) || localStorage.getItem('audit_manager_name') || '';
                 const nameToUse = data.managerName || savedLocalName;
                 if (nameToUse) {
@@ -559,13 +560,13 @@ export default function WarehouseSubmitPage() {
                     if (savedNotesStr) localNotes = JSON.parse(savedNotesStr);
                 } catch(e) {}
 
-                // Retrieve cloud draft counts & notes from Firestore
-                const firestoreDraftCounts = (data as any).draftCounts || {};
-                const firestoreDraftNotes = (data as any).draftNotes || {};
+                // Retrieve cloud draft counts & notes from Cloudflare D1
+                const cloudDraftCounts = (data as any).draftCounts || {};
+                const cloudDraftNotes = (data as any).draftNotes || {};
 
                 // Merge all sources: local drafts > cloud drafts > initial submitted counts
-                const mergedCounts = { ...initialCounts, ...firestoreDraftCounts, ...localCounts };
-                const mergedNotes = { ...initialNotes, ...firestoreDraftNotes, ...localNotes };
+                const mergedCounts = { ...initialCounts, ...cloudDraftCounts, ...localCounts };
+                const mergedNotes = { ...initialNotes, ...cloudDraftNotes, ...localNotes };
 
                 setCounts(mergedCounts);
                 setItemNotes(mergedNotes);
@@ -916,10 +917,11 @@ export default function WarehouseSubmitPage() {
                 submittedAt: new Date().toISOString()
             };
 
-            const supabase = getSupabaseClient();
-            if (supabase && auditId) {
-                const { error: sbErr } = await supabase.from('shared_audits').update(updates).eq('id', auditId);
-                if (sbErr) console.warn('Supabase audit update notice:', sbErr);
+            if (auditId) {
+                await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ updates })
+                });
             }
             
             // Update local state to reflect submission
@@ -934,7 +936,7 @@ export default function WarehouseSubmitPage() {
         }
     };
 
-    // Handle submitting counted quantities back to Firestore
+    // Handle submitting counted quantities back to Cloudflare D1
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
@@ -983,8 +985,12 @@ export default function WarehouseSubmitPage() {
     const handleUpdateAuditStatus = async (newStatus: 'pending' | 'submitted' | 'approved' | 'rejected') => {
         try {
             setLoading(true);
-            const supabase = getSupabaseClient();
-            if(supabase) await supabase.from('shared_audits').update({ status: newStatus }).eq('id', auditId!);
+            if (auditId) {
+                await cfFetch(`/api/db/audits/item/${encodeURIComponent(auditId)}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ updates: { status: newStatus } })
+                });
+            }
             setAudit(prev => prev ? { ...prev, status: newStatus } : null);
             customAlert('تم تحديث الحالة', `تم تحديث حالة الجرد بنجاح إلى: ${newStatus === 'approved' ? 'معتمد' : newStatus === 'rejected' ? 'مرفوض/إعادة عد' : 'قيد الانتظار'}`, 'success');
         } catch (err: any) {

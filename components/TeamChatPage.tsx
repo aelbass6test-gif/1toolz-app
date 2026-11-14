@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { cfFetch, subscribePolling } from '../services/cloudflareClient';
 import { User, Settings, ChatMessage, Employee } from '../types';
 import { Send, User as UserIcon, MessageSquare, Paperclip } from 'lucide-react';
 
@@ -11,15 +10,14 @@ interface TeamChatPageProps {
   users: User[];
 }
 
-import { isSupabaseActive } from '../services/databaseService';
-
-const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId, settings, users }) => {
+const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId, settings }) => {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [activeChat, setActiveChat] = useState<Employee | 'general' | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const chatBodyRef = useRef<HTMLDivElement>(null);
+  const lastNotifiedIdRef = useRef<string | null>(null);
   const notificationSound = useRef(new Audio('https://actions.google.com/sounds/v1/notifications/beep_short.ogg'));
 
   useEffect(() => {
@@ -36,65 +34,54 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
   }, [messages]);
 
   useEffect(() => {
-    if (!activeChat || !currentUser || !activeStoreId || isSupabaseActive()) {
+    if (!activeChat || !currentUser || !activeStoreId) {
       setMessages([]);
       return;
     }
 
     setLoading(true);
+    lastNotifiedIdRef.current = null;
+    const storeKey = encodeURIComponent(activeStoreId);
 
-    // Set up standard query. We order by createdAt to get proper sequence.
-    const q = query(
-      collection(db, 'chat_messages'),
-      where('storeId', '==', activeStoreId),
-      orderBy('createdAt', 'asc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allMsgs = snapshot.docs.map(doc => {
-        const d = doc.data();
-        return {
-          id: doc.id,
-          store_id: d.storeId || '',
-          sender_id: d.senderId || '',
-          receiver_id: d.receiverId || '',
-          content: d.content || '',
-          is_read: d.isRead || false,
-          created_at: d.createdAt?.seconds ? new Date(d.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-        } as ChatMessage;
-      });
-
-      // Pure client-side grouping filter for security/simplicity to avoid complex compound Firestore index builds
-      const filtered = allMsgs.filter(msg => {
-        if (activeChat === 'general') {
-          return msg.receiver_id === 'general';
-        } else {
+    const unsubscribe = subscribePolling(
+      () => cfFetch<{ success: boolean; messages: ChatMessage[] }>(`/api/db/chat/${storeKey}`),
+      (res) => {
+        const allMsgs = Array.isArray(res?.messages) ? res.messages : [];
+        const filtered = allMsgs.filter(msg => {
+          if (activeChat === 'general') {
+            return msg.receiver_id === 'general';
+          }
           return (
             (msg.sender_id === currentUser.phone && msg.receiver_id === activeChat.id) ||
             (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.phone)
           );
-        }
-      });
+        });
 
-      setMessages(filtered);
-      setLoading(false);
+        setMessages(filtered);
+        setLoading(false);
 
-      // Sound notification for incoming messages
-      if (filtered.length > 0) {
-        const lastMsg = filtered[filtered.length - 1];
-        if (lastMsg.sender_id !== currentUser.phone) {
-          notificationSound.current.play().catch(e => console.warn('Audio play blocked:', e));
+        if (filtered.length > 0) {
+          const lastMsg = filtered[filtered.length - 1];
+          const msgIdStr = lastMsg.id ? String(lastMsg.id) : '';
+          if (
+            lastMsg.sender_id !== currentUser.phone &&
+            msgIdStr &&
+            lastNotifiedIdRef.current !== null &&
+            lastNotifiedIdRef.current !== msgIdStr
+          ) {
+            notificationSound.current.play().catch(e => console.warn('Audio play blocked:', e));
+          }
+          if (msgIdStr) {
+            lastNotifiedIdRef.current = msgIdStr;
+          }
         }
+      },
+      4000,
+      (error) => {
+        console.warn('[TeamChat] Chat polling notice:', error?.message || error);
+        setLoading(false);
       }
-    }, (error) => {
-      const msg = String(error?.message || error);
-      if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
-        console.warn('[TeamChat] Firestore quota reached. Working offline/cached.');
-      } else {
-        console.warn('[TeamChat] Chat subscription notice:', msg);
-      }
-      setLoading(false);
-    });
+    );
 
     return () => {
       unsubscribe();
@@ -108,13 +95,20 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
     setNewMessage('');
 
     try {
-      await addDoc(collection(db, 'chat_messages'), {
-        storeId: activeStoreId,
-        senderId: currentUser.phone,
-        receiverId: activeChat === 'general' ? 'general' : activeChat.id,
-        content: content,
-        createdAt: new Date()
-      });
+      const res = await cfFetch<{ success: boolean; message: ChatMessage }>(
+        `/api/db/chat/${encodeURIComponent(activeStoreId)}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            senderId: currentUser.phone,
+            receiverId: activeChat === 'general' ? 'general' : activeChat.id,
+            content
+          })
+        }
+      );
+      if (res?.message) {
+        setMessages(prev => prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]);
+      }
     } catch (err) {
       console.error('Error sending message:', err);
       setNewMessage(content); // Restore message

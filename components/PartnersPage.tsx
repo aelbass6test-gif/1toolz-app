@@ -83,7 +83,7 @@ const PartnersPage: React.FC<PartnersPageProps> = ({ settings, updateSettings, w
 
   useEffect(() => {
     loadCloudRequests();
-    // Removed 10s polling interval to prevent Firestore quota exhaustion.
+    // Initial sync from Cloudflare D1 completed on load.
   }, [loadCloudRequests]);
 
   const partnerRequests = useMemo(() => {

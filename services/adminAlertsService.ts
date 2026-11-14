@@ -1,4 +1,4 @@
-import { getSupabaseClient, getLocal } from "./databaseService";
+import { getStoreData, getLocal } from "./databaseService";
 
 export async function sendAdminAlert(
   storeId: string,
@@ -9,12 +9,13 @@ export async function sendAdminAlert(
     let storeSettings: any = null;
     const targetStoreId = storeId || "main_store";
 
-    const supabase = getSupabaseClient();
-    if (supabase) {
-      const { data } = await supabase.from("stores_data").select("settings").eq("id", targetStoreId).maybeSingle();
-      if (data?.settings) {
-        storeSettings = data.settings;
+    try {
+      const remoteStore = await getStoreData(targetStoreId);
+      if (remoteStore?.settings) {
+        storeSettings = remoteStore.settings;
       }
+    } catch {
+      // Fallback to local IndexedDB below
     }
 
     if (!storeSettings) {

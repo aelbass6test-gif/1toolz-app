@@ -2857,7 +2857,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ isOpen, onClose, on
                     const ctx = canvas.getContext('2d');
                     if (ctx) {
                         ctx.drawImage(img, 0, 0, width, height);
-                        // Compact high-quality JPEG (~30KB-60KB) to respect Firestore 1MB document quota
+                        // Compact high-quality JPEG (~30KB-60KB) for fast Cloudflare D1 & IndexedDB sync
                         const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
                         resolve(dataUrl);
                         return;

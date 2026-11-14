@@ -8,6 +8,12 @@ database_name = "abdomedi-otp"
 database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
 migrations_dir = "cloudflare-worker/migrations"
 
+[[d1_databases]]
+binding = "APP_DB"
+database_name = "abdomedi-otp"
+database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
+migrations_dir = "cloudflare-worker/migrations"
+
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
 BOSTA_PRODUCTION_BASE_URL = "https://app.bosta.co"

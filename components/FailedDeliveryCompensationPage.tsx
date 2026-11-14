@@ -65,7 +65,7 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
   const getOrderTotalLoss = (o: Order) => {
     const base = Number(o.shippingFee || 0);
     
-    // Check if custom fields were saved in Firestore
+    // Check if custom fields were saved in Cloudflare D1
     const hasTax = (o as any).shippingTax !== undefined && (o as any).shippingTax !== null && (o as any).shippingTax !== '';
     const tax = hasTax ? Number((o as any).shippingTax) : Number(o.tax || 0);
     

@@ -9,9 +9,7 @@ import {
 import { Settings, Product, ProductVariant, InventoryAuditSession, InventoryAuditItemDiscrepancy, Partner, PartnerTransaction, StaffMember, StaffAdvance, PayrollTransaction } from '../types';
 import { printHTMLDirectly } from '../utils/printHelper';
 import { audioSynth } from '../utils/audioSynth';
-import { getSupabaseClient } from '../services/databaseService';
-import { db } from '../services/firebaseClient';
-import { collection, query, where, getDocs, doc, setDoc, deleteDoc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
+import { cfFetch, subscribePolling } from '../services/cloudflareClient';
 import confetti from 'canvas-confetti';
 
 // Import newly created subcomponents
@@ -79,60 +77,42 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         });
     };
 
-    // Firebase real-time listeners for external shared audits
+    // Cloudflare D1 sync & polling for external shared audits
     const loadSharedAudits = async () => {
         const activeStoreId = localStorage.getItem('lastActiveStoreId') || 'default';
         setLoadingShared(true);
         try {
-            const q = query(
-                collection(db, 'shared_audits'),
-                where('storeId', '==', activeStoreId)
-            );
-            const querySnapshot = await getDocs(q);
-            const list: any[] = [];
-            querySnapshot.forEach(doc => {
-                list.push({ id: doc.id, ...doc.data() });
-            });
+            const res = await cfFetch<{ audits?: any[] }>(`/api/db/audits/${encodeURIComponent(activeStoreId)}`);
+            const list = Array.isArray(res?.audits) ? [...res.audits] : [];
             list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
             setSharedAudits(list);
         } catch (err) {
-            console.warn('Error loading shared audits from Firestore, checking Supabase:', err);
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) {
-                    const { data, error } = await supabase.from('shared_audits').select('*').eq('storeId', activeStoreId);
-                    if (!error && data) {
-                        data.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-                        setSharedAudits(data);
-                    }
-                }
-            } catch (sbErr) {
-                console.error('Supabase shared audits fallback error:', sbErr);
-            }
+            console.warn('Error loading shared audits from Cloudflare D1:', err);
         } finally {
             setLoadingShared(false);
         }
     };
 
     useEffect(() => {
-        loadSharedAudits();
-        
-        // Setup Firestore listener for updates with error safety callback
         const activeStoreId = localStorage.getItem('lastActiveStoreId') || 'default';
-        const q = query(
-            collection(db, 'shared_audits'),
-            where('storeId', '==', activeStoreId)
+        setLoadingShared(true);
+        const unsubscribe = subscribePolling(
+            async () => {
+                const res = await cfFetch<{ audits?: any[] }>(`/api/db/audits/${encodeURIComponent(activeStoreId)}`);
+                const list = Array.isArray(res?.audits) ? [...res.audits] : [];
+                list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                return list;
+            },
+            (list) => {
+                setSharedAudits(list);
+                setLoadingShared(false);
+            },
+            15000,
+            (error) => {
+                console.warn('[InventoryAudit] Polling notice:', error?.message);
+                setLoadingShared(false);
+            }
         );
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const list: any[] = [];
-            snapshot.forEach(doc => {
-                list.push({ id: doc.id, ...doc.data() });
-            });
-            list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setSharedAudits(list);
-        }, (error) => {
-            console.warn('Firestore onSnapshot listener error / quota limit:', error);
-        });
 
         return () => unsubscribe();
     }, []);
@@ -222,20 +202,11 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 }]
             };
 
-            // Save to Firestore first
-            try {
-                await setDoc(doc(db, 'shared_audits', docId), newAuditDoc);
-            } catch (fsErr) {
-                console.warn('Firestore setDoc error creating shared audit:', fsErr);
-            }
-
-            // Save to Supabase fallback
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').insert([newAuditDoc]);
-            } catch (sbErr) {
-                console.warn('Supabase insert error creating shared audit:', sbErr);
-            }
+            // Save to Cloudflare D1
+            await cfFetch(`/api/db/audits/${encodeURIComponent(activeStoreId)}`, {
+                method: 'POST',
+                body: JSON.stringify({ audit: newAuditDoc })
+            });
 
             audioSynth.playTone('success');
             customAlert('تم التوليد', 'تم تفعيل وحفظ رابط الجرد الخارجي بنجاح وبانتظار عد الموظف!', 'success');
@@ -250,8 +221,11 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
 
     const handleUpdateAssignments = async (sessionId: string, assignments: any[]) => {
         try {
-            const supabase = getSupabaseClient();
-            if(supabase) await supabase.from('shared_audits').update({ assignments }).eq('id', sessionId);
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ updates: { assignments } })
+            });
+            setSharedAudits(prev => prev.map(s => s.id === sessionId ? { ...s, assignments } : s));
             audioSynth.playTone('info');
         } catch (err) {
             console.error('Error updating assignments:', err);
@@ -271,23 +245,29 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 }
                 return item;
             });
+            const logEntry = {
+                id: `resolve-${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                userId: currentUser?.uid || currentUser?.phone || 'manager',
+                userName: currentUser?.fullName || 'المشرف',
+                action: 'حل تضارب',
+                details: `تم اعتماد كمية (${resolvedQty}) للمنتج من جرد الموظف: ${userName}`,
+                type: 'success'
+            };
 
-            const docRef = doc(db, 'shared_audits', sessionId);
-            await updateDoc(docRef, {
-                conflicts: updatedConflicts,
-                items: updatedItems,
-                logs: arrayUnion({
-                    id: `resolve-${Date.now()}`,
-                    timestamp: new Date().toISOString(),
-                    userId: currentUser?.uid || 'manager',
-                    userName: currentUser?.fullName || 'المشرف',
-                    action: 'حل تضارب',
-                    details: `تم اعتماد كمية (${resolvedQty}) للمنتج من جرد الموظف: ${userName}`,
-                    type: 'success'
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    updates: {
+                        conflicts: updatedConflicts,
+                        items: updatedItems,
+                        logs: [...(session.logs || []), logEntry]
+                    }
                 })
             });
             audioSynth.playTone('success');
             customAlert('تم الحل', 'تم اعتماد الكمية المختارة وحل التضارب بنجاح.', 'success');
+            loadSharedAudits();
         } catch (err) {
             console.error('Error resolving conflict:', err);
             customAlert('خطأ', 'فشل في حل التضارب.', 'danger');
@@ -578,24 +558,17 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 payrollTransactions: [...newPayrollTransactions, ...(prev.payrollTransactions || [])]
             }));
 
-            // Sync approved status and settlement details on Firestore and Supabase
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, { 
-                    status: 'approved',
-                    approvedAt: auditDateStr,
-                    settlementDetails: settlementDetails || null
-                });
-            } catch (fsErr) {
-                console.warn('Firestore update approved error:', fsErr);
-            }
-
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').update({ status: 'approved' }).eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase update approved error:', sbErr);
-            }
+            // Sync approved status and settlement details on Cloudflare D1
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    updates: {
+                        status: 'approved',
+                        approvedAt: auditDateStr,
+                        settlementDetails: settlementDetails || null
+                    }
+                })
+            });
 
             confetti({
                 particleCount: 150,
@@ -624,19 +597,10 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
                 rejectedAt: new Date().toISOString()
             };
 
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, updates);
-            } catch (fsErr) {
-                console.warn('Firestore reject error:', fsErr);
-            }
-
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').update(updates).eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase reject error:', sbErr);
-            }
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ updates })
+            });
             
             audioSynth.playTone('error');
             customAlert('تم الرفض', 'تم رفض طلب الجرد الخارجي وإعادته لتصحيح كميات الأرفف من الموظف.', 'warning');
@@ -654,21 +618,10 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
         try {
             setLoadingShared(true);
 
-            // Delete from Firestore
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await deleteDoc(docRef);
-            } catch (fsErr) {
-                console.warn('Firestore delete error:', fsErr);
-            }
-
-            // Delete from Supabase
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').delete().eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase delete error:', sbErr);
-            }
+            // Delete from Cloudflare D1
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+                method: 'DELETE'
+            });
             
             // Remove from local state immediately
             setSharedAudits(prev => prev.filter(s => s.id !== sessionId));
@@ -692,33 +645,26 @@ export const InventoryAudit: React.FC<InventoryAuditProps> = ({ settings, setSet
             const logEntry = {
                 id: `unlock-${Date.now()}`,
                 timestamp: new Date().toISOString(),
-                userId: currentUser?.uid || 'manager',
+                userId: currentUser?.uid || currentUser?.phone || 'manager',
                 userName: currentUser?.fullName || 'المشرف',
                 action: 'فتح قفل البروتوكول',
                 details: `تم إلغاء قفل الجلسة. السبب: ${reason}`,
                 type: 'unlock'
             };
 
+            const existingSession = sharedAudits.find(s => s.id === sessionId);
             const updates = { 
                 isProtocolLocked: false,
                 unlockReason: reason,
                 unlockedBy: currentUser?.fullName || 'المشرف',
-                unlockedAt: new Date().toISOString()
+                unlockedAt: new Date().toISOString(),
+                logs: [...(existingSession?.logs || []), logEntry]
             };
 
-            try {
-                const docRef = doc(db, 'shared_audits', sessionId);
-                await updateDoc(docRef, { ...updates, logs: arrayUnion(logEntry) });
-            } catch (fsErr) {
-                console.warn('Firestore unlock error:', fsErr);
-            }
-
-            try {
-                const supabase = getSupabaseClient();
-                if (supabase) await supabase.from('shared_audits').update(updates).eq('id', sessionId);
-            } catch (sbErr) {
-                console.warn('Supabase unlock error:', sbErr);
-            }
+            await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ updates })
+            });
             
             audioSynth.playTone('success');
             customAlert('تم فك القفل', 'تم فتح إعدادات البروتوكول للموظف لتعديل أسلوب العد.', 'success');

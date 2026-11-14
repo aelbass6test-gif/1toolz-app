@@ -1,15 +1,15 @@
-import { getSupabaseClient } from './databaseService';
-import { 
-    SharedAudit, 
-    SharedAuditLogEntry, 
-    SharedAuditProtocol 
+import { cfFetch } from './cloudflareClient';
+import {
+    SharedAudit,
+    SharedAuditLogEntry,
+    SharedAuditProtocol
 } from '../types';
 
 /**
- * Robust Audit Logging
+ * Robust Audit Logging (Cloudflare D1)
  */
 export const addSharedAuditLog = async (
-    sessionId: string, 
+    sessionId: string,
     log: Omit<SharedAuditLogEntry, 'id' | 'timestamp' | 'userId' | 'userName'>,
     userName: string
 ) => {
@@ -21,76 +21,101 @@ export const addSharedAuditLog = async (
         userName: userName || 'User',
         userEmail: undefined
     };
-    
-    const supabase = getSupabaseClient();
-    if (supabase) {
-        try {
-            const { data: audit } = await supabase.from('shared_audits').select('logs').eq('id', sessionId).maybeSingle();
-            const existingLogs = Array.isArray(audit?.logs) ? audit.logs : [];
-            await supabase.from('shared_audits').update({
+
+    try {
+        const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+            `/api/db/audits/item/${encodeURIComponent(sessionId)}`
+        );
+        const existingLogs = Array.isArray(res?.audit?.logs) ? res.audit.logs : [];
+        await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
                 logs: [...existingLogs, newLog]
-            }).eq('id', sessionId);
-        } catch (e) {
-            console.error('Error updating audit logs:', e);
-        }
+            })
+        });
+    } catch (e) {
+        console.error('Error updating audit logs:', e);
     }
 };
 
 /**
- * Protocol Enforcement Guard
+ * Protocol Enforcement Guard (Cloudflare D1)
  */
-export const verifySharedAuditProtocol = async (sessionId: string, requestedProtocol: SharedAuditProtocol): Promise<boolean> => {
-    
-    const supabase = getSupabaseClient();
-    if(!supabase) return false;
-    const { data: audit, error } = await supabase.from('shared_audits').select('*').eq('id', sessionId).single();
-    if (error || !audit) return false;
-    
-    // Rule: Reject change if locked and different
-    if (audit.isProtocolLocked && audit.protocol !== requestedProtocol) {
+export const verifySharedAuditProtocol = async (
+    sessionId: string,
+    requestedProtocol: SharedAuditProtocol
+): Promise<boolean> => {
+    try {
+        const res = await cfFetch<{ success: boolean; audit?: SharedAudit }>(
+            `/api/db/audits/item/${encodeURIComponent(sessionId)}`
+        );
+        const audit = res?.audit;
+        if (!audit) return false;
+
+        if (audit.isProtocolLocked && audit.protocol !== requestedProtocol) {
+            return false;
+        }
+        return true;
+    } catch {
         return false;
     }
-    
-    return true;
 };
 
 /**
- * Supervisor Unlock Action
+ * Supervisor Unlock Action (Cloudflare D1)
  */
 export const unlockSharedAuditProtocol = async (
-    sessionId: string, 
-    reason: string, 
+    sessionId: string,
+    reason: string,
     supervisorName: string
 ) => {
-    
-    
-    const supabase = getSupabaseClient(); if(supabase) await supabase.from('shared_audits').update({
-        isProtocolLocked: false,
-        unlockReason: reason,
-        unlockedBy: supervisorName,
-        unlockedAt: new Date().toISOString()
-    }).eq('id', sessionId);
+    try {
+        await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+                isProtocolLocked: false,
+                unlockReason: reason,
+                unlockedBy: supervisorName,
+                unlockedAt: new Date().toISOString()
+            })
+        });
+    } catch (e) {
+        console.error('Error unlocking audit protocol:', e);
+    }
 
-    await addSharedAuditLog(sessionId, {
-        action: 'فتح قفل البروتوكول',
-        details: `تم إلغاء قفل الجلسة بواسطة ${supervisorName}. السبب: ${reason}`,
-        type: 'unlock'
-    }, supervisorName);
+    await addSharedAuditLog(
+        sessionId,
+        {
+            action: 'فتح قفل البروتوكول',
+            details: `تم إلغاء قفل الجلسة بواسطة ${supervisorName}. السبب: ${reason}`,
+            type: 'unlock'
+        },
+        supervisorName
+    );
 };
 
 /**
- * Centralized Protocol Lock
+ * Centralized Protocol Lock (Cloudflare D1)
  */
 export const lockSharedAuditProtocol = async (sessionId: string, supervisorName: string) => {
-    
-    
-    const supabase = getSupabaseClient(); if(supabase) await supabase.from('shared_audits').update({
-        isProtocolLocked: true
-    }).eq('id', sessionId);
+    try {
+        await cfFetch(`/api/db/audits/item/${encodeURIComponent(sessionId)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+                isProtocolLocked: true
+            })
+        });
+    } catch (e) {
+        console.error('Error locking audit protocol:', e);
+    }
 
-    await addSharedAuditLog(sessionId, {
-        action: 'تثبيت البروتوكول',
-        details: 'تم قفل إعدادات الجلسة والبروتوكول بنجاح.',
-        type: 'protocol_change'
-    }, supervisorName);
+    await addSharedAuditLog(
+        sessionId,
+        {
+            action: 'تثبيت البروتوكول',
+            details: 'تم قفل إعدادات الجلسة والبروتوكول بنجاح.',
+            type: 'protocol_change'
+        },
+        supervisorName
+    );
 };

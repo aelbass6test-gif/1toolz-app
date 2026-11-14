@@ -1,4 +1,4 @@
-import { auth } from './firebaseClient';
+import { getCfAuthToken } from './cloudflareClient';
 
 export interface ProductImageUploadResult {
   key: string;
@@ -123,9 +123,7 @@ export async function uploadProductImages(
     form.append('files', file, file.name);
   }
 
-  await auth.authStateReady();
-  const firebaseUser = auth.currentUser;
-  const accessToken = await firebaseUser?.getIdToken();
+  const accessToken = getCfAuthToken();
   if (!accessToken) throw new Error('يجب تسجيل الدخول قبل رفع الصور');
   const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
 
@@ -189,9 +187,7 @@ export async function deleteProductImages(imageUrlsOrKeys: string[]): Promise<bo
 
   if (!keys.length) return false;
 
-  await auth.authStateReady();
-  const firebaseUser = auth.currentUser;
-  const accessToken = await firebaseUser?.getIdToken().catch(() => null);
+  const accessToken = getCfAuthToken();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

@@ -1,5 +1,4 @@
-import { db } from './firebaseClient';
-import { doc, getDoc, setDoc, runTransaction } from 'firebase/firestore';
+import { cfFetch } from './cloudflareClient';
 import { 
   Order, 
   OrderStatus,
@@ -70,21 +69,61 @@ export function saveIdempotency(key: string, result: any) {
   IDEMPOTENCY_CACHE.set(key, { timestamp: Date.now(), result });
 }
 
+export interface ServerLedgerAdapter extends StoreDataAdapter {
+  getIdempotency?: (key: string) => Promise<any | null>;
+  saveIdempotency?: (key: string, result: any, expiresAt: number) => Promise<void>;
+}
+
+let registeredServerAdapter: ServerLedgerAdapter | null = null;
+
+export function registerServerStoreDataAdapter(adapter: ServerLedgerAdapter | null): void {
+  registeredServerAdapter = adapter;
+}
+
+async function loadStoreFromBackend(storeId: string): Promise<StoreData | null> {
+  if (registeredServerAdapter) {
+    return registeredServerAdapter.getStoreData(storeId);
+  }
+  if (typeof window !== 'undefined') {
+    const res = await cfFetch<any>(`/api/db/stores/${encodeURIComponent(storeId)}`).catch(() => null);
+    return res?.storeData || null;
+  }
+  return null;
+}
+
+async function saveStoreToBackend(storeId: string, data: StoreData): Promise<void> {
+  if (registeredServerAdapter) {
+    await registeredServerAdapter.saveStoreData(storeId, data);
+    return;
+  }
+  if (typeof window !== 'undefined') {
+    await cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ storeData: data })
+    });
+  }
+}
+
 /**
- * Checks idempotency across both in-memory cache and Firestore persistent collection `idempotency_records`.
- * Guarantees that idempotency survives dev server restarts or cold starts.
+ * Checks idempotency across in-memory cache and Cloudflare D1 persistent `idempotency_records`.
+ * Guarantees that idempotency survives server restarts or cold starts.
  */
 export async function getPersistentIdempotency(key?: string): Promise<any | null> {
   if (!key) return null;
   const inMem = checkIdempotency(key);
   if (inMem) return inMem;
   try {
-    const snap = await getDoc(doc(db, 'idempotency_records', key));
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data && (!data.expiresAt || Date.now() < data.expiresAt)) {
-        saveIdempotency(key, data.result);
-        return data.result;
+    if (registeredServerAdapter?.getIdempotency) {
+      const data = await registeredServerAdapter.getIdempotency(key);
+      if (data) {
+        saveIdempotency(key, data);
+        return data;
+      }
+    } else if (typeof window !== 'undefined') {
+      const res = await cfFetch<any>(`/api/db/idempotency/${encodeURIComponent(key)}`).catch(() => null);
+      if (res?.found && res?.result) {
+        saveIdempotency(key, res.result);
+        return res.result;
       }
     }
   } catch {
@@ -94,24 +133,20 @@ export async function getPersistentIdempotency(key?: string): Promise<any | null
 }
 
 /**
- * Persists idempotency record in both memory and Firestore document `idempotency_records/{key}`.
+ * Persists idempotency record in both memory and Cloudflare D1 `idempotency_records`.
  */
-export async function savePersistentIdempotency(key: string, result: any, tx?: any): Promise<void> {
+export async function savePersistentIdempotency(key: string, result: any, _tx?: any): Promise<void> {
   if (!key) return;
   saveIdempotency(key, result);
   try {
-    const recordRef = doc(db, 'idempotency_records', key);
-    const payload = {
-      key,
-      result,
-      timestamp: Date.now(),
-      createdAt: new Date().toISOString(),
-      expiresAt: Date.now() + IDEMPOTENCY_TTL_MS
-    };
-    if (tx && typeof tx.set === 'function') {
-      tx.set(recordRef, payload, { merge: true });
-    } else {
-      await setDoc(recordRef, payload, { merge: true });
+    const expiresAt = Date.now() + IDEMPOTENCY_TTL_MS;
+    if (registeredServerAdapter?.saveIdempotency) {
+      await registeredServerAdapter.saveIdempotency(key, result, expiresAt);
+    } else if (typeof window !== 'undefined') {
+      await cfFetch(`/api/db/idempotency/${encodeURIComponent(key)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ result, expiresAt })
+      });
     }
   } catch {
     // Non-fatal if offline
@@ -199,244 +234,18 @@ export async function confirmOrderWithQuotaAndFee(params: {
       return { ...cachedInsideLock, idempotentReplay: true };
     }
 
-    // If live Firestore DB is active and not an inMemory test, run true DB transaction
-    if (!inMemoryStoreData && db) {
-      return await runTransaction(db, async (tx) => {
-        // Read idempotency doc
-        const idempRef = doc(db, 'idempotency_records', effectiveIdempotencyKey);
-        const idempSnap = await tx.get(idempRef);
-        if (idempSnap.exists()) {
-          const replayRes = idempSnap.data()?.result;
-          if (replayRes) {
-            saveIdempotency(effectiveIdempotencyKey, replayRes);
-            return { ...replayRes, idempotentReplay: true };
-          }
-        }
-
-        // Read store doc
-        const storeRef = doc(db, 'stores_data', storeId);
-        const storeSnap = await tx.get(storeRef);
-        if (!storeSnap.exists()) {
-          throw new Error(`المتجر غير موجود: [${storeId}]`);
-        }
-        const storeData = storeSnap.data() as StoreData;
-
-        // Read order doc
-        const orderDocId = orderId.startsWith(storeId) ? orderId : `${storeId}_${orderId}`;
-        const orderRef = doc(db, 'orders', orderDocId);
-        const orderSnap = await tx.get(orderRef);
-
-        const currentOrders = Array.isArray(storeData.orders) ? storeData.orders : [];
-        const orderIndex = currentOrders.findIndex(
-          o => o.id === orderId || String(o.orderNumber) === orderId
-        );
-
-        if (orderIndex === -1 && !orderSnap.exists()) {
-          throw new Error(`الطلب غير موجود: [${orderId}]`);
-        }
-
-        const targetOrder = orderIndex !== -1 ? currentOrders[orderIndex] : (orderSnap.data() as Order);
-
-        // Idempotency check on order status
-        if (targetOrder.quotaConsumedAt || targetOrder.status === 'قيد_التنفيذ' || (targetOrder.status as string) === 'مؤكد') {
-          const suppliersList: any[] = Array.isArray(storeData.settings?.suppliers)
-            ? storeData.settings.suppliers
-            : Object.values(storeData.settings?.suppliers || {});
-          const matchedSup = suppliersList.find(
-            s => String(s?.id || '').toLowerCase() === String(targetOrder.merchantId || '').toLowerCase()
-          );
-          const replayResult: ConfirmOrderQuotaResult = {
-            success: true,
-            order: targetOrder,
-            feeDeducted: Number(targetOrder.managerFeeAmount || 0),
-            quotaConsumed: false,
-            cycleOrderNumber: targetOrder.cycleOrderNumber || 1,
-            newBalance: Number(matchedSup?.balance || 0),
-            message: 'الطلب مؤكد مسبقاً، لم يتم تكرار الخصم أو استهلاك الكوتة (Idempotent)',
-            idempotentReplay: true
-          };
-          saveIdempotency(effectiveIdempotencyKey, replayResult);
-          return replayResult;
-        }
-
-        const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
-          ? storeData.settings.suppliers
-          : Object.values(storeData.settings?.suppliers || {});
-        const partners: any[] = Array.isArray(storeData.settings?.partners)
-          ? storeData.settings.partners
-          : Object.values(storeData.settings?.partners || {});
-
-        const targetMerchantId = String(targetOrder.merchantId || '').trim().toLowerCase();
-        const targetMerchantName = String(targetOrder.merchantName || '').trim().toLowerCase();
-
-        let matchedMerchant = suppliers.find(
-          s => (targetMerchantId && String(s.id || '').toLowerCase() === targetMerchantId) ||
-               (targetMerchantName && String(s.name || '').trim().toLowerCase() === targetMerchantName)
-        );
-        let isSupplier = true;
-
-        if (!matchedMerchant) {
-          matchedMerchant = partners.find(
-            p => (targetMerchantId && String(p.id || '').toLowerCase() === targetMerchantId) ||
-                 (targetMerchantName && String(p.name || '').trim().toLowerCase() === targetMerchantName)
-          );
-          isSupplier = false;
-        }
-
-        const nowIso = safeIsoDate(nowMs);
-        let feeDeducted = 0;
-        let quotaIncluded = false;
-        let cycleOrderNumber = 1;
-        let nextWalletBalance = Number(matchedMerchant?.balance || 0);
-
-        const createdUnderSelfService = targetOrder.planModeAtCreation === 'self_service';
-
-        if (matchedMerchant && !createdUnderSelfService) {
-          const activeMgr: MerchantManagerConfig | undefined = matchedMerchant.managerPlan;
-          const isCycleActive = isPlanCycleCurrentlyActive(activeMgr, nowMs);
-          const effectivePlanId = targetOrder.planIdAtCreation || activeMgr?.planId;
-
-          if (activeMgr && activeMgr.planId && activeMgr.planId !== 'none') {
-            const cycleId = activeMgr.cycleId || targetOrder.planCycleId || `MGR-${effectivePlanId}-cycle`;
-
-            const cycleOrders = currentOrders.filter(o => {
-              if (o.status === 'ملغي' || o.id === targetOrder.id) return false;
-              const matchesCycle = o.planCycleId === cycleId || (!o.planCycleId && o.planModeAtCreation === 'manager');
-              return matchesCycle && Boolean(o.quotaConsumedAt || o.status === 'قيد_التنفيذ' || (o.status as string) === 'مؤكد');
-            });
-
-            cycleOrderNumber = cycleOrders.length + 1;
-
-            if (effectivePlanId === 'monthly_1000' || effectivePlanId === 'monthly_700') {
-              const includedQuota = activeMgr.includedOrdersQuota ?? 50;
-              if (isCycleActive && cycleOrders.length < includedQuota) {
-                feeDeducted = 0;
-                quotaIncluded = true;
-              } else {
-                feeDeducted = activeMgr.extraOrderFee ?? 20;
-                quotaIncluded = false;
-              }
-            } else if (effectivePlanId === 'per_order_20') {
-              feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.orderFee ?? 20);
-              quotaIncluded = false;
-            } else if (effectivePlanId === 'custom_manager') {
-              if (isCycleActive && activeMgr.customPrepaidQuota) {
-                const quota = Number(activeMgr.customOrderQuota || activeMgr.customOrdersTarget || 0);
-                if (cycleOrders.length < quota) {
-                  feeDeducted = 0;
-                  quotaIncluded = true;
-                } else {
-                  feeDeducted = Number(activeMgr.customOrderFee ?? 20);
-                  quotaIncluded = false;
-                }
-              } else {
-                feeDeducted = Number(targetOrder.lockedManagerFee ?? activeMgr.customOrderFee ?? 20);
-                quotaIncluded = false;
-              }
-            }
-          }
-
-          if (feeDeducted > 0) {
-            const currentBalPiasters = toPiasters(matchedMerchant.balance);
-            const feePiasters = toPiasters(feeDeducted);
-            const nextBalPiasters = currentBalPiasters - feePiasters;
-            nextWalletBalance = fromPiasters(nextBalPiasters);
-
-            const existingTxs: MerchantTransaction[] = Array.isArray(matchedMerchant.transactions)
-              ? matchedMerchant.transactions
-              : [];
-
-            const feeTx: MerchantTransaction = {
-              id: `TX-MGRFEE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-              merchantId: matchedMerchant.id,
-              merchantName: matchedMerchant.name,
-              date: nowIso,
-              type: 'manager_order_fee',
-              amount: -feeDeducted,
-              balanceAfter: nextWalletBalance,
-              referenceId: targetOrder.id,
-              orderId: targetOrder.id,
-              notes: quotaIncluded 
-                ? `رسوم المدير المخصص: أوردر مشمول بالكوتة (0 ج.م)`
-                : `خصم رسوم تشغيل المدير المخصص (${feeDeducted} ج.م) عن الأوردر #${targetOrder.orderNumber} (ترتيب بالدورة: ${cycleOrderNumber})`
-            } as any;
-
-            matchedMerchant.balance = nextWalletBalance;
-            matchedMerchant.transactions = [feeTx, ...existingTxs];
-
-            if (isSupplier) {
-              storeData.settings.suppliers = suppliers.map(s => s.id === matchedMerchant!.id ? matchedMerchant : s);
-            } else {
-              storeData.settings.partners = partners.map(p => p.id === matchedMerchant!.id ? matchedMerchant : p);
-            }
-          }
-        }
-
-        const updatedOrder: Order = {
-          ...targetOrder,
-          status: 'قيد_التنفيذ' as OrderStatus,
-          confirmedAt: nowIso,
-          updatedAt: nowIso,
-          quotaConsumedAt: nowIso,
-          managerFeeDeducted: true,
-          managerFeeAmount: feeDeducted,
-          lockedManagerFee: feeDeducted,
-          quotaIncludedOrder: quotaIncluded,
-          cycleOrderNumber: cycleOrderNumber,
-          notes: `${targetOrder.notes || ''} (تم التأكيد وحساب الكوتة بواسطة: ${confirmedBy})`.trim()
-        };
-        (updatedOrder as any).version = Number((targetOrder as any).version || 0) + 1;
-
-        if (orderIndex !== -1) {
-          currentOrders[orderIndex] = updatedOrder;
-          storeData.orders = currentOrders;
-        }
-
-        // Writes within transaction
-        tx.set(orderRef, { ...updatedOrder, storeId, store_id: storeId }, { merge: true });
-        tx.set(storeRef, {
-          orders: storeData.orders,
-          settings: storeData.settings
-        }, { merge: true });
-
-        const txResult: ConfirmOrderQuotaResult = {
-          success: true,
-          order: updatedOrder,
-          feeDeducted,
-          quotaConsumed: true,
-          cycleOrderNumber,
-          newBalance: nextWalletBalance,
-          message: feeDeducted === 0 && quotaIncluded
-            ? `تم تأكيد الأوردر #${updatedOrder.orderNumber} بنجاح مجاناً ضمن كوتة الباقة (${cycleOrderNumber}/50)`
-            : `تم تأكيد الأوردر #${updatedOrder.orderNumber} بنجاح وخصم رسوم المدير (${feeDeducted} ج.م) من محفظة الموكل`
-        };
-
-        tx.set(idempRef, {
-          key: effectiveIdempotencyKey,
-          result: txResult,
-          timestamp: Date.now(),
-          createdAt: nowIso,
-          expiresAt: Date.now() + IDEMPOTENCY_TTL_MS
-        }, { merge: true });
-
-        saveIdempotency(effectiveIdempotencyKey, txResult);
-        return txResult;
-      });
-    }
-
-    // 3. Fallback for inMemoryStoreData (Offline tests)
     let storeData: StoreData;
-    let storeRef: any = null;
+    let shouldPersistBackend = false;
 
     if (inMemoryStoreData) {
       storeData = inMemoryStoreData;
     } else {
-      storeRef = doc(db, 'stores_data', storeId);
-      const snap = await getDoc(storeRef);
-      if (!snap.exists()) {
+      const loaded = await loadStoreFromBackend(storeId);
+      if (!loaded) {
         throw new Error(`المتجر غير موجود: [${storeId}]`);
       }
-      storeData = snap.data() as StoreData;
+      storeData = loaded;
+      shouldPersistBackend = true;
     }
 
     const currentOrders = Array.isArray(storeData.orders) ? storeData.orders : [];
@@ -616,14 +425,9 @@ export async function confirmOrderWithQuotaAndFee(params: {
     currentOrders[orderIndex] = updatedOrder;
     storeData.orders = currentOrders;
 
-    // 7. Persist to Firestore (both orders collection and stores_data) if live DB reference available
-    if (storeRef) {
-      const orderDocId = updatedOrder.id.startsWith(storeId) ? updatedOrder.id : `${storeId}_${updatedOrder.id}`;
-      await setDoc(doc(db, 'orders', orderDocId), { ...updatedOrder, storeId, store_id: storeId }, { merge: true });
-      await setDoc(storeRef, {
-        orders: storeData.orders,
-        settings: storeData.settings
-      }, { merge: true });
+    // 7. Persist to Cloudflare D1 backend if active
+    if (shouldPersistBackend) {
+      await saveStoreToBackend(storeId, storeData);
     }
 
     const result: ConfirmOrderQuotaResult = {
@@ -638,7 +442,7 @@ export async function confirmOrderWithQuotaAndFee(params: {
         : `تم تأكيد الأوردر #${updatedOrder.orderNumber} بنجاح وخصم رسوم المدير (${feeDeducted} ج.م) من محفظة الموكل`
     };
 
-    saveIdempotency(effectiveIdempotencyKey, result);
+    await savePersistentIdempotency(effectiveIdempotencyKey, result);
     return result;
   } finally {
     unlock();
@@ -734,190 +538,8 @@ export async function createOrderAtomic(
       if (cachedInside) return { ...cachedInside, alreadyExisted: true, idempotentReplay: true };
     }
 
-    if (!adapter && !inMemoryStoreData && db) {
-      // Database-level ACID Transaction across: Order, Store, Inventory Stock, and Idempotency Record
-      return await runTransaction(db, async (tx) => {
-        // 1. Transaction Read Phase: Persistent Idempotency Record
-        if (idempotencyKey) {
-          const idempRef = doc(db, 'idempotency_records', idempotencyKey);
-          const idempSnap = await tx.get(idempRef);
-          if (idempSnap.exists()) {
-            const cachedResult = idempSnap.data()?.result;
-            if (cachedResult) {
-              saveIdempotency(idempotencyKey, cachedResult);
-              return { ...cachedResult, alreadyExisted: true, idempotentReplay: true };
-            }
-          }
-        }
-
-        // 2. Transaction Read Phase: Store Document
-        const storeRef = doc(db, 'stores_data', storeId);
-        const storeSnap = await tx.get(storeRef);
-        if (!storeSnap.exists()) {
-          return { success: false, code: 'StoreNotFound', message: `المتجر غير موجود: [${storeId}]` };
-        }
-        const storeData = storeSnap.data() as StoreData;
-
-        // 3. Transaction Read Phase: Check Order collision if ID specified
-        const uniqueId = effectiveOrderInput.id || generateUniqueOrderId('ord');
-        const orderDocId = uniqueId.startsWith(storeId) ? uniqueId : `${storeId}_${uniqueId}`;
-        const orderRef = doc(db, 'orders', orderDocId);
-        const orderSnap = await tx.get(orderRef);
-        if (orderSnap.exists()) {
-          const existingOrder = orderSnap.data() as Order;
-          const replayRes = { success: true, order: existingOrder, alreadyExisted: true, idempotentReplay: true };
-          if (idempotencyKey) {
-            saveIdempotency(idempotencyKey, replayRes);
-          }
-          return replayRes;
-        }
-
-        const currentOrders = Array.isArray(storeData.orders) ? storeData.orders : [];
-        const existingInArray = currentOrders.find(
-          (o: any) =>
-            (effectiveOrderInput.id && o.id === effectiveOrderInput.id) ||
-            (idempotencyKey && o.idempotencyKey === idempotencyKey)
-        );
-        if (existingInArray) {
-          const replayRes = { success: true, order: existingInArray, alreadyExisted: true, idempotentReplay: true };
-          if (idempotencyKey) saveIdempotency(idempotencyKey, replayRes);
-          return replayRes;
-        }
-
-        // 4. Validation: Dedicated Manager restriction
-        const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
-          ? storeData.settings.suppliers
-          : Object.values(storeData.settings?.suppliers || {});
-        const partners: any[] = Array.isArray(storeData.settings?.partners)
-          ? storeData.settings.partners
-          : Object.values(storeData.settings?.partners || {});
-
-        let matchedMerchant: any = null;
-        if (effectiveOrderInput.merchantId) {
-          matchedMerchant =
-            suppliers.find(s => s.id === effectiveOrderInput.merchantId) ||
-            partners.find(p => p.id === effectiveOrderInput.merchantId);
-        }
-
-        if (normalizedRole === 'merchant' && matchedMerchant && isPlanCycleCurrentlyActive(matchedMerchant.managerPlan, nowMs)) {
-          return {
-            success: false,
-            code: 'DedicatedManagerOrderCreationForbidden',
-            message: 'MERCHANT_ORDER_CREATION_FORBIDDEN: الموكل المشترك في باقة المدير المخصص لا يمكنه إنشاء الأوردرات بنفسه؛ تتولى الإدارة إنشاءها نيابةً عنه.'
-          };
-        }
-
-        // 5. Stock Validation & Reservation
-        const products: any[] = Array.isArray((storeData.settings as any)?.products)
-          ? (storeData.settings as any).products
-          : [];
-        const requestedItems = Array.isArray(effectiveOrderInput.items) ? effectiveOrderInput.items : [];
-
-        if (enforceStockAvailability) {
-          for (const reqItem of requestedItems) {
-            const pid = reqItem.productId || reqItem.id;
-            const reqQty = Math.max(1, Number(reqItem.quantity || 1));
-            if (pid) {
-              const prod = products.find(p => p.id === pid);
-              if (prod) {
-                const available = Number(prod.stockQuantity ?? prod.stock ?? prod.quantity ?? 0);
-                if (reqQty > available) {
-                  return {
-                    success: false,
-                    code: 'InsufficientStock',
-                    message: `INSUFFICIENT_STOCK: الكمية المطلوبة (${reqQty}) للمنتج [${prod.name || pid}] تتجاوز المخزون المتاح (${available})`
-                  };
-                }
-              }
-            }
-          }
-        }
-
-        // Deduct stock atomically
-        const nowIso = safeIsoDate(nowMs);
-        for (const reqItem of requestedItems) {
-          const pid = reqItem.productId || reqItem.id;
-          const reqQty = Math.max(1, Number(reqItem.quantity || 1));
-          if (pid) {
-            const prodIdx = products.findIndex(p => p.id === pid);
-            if (prodIdx >= 0) {
-              const prod = products[prodIdx];
-              const available = Number(prod.stockQuantity ?? prod.stock ?? prod.quantity ?? 0);
-              const nextStock = Math.max(0, available - reqQty);
-              products[prodIdx] = {
-                ...prod,
-                stock: nextStock,
-                stockQuantity: nextStock,
-                quantity: nextStock,
-                updatedAt: nowIso,
-                version: Number(prod.version || 0) + 1
-              };
-            }
-          }
-        }
-        if (storeData.settings) {
-          (storeData.settings as any).products = products;
-        }
-
-        const displayOrderNumber = effectiveOrderInput.orderNumber || generateDisplayOrderNumber('ORD');
-        const planSnapshot = matchedMerchant ? buildOrderPlanSnapshot(matchedMerchant, nowMs) : {};
-
-        const newOrder: Order = {
-          ...effectiveOrderInput,
-          ...planSnapshot,
-          id: uniqueId,
-          orderNumber: displayOrderNumber,
-          customerName: effectiveOrderInput.customerName,
-          customerPhone: effectiveOrderInput.customerPhone,
-          customerAddress: effectiveOrderInput.customerAddress || (effectiveOrderInput as any).address || '',
-          shippingCompany: effectiveOrderInput.shippingCompany || 'بوسطه',
-          shippingArea: effectiveOrderInput.shippingArea || effectiveOrderInput.governorate || 'القاهرة',
-          status: (effectiveOrderInput.status || 'جاري_المراجعة') as OrderStatus,
-          paymentStatus: effectiveOrderInput.paymentStatus || 'بانتظار الدفع',
-          preparationStatus: effectiveOrderInput.preparationStatus || 'بانتظار التجهيز',
-          productName: effectiveOrderInput.productName || requestedItems[0]?.name || 'منتج',
-          productPrice: Number(effectiveOrderInput.productPrice ?? effectiveOrderInput.totalPrice ?? 0),
-          productCost: Number(effectiveOrderInput.productCost ?? 0),
-          totalPrice: Number(effectiveOrderInput.totalPrice ?? (effectiveOrderInput as any).totalAmount ?? 0),
-          shippingFee: Number(effectiveOrderInput.shippingFee ?? 0),
-          weight: Number(effectiveOrderInput.weight ?? 1),
-          discount: Number(effectiveOrderInput.discount ?? 0),
-          date: effectiveOrderInput.date || nowIso,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-          stockDeducted: requestedItems.length > 0,
-          items: requestedItems as any,
-          version: 1,
-          ...(idempotencyKey ? { idempotencyKey } : {})
-        };
-
-        storeData.orders = [newOrder, ...currentOrders.filter(o => o.id !== uniqueId)];
-
-        // 6. Atomic Transaction Writes
-        tx.set(orderRef, { ...newOrder, storeId, store_id: storeId }, { merge: true });
-        tx.set(storeRef, {
-          orders: storeData.orders,
-          settings: storeData.settings
-        }, { merge: true });
-
-        const resultPayload = { success: true, order: newOrder, alreadyExisted: false, idempotentReplay: false };
-        if (idempotencyKey) {
-          tx.set(doc(db, 'idempotency_records', idempotencyKey), {
-            key: idempotencyKey,
-            result: resultPayload,
-            timestamp: Date.now(),
-            createdAt: nowIso,
-            expiresAt: Date.now() + IDEMPOTENCY_TTL_MS
-          }, { merge: true });
-          saveIdempotency(idempotencyKey, resultPayload);
-        }
-
-        return resultPayload;
-      });
-    }
-
     let storeData: StoreData;
-    let storeRef: any = null;
+    let shouldPersistBackend = false;
 
     if (adapter) {
       const loaded = await adapter.getStoreData(storeId);
@@ -928,12 +550,12 @@ export async function createOrderAtomic(
     } else if (inMemoryStoreData) {
       storeData = inMemoryStoreData;
     } else {
-      storeRef = doc(db, 'stores_data', storeId);
-      const snap = await getDoc(storeRef);
-      if (!snap.exists()) {
+      const loaded = await loadStoreFromBackend(storeId);
+      if (!loaded) {
         return { success: false, code: 'StoreNotFound', message: `المتجر غير موجود: [${storeId}]` };
       }
-      storeData = snap.data() as StoreData;
+      storeData = loaded;
+      shouldPersistBackend = true;
     }
 
     const currentOrders = Array.isArray(storeData.orders) ? storeData.orders : [];
@@ -1071,13 +693,8 @@ export async function createOrderAtomic(
 
     if (adapter) {
       await adapter.saveStoreData(storeId, storeData);
-    } else if (storeRef) {
-      const orderDocId = uniqueId.startsWith(storeId) ? uniqueId : `${storeId}_${uniqueId}`;
-      await setDoc(doc(db, 'orders', orderDocId), { ...newOrder, storeId, store_id: storeId }, { merge: true });
-      await setDoc(storeRef, {
-        orders: storeData.orders,
-        settings: storeData.settings
-      }, { merge: true });
+    } else if (shouldPersistBackend) {
+      await saveStoreToBackend(storeId, storeData);
     }
 
     const res = { success: true, order: newOrder, alreadyExisted: false, idempotentReplay: false };
@@ -1139,97 +756,8 @@ export async function processMerchantWithdrawalAtomic(
     const cachedInside = await getPersistentIdempotency(effectiveKey);
     if (cachedInside) return { ...cachedInside, idempotentReplay: true };
 
-    if (!adapter && !inMemoryStoreData && db) {
-      return await runTransaction(db, async (tx) => {
-        const idempRef = doc(db, 'idempotency_records', effectiveKey);
-        const idempSnap = await tx.get(idempRef);
-        if (idempSnap.exists()) {
-          const replayRes = idempSnap.data()?.result;
-          if (replayRes) {
-            saveIdempotency(effectiveKey, replayRes);
-            return { ...replayRes, idempotentReplay: true };
-          }
-        }
-
-        const storeRef = doc(db, 'stores_data', storeId);
-        const snap = await tx.get(storeRef);
-        if (!snap.exists()) return { success: false, code: 'StoreNotFound', message: `المتجر غير موجود: [${storeId}]` };
-        const storeData = snap.data() as StoreData;
-
-        const suppliers: any[] = Array.isArray(storeData.settings?.suppliers) ? storeData.settings.suppliers : [];
-        const partners: any[] = Array.isArray(storeData.settings?.partners) ? storeData.settings.partners : [];
-
-        let merchant = suppliers.find(s => s.id === merchantId);
-        let isSupplier = true;
-        if (!merchant) {
-          merchant = partners.find(p => p.id === merchantId);
-          isSupplier = false;
-        }
-        if (!merchant) {
-          return { success: false, code: 'MerchantNotFound', message: `الموكل غير موجود: [${merchantId}]` };
-        }
-
-        const reqPiasters = toPiasters(amount);
-        if (reqPiasters <= 0) {
-          return { success: false, code: 'InvalidAmount', message: 'مبلغ السحب يجب أن يكون أكبر من صفر' };
-        }
-
-        const curPiasters = toPiasters(Number(merchant.balance || 0));
-        if (reqPiasters > curPiasters) {
-          return {
-            success: false,
-            code: 'InsufficientBalance',
-            message: `INSUFFICIENT_WALLET_BALANCE: الرصيد المتاح (${fromPiasters(curPiasters)} ج.م) لا يكفي لصرف مبلغ (${fromPiasters(reqPiasters)} ج.م)`
-          };
-        }
-
-        const nextBal = fromPiasters(curPiasters - reqPiasters);
-        const nowIso = safeIsoDate();
-        const txRecord: MerchantTransaction = {
-          id: `WTH-${merchantId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          merchantId: merchant.id,
-          merchantName: merchant.name,
-          date: nowIso,
-          type: 'withdrawal',
-          amount: -fromPiasters(reqPiasters),
-          balanceAfter: nextBal,
-          referenceId: effectiveKey,
-          notes: `سحب نقدي معتمد من محفظة الموكل`
-        };
-
-        merchant.balance = nextBal;
-        merchant.transactions = [txRecord, ...(merchant.transactions || [])];
-
-        if (isSupplier) {
-          storeData.settings.suppliers = suppliers.map(s => s.id === merchant.id ? merchant : s);
-        } else {
-          storeData.settings.partners = partners.map(p => p.id === merchant.id ? merchant : p);
-        }
-
-        tx.set(storeRef, { settings: storeData.settings }, { merge: true });
-
-        const txRes = {
-          success: true,
-          withdrawnAmount: fromPiasters(reqPiasters),
-          newBalance: nextBal,
-          transaction: txRecord
-        };
-
-        tx.set(idempRef, {
-          key: effectiveKey,
-          result: txRes,
-          timestamp: Date.now(),
-          createdAt: nowIso,
-          expiresAt: Date.now() + IDEMPOTENCY_TTL_MS
-        }, { merge: true });
-
-        saveIdempotency(effectiveKey, txRes);
-        return txRes;
-      });
-    }
-
     let storeData: StoreData;
-    let storeRef: any = null;
+    let shouldPersistBackend = false;
 
     if (adapter) {
       const loaded = await adapter.getStoreData(storeId);
@@ -1238,10 +766,10 @@ export async function processMerchantWithdrawalAtomic(
     } else if (inMemoryStoreData) {
       storeData = inMemoryStoreData;
     } else {
-      storeRef = doc(db, 'stores_data', storeId);
-      const snap = await getDoc(storeRef);
-      if (!snap.exists()) return { success: false, code: 'StoreNotFound', message: `المتجر غير موجود: [${storeId}]` };
-      storeData = snap.data() as StoreData;
+      const loaded = await loadStoreFromBackend(storeId);
+      if (!loaded) return { success: false, code: 'StoreNotFound', message: `المتجر غير موجود: [${storeId}]` };
+      storeData = loaded;
+      shouldPersistBackend = true;
     }
 
     const suppliers: any[] = Array.isArray(storeData.settings?.suppliers) ? storeData.settings.suppliers : [];
@@ -1296,8 +824,8 @@ export async function processMerchantWithdrawalAtomic(
 
     if (adapter) {
       await adapter.saveStoreData(storeId, storeData);
-    } else if (storeRef) {
-      await setDoc(storeRef, { settings: storeData.settings }, { merge: true });
+    } else if (shouldPersistBackend) {
+      await saveStoreToBackend(storeId, storeData);
     }
 
     const res = {
@@ -1362,7 +890,7 @@ export async function processCarrierEventOrSettlementAtomic(
     if (cachedInside) return { ...cachedInside, alreadyProcessed: true, idempotentReplay: true };
 
     let storeData: StoreData;
-    let storeRef: any = null;
+    let shouldPersistBackend = false;
     if (adapter) {
       const loaded = await adapter.getStoreData(storeId);
       if (!loaded) throw new Error(`المتجر غير موجود: [${storeId}]`);
@@ -1370,10 +898,10 @@ export async function processCarrierEventOrSettlementAtomic(
     } else if (inMemoryStoreData) {
       storeData = inMemoryStoreData;
     } else {
-      storeRef = doc(db, 'stores_data', storeId);
-      const snap = await getDoc(storeRef);
-      if (!snap.exists()) throw new Error(`المتجر غير موجود: [${storeId}]`);
-      storeData = snap.data() as StoreData;
+      const loaded = await loadStoreFromBackend(storeId);
+      if (!loaded) throw new Error(`المتجر غير موجود: [${storeId}]`);
+      storeData = loaded;
+      shouldPersistBackend = true;
     }
 
     const orders = Array.isArray(storeData.orders) ? storeData.orders : [];
@@ -1474,8 +1002,8 @@ export async function processCarrierEventOrSettlementAtomic(
 
     if (adapter) {
       await adapter.saveStoreData(storeId, storeData);
-    } else if (storeRef) {
-      await setDoc(storeRef, { orders: storeData.orders, settings: storeData.settings }, { merge: true });
+    } else if (shouldPersistBackend) {
+      await saveStoreToBackend(storeId, storeData);
     }
 
     const result = {
@@ -1528,15 +1056,15 @@ export async function activateMerchantManagerPlan(params: {
     if (cachedInside) return cachedInside;
 
     let storeData: StoreData;
-    let storeRef: any = null;
+    let shouldPersistBackend = false;
 
     if (inMemoryStoreData) {
       storeData = inMemoryStoreData;
     } else {
-      storeRef = doc(db, 'stores_data', storeId);
-      const snap = await getDoc(storeRef);
-      if (!snap.exists()) throw new Error(`المتجر غير موجود: [${storeId}]`);
-      storeData = snap.data() as StoreData;
+      const loaded = await loadStoreFromBackend(storeId);
+      if (!loaded) throw new Error(`المتجر غير موجود: [${storeId}]`);
+      storeData = loaded;
+      shouldPersistBackend = true;
     }
 
     const suppliers: any[] = Array.isArray(storeData.settings?.suppliers)
@@ -1617,8 +1145,8 @@ export async function activateMerchantManagerPlan(params: {
       storeData.settings.partners = partners.map(p => p.id === merchant.id ? merchant : p);
     }
 
-    if (storeRef) {
-      await setDoc(storeRef, { settings: storeData.settings }, { merge: true });
+    if (shouldPersistBackend) {
+      await saveStoreToBackend(storeId, storeData);
     }
 
     const result = {

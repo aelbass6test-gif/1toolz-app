@@ -2,8 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { MessageSquare, X, Send, User, Users, ChevronLeft, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { User as UserType, ChatMessage, Employee } from '../types';
-import { db } from '../services/firebaseClient';
-import { collection, addDoc, query, where, onSnapshot, orderBy, doc, updateDoc, writeBatch, getDocs } from 'firebase/firestore';
+import { cfFetch, subscribePolling } from '../services/cloudflareClient';
 
 interface FloatingChatProps {
     currentUser: UserType | null;
@@ -17,14 +16,13 @@ export interface FloatingChatHandles {
     toggle: () => void;
 }
 
-import { isSupabaseActive } from '../services/databaseService';
-
 const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({ currentUser, storeOwner, activeStoreId, employees, onlineUsers }, ref) => {
     const [isOpen, setIsOpen] = useState(false);
     const [activeChat, setActiveChat] = useState<{ id: string, name: string, icon: React.ReactElement } | null>(null);
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const chatBodyRef = useRef<HTMLDivElement>(null);
+    const lastNotifiedIdRef = useRef<string | null>(null);
 
     const formatLastSeen = (timestamp: number) => {
         const diff = Date.now() - timestamp;
@@ -78,77 +76,69 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
     }, []);
 
     useEffect(() => {
-        if (!activeChat || !currentUser || !activeStoreId || isSupabaseActive()) {
+        if (!activeChat || !currentUser || !activeStoreId) {
             setMessages([]);
             return;
         }
 
-        const q = query(
-            collection(db, 'chat_messages'),
-            where('storeId', '==', activeStoreId),
-            orderBy('createdAt', 'asc')
-        );
+        lastNotifiedIdRef.current = null;
+        const storeKey = encodeURIComponent(activeStoreId);
 
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            const allMsgs = snapshot.docs.map(docSnap => {
-                const data = docSnap.data();
-                return {
-                    id: docSnap.id,
-                    store_id: data.storeId || '',
-                    sender_id: data.senderId || '',
-                    receiver_id: data.receiverId || '',
-                    content: data.content || '',
-                    is_read: data.isRead || false,
-                    is_file: data.isFile || false,
-                    created_at: data.createdAt?.seconds ? new Date(data.createdAt.seconds * 1000).toISOString() : new Date().toISOString()
-                } as ChatMessage;
-            });
-
-            // Client side filtering for active sender/receiver pairing to avoid complex composite Firestore indexes
-            const filtered = allMsgs.filter(msg => {
-                if (activeChat.id === 'team') {
-                    return msg.receiver_id === 'general';
-                } else {
+        const unsubscribe = subscribePolling(
+            () => cfFetch<{ success: boolean; messages: ChatMessage[] }>(`/api/db/chat/${storeKey}`),
+            async (res) => {
+                const allMsgs = Array.isArray(res?.messages) ? res.messages : [];
+                const filtered = allMsgs.filter(msg => {
+                    if (activeChat.id === 'team') {
+                        return msg.receiver_id === 'general';
+                    }
                     return (
                         (msg.sender_id === currentUser.phone && msg.receiver_id === activeChat.id) ||
                         (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.phone)
                     );
-                }
-            });
-
-            setMessages(filtered);
-
-            // Trigger system notifications
-            if (filtered.length > 0) {
-                const lastMsg = filtered[filtered.length - 1];
-                if (lastMsg.sender_id !== currentUser.phone && Notification.permission === 'granted') {
-                    new Notification(`رسالة جديدة من ${activeChat.name}`, {
-                        body: lastMsg.is_file ? 'الملف المرفق' : lastMsg.content,
-                    });
-                }
-            }
-
-            // Mark as read in batch
-            const unreadDocs = snapshot.docs.filter(docSnap => {
-                const data = docSnap.data();
-                return data.receiverId === currentUser.phone && !data.isRead;
-            });
-
-            if (unreadDocs.length > 0) {
-                const batch = writeBatch(db);
-                unreadDocs.forEach(docSnap => {
-                    batch.update(docSnap.ref, { isRead: true });
                 });
-                await batch.commit().catch(err => console.warn('Failed to mark read:', err));
+
+                setMessages(filtered);
+
+                if (filtered.length > 0) {
+                    const lastMsg = filtered[filtered.length - 1];
+                    const msgIdStr = lastMsg.id ? String(lastMsg.id) : '';
+                    if (
+                        lastMsg.sender_id !== currentUser.phone &&
+                        msgIdStr &&
+                        lastNotifiedIdRef.current !== null &&
+                        lastNotifiedIdRef.current !== msgIdStr &&
+                        typeof Notification !== 'undefined' &&
+                        Notification.permission === 'granted'
+                    ) {
+                        new Notification(`رسالة جديدة من ${activeChat.name}`, {
+                            body: lastMsg.is_file ? 'الملف المرفق' : lastMsg.content,
+                        });
+                    }
+                    if (msgIdStr) {
+                        lastNotifiedIdRef.current = msgIdStr;
+                    }
+                }
+
+                const unreadIds = filtered
+                    .filter(m => m.receiver_id === currentUser.phone && !m.is_read && m.id)
+                    .map(m => m.id);
+
+                if (unreadIds.length > 0) {
+                    await cfFetch(`/api/db/chat/${storeKey}/mark-read`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            receiverId: currentUser.phone,
+                            messageIds: unreadIds
+                        })
+                    }).catch(err => console.warn('Failed to mark read:', err));
+                }
+            },
+            4000,
+            (error) => {
+                console.warn('[FloatingChat] Chat polling notice:', error?.message || error);
             }
-        }, (error) => {
-            const msg = String(error?.message || error);
-            if (msg.includes('quota') || msg.includes('resource-exhausted') || (error as any)?.code === 'resource-exhausted') {
-                console.warn('[FloatingChat] Firestore quota reached. Working offline/cached.');
-            } else {
-                console.warn('[FloatingChat] Chat message subscription notice:', msg);
-            }
-        });
+        );
 
         return () => {
             unsubscribe();
@@ -162,15 +152,22 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
         setMessage('');
 
         try {
-            await addDoc(collection(db, 'chat_messages'), {
-                storeId: activeStoreId,
-                senderId: currentUser.phone,
-                receiverId: activeChat.id === 'team' ? 'general' : activeChat.id,
-                content: content,
-                isRead: false,
-                isFile: false,
-                createdAt: new Date()
-            });
+            const res = await cfFetch<{ success: boolean; message: ChatMessage }>(
+                `/api/db/chat/${encodeURIComponent(activeStoreId)}`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        senderId: currentUser.phone,
+                        receiverId: activeChat.id === 'team' ? 'general' : activeChat.id,
+                        content,
+                        isRead: false,
+                        isFile: false
+                    })
+                }
+            );
+            if (res?.message) {
+                setMessages(prev => prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]);
+            }
         } catch (err) {
             console.error('Error sending message:', err);
             setMessage(content);
@@ -184,22 +181,28 @@ const FloatingChat = React.forwardRef<FloatingChatHandles, FloatingChatProps>(({
 
         const file = e.target.files[0];
         
-        // Use FileReader to convert file to Base64
         const reader = new FileReader();
         reader.onload = async (event) => {
             const base64Url = event.target?.result as string;
             if (!base64Url) return;
 
             try {
-                await addDoc(collection(db, 'chat_messages'), {
-                    storeId: activeStoreId,
-                    senderId: currentUser.phone,
-                    receiverId: activeChat.id === 'team' ? 'general' : activeChat.id,
-                    content: base64Url,
-                    isRead: false,
-                    isFile: true,
-                    createdAt: new Date()
-                });
+                const res = await cfFetch<{ success: boolean; message: ChatMessage }>(
+                    `/api/db/chat/${encodeURIComponent(activeStoreId)}`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            senderId: currentUser.phone,
+                            receiverId: activeChat.id === 'team' ? 'general' : activeChat.id,
+                            content: base64Url,
+                            isRead: false,
+                            isFile: true
+                        })
+                    }
+                );
+                if (res?.message) {
+                    setMessages(prev => prev.some(m => m.id === res.message.id) ? prev : [...prev, res.message]);
+                }
             } catch (messageError) {
                 console.error('Error sending file message:', messageError);
             }

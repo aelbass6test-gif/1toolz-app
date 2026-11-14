@@ -3140,14 +3140,14 @@ ${q.terms || 'الأسعار سارية حتى تاريخ الصلاحية. يت
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-black text-sm text-slate-900 dark:text-white">
                     <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-                    <span>2. السحابة السحابية Firebase Firestore</span>
+                    <span>2. قاعدة بيانات Cloudflare D1 السحابية</span>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
                     مزامنة سحابية
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed pr-4">
-                  تتم مزامنة كل عرض سعر تلقائياً مع خوادم جوجل السحابية داخل وثيقة المتجر <code>stores_data/{'{storeId}'}</code> لضمان توفر البيانات على جميع أجهزتك وأجهزة موظفيك.
+                  تتم مزامنة كل عرض سعر تلقائياً مع قاعدة بيانات Cloudflare D1 السحابية داخل المتجر لضمان توفر البيانات الفوري على جميع أجهزتك وأجهزة موظفيك.
                 </p>
               </div>
 
@@ -3155,14 +3155,14 @@ ${q.terms || 'الأسعار سارية حتى تاريخ الصلاحية. يت
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 font-black text-sm text-slate-900 dark:text-white">
                     <span className="w-2.5 h-2.5 rounded-full bg-cyan-500"></span>
-                    <span>3. قاعدة بيانات Supabase (PostgreSQL السحابية)</span>
+                    <span>3. طبقة المجموعات السريعة (Cloudflare Edge API)</span>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300">
                     علائقية متطورة
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed pr-4">
-                  تتم مزامنة عروض الأسعار مع جدول <code className="font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950 px-1 py-0.5 rounded">quotations</code> في Supabase بالإضافة لتخزين نسخة مضغوطة في إعدادات المتجر <code>stores_data</code>.
+                  تتم مزامنة عروض الأسعار في جدول <code className="font-mono text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950 px-1 py-0.5 rounded">store_collections</code> في Cloudflare D1 بالإضافة لتخزينها داخل بيانات المتجر السحابية.
                 </p>
               </div>
 

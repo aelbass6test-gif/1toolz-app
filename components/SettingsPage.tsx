@@ -10,7 +10,7 @@ import {
   CloudUpload, ShieldCheck, Wifi, WifiOff, FileJson, Clock, HardDrive, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 import { calculateOrderProfitLoss } from '../utils/financials';
-import { clearStoreData, checkSupabaseConnection } from '../services/databaseService';
+import { clearStoreData, verifyCloudflareD1Connection } from '../services/databaseService';
 import * as dbService from '../services/databaseService';
 import { db as localDb } from '../src/lib/db';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
@@ -272,8 +272,8 @@ const DatabaseCard: React.FC<{
     setPingStatus('checking');
     const start = performance.now();
     try {
-      const isConnected = await checkSupabaseConnection();
-      if (isConnected) {
+      const check = await verifyCloudflareD1Connection();
+      if (check.success) {
         const duration = Math.round(performance.now() - start);
         setLatency(duration);
         setPingStatus('completed');
@@ -550,7 +550,7 @@ const DatabaseCard: React.FC<{
           <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850/50 flex items-center justify-between">
             <div className="text-right">
               <span className="text-[10px] text-slate-400 font-bold block">المزامنة والنسخة السحابية</span>
-              <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">متصلة (Firestore)</span>
+              <span className="text-xs font-black text-indigo-600 dark:text-indigo-400">متصلة (Cloudflare D1)</span>
             </div>
             <ShieldCheck size={20} className="text-indigo-500" />
           </div>
@@ -2464,7 +2464,7 @@ const DomainSettingsCard: React.FC<{ settings: Settings, setSettings: React.Disp
             const data = await res.json();
             if (data.success) {
                 setLastSyncResult(data.details);
-                // The server also updates Firestore, but we can update local state too
+                // The server also persists domain status to Cloudflare D1, update local state too
                 setSettings(prev => ({
                     ...prev,
                     domainStatus: data.details.status === 'active' && data.details.ssl?.status === 'active' ? 'active' : 'pending_validation',

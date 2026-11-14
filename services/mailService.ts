@@ -1,7 +1,6 @@
 import nodemailer from 'nodemailer';
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import fs from 'fs';
+import { getServerD1Database } from '../server/cfDatabaseAdapter';
 
 /**
  * Enterprise Email Service for Smart Order & Inventory Manager
@@ -10,7 +9,7 @@ import fs from 'fs';
  * Features:
  * - High-conversion, branded responsive email templates matching the app identity.
  * - Multi-provider resilient dispatch: Resend API -> Brevo API -> SMTP / Gmail.
- * - In-memory and local disk caching to prevent Firestore quota burns.
+ * - In-memory and local disk caching backed by Cloudflare D1 app_settings.
  * - Graceful fallback and automated spam-filtering prevention (plain-text mirrors).
  */
 
@@ -89,15 +88,13 @@ const CONFIG_CACHE_PATH = './mail-config-cache.json';
 let inMemoryConfig: SmtpSettings | null = null;
 let lastCacheTime = 0;
 const CACHE_LIFETIME = 15 * 60 * 1000; // 15 minutes cache
-let isQuotaExceeded = false;
-let quotaExceededTimestamp = 0;
 
 export function updateMailConfigLocalCache(config: SmtpSettings) {
   inMemoryConfig = config;
   lastCacheTime = Date.now();
   try {
     fs.writeFileSync(CONFIG_CACHE_PATH, JSON.stringify(config, null, 2), 'utf8');
-  } catch (err) {
+  } catch {
     // Ignore file write errors
   }
 }
@@ -105,22 +102,10 @@ export function updateMailConfigLocalCache(config: SmtpSettings) {
 async function getStoredMailConfig(): Promise<SmtpSettings | null> {
   const now = Date.now();
 
-  // Return from in-memory cache if valid
   if (inMemoryConfig && (now - lastCacheTime < CACHE_LIFETIME)) {
     return inMemoryConfig;
   }
 
-  // If we recently encountered Firestore quota exhaustion, avoid querying Firestore
-  if (isQuotaExceeded && (now - quotaExceededTimestamp < 30 * 60 * 1000)) {
-    if (!inMemoryConfig && fs.existsSync(CONFIG_CACHE_PATH)) {
-      try {
-        inMemoryConfig = JSON.parse(fs.readFileSync(CONFIG_CACHE_PATH, 'utf8'));
-      } catch {}
-    }
-    return inMemoryConfig;
-  }
-
-  // Try reading local file cache first if recent
   if (fs.existsSync(CONFIG_CACHE_PATH)) {
     try {
       const stats = fs.statSync(CONFIG_CACHE_PATH);
@@ -133,51 +118,25 @@ async function getStoredMailConfig(): Promise<SmtpSettings | null> {
   }
 
   try {
-    const fbConfigPath = './firebase-applet-config.json';
-    if (!fs.existsSync(fbConfigPath)) return inMemoryConfig;
-    const fbConfig = JSON.parse(fs.readFileSync(fbConfigPath, 'utf8'));
-    
-    let app = getApps().length > 0 ? getApps()[0] : initializeApp(fbConfig);
-    const db = getFirestore(app, fbConfig.firestoreDatabaseId);
-
-    // 1. Try settings/smtp
-    const smtpDoc = await getDoc(doc(db, 'settings', 'smtp'));
-    if (smtpDoc.exists() && smtpDoc.data()) {
-      const data = smtpDoc.data() as SmtpSettings;
+    const d1 = getServerD1Database();
+    const smtpRow = await d1.prepare('SELECT value_json FROM app_settings WHERE key = ?').bind('smtp').first<{ value_json: string }>();
+    if (smtpRow?.value_json) {
+      const data = JSON.parse(smtpRow.value_json) as SmtpSettings;
       updateMailConfigLocalCache(data);
-      isQuotaExceeded = false;
       return data;
     }
-
-    // 2. Try system_settings/smtp
-    const sysDoc = await getDoc(doc(db, 'system_settings', 'smtp'));
-    if (sysDoc.exists() && sysDoc.data()) {
-      const data = sysDoc.data() as SmtpSettings;
-      updateMailConfigLocalCache(data);
-      isQuotaExceeded = false;
-      return data;
-    }
-
-    // 3. Try settings/general
-    const genDoc = await getDoc(doc(db, 'settings', 'general'));
-    if (genDoc.exists() && genDoc.data()?.smtp) {
-      const data = genDoc.data()?.smtp as SmtpSettings;
-      updateMailConfigLocalCache(data);
-      isQuotaExceeded = false;
-      return data;
+    const genRow = await d1.prepare('SELECT value_json FROM app_settings WHERE key = ?').bind('general').first<{ value_json: string }>();
+    if (genRow?.value_json) {
+      const parsed = JSON.parse(genRow.value_json);
+      if (parsed?.smtp) {
+        updateMailConfigLocalCache(parsed.smtp as SmtpSettings);
+        return parsed.smtp as SmtpSettings;
+      }
     }
   } catch (err: any) {
-    const msg = String(err?.message || err);
-    if (msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('resource-exhausted') || msg.toLowerCase().includes('limit exceeded')) {
-      isQuotaExceeded = true;
-      quotaExceededTimestamp = now;
-      console.log('[MAIL-SERVICE] Firestore quota reached. Using local/env cached mail configuration seamlessly.');
-    } else {
-      console.warn('[MAIL-SERVICE] Could not read stored mail config:', msg);
-    }
+    console.warn('[MAIL-SERVICE] Could not read stored mail config from D1:', err?.message || err);
   }
 
-  // Fallback to local cache
   if (!inMemoryConfig && fs.existsSync(CONFIG_CACHE_PATH)) {
     try {
       inMemoryConfig = JSON.parse(fs.readFileSync(CONFIG_CACHE_PATH, 'utf8'));
@@ -424,7 +383,7 @@ async function dispatchEmail({
       };
     }
 
-    console.warn(`[MAIL-SERVICE] No mail credentials configured (env or Firestore settings/smtp)`);
+    console.warn(`[MAIL-SERVICE] No mail credentials configured (env or Cloudflare D1 global_settings/smtp)`);
     return { 
       success: false, 
       delivered: false, 

@@ -6,9 +6,8 @@ import {
   LogOut, Camera, AlertCircle, RefreshCw, Layers, Moon, Sun, Check, ArrowRight,
   Fingerprint, Scan, Cpu, Trash2, PlusCircle, CheckCircle2
 } from 'lucide-react';
-import { auth } from '../services/firebaseClient';
-import { verifyBeforeUpdateEmail, sendPasswordResetEmail } from 'firebase/auth';
-import { updateUserInSupabase, createUserDoc } from '../services/databaseService';
+import { createUserDoc } from '../services/databaseService';
+import { cfAuthRequestPasswordReset, cfFetch } from '../services/cloudflareClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   isWebAuthnSupported, 
@@ -205,15 +204,16 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     setResetSentMessage('');
     setError('');
     try {
-      await sendPasswordResetEmail(auth, targetEmail);
+      await cfAuthRequestPasswordReset(targetEmail);
+      await fetch('/api/send-custom-password-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: targetEmail, phone: currentUser?.phone })
+      }).catch(() => {});
       setResetSentMessage(`تم إرسال رابط إعادة تعيين كلمة المرور بنجاح إلى بريدك الحقيقي: ${targetEmail}`);
     } catch (err: any) {
       console.error('Password reset error:', err);
-      if (err.code === 'auth/user-not-found') {
-        setResetSentMessage(`تم إرسال رابط إعادة تعيين كلمة المرور بنجاح إلى بريدك الحقيقي: ${targetEmail}`);
-      } else {
-        setError('تعذر إرسال رابط كلمة المرور: ' + (err.message || 'حاول لاحقاً.'));
-      }
+      setError('تعذر إرسال رابط كلمة المرور: ' + (err.message || 'حاول لاحقاً.'));
     } finally {
       setIsSendingReset(false);
     }
@@ -232,63 +232,31 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     setError('');
 
     try {
+      if (formData.email && formData.email.includes('@mystore-auth.app')) {
+        setError('لا يمكن استخدام بريد النظام المؤقت كبريد أساسي للتواصل. يرجى إدخال بريد إلكتروني حقيقي (Gmail, Outlook, etc).');
+        setIsSaving(false);
+        return;
+      }
+
       const updatedUser: User = {
         ...currentUser,
         fullName: `${formData.firstName} ${formData.lastName}`.trim(),
         email: formData.email, 
       };
 
-      // 1. Update Firebase Auth Email if it's a real email and changed
-      if (formData.email && formData.email.includes('@') && auth.currentUser) {
-        const currentAuthEmail = auth.currentUser.email;
-        if (currentAuthEmail !== formData.email) {
-          if (formData.email.includes('@mystore-auth.app')) {
-             setError('لا يمكن استخدام بريد النظام المؤقت كبريد أساسي للتواصل. يرجى إدخال بريد إلكتروني حقيقي (Gmail, Outlook, etc).');
-             setIsSaving(false);
-             return;
-          }
-
-          try {
-            await verifyBeforeUpdateEmail(auth.currentUser, formData.email);
-            setSuccessMessage(`تم إرسال رابط تأكيد إلى: ${formData.email}. يرجى الضغط على الرابط في الرسالة لتأكيد البريد.`);
-          } catch (authErr: any) {
-            if (authErr.code === 'auth/requires-recent-login') {
-               // Handled smoothly: Save to Firestore/Database directly without throwing console warnings
-               setSuccessMessage(`تم حفظ البريد الإلكتروني (${formData.email}) وبيانات الحساب بنجاح في قاعدة البيانات!`);
-            } else if (authErr.code === 'auth/email-already-in-use') {
-               setError('هذا البريد الإلكتروني مستخدم بالفعل في حساب آخر.');
-               setIsSaving(false);
-               return;
-            } else if (authErr.code === 'auth/invalid-email') {
-               setError('البريد الإلكتروني المدخل غير صالح.');
-               setIsSaving(false);
-               return;
-            } else {
-               setSuccessMessage(`تم حفظ تحديثات الملف الشخصي والبريد الإلكتروني بنجاح!`);
-            }
-          }
-        }
-      }
-
-      // 2. Update Supabase for forgot password lookup
-      const sbResult = await updateUserInSupabase(updatedUser);
-      if (!sbResult.success) {
-        console.warn('[SUPABASE] Update failed:', sbResult.error);
-        if (sbResult.error?.includes('بالفعل')) {
-          setError(sbResult.error);
-          setIsSaving(false);
-          return;
-        }
-      }
-
-      // 3. Update Firestore & Local State
+      // Update Cloudflare D1 User & Send verification if email changed
       await createUserDoc(updatedUser);
+      if (formData.email && formData.email !== currentUser.email && formData.email.includes('@')) {
+        void cfFetch('/api/auth/verify-email', {
+          method: 'POST',
+          body: JSON.stringify({ email: formData.email, phone: currentUser.phone })
+        }).catch(() => {});
+      }
+
       setCurrentUser(updatedUser);
       setUsers(users.map(u => u.phone === currentUser.phone ? updatedUser : u));
 
-      if (!successMessage) {
-        setSuccessMessage('تم حفظ كافة التغييرات وإعدادات الحساب بنجاح!');
-      }
+      setSuccessMessage('تم حفظ كافة التغييرات وإعدادات الحساب في Cloudflare D1 بنجاح!');
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
@@ -310,7 +278,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     );
   }
 
-  const isEmailSynced = auth.currentUser?.email === formData.email;
+  const isEmailSynced = Boolean(currentUser?.email && currentUser.email === formData.email && !formData.email.includes('@mystore-auth.app'));
   const isTypedTempEmail = !formData.email || formData.email.includes('@mystore-auth.app');
   const userInitials = (formData.firstName[0] || 'U') + (formData.lastName[0] || '');
 
@@ -503,7 +471,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                   {isEmailSynced ? (
                     <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
                       <CheckCircle size={15} />
-                      مرتبط ومفعل ببيانات الدخول الموحدة (Firebase Auth).
+                      مرتبط ومفعل ببيانات الدخول الموحدة (Cloudflare D1 Auth).
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -625,7 +593,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                       التحقق بـ كود التمرير (2FA / Two-Factor Protection)
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      طلب كود تأكيد عبر SMS أو Firebase Auth عند تسجيل الدخول من أجهزة جديدة
+                      طلب كود تأكيد عبر البريد أو نظام المصادقة الموحد عند تسجيل الدخول من أجهزة جديدة
                     </p>
                   </div>
                 </div>

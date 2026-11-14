@@ -6,9 +6,8 @@ import {
   Send, RefreshCw, AlertCircle
 } from 'lucide-react';
 import { User } from '../types';
-import { getUserByPhone, createUserDoc, getUserByPhoneFromSupabase, updateUserInSupabase } from '../services/databaseService';
-import { auth } from '../services/firebaseClient';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getUserByPhone, createUserDoc } from '../services/databaseService';
+import { cfAuthLogin, cfAuthSignup } from '../services/cloudflareClient';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { verifyPasswordSecure } from '../utils/syncIntegrity';
 import { motion } from 'framer-motion';
@@ -195,18 +194,15 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       }
     }
 
-    const firebaseEmail = `${trimmedPhone}@mystore-auth.app`;
-
     if (isLoginView) {
       try {
-        await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
-        let foundUser = await getUserByPhone(trimmedPhone);
+        const loginRes = await cfAuthLogin(trimmedPhone, userPassword);
+        let foundUser = loginRes?.user || await getUserByPhone(trimmedPhone);
         if (!foundUser) {
-          // Reconstruct user gracefully from auth session if Firestore quota was exhausted
           foundUser = {
             fullName: 'التاجر العزيز',
             phone: trimmedPhone,
-            email: auth.currentUser?.email || `${trimmedPhone}@mystore-auth.app`,
+            email: `${trimmedPhone}@abdomedi.com`,
             stores: [{ 
               id: `store_${trimmedPhone}`, 
               name: 'متجري الذكي',
@@ -222,124 +218,29 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             joinDate: new Date().toISOString()
           };
         }
-        
-        if (foundUser) {
-          if (!Array.isArray(foundUser.stores) && !foundUser.isAdmin) {
-            setUserError('أنت مسجل كموظف. يرجى تسجيل الدخول من صفحة دخول الموظفين.');
-            setIsLoading(false);
-            return;
-          }
-          onPasswordSuccess(foundUser, userPassword);
-          return;
-        }
-      } catch (err: any) {
-        if (err.code === 'auth/network-request-failed') {
-          setUserError("فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت.");
+
+        if (!Array.isArray(foundUser.stores) && !foundUser.isAdmin) {
+          setUserError('أنت مسجل كموظف. يرجى تسجيل الدخول من صفحة دخول الموظفين.');
           setIsLoading(false);
           return;
         }
-        const isUserNotFoundOrInvalid = err.code === 'auth/user-not-found' || 
-                                       err.code === 'auth/invalid-credential' || 
-                                       err?.message?.includes('user-not-found') || 
-                                       err?.message?.includes('invalid-credential');
-        if (isUserNotFoundOrInvalid) {
-          try {
-            // Check if user exists in Firestore
-            const firestoreUser = await getUserByPhone(userPhone.trim());
-            if (firestoreUser) {
-              // Create or link Firebase Authentication credentials directly without browser hash checking
-              try {
-                await createUserWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                onPasswordSuccess(firestoreUser, userPassword);
-                return;
-              } catch (createErr: any) {
-                if (createErr.code === 'auth/email-already-in-use') {
-                  // Password was incorrect for existing Firebase Auth account
-                  setUserError("كلمة المرور غير صحيحة. يرجى التأكد أو استخدام خيار استعادة كلمة المرور.");
-                  setIsLoading(false);
-                  return;
-                }
-              }
-            }
-
-            const legacyUser = await getUserByPhoneFromSupabase(userPhone.trim());
-            
-            // 1. Check if they have a CUSTOM email in Supabase (meaning they updated it in settings)
-            if (legacyUser && legacyUser.email && legacyUser.email !== `${userPhone.trim()}@mystore-auth.app`) {
-              try {
-                await signInWithEmailAndPassword(auth, legacyUser.email, userPassword);
-                const foundUser = await getUserByPhone(userPhone.trim());
-                if (foundUser) {
-                  onPasswordSuccess(foundUser, userPassword);
-                  return;
-                }
-              } catch (secondErr: any) {
-              }
-            }
-            
-            // 2. Original Migration Logic (Legacy users)
-            if (legacyUser) {
-              const storedPassword = legacyUser.password;
-              if (storedPassword === userPassword) {
-                if (userPassword.length < 6) {
-                  setUserError("يجب إعادة تعيين كلمة المرور لأن كلمة المرور القديمة لا تستوفي متطلبات Firebase Authentication.");
-                  setIsLoading(false);
-                  return;
-                }
-                
-                // Use real email if available, otherwise generated one
-                const emailToCreate = legacyUser.email || firebaseEmail;
-
-                const migratedUser: User = {
-                  ...legacyUser,
-                  migrationStatus: 'migrated',
-                  migratedAt: new Date().toISOString(),
-                  legacyVerified: true
-                };
-
-                try {
-                  await createUserWithEmailAndPassword(auth, emailToCreate, userPassword);
-                  await createUserDoc(migratedUser);
-                  onPasswordSuccess(migratedUser, userPassword);
-                } catch (createErr: any) {
-                  if (createErr.code === 'auth/email-already-in-use') {
-                    try {
-                      // Try signing in with BOTH potential emails
-                      try {
-                        await signInWithEmailAndPassword(auth, emailToCreate, userPassword);
-                      } catch (signInErr: any) {
-                        if (emailToCreate !== firebaseEmail) {
-                          await signInWithEmailAndPassword(auth, firebaseEmail, userPassword);
-                        } else {
-                          throw signInErr;
-                        }
-                      }
-                      
-                      const existingFsUser = await getUserByPhone(userPhone.trim());
-                      if (!existingFsUser) {
-                        await createUserDoc(migratedUser);
-                      }
-                      onPasswordSuccess(migratedUser, userPassword);
-                    } catch (signInErr: any) {
-                      if (signInErr.code === 'auth/invalid-credential' || signInErr.code === 'auth/wrong-password') {
-                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
-                      } else {
-                        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
-                      }
-                      setIsLoading(false);
-                    }
-                  } else {
-                    setUserError('فشل إنشاء حساب المصادقة.');
-                    setIsLoading(false);
-                  }
-                }
-                return;
-              }
-            }
-          } catch (migrationErr) {
-          }
+        onPasswordSuccess(foundUser, userPassword);
+        return;
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (msg.includes('Failed to fetch') || msg.includes('Network')) {
+          setUserError("فشل الاتصال بخادم Cloudflare. يرجى التحقق من اتصال الإنترنت.");
+          setIsLoading(false);
+          return;
         }
-        setUserError('رقم الموبايل أو كلمة المرور غير صحيحة.');
+        try {
+          const d1User = await getUserByPhone(trimmedPhone);
+          if (d1User && d1User.password && (await verifyPasswordSecure(userPassword, d1User.password)).valid) {
+            onPasswordSuccess(d1User, userPassword);
+            return;
+          }
+        } catch {}
+        setUserError(msg || 'رقم الموبايل أو كلمة المرور غير صحيحة.');
         setIsLoading(false);
       }
     } else {
@@ -363,47 +264,39 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       }
 
       if (!agreeTerms) {
-        setUserError('يرجى الموافقة على شروط الاستخدام وسياسة الخصوصية للمتابعة.');
+        setUserError('يرجى الموافقة على شروط الاستخدام وسياسة الخصوصية للمنصة.');
         setIsLoading(false);
         return;
       }
       
       try {
-        const emailToUse = firebaseEmail;
-        await createUserWithEmailAndPassword(auth, emailToUse, userPassword);
-        
-        const newUser: User = { 
+        const signupRes = await cfAuthSignup({
+          fullName: fullName.trim(),
+          phone: userPhone.trim(),
+          email: userEmail.trim(),
+          password: userPassword,
+          stores: [],
+          sites: []
+        });
+
+        const newUser: User = signupRes?.user || { 
           fullName: fullName.trim(), 
           phone: userPhone.trim(), 
           email: userEmail.trim(), 
-          password: userPassword,
           stores: [],
           joinDate: new Date().toISOString() 
         };
-        const success = await createUserDoc(newUser);
-        if (success) {
-          try {
-            await updateUserInSupabase(newUser);
-          } catch (e) {
-          }
-          
-          setUsers(prevUsers => [...prevUsers, newUser]);
-          setIsLoading(false);
-          
-          // Trigger Account Activation Email to user's real email
-          handleSendActivationEmail(newUser);
+        await createUserDoc({ ...newUser, password: userPassword });
 
-          // Show celebratory Confirmation Screen with email activation details
-          setCreatedUserSuccess({ user: newUser, password: userPassword });
-        } else {
-          setUserError('فشل تسجيل الحساب في قاعدة البيانات. يرجى المحاولة لاحقاً.');
-          setIsLoading(false);
-        }
+        setUsers(prevUsers => [...prevUsers, newUser]);
+        setIsLoading(false);
+        handleSendActivationEmail(newUser);
+        setCreatedUserSuccess({ user: newUser, password: userPassword });
       } catch (err: any) {
-        if (err.code === 'auth/email-already-in-use') {
-           setUserError('هذا الرقم مسجل بالفعل في النظام. يرجى تسجيل الدخول أو استعادة كلمة المرور.');
+        if (err?.code === 'auth/email-already-in-use' || err?.status === 409) {
+          setUserError('هذا الرقم مسجل بالفعل في النظام. يرجى تسجيل الدخول أو استعادة كلمة المرور.');
         } else {
-           setUserError('حدث خطأ أثناء إنشاء الحساب. يرجى المحاولة لاحقاً: ' + (err?.message || ''));
+          setUserError('حدث خطأ أثناء إنشاء الحساب. يرجى المحاولة لاحقاً: ' + (err?.message || ''));
         }
         setIsLoading(false);
       }
@@ -418,41 +311,34 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setIsLoading(true);
     setSentToEmail('');
 
-    if (!resetPhone.trim()) {
-      setAuthActionsError('يرجى إدخال رقم الموبايل أو اسم المستخدم أولاً.');
+    const inputVal = resetPhone.trim();
+    if (!inputVal) {
+      setAuthActionsError('يرجى إدخال رقم الموبايل أو البريد الإلكتروني أولاً.');
       setIsLoading(false);
       return;
     }
 
     try {
-      let userEmailToUse = '';
-      const firestoreUser = await getUserByPhone(resetPhone.trim());
-      
-      if (firestoreUser && firestoreUser.email) {
-        userEmailToUse = firestoreUser.email;
-      } else {
-        const legacyUser = await getUserByPhoneFromSupabase(resetPhone.trim());
-        if (legacyUser && legacyUser.email && legacyUser.email.includes('@') && !legacyUser.email.includes('mystore-auth.app')) {
-          userEmailToUse = legacyUser.email;
-        } else {
-          userEmailToUse = `${resetPhone.trim()}@mystore-auth.app`;
+      let userEmailToUse = inputVal.includes('@') ? inputVal : '';
+      if (!userEmailToUse) {
+        const d1User = await getUserByPhone(inputVal);
+        if (d1User && d1User.email) {
+          userEmailToUse = d1User.email;
         }
       }
-      
-      const isGeneratedEmail = userEmailToUse.includes('@mystore-auth.app');
-      
-      if (isGeneratedEmail) {
-        setAuthActionsError('عذراً، لم تقم بربط بريد إلكتروني حقيقي بحسابك سابقاً (تستخدم بريد النظام التلقائي). يرجى التواصل مع الدعم الفني لاستعادة حسابك.');
+
+      if (!userEmailToUse || userEmailToUse.includes('@mystore-auth.app')) {
+        setAuthActionsError('عذراً، لم تقم بربط بريد إلكتروني حقيقي بحسابك سابقاً. يرجى التواصل مع الدعم الفني لاستعادة حسابك.');
         setIsLoading(false);
         return;
       }
-      
+
       await handleCustomPasswordReset(userEmailToUse);
-      
+
       if (!authActionsError) {
         setSentToEmail(userEmailToUse);
         setResetSuccess(true);
-        
+
         setTimeout(() => {
           setShowResetModal(false);
           setResetSuccess(false);
@@ -858,7 +744,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   </p>
 
                   <div className="mt-6 flex items-center justify-center gap-2 border-t border-slate-100 pt-4 text-xs text-slate-400">
-                    <ShieldCheck size={15} className="text-emerald-600" /> حماية وأمان مشفر عبر Firebase Cloud
+                    <ShieldCheck size={15} className="text-emerald-600" /> حماية وأمان مشفر عبر Cloudflare D1
                   </div>
                 </>
               )}

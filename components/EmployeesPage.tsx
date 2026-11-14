@@ -3,15 +3,7 @@ import { Settings, Employee, Permission, PERMISSIONS, User, Store } from '../typ
 import { Users, UserPlus, UserCog, Trash2, XCircle, KeyRound, AlertCircle, Check, Clock, Copy, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { createUserDoc } from '../services/databaseService';
-import { db } from '../services/firebaseClient';
-import { doc, setDoc } from 'firebase/firestore';
-import { getApps, initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import firebaseConfig from '../firebase-applet-config.json';
-
-const secondaryApp = getApps().find(app => app.name === "SecondaryAppForEmployees") 
-    || initializeApp(firebaseConfig, "SecondaryAppForEmployees");
-const secondaryAuth = getAuth(secondaryApp);
+import { cfAuthCreateUser, cfAuthUpdatePassword } from '../services/cloudflareClient';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -70,9 +62,12 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
   const handleOwnerResetEmployeePassword = async (emp: Employee, newPass: string) => {
     const phone = (emp.phone || emp.id).trim();
     try {
-      const userRef = doc(db, 'users', phone);
-      await setDoc(userRef, { password: newPass, lastPasswordReset: new Date().toISOString() }, { merge: true });
-      
+      await cfAuthUpdatePassword({
+        phone,
+        storeId: activeStoreId || undefined,
+        newPassword: newPass,
+        adminOverride: true
+      });
       setUsers(prev => prev.map(u => u.phone === phone ? { ...u, password: newPass } : u));
       setResetPasswordCredentials({ phone, pass: newPass });
       setEmployeeToResetPassword(null);
@@ -110,33 +105,28 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
     let tempPassword = '';
     if (newPhone !== employeeData.id) {
         tempPassword = Math.random().toString(36).slice(-8);
-        const firebaseEmail = `${newPhone}@mystore-auth.app`;
         try {
-            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, tempPassword);
-            await secondaryAuth.signOut();
+            const created = await cfAuthCreateUser({
+                fullName: employeeData.name,
+                phone: newPhone,
+                email: employeeData.email || `${newPhone}@abdomedi.com`,
+                password: tempPassword,
+                storeId: activeStoreId || undefined
+            });
+            const newUser: User = created.user || {
+                fullName: employeeData.name,
+                phone: newPhone,
+                email: employeeData.email,
+                joinDate: new Date().toISOString()
+            };
+            setUsers(prev => {
+                const filtered = prev.filter(u => u.phone !== employeeData.id);
+                return [...filtered, newUser];
+            });
         } catch (err: any) {
-            if (err.code !== 'auth/email-already-in-use') {
-                setEditEmployeeError(`فشل في إنشاء حساب المصادقة الجديد: ${err.message}`);
-                return;
-            }
-        }
-
-        const newUser: User = { 
-            fullName: employeeData.name, 
-            phone: newPhone, 
-            email: employeeData.email, 
-            joinDate: new Date().toISOString() 
-        };
-        const success = await createUserDoc(newUser);
-        if (!success) {
-            setEditEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
+            setEditEmployeeError(`فشل في إنشاء حساب المصادقة الجديد: ${err.message}`);
             return;
         }
-
-        setUsers(prev => {
-            const filtered = prev.filter(u => u.phone !== employeeData.id);
-            return [...filtered, newUser];
-        });
     } else {
         setUsers(prevUsers => prevUsers.map(u => {
             if (u.phone === employeeData.id) {
@@ -218,23 +208,22 @@ const EmployeesPage: React.FC<EmployeesPageProps> = ({ settings, setSettings, cu
             return;
         }
 
-        const firebaseEmail = `${data.phone.trim()}@mystore-auth.app`;
+        let createdUser: User;
         try {
-            await createUserWithEmailAndPassword(secondaryAuth, firebaseEmail, data.password);
-            await secondaryAuth.signOut();
+            const res = await cfAuthCreateUser({
+                fullName: data.name,
+                phone: data.phone.trim(),
+                email: data.email || `${data.phone.trim()}@abdomedi.com`,
+                password: data.password,
+                storeId: activeStoreId || undefined
+            });
+            createdUser = res.user || { fullName: data.name, phone: data.phone, email: data.email, joinDate: new Date().toISOString() };
         } catch (err: any) {
             setAddEmployeeError(`فشل في إنشاء الحساب في المصادقة: ${err.message}`);
             return;
         }
 
-        const newUser: User = { fullName: data.name, phone: data.phone, email: data.email, joinDate: new Date().toISOString() };
-        const success = await createUserDoc(newUser);
-        if (!success) {
-            setAddEmployeeError('فشل إنشاء حساب الموظف في قاعدة البيانات.');
-            return;
-        }
-
-        setUsers(prev => [...prev, newUser]);
+        setUsers(prev => [...prev, createdUser]);
         const newEmployee: Employee = { 
           id: data.phone, 
           phone: data.phone, 

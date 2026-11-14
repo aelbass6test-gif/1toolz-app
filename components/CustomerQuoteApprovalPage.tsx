@@ -3,8 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Quotation, Store, Settings } from '../types';
 import { CheckCircle2, ShieldCheck, Clock, FileText, Phone, MapPin, Building, Package, ExternalLink, AlertTriangle, ArrowRight, Share2, Sparkles, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { db as firebaseDb } from '../services/firebaseClient';
-import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { cfFetch } from '../services/cloudflareClient';
 import { db as localDb } from '../src/lib/db';
 
 interface CustomerQuoteApprovalPageProps {
@@ -65,28 +64,22 @@ export const CustomerQuoteApprovalPage: React.FC<CustomerQuoteApprovalPageProps>
         });
       }
 
-      // Strategy 2: If urlStoreId is available, fetch store from Firestore stores_data
-      if (!foundQuote && urlStoreId) {
+      // Strategy 2: Fetch quotation via Cloudflare D1 quote-lookup API
+      if (!foundQuote) {
         try {
-          const storeRef = doc(firebaseDb, 'stores_data', urlStoreId);
-          const storeSnap = await getDoc(storeRef);
-          if (storeSnap.exists()) {
-            const storeData = storeSnap.data();
-            if (Array.isArray(storeData.quotations)) {
-              const q = storeData.quotations.find(
-                (item: Quotation) => item.id === quoteId || item.quotationNumber === quoteId
-              );
-              if (q) {
-                foundQuote = q;
-                foundStoreId = urlStoreId;
-                foundStoreName = storeData.settings?.storeName || storeData.name || 'المتجر';
-                foundLogo = storeData.settings?.logoUrl || storeData.settings?.logo || '';
-                foundPhone = storeData.settings?.supportPhone || storeData.settings?.phone || '';
-              }
-            }
+          const qs = urlStoreId ? `?storeId=${encodeURIComponent(urlStoreId)}` : '';
+          const res = await cfFetch<{ success?: boolean; quotation?: Quotation; storeId?: string; storeName?: string; settings?: any }>(
+            `/api/db/orders/quote-lookup/${encodeURIComponent(quoteId)}${qs}`
+          );
+          if (res?.success && res.quotation) {
+            foundQuote = res.quotation;
+            foundStoreId = res.storeId || urlStoreId || null;
+            foundStoreName = res.settings?.storeName || res.storeName || 'المتجر';
+            foundLogo = res.settings?.logoUrl || res.settings?.logo || '';
+            foundPhone = res.settings?.supportPhone || res.settings?.phone || '';
           }
-        } catch (fsErr) {
-          console.warn('Firestore store lookup note:', fsErr);
+        } catch (cfErr) {
+          console.warn('Cloudflare D1 quote lookup note:', cfErr);
         }
       }
 
@@ -151,30 +144,7 @@ export const CustomerQuoteApprovalPage: React.FC<CustomerQuoteApprovalPageProps>
         }
       }
 
-      // Strategy 5: Scan Firestore stores_data collection if quote still not found
-      if (!foundQuote) {
-        try {
-          const storesSnap = await getDocs(collection(firebaseDb, 'stores_data'));
-          storesSnap.forEach(docSnap => {
-            if (foundQuote) return;
-            const sData = docSnap.data();
-            if (Array.isArray(sData.quotations)) {
-              const q = sData.quotations.find(
-                (item: Quotation) => item.id === quoteId || item.quotationNumber === quoteId
-              );
-              if (q) {
-                foundQuote = q;
-                foundStoreId = docSnap.id;
-                foundStoreName = sData.settings?.storeName || sData.name || 'المتجر';
-                foundLogo = sData.settings?.logoUrl || sData.settings?.logo || '';
-                foundPhone = sData.settings?.supportPhone || sData.settings?.phone || '';
-              }
-            }
-          });
-        } catch (fsColErr) {
-          console.warn('Firestore stores_data scan note:', fsColErr);
-        }
-      }
+      // Strategy 5 handled cleanly by Strategy 2 (Cloudflare D1 cross-store lookup)
 
       if (isMounted) {
         if (foundQuote) {
@@ -234,20 +204,18 @@ export const CustomerQuoteApprovalPage: React.FC<CustomerQuoteApprovalPageProps>
         return nextData;
       });
 
-      // 2. Persist to Firestore directly
+      // 2. Persist directly to Cloudflare D1
       try {
-        const storeRef = doc(firebaseDb, 'stores_data', storeId);
-        const storeSnap = await getDoc(storeRef);
-        if (storeSnap.exists()) {
-          const storeData = storeSnap.data();
-          const currentQuotations: Quotation[] = storeData.quotations || [];
-          const updatedQuotations = currentQuotations.map((q: Quotation) =>
-            q.id === quotation.id || q.quotationNumber === quotation.quotationNumber ? updatedQuote : q
-          );
-          await setDoc(storeRef, { ...storeData, quotations: updatedQuotations }, { merge: true });
-        }
-      } catch (fsErr) {
-        console.warn('Firestore update on approval note:', fsErr);
+        await cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item`, {
+          method: 'POST',
+          body: JSON.stringify({
+            collectionName: 'quotations',
+            itemId: updatedQuote.id,
+            item: updatedQuote
+          })
+        });
+      } catch (cfErr) {
+        console.warn('Cloudflare D1 update on approval note:', cfErr);
       }
 
       // 3. Persist to IndexedDB

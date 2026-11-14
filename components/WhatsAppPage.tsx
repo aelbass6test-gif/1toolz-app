@@ -16,7 +16,10 @@ import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 import { MetaWhatsAppSection } from './MetaWhatsAppSection';
 import { OrderWhatsAppChatModal } from './OrderWhatsAppChatModal';
 
-const SUPABASE_WHATSAPP_WEBHOOK_URL = 'https://kwirhppfowzqshltmoga.supabase.co/functions/v1/whatsapp-webhook';
+const getCloudflareWhatsappWebhookUrl = () =>
+  typeof window !== 'undefined' && window.location?.origin
+    ? `${window.location.origin}/api/webhook/whatsapp`
+    : 'https://api.abdomedi.com/api/webhook/whatsapp';
 
 interface WhatsAppPageProps {
   orders: Order[];
@@ -410,7 +413,7 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
   const handleAutoSetupWebhook = async () => {
     setIsSettingUpWebhook(true);
     try {
-      const webhookUrl = SUPABASE_WHATSAPP_WEBHOOK_URL;
+      const webhookUrl = getCloudflareWhatsappWebhookUrl();
       const res = await fetch('/api/whatsapp/setup-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -923,12 +926,12 @@ const WhatsAppPage: React.FC<WhatsAppPageProps> = ({ orders, settings, setSettin
 
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-[11px] font-mono font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-left select-all overflow-x-auto shadow-xs" dir="ltr">
-                    {SUPABASE_WHATSAPP_WEBHOOK_URL}
+                    {getCloudflareWhatsappWebhookUrl()}
                   </code>
                   <button
                     type="button"
                     onClick={() => {
-                      const url = SUPABASE_WHATSAPP_WEBHOOK_URL;
+                      const url = getCloudflareWhatsappWebhookUrl();
                       navigator.clipboard?.writeText(url);
                       setStatusMsg({ type: 'success', text: 'تم نسخ رابط الويب-هوك بنجاح!' });
                       setTimeout(() => setStatusMsg(null), 3000);

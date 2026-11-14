@@ -11,7 +11,7 @@ import { triggerCelebration } from '../utils/celebration';
 import { whatsappService } from '../utils/whatsappService';
 import { deductOrderStock } from '../utils/inventoryManager';
 import { normalizePhone } from '../utils/phoneUtils';
-import { getSupabaseClient } from '../services/databaseService';
+import { cfFetch } from '../services/cloudflareClient';
 import { showOrderWebNotification, isPendingOrderStatus } from '../utils/webNotification';
 import { buildOrderPlanSnapshot } from '../utils/merchantSubscriptions';
 import { ensureOrderMerchantSettlements } from '../utils/merchantAccounting';
@@ -682,14 +682,10 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
                 laborCost: 0
             };
 
-            const supabase = getSupabaseClient();
-            if (supabase) {
-                supabase
-                    .from('maintenance_requests')
-                    .insert(maintenanceRequest)
-                    .then(() => {})
-                    .catch(err => console.error("Error creating linked maintenance request:", err));
-            }
+            cfFetch('/api/db/maintenance', {
+                method: 'POST',
+                body: JSON.stringify({ request: maintenanceRequest })
+            }).catch(err => console.error("Error creating linked maintenance request:", err));
         }
         // ----------------------------------
 
@@ -737,46 +733,55 @@ const CreateOrderPage: React.FC<CreateOrderPageProps> = ({
             const formattedMsg = whatsappService.formatMessage(textToUse, orderWithId, settings, buttonsToUse, footerToUse, activeStore?.name);
             try {
                 const sendResult = await whatsappService.sendMessage(orderWithId.customerPhone || '', formattedMsg, settings.whatsappConfig, buttonsToUse, footerToUse, activeStore?.name);
-                const supabase = getSupabaseClient();
-                if (supabase && activeStore?.id) {
-                    let { data: conversation } = await supabase
-                        .from('whatsapp_conversations')
-                        .select('id')
-                        .eq('store_id', activeStore.id)
-                        .eq('order_id', orderWithId.id)
-                        .limit(1)
-                        .maybeSingle();
-                    if (!conversation?.id) {
-                        const created = await supabase
-                            .from('whatsapp_conversations')
-                            .insert({
-                                store_id: activeStore.id,
-                                order_id: orderWithId.id,
-                                customer_phone: orderWithId.customerPhone || '',
-                                customer_name: orderWithId.customerName || ''
-                            })
-                            .select('id')
-                            .single();
-                        conversation = created.data;
-                    }
-                    if (conversation?.id) {
-                        await supabase.from('whatsapp_messages').insert({
-                            conversation_id: conversation.id,
-                            store_id: activeStore.id,
-                            order_id: orderWithId.id,
-                            customer_phone: orderWithId.customerPhone || '',
-                            provider: (settings.whatsappConfig?.providerType as any) === 'direct_web' ? 'direct_web' : 'meta_cloud',
-                            provider_message_id: sendResult.messageId || `local_${Date.now()}`,
-                            direction: 'outgoing',
-                            message_type: 'interactive',
-                            body: formattedMsg,
-                            sender_name: `${activeStore.name || 'المتجر'} (المتجر)`,
-                            recipient_phone: orderWithId.customerPhone || '',
-                            status: sendResult.success ? 'sent' : 'failed',
-                            occurred_at: new Date().toISOString(),
-                            sent_at: sendResult.success ? new Date().toISOString() : null,
-                            metadata: { source: 'new_order_automation', buttons: buttonsToUse }
-                        });
+                if (activeStore?.id) {
+                    try {
+                        const convRes = await cfFetch<{ conversations?: any[] }>(
+                            `/api/db/whatsapp/${encodeURIComponent(activeStore.id)}/conversations?orderId=${encodeURIComponent(orderWithId.id)}`
+                        );
+                        let conversation = convRes?.conversations?.[0];
+                        if (!conversation?.id) {
+                            const created = await cfFetch<{ conversation?: any }>(
+                                `/api/db/whatsapp/${encodeURIComponent(activeStore.id)}/conversations`,
+                                {
+                                    method: 'POST',
+                                    body: JSON.stringify({
+                                        conversation: {
+                                            store_id: activeStore.id,
+                                            order_id: orderWithId.id,
+                                            customer_phone: orderWithId.customerPhone || '',
+                                            customer_name: orderWithId.customerName || ''
+                                        }
+                                    })
+                                }
+                            );
+                            conversation = created?.conversation;
+                        }
+                        if (conversation?.id) {
+                            await cfFetch(`/api/db/whatsapp/${encodeURIComponent(activeStore.id)}/messages`, {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    message: {
+                                        conversation_id: conversation.id,
+                                        store_id: activeStore.id,
+                                        order_id: orderWithId.id,
+                                        customer_phone: orderWithId.customerPhone || '',
+                                        provider: (settings.whatsappConfig?.providerType as any) === 'direct_web' ? 'direct_web' : 'meta_cloud',
+                                        provider_message_id: sendResult.messageId || `local_${Date.now()}`,
+                                        direction: 'outgoing',
+                                        message_type: 'interactive',
+                                        body: formattedMsg,
+                                        sender_name: `${activeStore.name || 'المتجر'} (المتجر)`,
+                                        recipient_phone: orderWithId.customerPhone || '',
+                                        status: sendResult.success ? 'sent' : 'failed',
+                                        occurred_at: new Date().toISOString(),
+                                        sent_at: sendResult.success ? new Date().toISOString() : null,
+                                        metadata: { source: 'new_order_automation', buttons: buttonsToUse }
+                                    }
+                                })
+                            });
+                        }
+                    } catch (waErr) {
+                        console.warn('[CreateOrderPage] Cloudflare D1 whatsapp log warning:', waErr);
                     }
                 }
                 const automaticLog = {
