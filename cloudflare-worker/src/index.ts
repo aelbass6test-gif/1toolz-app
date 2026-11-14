@@ -612,7 +612,7 @@ export default {
           : await proxyBackendRequest(request, env);
       }
 
-      if (url.pathname.startsWith("/api/auth/")) {
+      if (url.pathname.startsWith("/api/auth/") || url.pathname === "/api/send-account-activation" || url.pathname === "/api/verify-account-activation") {
         if (!db) return json(request, env, { success: false, error: "قاعدة بيانات Cloudflare D1 غير مهيأة" }, 503);
         return await handleAuthRequest(request, env, db, json);
       }

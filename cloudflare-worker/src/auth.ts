@@ -671,6 +671,44 @@ export async function handleAuthRequest(
     return json(request, env, { success: true, token, email, phone });
   }
 
+  // Legacy signup aliases used by the registration screen, backed by D1.
+  if (path === "/api/send-account-activation" && request.method === "POST") {
+    const email = String(body.email || "").trim().toLowerCase();
+    const phone = String(body.phone || "").trim();
+    const userName = String(body.userName || "التاجر العزيز").trim();
+    if (!email || !email.includes("@")) return json(request, env, { success: false, error: "عنوان البريد الإلكتروني غير صالح." }, 400);
+    const code = String(body.activationCode || Math.floor(100000 + Math.random() * 900000));
+    const token = crypto.randomUUID().replace(/-/g, "");
+    const now = Date.now();
+    await db.prepare(`INSERT INTO auth_action_tokens (token, type, email, phone, payload_json, expires_at, created_at) VALUES (?, 'verifyEmail', ?, ?, ?, ?, ?)`).bind(token, email, phone, JSON.stringify({ code }), now + ACTION_TOKEN_TTL_MS, now).run();
+    const subject = "تفعيل حسابك في AbdoMedia Prime";
+    const safeName = userName.replace(/[<>]/g, "");
+    const html = `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#172033"><h2>مرحباً ${safeName}</h2><p>رمز تفعيل حسابك:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;padding:16px 0;color:#0f9f83">${code}</div><p>ينتهي هذا الرمز خلال 24 ساعة.</p></div>`;
+    const text = `رمز تفعيل حسابك في AbdoMedia Prime: ${code}`;
+    let delivered = false;
+    let error = "";
+    if (env.BREVO_API_KEY) {
+      const res = await fetch("https://api.brevo.com/v3/smtp/email", { method: "POST", headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ sender: { name: env.OTP_FROM_NAME || "AbdoMedia Prime", email: env.OTP_BREVO_FROM || "no-reply@abdomedi.com" }, to: [{ email, name: safeName }], subject, htmlContent: html, textContent: text }) });
+      delivered = res.ok; if (!delivered) error = `Brevo HTTP ${res.status}`;
+    } else if (env.RESEND_API_KEY) {
+      const res = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: `${env.OTP_FROM_NAME || "AbdoMedia Prime"} <${env.OTP_RESEND_FROM || "no-reply@abdomedi.com"}>`, to: [email], subject, html, text }) });
+      delivered = res.ok; if (!delivered) error = `Resend HTTP ${res.status}`;
+    } else error = "خدمة البريد غير مهيأة";
+    return json(request, env, { success: delivered, delivered, recipient: email, error: delivered ? undefined : error });
+  }
+
+  if (path === "/api/verify-account-activation" && request.method === "POST") {
+    const identifier = String(body.identifier || body.email || body.phone || "").trim().toLowerCase();
+    const code = String(body.code || "").trim();
+    if (!identifier || !code) return json(request, env, { success: false, error: "البريد أو الهاتف والكود مطلوبان." }, 400);
+    const row = await db.prepare("SELECT * FROM auth_action_tokens WHERE type = 'verifyEmail' AND (LOWER(email) = ? OR phone = ?) AND used_at IS NULL ORDER BY created_at DESC LIMIT 1").bind(identifier, identifier).first<any>();
+    const payload = row?.payload_json ? JSON.parse(row.payload_json) : {};
+    if (!row || Date.now() > Number(row.expires_at) || String(payload.code || "") !== code) return json(request, env, { success: false, error: "كود التفعيل المدخل غير صحيح أو انتهت صلاحيته." }, 400);
+    await db.prepare("UPDATE users SET email_verified = 1, updated_at = ? WHERE phone = ?").bind(new Date().toISOString(), row.phone).run();
+    await db.prepare("UPDATE auth_action_tokens SET used_at = ? WHERE token = ?").bind(Date.now(), row.token).run();
+    return json(request, env, { success: true, message: "تم تفعيل وتأكيد الحساب بنجاح!" });
+  }
+
   // GET/POST /api/auth/action (verify / confirm resetPassword or verifyEmail)
   if (path === "/api/auth/action") {
     const mode = String(url.searchParams.get("mode") || body.mode || "");
