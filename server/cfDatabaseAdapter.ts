@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { DatabaseSync } from "node:sqlite";
 import type { D1LikeDatabase, D1LikePreparedStatement, D1LikeAllResult, D1LikeRunResult } from "../cloudflare-worker/src/d1Types";
 
 /**
@@ -87,8 +88,6 @@ class LocalSqliteD1Adapter implements D1LikeDatabase {
   private sqliteDb: any;
 
   constructor(dbFilePath: string) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
     const dir = path.dirname(dbFilePath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     this.sqliteDb = new DatabaseSync(dbFilePath);
