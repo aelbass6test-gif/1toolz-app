@@ -745,9 +745,16 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     return validateEgyptianPhone(orderData.customerPhone || '');
   }, [orderData.customerPhone]);
 
+  const [fraudShieldVersion, setFraudShieldVersion] = useState(0);
+  useEffect(() => {
+    const onFraudUpdate = () => setFraudShieldVersion(v => v + 1);
+    window.addEventListener('fraud_shield_updated', onFraudUpdate);
+    return () => window.removeEventListener('fraud_shield_updated', onFraudUpdate);
+  }, []);
+
   const customerRisk = useMemo(() => {
-    return evaluateCustomerRisk(orderData.customerPhone || '', orders);
-  }, [orderData.customerPhone, orders]);
+    return evaluateCustomerRisk(orderData.customerPhone || '', orders, (settings as any)?.fraudBlacklist);
+  }, [orderData.customerPhone, orders, settings, fraudShieldVersion]);
 
   const addressQuality = useMemo(() => {
     return validateAddressQuality(orderData.customerAddress || '', orderData.governorate || '');

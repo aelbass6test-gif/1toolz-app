@@ -54,6 +54,7 @@ interface TreasuryPageProps {
   wallet?: any;
   setWallet?: (updater: any) => void;
   orders?: Order[];
+  currentUser?: any;
 }
 
 // Egyptian Cash Denominations for Smart Cash Count & Reconciliation
@@ -73,7 +74,8 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
   setTreasury, 
   wallet, 
   setWallet, 
-  orders = [] 
+  orders = [],
+  currentUser
 }) => {
   const accounts = treasury?.accounts || [];
   const transactions = treasury?.transactions || [];
@@ -1904,14 +1906,24 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
                             {tx.amount.toLocaleString()} ج.م
                           </td>
                           <td className="p-4 text-slate-500 font-sans text-xs">{tx.operatorName || '-'}</td>
-                          <td className="p-4 text-center">
-                            <button
-                              onClick={() => initiateDeleteTransaction(tx)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
-                              title="حذف وتسوية الحركة المالية"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          <td className="p-4 text-center font-sans">
+                            {currentUser?.isAdmin ? (
+                              <button
+                                onClick={() => initiateDeleteTransaction(tx)}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors"
+                                title="حذف القيد وعكس الرصيد (صلاحية مدير المنصة)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold"
+                                title="القيود المحاسبية المعتمدة لا تُحذف يدوياً؛ لإجراء تسوية قم بتسجيل قيد عكسي أو تواصل مع مدير المنظومة"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                <span>موثق</span>
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );

@@ -536,6 +536,8 @@ export interface CustomerProfile {
   tags?: string[];
   email?: string;
   customerSegment?: string;
+  pinCode?: string;
+  isEmailVerified?: boolean;
 }
 
 export interface Review {
@@ -1257,6 +1259,8 @@ export interface Settings {
   globalOptions: GlobalOption[]; 
   collections: Collection[];
   connectedPlatforms: string[]; // <-- Added connected platforms (e.g., 'wuilt', 'shopify')
+  fraudBlacklist?: any[];
+  storeSnapshots?: any[];
   whatsappTemplates?: WhatsAppTemplate[];
   whatsappConfig?: WhatsAppConfig;
   bostaConfig?: BostaConfig;
@@ -2244,6 +2248,39 @@ export interface PlaceOrderData {
     items?: OrderItem[];
 }
 
+export interface SupportTicketMessage {
+  id: string;
+  senderRole: 'merchant' | 'support' | 'system';
+  senderName: string;
+  senderTitle?: string;
+  text: string;
+  createdAt: string;
+  isSystemNotice?: boolean;
+}
+
+export interface SupportAppeal {
+  id: string;
+  ticketNumber?: string;
+  targetType: 'store' | 'user';
+  storeId?: string;
+  storeName?: string;
+  ownerPhone: string;
+  ownerName: string;
+  message: string;
+  createdAt: string;
+  status: 'pending' | 'replied' | 'closed' | 'resolved';
+  adminReply?: string;
+  repliedAt?: string;
+  repliedByName?: string;
+  messages?: SupportTicketMessage[];
+  autoCloseMinutes?: number;
+  autoCloseAt?: string;
+  closedAt?: string;
+  closedBy?: string;
+  lockedByAdmin?: boolean;
+  reopenCount?: number;
+}
+
 export interface Store {
   id: string;
   name: string;
@@ -2257,6 +2294,10 @@ export interface Store {
   templateId?: string;
   description?: string;
   phone?: string;
+  isBanned?: boolean;
+  banReason?: string;
+  supportAppeal?: SupportAppeal;
+  supportTicketsHistory?: SupportAppeal[];
 }
 
 export interface Site {
@@ -2276,6 +2317,10 @@ export interface User {
   sites?: Site[];
   isAdmin?: boolean; 
   isBanned?: boolean; 
+  banReason?: string;
+  supportAppeal?: SupportAppeal;
+  supportTicketsHistory?: SupportAppeal[];
+  emailVerified?: boolean;
   joinDate?: string;
   permissions?: Permission[];
   ownedStoreIds?: string[];

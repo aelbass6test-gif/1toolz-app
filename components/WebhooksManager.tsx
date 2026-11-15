@@ -9,6 +9,8 @@ import {
 import { Settings, WebhookSubscription, WebhookEventType, Order, CustomerProfile, Product } from '../types';
 import { 
   getStoredWebhookLogs, 
+  fetchCloudWebhookLogs,
+  clearCloudWebhookLogs,
   recordWebhookDeliveryLog, 
   WebhookDeliveryLog, 
   formatRealOrderPayload, 
@@ -99,17 +101,20 @@ export default function WebhooksManager({
   const [mainViewTab, setMainViewTab] = useState<'webhooks' | 'logs'>('webhooks');
   const [deliveryLogs, setDeliveryLogs] = useState<WebhookDeliveryLog[]>([]);
 
-  // Load delivery logs & listen for real-time dispatches
+  // Load delivery logs from Cloudflare D1 & listen for real-time dispatches
   useEffect(() => {
-    setDeliveryLogs(getStoredWebhookLogs());
+    setDeliveryLogs(getStoredWebhookLogs(activeStoreId));
+    void fetchCloudWebhookLogs(activeStoreId).then((logs) => {
+      setDeliveryLogs(logs);
+    });
 
     const handleLogAdded = () => {
-      setDeliveryLogs(getStoredWebhookLogs());
+      setDeliveryLogs(getStoredWebhookLogs(activeStoreId));
     };
 
     window.addEventListener('store_webhook_delivered', handleLogAdded);
     return () => window.removeEventListener('store_webhook_delivered', handleLogAdded);
-  }, []);
+  }, [activeStoreId]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -477,7 +482,7 @@ export default function WebhooksManager({
           productName: realDataPayload?.name || realDataPayload?.product_name
         },
         fullPayload: data.sentPayload
-      });
+      }, activeStoreId);
 
       // If testing an existing webhook from table, update its status
       if (editingWebhookId) {
@@ -579,7 +584,7 @@ export default function WebhooksManager({
           totalPrice: realData?.total_price || realData?.totalPrice
         },
         fullPayload: data.sentPayload
-      });
+      }, activeStoreId);
     } catch (e: any) {
       console.error('Quick trigger error:', e);
       audioSynth.playAlarm();
@@ -1115,7 +1120,7 @@ export default function WebhooksManager({
               <button
                 onClick={() => {
                   if (window.confirm('هل تريد مسح سجل الأحداث؟')) {
-                    localStorage.removeItem('store_webhook_delivery_logs');
+                    void clearCloudWebhookLogs(activeStoreId);
                     setDeliveryLogs([]);
                   }
                 }}

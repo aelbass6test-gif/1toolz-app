@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Order, CustomerProfile } from '../../types';
 import { normalizePhone } from '../../utils/phoneUtils';
+import { cfFetch } from '../../services/cloudflareClient';
 
 export interface StoreCustomer {
   id: string;
@@ -54,6 +55,7 @@ interface CustomerAuthModalProps {
   onSaveCustomer: (customer: StoreCustomer) => void;
   primaryColor?: string;
   storeName?: string;
+  storeId?: string;
 }
 
 export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
@@ -63,8 +65,43 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   customers,
   onSaveCustomer,
   primaryColor = '#059669',
-  storeName = 'متجرنا'
+  storeName = 'متجرنا',
+  storeId
 }) => {
+  const effectiveStoreId = useMemo(() => {
+    if (storeId && String(storeId).trim()) return String(storeId).trim();
+    try {
+      return localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || '';
+    } catch {
+      return '';
+    }
+  }, [storeId]);
+
+  const persistCustomerToCloud = async (cust: StoreCustomer) => {
+    if (!effectiveStoreId || !cust) return;
+    try {
+      await cfFetch(`/api/db/customer-auth/${encodeURIComponent(effectiveStoreId)}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          customer: {
+            id: cust.id || cust.phone,
+            name: cust.name,
+            phone: cust.phone,
+            phone2: cust.phone2 || '',
+            email: cust.email || '',
+            address: cust.address || '',
+            governorate: cust.governorate || '',
+            city: cust.city || '',
+            pinCode: cust.pinCode || '',
+            isEmailVerified: Boolean(cust.isEmailVerified),
+            loyaltyPoints: cust.points ?? 50
+          }
+        })
+      });
+    } catch (err) {
+      console.warn('[CustomerAuth] Cloud persist failed:', err);
+    }
+  };
   const [mode, setMode] = useState<'login' | 'register' | 'account'>('login');
   const [activeTab, setActiveTab] = useState<'orders' | 'settings'>('orders');
   const [loginMethod, setLoginMethod] = useState<'email_otp' | 'phone_pin'>('email_otp');
@@ -249,38 +286,55 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     const cleanEmail = email.trim().toLowerCase();
 
     // Match existing customer profile by email or phone or past orders
-    const matchedCustomer = customers.find(c => 
+    let matchedCustomer = customers.find(c => 
       (c.email && c.email.toLowerCase() === cleanEmail) || 
       (c.phone && phone && normalizePhone(c.phone) === normalizePhone(phone))
     );
+
+    if (!matchedCustomer && effectiveStoreId) {
+      try {
+        const res = await cfFetch<{ success?: boolean; customer?: CustomerProfile | null }>(
+          `/api/db/customer-auth/${encodeURIComponent(effectiveStoreId)}?email=${encodeURIComponent(cleanEmail)}`
+        );
+        if (res?.customer) matchedCustomer = res.customer;
+      } catch {}
+    }
 
     const matchedOrder = orders.find(o => 
       ((o.customerEmail || (o as any).email || '').toLowerCase() === cleanEmail) ||
       (phone && normalizePhone(o.customerPhone) === normalizePhone(phone))
     );
 
+    const customerPhone = matchedCustomer?.phone || matchedOrder?.customerPhone || phone || '';
+    const resolvedPin = matchedCustomer?.pinCode || (customerPhone ? localStorage.getItem(`customer_pin_${customerPhone}`) || '' : '');
+
     const customerSession: StoreCustomer = {
       id: matchedCustomer?.id || matchedCustomer?.phone || cleanEmail,
       name: matchedCustomer?.name || matchedOrder?.customerName || cleanEmail.split('@')[0],
       email: cleanEmail,
-      phone: matchedCustomer?.phone || matchedOrder?.customerPhone || phone || '',
+      phone: customerPhone,
+      phone2: matchedCustomer?.phone2 || '',
       address: matchedCustomer?.address || matchedOrder?.customerAddress || '',
       governorate: matchedCustomer?.governorate || matchedOrder?.governorate || matchedOrder?.shippingArea || '',
       city: matchedCustomer?.city || '',
       isEmailVerified: true,
       points: matchedCustomer?.loyaltyPoints || 50,
-      pinCode: matchedCustomer ? (localStorage.getItem(`customer_pin_${matchedCustomer.phone}`) || '') : ''
+      pinCode: resolvedPin
     };
 
+    if (customerPhone && resolvedPin) {
+      try { localStorage.setItem(`customer_pin_${customerPhone}`, resolvedPin); } catch {}
+    }
     setActiveCustomer(customerSession);
     localStorage.setItem('storefront_logged_customer', JSON.stringify(customerSession));
     onSaveCustomer(customerSession);
+    void persistCustomerToCloud(customerSession);
     setMode('account');
     setSuccessMsg('🎉 تم التحقق بنجاح وتأكيد هويتك بالبريد الإلكتروني! مرحباً بك.');
   };
 
   // Login via Phone & PIN
-  const handlePhoneLogin = (e: React.FormEvent) => {
+  const handlePhoneLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     const cleanPhone = normalizePhone(phone);
@@ -290,13 +344,24 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     }
 
     // Find in customers list or past orders
-    const matchedCustomer = customers.find(c => normalizePhone(c.phone) === cleanPhone);
+    let matchedCustomer = customers.find(c => normalizePhone(c.phone) === cleanPhone);
+    if ((!matchedCustomer || !matchedCustomer.pinCode) && effectiveStoreId) {
+      try {
+        const res = await cfFetch<{ success?: boolean; customer?: CustomerProfile | null }>(
+          `/api/db/customer-auth/${encodeURIComponent(effectiveStoreId)}?phone=${encodeURIComponent(cleanPhone)}`
+        );
+        if (res?.customer) {
+          matchedCustomer = { ...(matchedCustomer || {}), ...res.customer };
+        }
+      } catch {}
+    }
+
     const matchedOrder = orders.find(o => normalizePhone(o.customerPhone) === cleanPhone);
 
-    // If PIN is saved in local registry or profile, verify it if entered
-    const storedPin = localStorage.getItem(`customer_pin_${cleanPhone}`);
-    if (storedPin && password && storedPin !== password) {
-      setError('رمز المرور السري (PIN) غير صحيح. يرجى التأكد وإعادة المحاولة.');
+    // Prefer cloud PIN inside customer record; fallback to local cache if offline
+    const storedPin = matchedCustomer?.pinCode || localStorage.getItem(`customer_pin_${cleanPhone}`) || '';
+    if (storedPin && password !== storedPin) {
+      setError(password ? 'رمز المرور السري (PIN) غير صحيح. يرجى التأكد وإعادة المحاولة.' : 'يرجى إدخال رمز المرور السري (PIN) الخاص بحسابك.');
       return;
     }
 
@@ -304,14 +369,19 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
       id: matchedCustomer?.id || cleanPhone,
       name: matchedCustomer?.name || matchedOrder?.customerName || 'عميل المتجر',
       phone: cleanPhone,
+      phone2: matchedCustomer?.phone2 || '',
       email: matchedCustomer?.email || (matchedOrder as any)?.customerEmail || '',
       address: matchedCustomer?.address || matchedOrder?.customerAddress || '',
       governorate: matchedCustomer?.governorate || matchedOrder?.governorate || matchedOrder?.shippingArea || '',
       city: matchedCustomer?.city || '',
+      isEmailVerified: matchedCustomer?.isEmailVerified,
       points: matchedCustomer?.loyaltyPoints || 50,
-      pinCode: storedPin || ''
+      pinCode: storedPin
     };
 
+    if (storedPin) {
+      try { localStorage.setItem(`customer_pin_${cleanPhone}`, storedPin); } catch {}
+    }
     setActiveCustomer(customerSession);
     localStorage.setItem('storefront_logged_customer', JSON.stringify(customerSession));
     onSaveCustomer(customerSession);
@@ -352,7 +422,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     if (!isValid) return;
 
     if (password) {
-      localStorage.setItem(`customer_pin_${cleanPhone}`, password);
+      try { localStorage.setItem(`customer_pin_${cleanPhone}`, password); } catch {}
     }
 
     const newCustomer: StoreCustomer = {
@@ -371,11 +441,12 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     setActiveCustomer(newCustomer);
     localStorage.setItem('storefront_logged_customer', JSON.stringify(newCustomer));
     onSaveCustomer(newCustomer);
+    await persistCustomerToCloud(newCustomer);
     setMode('account');
     setSuccessMsg('🎉 تم تأكيد بريدك الإلكتروني بنجاح وتفعيل حسابك وحصلت على 100 نقطة مكافأة ترحيبية!');
   };
 
-  const handleUpdateSettings = (e: React.FormEvent) => {
+  const handleUpdateSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeCustomer) return;
     setError('');
@@ -383,7 +454,7 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     const cleanPhone = normalizePhone(editPhone) || activeCustomer.phone;
 
     if (editPin) {
-      localStorage.setItem(`customer_pin_${cleanPhone}`, editPin);
+      try { localStorage.setItem(`customer_pin_${cleanPhone}`, editPin); } catch {}
     }
 
     const updatedCustomer: StoreCustomer = {
@@ -400,7 +471,8 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     setActiveCustomer(updatedCustomer);
     localStorage.setItem('storefront_logged_customer', JSON.stringify(updatedCustomer));
     onSaveCustomer(updatedCustomer);
-    setSuccessMsg('✅ تم تحديث بياناتك وحفظ إعدادات حسابك بنجاح!');
+    await persistCustomerToCloud(updatedCustomer);
+    setSuccessMsg('✅ تم تحديث بياناتك وحفظ إعدادات حسابك سحابياً بنجاح!');
   };
 
   const handleLogout = () => {

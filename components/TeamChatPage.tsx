@@ -76,7 +76,7 @@ const TeamChatPage: React.FC<TeamChatPageProps> = ({ currentUser, activeStoreId,
           }
         }
       },
-      4000,
+      8000,
       (error) => {
         console.warn('[TeamChat] Chat polling notice:', error?.message || error);
         setLoading(false);

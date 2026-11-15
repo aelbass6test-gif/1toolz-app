@@ -24,6 +24,7 @@ import { getTrackingNumber, getShippingTrackingUrl } from '../utils/shippingTrac
 import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
 import { getProductsForMerchant, normalizeMerchantLabel, checkOrderBelongsToMerchant } from '../utils/merchantProducts';
 import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
+import { getCachedPlatformSupportPhone, buildSupportWhatsAppUrl, fetchPlatformSupportConfig } from '../utils/platformSupport';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
 import { 
@@ -33,6 +34,7 @@ import {
   registerBiometricCredential, 
   authenticateBiometricCredential,
   getStoredBiometrics,
+  hydrateBiometricsFromCloud,
   saveStoredBiometric,
   removeStoredBiometric
 } from '../utils/webAuthnService';
@@ -1469,10 +1471,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   };
 
   // Biometric Registration & Login for Merchant
+  const [bioCloudTick, setBioCloudTick] = useState(0);
+  useEffect(() => {
+    if (!liveMerchant?.id) return;
+    void hydrateBiometricsFromCloud(`merchant_${liveMerchant.id}`, false).then(() => {
+      setBioCloudTick(t => t + 1);
+    });
+  }, [liveMerchant?.id]);
+
   const merchantBiometrics = useMemo(() => {
     if (!liveMerchant) return [];
     return getStoredBiometrics(`merchant_${liveMerchant.id}`);
-  }, [liveMerchant, isRegisteringBio]);
+  }, [liveMerchant, isRegisteringBio, bioCloudTick]);
 
   const handleRegisterMerchantBiometric = async () => {
     if (!liveMerchant) return;
@@ -1487,7 +1497,8 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       });
       if (result.success && result.credential) {
         saveStoredBiometric(`merchant_${liveMerchant.id}`, result.credential);
-        showToast(`تم تفعيل الدخول بالبصمة / FaceID على (${deviceName}) بنجاح`, 'success');
+        setBioCloudTick(t => t + 1);
+        showToast(`تم تفعيل الدخول بالبصمة / FaceID على (${deviceName}) وحفظها سحابياً بنجاح`, 'success');
       } else {
         throw new Error(result.error || 'فشل تسجيل البصمة');
       }
@@ -1501,7 +1512,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const handleBiometricQuickLogin = async () => {
     setAuthError('');
     try {
-      // Find any merchant with stored biometric on this device or match loginEmailInput
+      // Find any merchant with stored or cloud biometric matching loginEmailInput
       let targetMerchant: Partner | null = null;
       if (loginEmailInput.trim()) {
         targetMerchant = await resolveMerchantByEmailOrIdentifier(loginEmailInput.trim());
@@ -1509,13 +1520,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
       if (!targetMerchant) {
         targetMerchant = merchants.find(m => getStoredBiometrics(`merchant_${m.id}`).length > 0) || null;
       }
+      if (!targetMerchant && merchants.length === 1) {
+        targetMerchant = merchants[0];
+      }
       if (!targetMerchant) {
-        setAuthError('يرجى تسجيل الدخول بالبريد أو رمز PIN أولاً ثم تفعيل البصمة من تبويب (حسابي والأمان).');
+        setAuthError('يرجى إدخال البريد الإلكتروني أو تسجيل الدخول أولاً ثم تفعيل البصمة من تبويب (حسابي والأمان).');
         return;
       }
-      const creds = getStoredBiometrics(`merchant_${targetMerchant.id}`);
+      const hydrated = await hydrateBiometricsFromCloud(`merchant_${targetMerchant.id}`, false);
+      const creds = hydrated.credentials.length > 0 ? hydrated.credentials : getStoredBiometrics(`merchant_${targetMerchant.id}`);
       if (creds.length === 0) {
-        setAuthError('لم يتم تفعيل البصمة لهذا الحساب على هذا الهاتف بعد. سجل دخولك أولاً وفعلها من الإعدادات.');
+        setAuthError('لم يتم تفعيل البصمة لهذا الحساب بعد. سجل دخولك أولاً وفعلها من الإعدادات.');
         return;
       }
       const ok = await authenticateBiometricCredential(creds);
@@ -4777,9 +4792,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               {/* 10. كن شريكاً / الدعم */}
               <button
                 type="button"
-                onClick={() => {
-                  const phone = (settings as any)?.supportPhone || (settings as any)?.phone || '01000000000';
-                  window.open(`https://wa.me/2${phone.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم، استفسار بخصوص شراكة الوكلاء')}`, '_blank');
+                onClick={async () => {
+                  const cfg = await fetchPlatformSupportConfig((settings as any)?.supportPhone || (settings as any)?.phone || '01000000000');
+                  const phone = cfg.phone || getCachedPlatformSupportPhone((settings as any)?.supportPhone || (settings as any)?.phone || '01000000000');
+                  window.open(buildSupportWhatsAppUrl(phone, 'السلام عليكم، استفسار بخصوص شراكة الوكلاء والدعم الفني'), '_blank');
                 }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                   isDark
@@ -5141,9 +5157,10 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            const phone = (settings as any)?.supportPhone || (settings as any)?.phone || '01000000000';
-                            window.open(`https://wa.me/2${phone.replace(/\D/g, '')}?text=${encodeURIComponent('السلام عليكم، أحتاج دعم بخصوص كوتا حساب الوكيل')}`, '_blank');
+                          onClick={async () => {
+                            const cfg = await fetchPlatformSupportConfig((settings as any)?.supportPhone || (settings as any)?.phone || '01000000000');
+                            const phone = cfg.phone || getCachedPlatformSupportPhone((settings as any)?.supportPhone || (settings as any)?.phone || '01000000000');
+                            window.open(buildSupportWhatsAppUrl(phone, 'السلام عليكم، أحتاج دعم بخصوص كوتا حساب الوكيل'), '_blank');
                           }}
                           className="px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-2xl text-xs font-bold border border-white/20 transition-all cursor-pointer"
                         >

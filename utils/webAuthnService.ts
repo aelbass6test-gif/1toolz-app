@@ -1,4 +1,5 @@
 import { BiometricCredentialRecord } from '../types';
+import { cfFetch } from '../services/cloudflareClient';
 
 /**
  * Biometric & WebAuthn (FIDO2 / Passkeys) Authentication Service
@@ -341,7 +342,7 @@ export async function authenticateBiometricCredential(
 }
 
 /**
- * Local Storage Persistence Helpers
+ * Cloud & Local Cache Persistence Helpers
  */
 export const STORAGE_KEYS = {
   PARTNER_BIOMETRICS_PREFIX: 'partner_biometrics_',
@@ -349,13 +350,62 @@ export const STORAGE_KEYS = {
   BIOMETRIC_PREFERENCE_PREFIX: 'biometric_enabled_',
 };
 
+const memoryBiometrics = new Map<string, BiometricCredentialRecord[]>();
+const memoryBiometricPref = new Map<string, boolean>();
+
+export async function hydrateBiometricsFromCloud(entityKey: string, isOwner = false): Promise<{
+  enabled: boolean;
+  credentials: BiometricCredentialRecord[];
+}> {
+  if (!entityKey) return { enabled: false, credentials: [] };
+  const localCreds = getStoredBiometrics(entityKey);
+  try {
+    const res = await cfFetch<{ success?: boolean; enabled?: boolean; credentials?: BiometricCredentialRecord[] }>(
+      `/api/db/biometrics/${encodeURIComponent(entityKey)}`
+    );
+    if (res?.success) {
+      const cloudCreds = Array.isArray(res.credentials) ? res.credentials : [];
+      const cloudIds = new Set(cloudCreds.map(c => c.id));
+      const localOnly = localCreds.filter(c => !cloudIds.has(c.id));
+      const merged = [...cloudCreds, ...localOnly];
+      const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
+      memoryBiometrics.set(entityKey, merged);
+      const enabled = Boolean(res.enabled || merged.length > 0);
+      memoryBiometricPref.set(entityKey, enabled);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(merged));
+          localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, enabled ? 'true' : 'false');
+        } catch {}
+      }
+      for (const orphan of localOnly) {
+        void cfFetch(`/api/db/biometrics/${encodeURIComponent(entityKey)}`, {
+          method: 'POST',
+          body: JSON.stringify({ credential: orphan })
+        }).catch(() => {});
+      }
+      return { enabled, credentials: merged };
+    }
+  } catch {
+    // fallback to local cache when offline
+  }
+  return { enabled: isBiometricEnabledFor(entityKey), credentials: localCreds };
+}
+
 export function getStoredBiometrics(entityKey: string): BiometricCredentialRecord[] {
+  const mem = memoryBiometrics.get(entityKey);
+  if (mem) return mem;
   if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(`${STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX}${entityKey}`) ||
                 localStorage.getItem(`${STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX}${entityKey}`);
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      memoryBiometrics.set(entityKey, parsed);
+      return parsed;
+    }
+    return [];
   } catch (err) {
     console.error('[WebAuthn] Error loading stored biometrics:', err);
     return [];
@@ -367,60 +417,92 @@ export function saveStoredBiometric(
   credential: BiometricCredentialRecord,
   isOwner = false
 ): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
-    const current = getStoredBiometrics(entityKey);
-    // Replace if exists, or append
-    const updated = [
-      credential,
-      ...current.filter(c => c.id !== credential.id),
-    ];
-    localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(updated));
-    localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, 'true');
-  } catch (err) {
-    console.error('[WebAuthn] Error saving biometric credential:', err);
+  const current = getStoredBiometrics(entityKey);
+  const updated = [
+    credential,
+    ...current.filter(c => c.id !== credential.id),
+  ];
+  memoryBiometrics.set(entityKey, updated);
+  memoryBiometricPref.set(entityKey, true);
+  if (typeof window !== 'undefined') {
+    try {
+      const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
+      localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(updated));
+      localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, 'true');
+    } catch (err) {
+      console.error('[WebAuthn] Error saving biometric credential:', err);
+    }
   }
+  void cfFetch(`/api/db/biometrics/${encodeURIComponent(entityKey)}`, {
+    method: 'POST',
+    body: JSON.stringify({ credential })
+  }).catch((err) => console.warn('[WebAuthn] Cloud save failed:', err?.message || err));
 }
 
 export function removeStoredBiometric(entityKey: string, credentialId: string, isOwner = false): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
-    const current = getStoredBiometrics(entityKey);
-    const updated = current.filter(c => c.id !== credentialId);
-    localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(updated));
-    if (updated.length === 0) {
-      localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, 'false');
-    }
-  } catch (err) {
-    console.error('[WebAuthn] Error removing biometric credential:', err);
+  const current = getStoredBiometrics(entityKey);
+  const updated = current.filter(c => c.id !== credentialId);
+  memoryBiometrics.set(entityKey, updated);
+  if (updated.length === 0) {
+    memoryBiometricPref.set(entityKey, false);
   }
+  if (typeof window !== 'undefined') {
+    try {
+      const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
+      localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(updated));
+      if (updated.length === 0) {
+        localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, 'false');
+      }
+    } catch (err) {
+      console.error('[WebAuthn] Error removing biometric credential:', err);
+    }
+  }
+  void cfFetch(`/api/db/biometrics/${encodeURIComponent(entityKey)}/${encodeURIComponent(credentialId)}`, {
+    method: 'DELETE'
+  }).catch((err) => console.warn('[WebAuthn] Cloud delete failed:', err?.message || err));
 }
 
 export function updateStoredBiometricLastUsed(entityKey: string, credentialId: string, isOwner = false): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
-    const current = getStoredBiometrics(entityKey);
-    const updated = current.map(c => 
-      c.id === credentialId ? { ...c, lastUsedAt: new Date().toISOString() } : c
-    );
-    localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(updated));
-  } catch (err) {
-    console.error('[WebAuthn] Error updating last used biometric:', err);
+  const now = new Date().toISOString();
+  const current = getStoredBiometrics(entityKey);
+  const updated = current.map(c =>
+    c.id === credentialId ? { ...c, lastUsedAt: now } : c
+  );
+  memoryBiometrics.set(entityKey, updated);
+  if (typeof window !== 'undefined') {
+    try {
+      const prefix = isOwner ? STORAGE_KEYS.OWNER_BIOMETRICS_PREFIX : STORAGE_KEYS.PARTNER_BIOMETRICS_PREFIX;
+      localStorage.setItem(`${prefix}${entityKey}`, JSON.stringify(updated));
+    } catch (err) {
+      console.error('[WebAuthn] Error updating last used biometric:', err);
+    }
   }
+  void cfFetch(`/api/db/biometrics/${encodeURIComponent(entityKey)}/${encodeURIComponent(credentialId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ credentialId })
+  }).catch(() => {});
 }
 
 export function isBiometricEnabledFor(entityKey: string): boolean {
-  if (typeof window === 'undefined') return false;
-  const pref = localStorage.getItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`);
-  if (pref === 'true') return true;
+  if (memoryBiometricPref.has(entityKey)) return Boolean(memoryBiometricPref.get(entityKey));
+  if (typeof window !== 'undefined') {
+    const pref = localStorage.getItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`);
+    if (pref === 'true') return true;
+    if (pref === 'false') return false;
+  }
   const list = getStoredBiometrics(entityKey);
   return list.length > 0;
 }
 
 export function setBiometricEnabledFor(entityKey: string, enabled: boolean): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, enabled ? 'true' : 'false');
+  memoryBiometricPref.set(entityKey, enabled);
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(`${STORAGE_KEYS.BIOMETRIC_PREFERENCE_PREFIX}${entityKey}`, enabled ? 'true' : 'false');
+    } catch {}
+  }
+  void cfFetch(`/api/db/biometrics/${encodeURIComponent(entityKey)}`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled })
+  }).catch(() => {});
 }

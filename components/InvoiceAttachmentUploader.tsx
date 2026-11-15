@@ -3,7 +3,7 @@ import {
   Paperclip, Image as ImageIcon, Upload, X, Trash2, 
   ExternalLink, Eye, RefreshCw, CheckCircle2, AlertCircle, Camera 
 } from 'lucide-react';
-import { compressProductImages, uploadProductImages } from '../services/mediaUploadService';
+import { compressProductImages, uploadProductImages, normalizePublicImageUrl } from '../services/mediaUploadService';
 
 interface InvoiceAttachmentUploaderProps {
   label?: string;
@@ -102,7 +102,7 @@ export const InvoiceAttachmentUploader: React.FC<InvoiceAttachmentUploaderProps>
             className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 group shadow-xs shrink-0"
           >
             <img 
-              src={url} 
+              src={normalizePublicImageUrl(url)} 
               alt={`مستند #${idx + 1}`} 
               className="w-full h-full object-cover" 
             />
@@ -180,13 +180,13 @@ export const InvoiceAttachmentUploader: React.FC<InvoiceAttachmentUploaderProps>
         >
           <div className="relative max-w-3xl max-h-[90vh] bg-white dark:bg-slate-900 p-2 rounded-3xl overflow-hidden shadow-2xl">
             <img 
-              src={previewImage} 
+              src={normalizePublicImageUrl(previewImage)} 
               alt="معاينة الفاتورة" 
               className="max-w-full max-h-[82vh] object-contain rounded-2xl" 
             />
             <div className="absolute top-4 left-4 flex gap-2">
               <a
-                href={previewImage}
+                href={normalizePublicImageUrl(previewImage)}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}

@@ -530,14 +530,14 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
             await saveLocal(storeId, fullData);
             return fullData;
         }
-    } catch (err) {
-        console.warn(`[CF-D1] Remote read for store ${storeId} failed; using local IndexedDB cache:`, err);
+    } catch {
+        // Silent fallback to local IndexedDB cache on transient network interruption
     }
 
     return local;
 };
 
-export const saveStoreData = async (store: Store, data: StoreData): Promise<{ success: boolean; error?: string }> => {
+export const saveStoreData = async (store: Store, data: StoreData): Promise<{ success: boolean; version?: number; error?: string }> => {
     if (!store?.id || !data) return { success: false, error: 'Missing store or data' };
     const cleanData = cleanUndefined({
         ...data,
@@ -563,14 +563,14 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
 
     // Primary Cloudflare D1 Save
     try {
-        await cfFetch(`/api/db/stores/${encodeURIComponent(store.id)}`, {
+        const res = await cfFetch<{ success?: boolean; version?: number }>(`/api/db/stores/${encodeURIComponent(store.id)}`, {
             method: 'PUT',
             body: JSON.stringify({
                 storeName: store.name,
                 storeData: cleanData
             })
         });
-        return { success: true };
+        return { success: true, version: typeof res?.version === 'number' ? res.version : undefined };
     } catch (err: any) {
         console.error(`[CF-D1] Failed saving store ${store.id}:`, err);
         return { success: false, error: err?.message || 'فشل الحفظ في قاعدة بيانات Cloudflare D1' };
@@ -592,8 +592,8 @@ export const getGlobalData = async (_forceRemote: boolean = false): Promise<{ us
             await saveLocal('global', payload);
             return payload;
         }
-    } catch (err) {
-        console.warn('[CF-D1] Global data read fallback to IndexedDB:', err);
+    } catch {
+        // Silent fallback to local IndexedDB cache on transient network interruption
     }
     return local || { users: [], loyaltyData: {} };
 };
@@ -874,8 +874,7 @@ export const getPartnerRequests = async (storeId: string): Promise<PartnerPortal
             localStorage.setItem(localKey, JSON.stringify(list));
         } catch (_) {}
         return list;
-    } catch (err) {
-        console.warn('[PARTNER-REQUEST] Falling back to cached requests:', err);
+    } catch {
         try {
             return JSON.parse(localStorage.getItem(localKey) || '[]');
         } catch {
@@ -1099,8 +1098,8 @@ export const getAllStoresSettings = async (): Promise<Record<string, any>> => {
                 if (val?.settings) results[id] = val.settings;
             });
         }
-    } catch (err) {
-        console.warn('[CF-D1] getAllStoresSettings fallback to Dexie:', err);
+    } catch {
+        // Silent fallback to Dexie cache
     }
 
     try {

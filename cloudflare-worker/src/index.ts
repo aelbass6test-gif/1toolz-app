@@ -353,9 +353,22 @@ async function serveAssets(request: Request, env: Env): Promise<Response> {
   // Cloudflare's SPA fallback can return index.html for an unmatched path.
   // Preserve that behavior for client routes, but never disguise a missing
   // static file (especially a stale Vite JS/CSS chunk) as a successful HTML response.
-  const response = await env.ASSETS.fetch(request);
-  const pathname = new URL(request.url).pathname;
+  const reqUrl = new URL(request.url);
+  const pathname = reqUrl.pathname;
   const looksLikeAsset = pathname.startsWith("/assets/") || /\.(?:m?js|cjs|css|map|json|webmanifest|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|otf|eot|wasm|xml|txt|pdf)$/i.test(pathname);
+
+  let response: Response;
+  if (env.ASSETS && typeof env.ASSETS.fetch === "function") {
+    response = await env.ASSETS.fetch(request);
+  } else {
+    const appOrigin = (env.APP_ORIGIN || "https://app.abdomedi.com").replace(/\/$/, "");
+    const targetUrl = `${appOrigin}${looksLikeAsset ? pathname : "/index.html"}${looksLikeAsset ? reqUrl.search : ""}`;
+    response = await fetch(targetUrl, {
+      method: request.method === "HEAD" ? "HEAD" : "GET",
+      headers: { "accept": request.headers.get("accept") || "*/*" }
+    });
+  }
+
   if (looksLikeAsset && response.status === 200 && response.headers.get("content-type")?.includes("text/html")) {
     return new Response(request.method === "HEAD" ? null : "Not Found", {
       status: 404,
@@ -617,7 +630,13 @@ export default {
         return await handleAuthRequest(request, env, db, json);
       }
 
-      if (url.pathname.startsWith("/api/db/") || url.pathname === "/api/shared-reports" || url.pathname.startsWith("/api/shared-reports/")) {
+      if (
+        url.pathname.startsWith("/api/db/") ||
+        url.pathname.startsWith("/api/domains/") ||
+        url.pathname.startsWith("/api/cloudflare/") ||
+        url.pathname === "/api/shared-reports" ||
+        url.pathname.startsWith("/api/shared-reports/")
+      ) {
         if (!db) return json(request, env, { success: false, error: "قاعدة بيانات Cloudflare D1 غير مهيأة" }, 503);
         return await handleDbRequest(request, env, db, json);
       }

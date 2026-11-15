@@ -1,14 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User } from '../types';
 import { 
   Save, CheckCircle, Loader2, User as UserIcon, Mail, Phone, ShieldCheck, 
   Globe, Lock, Bell, Smartphone, KeyRound, Sparkles, ShieldAlert, Laptop, 
   LogOut, Camera, AlertCircle, RefreshCw, Layers, Moon, Sun, Check, ArrowRight,
-  Fingerprint, Scan, Cpu, Trash2, PlusCircle, CheckCircle2
+  Fingerprint, Scan, Cpu, Trash2, PlusCircle, CheckCircle2, Send, X, Edit3
 } from 'lucide-react';
 import { createUserDoc } from '../services/databaseService';
-import { cfAuthRequestPasswordReset, cfFetch } from '../services/cloudflareClient';
+import {
+  cfAuthRequestPasswordReset,
+  getCfApiBaseUrl,
+  getCfAuthToken,
+  setCfAuthToken
+} from '../services/cloudflareClient';
 import { motion, AnimatePresence } from 'framer-motion';
+import { usePlatformSupport } from '../utils/platformSupport';
 import { 
   isWebAuthnSupported, 
   isPlatformAuthenticatorAvailable, 
@@ -16,6 +22,7 @@ import {
   registerBiometricCredential, 
   authenticateBiometricCredential,
   getStoredBiometrics,
+  hydrateBiometricsFromCloud,
   saveStoredBiometric,
   removeStoredBiometric,
   isBiometricEnabledFor,
@@ -51,6 +58,7 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     marketingUpdates: false,
   });
 
+  const { supportPhone, openSupportWhatsApp } = usePlatformSupport();
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -60,6 +68,26 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
   const [error, setError] = useState('');
   const [sessionsCleared, setSessionsCleared] = useState(false);
 
+  // Secure Email Change (2-Step Dual OTP Verification) States
+  const [isChangingEmail, setIsChangingEmail] = useState(false);
+  const [emailChangeStep, setEmailChangeStep] = useState<'verify_old' | 'verify_new'>('verify_old');
+  const [oldEmailVerified, setOldEmailVerified] = useState(false);
+  const [oldEmailOtpSent, setOldEmailOtpSent] = useState(false);
+  const [oldEmailOtpCode, setOldEmailOtpCode] = useState('');
+  const [oldEmailOtpTarget, setOldEmailOtpTarget] = useState('');
+  const [oldEmailOtpCooldown, setOldEmailOtpCooldown] = useState(0);
+  const [isSendingOldEmailOtp, setIsSendingOldEmailOtp] = useState(false);
+  const [isVerifyingOldEmailOtp, setIsVerifyingOldEmailOtp] = useState(false);
+
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+  const [emailOtpCode, setEmailOtpCode] = useState('');
+  const [emailOtpTarget, setEmailOtpTarget] = useState('');
+  const [emailOtpCooldown, setEmailOtpCooldown] = useState(0);
+  const [isSendingEmailOtp, setIsSendingEmailOtp] = useState(false);
+  const [isVerifyingEmailOtp, setIsVerifyingEmailOtp] = useState(false);
+  const [emailChangeError, setEmailChangeError] = useState('');
+
   // Biometric / WebAuthn States for Owner
   const [isBiometricSupported, setIsBiometricSupported] = useState(false);
   const [isPlatformAuthAvailable, setIsPlatformAuthAvailable] = useState(false);
@@ -68,6 +96,17 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
   const [isTestingBio, setIsTestingBio] = useState(false);
   const [bioTestSuccessMsg, setBioTestSuccessMsg] = useState('');
   const [ownerBiometricEnabled, setOwnerBiometricEnabled] = useState(false);
+
+  useEffect(() => {
+    if (emailOtpCooldown <= 0 && oldEmailOtpCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setEmailOtpCooldown(prev => (prev > 1 ? prev - 1 : 0));
+      setOldEmailOtpCooldown(prev => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [emailOtpCooldown, oldEmailOtpCooldown]);
+
+  const hydratedBioKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const checkBiometrics = async () => {
@@ -84,8 +123,24 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     if (currentUser?.email || currentUser?.phone) {
       const ownerKey = currentUser.email || currentUser.phone || 'owner';
       setOwnerBiometricEnabled(isBiometricEnabledFor(ownerKey));
+      if (hydratedBioKeyRef.current !== ownerKey) {
+        hydratedBioKeyRef.current = ownerKey;
+        void hydrateBiometricsFromCloud(ownerKey, true).then(({ enabled, credentials }) => {
+          setOwnerBiometricEnabled(enabled);
+          if (credentials.length > 0) {
+            setCurrentUser(prev => {
+              if (!prev) return prev;
+              const existing = prev.biometricCredentials || [];
+              const existingIds = new Set(existing.map(c => c.id));
+              const missing = credentials.filter(c => !existingIds.has(c.id));
+              if (missing.length === 0) return prev;
+              return { ...prev, biometricCredentials: [...existing, ...missing], allowBiometricAuth: true };
+            });
+          }
+        });
+      }
     }
-  }, [currentUser]);
+  }, [currentUser, setCurrentUser]);
 
   // Handle Register Biometric for Owner
   const handleEnrollOwnerBiometric = async () => {
@@ -113,9 +168,11 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
           allowBiometricAuth: true 
         };
         setCurrentUser(updatedUser);
+        setUsers(prev => prev.map(u => (u.phone === updatedUser.phone || (u.email && u.email === updatedUser.email)) ? updatedUser : u));
+        void createUserDoc(updatedUser).catch(() => {});
         setOwnerBiometricEnabled(true);
         setShowSuccess(true);
-        setSuccessMessage('🎉 تم تسجيل وتفعيل بصمة هذا الجهاز (WebAuthn Passkey) لحساب المالك بنجاح!');
+        setSuccessMessage('🎉 تم تسجيل وتفعيل بصمة هذا الجهاز (WebAuthn Passkey) وحفظها سحابياً لحساب المالك بنجاح!');
         setTimeout(() => setShowSuccess(false), 4000);
       } else {
         setError(res.error || 'تعذر تسجيل البصمة على هذا الجهاز.');
@@ -134,7 +191,8 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     setBioTestSuccessMsg('');
     try {
       const ownerKey = currentUser.email || currentUser.phone || 'owner';
-      const stored = getStoredBiometrics(ownerKey);
+      const hydrated = await hydrateBiometricsFromCloud(ownerKey, true);
+      const stored = hydrated.credentials.length > 0 ? hydrated.credentials : getStoredBiometrics(ownerKey);
       const allCreds = [...(currentUser.biometricCredentials || []), ...stored];
       const res = await authenticateBiometricCredential(allCreds.length > 0 ? allCreds : undefined, 'لوحة إدارة المتجر');
       if (res.success) {
@@ -155,7 +213,10 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     const ownerKey = currentUser.email || currentUser.phone || 'owner';
     removeStoredBiometric(ownerKey, credId, true);
     const updated = (currentUser.biometricCredentials || []).filter(c => c.id !== credId);
-    setCurrentUser({ ...currentUser, biometricCredentials: updated });
+    const updatedUser: User = { ...currentUser, biometricCredentials: updated };
+    setCurrentUser(updatedUser);
+    setUsers(prev => prev.map(u => (u.phone === updatedUser.phone || (u.email && u.email === updatedUser.email)) ? updatedUser : u));
+    void createUserDoc(updatedUser).catch(() => {});
     setShowSuccess(true);
     setSuccessMessage('تم إلغاء وحذف مفتاح البصمة المحدد.');
     setTimeout(() => setShowSuccess(false), 3000);
@@ -224,6 +285,244 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     setTimeout(() => setSessionsCleared(false), 4000);
   };
 
+  const isPlaceholderAccountEmail = (val?: string) => {
+    const normalized = (val || '').trim().toLowerCase();
+    if (!normalized || !normalized.includes('@')) return true;
+    if (normalized.includes('@mystore-auth.app')) return true;
+    if (/^\+?\d+@abdomedi\.com$/i.test(normalized)) return true;
+    return false;
+  };
+
+  const handleOpenEmailChange = () => {
+    const needsOldEmailVerification = Boolean(currentUser?.email && !isPlaceholderAccountEmail(currentUser.email));
+    setEmailChangeError('');
+    setEmailChangeStep(needsOldEmailVerification ? 'verify_old' : 'verify_new');
+    setOldEmailVerified(!needsOldEmailVerification);
+    setOldEmailOtpSent(false);
+    setOldEmailOtpCode('');
+    setOldEmailOtpTarget('');
+    setNewEmailInput('');
+    setEmailOtpSent(false);
+    setEmailOtpCode('');
+    setEmailOtpTarget('');
+    setIsChangingEmail(true);
+  };
+
+  const handleCancelEmailChange = () => {
+    setIsChangingEmail(false);
+    setEmailChangeStep('verify_old');
+    setOldEmailVerified(false);
+    setOldEmailOtpSent(false);
+    setOldEmailOtpCode('');
+    setOldEmailOtpTarget('');
+    setNewEmailInput('');
+    setEmailOtpSent(false);
+    setEmailOtpCode('');
+    setEmailOtpTarget('');
+    setEmailChangeError('');
+  };
+
+  const handleSendOldEmailOtp = async () => {
+    if (!currentUser?.email) return;
+    const oldEmail = currentUser.email.trim().toLowerCase();
+    setIsSendingOldEmailOtp(true);
+    setEmailChangeError('');
+    try {
+      const apiBase = getCfApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: oldEmail,
+          userName: currentUser.fullName || `${formData.firstName} ${formData.lastName}`.trim() || 'المستخدم العزيز'
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        if (data.retryAfterSeconds || data.cooldownRemaining) {
+          setOldEmailOtpCooldown(Number(data.retryAfterSeconds || data.cooldownRemaining) || 60);
+        }
+        setEmailChangeError(data.error || data.message || 'تعذر إرسال رمز التحقق إلى بريدك الحالي. يرجى المحاولة لاحقاً.');
+        return;
+      }
+
+      setOldEmailOtpSent(true);
+      setOldEmailOtpCode('');
+      setOldEmailOtpTarget(data.target || oldEmail);
+      setOldEmailOtpCooldown(Number(data.cooldown || 60));
+    } catch (err: any) {
+      setEmailChangeError(err?.message || 'حدث خطأ أثناء إرسال رمز التحقق للبريد القديم.');
+    } finally {
+      setIsSendingOldEmailOtp(false);
+    }
+  };
+
+  const handleVerifyOldEmailOtp = async () => {
+    if (!currentUser?.email) return;
+    const oldEmail = currentUser.email.trim().toLowerCase();
+    const cleanOtp = oldEmailOtpCode.replace(/\D/g, '').trim();
+
+    if (cleanOtp.length !== 6) {
+      setEmailChangeError('يجب إدخال رمز التحقق المكون من 6 أرقام المرسل للبريد القديم.');
+      return;
+    }
+
+    setIsVerifyingOldEmailOtp(true);
+    setEmailChangeError('');
+    try {
+      const apiBase = getCfApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: oldEmail,
+          otp: cleanOtp
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.valid) {
+        setEmailChangeError(data.message || data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
+        return;
+      }
+
+      setOldEmailVerified(true);
+      setEmailChangeStep('verify_new');
+      setOldEmailOtpSent(false);
+      setOldEmailOtpCode('');
+      setEmailChangeError('');
+    } catch (err: any) {
+      setEmailChangeError(err?.message || 'حدث خطأ أثناء التحقق من رمز البريد القديم.');
+    } finally {
+      setIsVerifyingOldEmailOtp(false);
+    }
+  };
+
+  const handleSendNewEmailOtp = async () => {
+    if (!currentUser) return;
+    if (!isPlaceholderAccountEmail(currentUser.email) && !oldEmailVerified) {
+      setEmailChangeStep('verify_old');
+      setEmailChangeError('يجب أولاً تأكيد رمز التحقق المرسل على البريد القديم قبل تغيير البريد.');
+      return;
+    }
+
+    const candidate = newEmailInput.trim().toLowerCase();
+    const currentEmailNormalized = (currentUser.email || '').trim().toLowerCase();
+
+    if (!candidate || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)) {
+      setEmailChangeError('يرجى إدخال عنوان بريد إلكتروني صحيح (مثال: name@gmail.com).');
+      return;
+    }
+    if (isPlaceholderAccountEmail(candidate)) {
+      setEmailChangeError('لا يمكن استخدام بريد النظام المؤقت كبريد أساسي. يرجى إدخال بريد إلكتروني حقيقي.');
+      return;
+    }
+    if (candidate === currentEmailNormalized) {
+      setEmailChangeError('البريد الإلكتروني المدخل مطابق لبريدك الحالي بالفعل.');
+      return;
+    }
+
+    setIsSendingEmailOtp(true);
+    setEmailChangeError('');
+    try {
+      const apiBase = getCfApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: candidate,
+          userName: currentUser.fullName || `${formData.firstName} ${formData.lastName}`.trim() || 'المستخدم العزيز'
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        if (data.retryAfterSeconds || data.cooldownRemaining) {
+          setEmailOtpCooldown(Number(data.retryAfterSeconds || data.cooldownRemaining) || 60);
+        }
+        setEmailChangeError(data.error || data.message || 'تعذر إرسال رمز التحقق إلى البريد الجديد. يرجى المحاولة لاحقاً.');
+        return;
+      }
+
+      setEmailOtpSent(true);
+      setEmailOtpCode('');
+      setEmailOtpTarget(data.target || candidate);
+      setEmailOtpCooldown(Number(data.cooldown || 60));
+    } catch (err: any) {
+      setEmailChangeError(err?.message || 'حدث خطأ أثناء الاتصال بخدمة التحقق من البريد.');
+    } finally {
+      setIsSendingEmailOtp(false);
+    }
+  };
+
+  const handleVerifyAndSaveNewEmail = async () => {
+    if (!currentUser) return;
+    if (!isPlaceholderAccountEmail(currentUser.email) && !oldEmailVerified) {
+      setEmailChangeStep('verify_old');
+      setEmailChangeError('يجب تأكيد رمز البريد القديم أولاً قبل اعتماد البريد الجديد.');
+      return;
+    }
+
+    const candidate = newEmailInput.trim().toLowerCase();
+    const cleanOtp = emailOtpCode.replace(/\D/g, '').trim();
+
+    if (cleanOtp.length !== 6) {
+      setEmailChangeError('يجب إدخال رمز التحقق المكون من 6 أرقام.');
+      return;
+    }
+
+    setIsVerifyingEmailOtp(true);
+    setEmailChangeError('');
+    try {
+      const apiBase = getCfApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: candidate,
+          otp: cleanOtp
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.valid) {
+        setEmailChangeError(data.message || data.error || 'رمز التحقق غير صحيح أو منتهي الصلاحية.');
+        return;
+      }
+
+      const updatedUser: User = {
+        ...currentUser,
+        fullName: `${formData.firstName} ${formData.lastName}`.trim() || currentUser.fullName,
+        email: candidate,
+        emailVerified: true
+      };
+
+      const saved = await createUserDoc(updatedUser);
+      if (!saved) {
+        setEmailChangeError('تم التحقق من الرمز ولكن تعذر حفظ البريد الجديد في قاعدة البيانات. حاول مرة أخرى.');
+        return;
+      }
+
+      const token = getCfAuthToken();
+      if (token) {
+        setCfAuthToken(token, updatedUser);
+      }
+
+      setCurrentUser(updatedUser);
+      setUsers(users.map(u => u.phone === currentUser.phone ? updatedUser : u));
+      setFormData(prev => ({ ...prev, email: candidate }));
+
+      handleCancelEmailChange();
+      setSuccessMessage(`تم التحقق من البريد القديم والجديد وتحديث البريد الإلكتروني إلى (${candidate}) في Cloudflare D1 بنجاح!`);
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+        setSuccessMessage('');
+      }, 5000);
+    } catch (err: any) {
+      setEmailChangeError(err?.message || 'حدث خطأ أثناء التحقق من الرمز وتحديث البريد.');
+    } finally {
+      setIsVerifyingEmailOtp(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
@@ -232,31 +531,24 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     setError('');
 
     try {
-      if (formData.email && formData.email.includes('@mystore-auth.app')) {
-        setError('لا يمكن استخدام بريد النظام المؤقت كبريد أساسي للتواصل. يرجى إدخال بريد إلكتروني حقيقي (Gmail, Outlook, etc).');
-        setIsSaving(false);
-        return;
-      }
-
       const updatedUser: User = {
         ...currentUser,
         fullName: `${formData.firstName} ${formData.lastName}`.trim(),
-        email: formData.email, 
+        // Email changes are strictly protected and can only be committed through OTP verification
+        email: currentUser.email,
       };
 
-      // Update Cloudflare D1 User & Send verification if email changed
       await createUserDoc(updatedUser);
-      if (formData.email && formData.email !== currentUser.email && formData.email.includes('@')) {
-        void cfFetch('/api/auth/verify-email', {
-          method: 'POST',
-          body: JSON.stringify({ email: formData.email, phone: currentUser.phone })
-        }).catch(() => {});
+
+      const token = getCfAuthToken();
+      if (token) {
+        setCfAuthToken(token, updatedUser);
       }
 
       setCurrentUser(updatedUser);
       setUsers(users.map(u => u.phone === currentUser.phone ? updatedUser : u));
 
-      setSuccessMessage('تم حفظ كافة التغييرات وإعدادات الحساب في Cloudflare D1 بنجاح!');
+      setSuccessMessage('تم حفظ التعديلات وإعدادات الحساب في Cloudflare D1 بنجاح!');
       setShowSuccess(true);
       setTimeout(() => {
         setShowSuccess(false);
@@ -278,8 +570,8 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
     );
   }
 
-  const isEmailSynced = Boolean(currentUser?.email && currentUser.email === formData.email && !formData.email.includes('@mystore-auth.app'));
-  const isTypedTempEmail = !formData.email || formData.email.includes('@mystore-auth.app');
+  const isEmailSynced = Boolean(currentUser?.email && currentUser.email === formData.email && !isPlaceholderAccountEmail(formData.email));
+  const isTypedTempEmail = isPlaceholderAccountEmail(formData.email);
   const userInitials = (formData.firstName[0] || 'U') + (formData.lastName[0] || '');
 
   return (
@@ -448,11 +740,24 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                 />
               </div>
 
-              {/* Email Section */}
-              <div className="space-y-2 pt-2">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  البريد الإلكتروني (الأساسي لاستعادة كلمة المرور والتنبيهات)
-                </label>
+              {/* Email Section (Protected by OTP Verification) */}
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    البريد الإلكتروني (الأساسي لاستعادة كلمة المرور والتنبيهات)
+                  </label>
+                  {!isChangingEmail && (
+                    <button
+                      type="button"
+                      onClick={handleOpenEmailChange}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 border border-teal-500/25 text-[11px] font-black transition-all cursor-pointer active:scale-95"
+                    >
+                      <Edit3 size={13} />
+                      <span>{isTypedTempEmail ? 'ربط وتأكيد بريد حقيقي (OTP)' : 'تغيير البريد بكود تحقق (OTP)'}</span>
+                    </button>
+                  )}
+                </div>
+
                 <div className="relative">
                   <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
                     <Mail size={16} />
@@ -460,37 +765,340 @@ const AccountSettingsPage: React.FC<AccountSettingsPageProps> = ({ currentUser, 
                   <input
                     type="email"
                     name="email"
+                    readOnly
                     value={formData.email}
-                    onChange={handleChange}
-                    className={`block w-full pr-10 pl-4 py-3 bg-slate-50 dark:bg-slate-800/80 border ${isEmailSynced ? 'border-slate-200 dark:border-slate-700' : 'border-amber-400 dark:border-amber-600 shadow-[0_0_12px_rgba(245,158,11,0.15)]'} rounded-2xl text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all`}
+                    className="block w-full pr-10 pl-10 py-3 bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-200 cursor-not-allowed dir-ltr text-right"
                     placeholder="example@gmail.com"
                   />
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400" title="محمي برمز التحقق OTP">
+                    <Lock size={14} />
+                  </div>
                 </div>
 
-                <div className="mt-2 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 space-y-2">
-                  {isEmailSynced ? (
-                    <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                      <CheckCircle size={15} />
-                      مرتبط ومفعل ببيانات الدخول الموحدة (Cloudflare D1 Auth).
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 space-y-1.5">
+                  {isEmailSynced && !isTypedTempEmail ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle size={15} />
+                        مرتبط ومفعل ببيانات الدخول الموحدة (Cloudflare D1 Auth).
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                        <ShieldCheck size={13} className="text-teal-500" />
+                        التغيير محمي برمز تحقق OTP
+                      </span>
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <div className="flex items-center gap-2 text-xs font-bold text-amber-600 dark:text-amber-400">
                         <AlertCircle size={15} />
-                        البريد المدخل يتطلب الضغط على زر "حفظ التغييرات" لتأكيده والمزامنة.
+                        بريد النظام المؤقت لا يدعم استعادة كلمة المرور.
                       </div>
-                      {isTypedTempEmail ? (
-                        <p className="text-[11px] text-rose-500 font-bold leading-relaxed">
-                          ⚠️ أنت تستخدم بريد النظام المؤقت. يرجى إدخال بريدك الشخصي الحقيقي (Gmail أو Outlook) ثم الضغط على "حفظ التغييرات" أسفل الصفحة.
-                        </p>
-                      ) : (
-                        <p className="text-[11px] text-teal-600 dark:text-teal-400 font-bold leading-relaxed">
-                          ✨ تم إدخال البريد الحقيقي ({formData.email}). يرجى الضغط على زر <strong>"حفظ التغييرات"</strong> في أسفل الصفحة لربطه وتفعيله بحسابك فوراً.
-                        </p>
-                      )}
+                      <p className="text-[11px] text-rose-500 font-bold leading-relaxed">
+                        ⚠️ يرجى الضغط على <strong>"ربط وتأكيد بريد حقيقي (OTP)"</strong> لإدخال بريدك الحقيقي وتأكيده برمز مكون من 6 أرقام.
+                      </p>
                     </div>
                   )}
                 </div>
+
+                {/* Inline Secure 2-Step Email Change & OTP Verification Card */}
+                <AnimatePresence>
+                  {isChangingEmail && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="p-5 rounded-2xl bg-gradient-to-br from-teal-50/70 to-slate-50 dark:from-slate-800/90 dark:to-slate-900 border border-teal-500/30 shadow-sm space-y-4"
+                    >
+                      <div className="flex items-start justify-between gap-3 pb-3 border-b border-teal-500/15">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-xl bg-teal-500/15 text-teal-600 dark:text-teal-400">
+                            <ShieldCheck size={18} />
+                          </div>
+                          <div>
+                            <h3 className="text-xs sm:text-sm font-black text-slate-800 dark:text-slate-100">
+                              {!isPlaceholderAccountEmail(currentUser.email)
+                                ? 'تغيير البريد الإلكتروني بتأكيد مزدوج (القديم ثم الجديد)'
+                                : 'ربط وتأكيد البريد الإلكتروني برمز التحقق (OTP)'}
+                            </h3>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {!isPlaceholderAccountEmail(currentUser.email)
+                                ? 'لأمان حسابك: يتم إرسال كود تحقق للبريد القديم أولاً، ثم بعد تأكيده يتم إرسال كود تحقق للبريد الجديد.'
+                                : 'سيتم إرسال رمز أمان مكون من 6 أرقام إلى البريد الجديد، ولن يتم الحفظ إلا بعد تأكيده.'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCancelEmailChange}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors cursor-pointer"
+                          title="إلغاء تغيير البريد"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+
+                      {/* 2-Step Progress Indicator when changing from an existing real email */}
+                      {!isPlaceholderAccountEmail(currentUser.email) && (
+                        <div className="grid grid-cols-2 gap-2 text-[11px] font-black">
+                          <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${
+                            oldEmailVerified
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+                              : emailChangeStep === 'verify_old'
+                                ? 'bg-teal-500/15 border-teal-500/40 text-teal-800 dark:text-teal-200'
+                                : 'bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-500'
+                          }`}>
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 ${
+                              oldEmailVerified ? 'bg-emerald-500 text-white' : 'bg-teal-600 text-white'
+                            }`}>
+                              {oldEmailVerified ? '✓' : '1'}
+                            </span>
+                            <span>1. تأكيد البريد القديم</span>
+                          </div>
+                          <div className={`p-2.5 rounded-xl border flex items-center gap-2 ${
+                            emailChangeStep === 'verify_new'
+                              ? 'bg-teal-500/15 border-teal-500/40 text-teal-800 dark:text-teal-200'
+                              : 'bg-slate-100/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/70 text-slate-400'
+                          }`}>
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 ${
+                              emailChangeStep === 'verify_new' ? 'bg-teal-600 text-white' : 'bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}>
+                              2
+                            </span>
+                            <span>2. تأكيد البريد الجديد</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {emailChangeError && (
+                        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center gap-2">
+                          <AlertCircle size={15} className="shrink-0 text-rose-500" />
+                          <span>{emailChangeError}</span>
+                        </div>
+                      )}
+
+                      {/* STEP 1: Verify Ownership of OLD Email First */}
+                      {emailChangeStep === 'verify_old' && !isPlaceholderAccountEmail(currentUser.email) && (
+                        <div className="space-y-3">
+                          <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="space-y-0.5">
+                              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 block">
+                                البريد الحالي المطلوب تأكيد ملكيته أولاً:
+                              </span>
+                              <span className="text-xs font-mono font-black text-slate-800 dark:text-slate-100 dir-ltr inline-block">
+                                {currentUser.email}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleSendOldEmailOtp}
+                              disabled={isSendingOldEmailOtp || oldEmailOtpCooldown > 0}
+                              className="px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-teal-600 hover:bg-slate-800 dark:hover:bg-teal-700 text-white text-xs font-black transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+                            >
+                              {isSendingOldEmailOtp ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                              <span>
+                                {oldEmailOtpCooldown > 0
+                                  ? `انتظر (${oldEmailOtpCooldown}ث)`
+                                  : oldEmailOtpSent
+                                    ? 'إعادة إرسال الكود للقديم'
+                                    : 'إرسال كود التحقق للبريد القديم'}
+                              </span>
+                            </button>
+                          </div>
+
+                          {oldEmailOtpSent && (
+                            <div className="p-4 rounded-xl bg-white dark:bg-slate-900/90 border border-amber-500/30 space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-xs font-black text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                                  <CheckCircle size={14} />
+                                  تم إرسال كود التحقق إلى بريدك القديم: <span className="font-mono dir-ltr">{oldEmailOtpTarget}</span>
+                                </span>
+                                {oldEmailOtpCooldown > 0 && (
+                                  <span className="text-[11px] font-bold text-slate-400">
+                                    إعادة الإرسال بعد {oldEmailOtpCooldown} ثانية
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  maxLength={6}
+                                  value={oldEmailOtpCode}
+                                  onChange={(e) => {
+                                    setOldEmailOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                                    setEmailChangeError('');
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      void handleVerifyOldEmailOtp();
+                                    }
+                                  }}
+                                  placeholder="000000"
+                                  className="sm:w-48 px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-center font-mono tabular-nums font-black text-sm tracking-[0.35em] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 dir-ltr"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleVerifyOldEmailOtp}
+                                  disabled={isVerifyingOldEmailOtp || oldEmailOtpCode.trim().length !== 6}
+                                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                >
+                                  {isVerifyingOldEmailOtp ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                                  <span>تأكيد البريد القديم والمتابعة</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                              💡 في حال فقدان الوصول نهائياً إلى البريد القديم، يرجى التواصل مع الدعم الفني لتحديث البريد بعد التحقق من هويتك.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openSupportWhatsApp(
+                                  `مرحباً فريق الدعم الفني، أرغب في تحديث البريد الإلكتروني لحسابي (${currentUser.fullName} - ${currentUser.phone})`
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-black transition-all cursor-pointer"
+                            >
+                              <Phone size={12} />
+                              <span>تواصل مع الدعم ({supportPhone})</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* STEP 2: Enter & Verify NEW Email */}
+                      {emailChangeStep === 'verify_new' && (
+                        <div className="space-y-3">
+                          {!isPlaceholderAccountEmail(currentUser.email) && oldEmailVerified && (
+                            <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-2">
+                              <CheckCircle size={15} className="text-emerald-500 shrink-0" />
+                              <span>تم التحقق من ملكية البريد القديم ({currentUser.email}). يمكنك الآن إدخال وتأكيد البريد الجديد.</span>
+                            </div>
+                          )}
+
+                          <div className="space-y-2">
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                              البريد الإلكتروني الجديد
+                            </label>
+                            <div className="flex flex-col sm:flex-row gap-2.5">
+                              <div className="relative flex-1">
+                                <div className="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-400">
+                                  <Mail size={15} />
+                                </div>
+                                <input
+                                  type="email"
+                                  value={newEmailInput}
+                                  readOnly={emailOtpSent}
+                                  onChange={(e) => {
+                                    setNewEmailInput(e.target.value);
+                                    setEmailChangeError('');
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      if (!emailOtpSent) void handleSendNewEmailOtp();
+                                    }
+                                  }}
+                                  placeholder="new-email@gmail.com"
+                                  className={`block w-full pr-10 pl-4 py-2.5 rounded-xl border text-xs font-bold dir-ltr text-right outline-none transition-all ${
+                                    emailOtpSent
+                                      ? 'bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-500 cursor-not-allowed'
+                                      : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-teal-500'
+                                  }`}
+                                />
+                              </div>
+
+                              {!emailOtpSent ? (
+                                <button
+                                  type="button"
+                                  onClick={handleSendNewEmailOtp}
+                                  disabled={isSendingEmailOtp || emailOtpCooldown > 0}
+                                  className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black transition-all flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+                                >
+                                  {isSendingEmailOtp ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                                  <span>
+                                    {emailOtpCooldown > 0
+                                      ? `انتظر (${emailOtpCooldown}ث)`
+                                      : 'إرسال كود التحقق للبريد الجديد'}
+                                  </span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEmailOtpSent(false);
+                                    setEmailOtpCode('');
+                                    setEmailChangeError('');
+                                  }}
+                                  className="px-3.5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all shrink-0 cursor-pointer"
+                                >
+                                  تغيير البريد المدخل
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {emailOtpSent && (
+                            <div className="p-4 rounded-xl bg-white dark:bg-slate-900/90 border border-emerald-500/30 space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-xs font-black text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                                  <CheckCircle size={14} />
+                                  تم إرسال كود التحقق (6 أرقام) إلى البريد الجديد: <span className="font-mono dir-ltr">{emailOtpTarget}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={handleSendNewEmailOtp}
+                                  disabled={isSendingEmailOtp || emailOtpCooldown > 0}
+                                  className="text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                                >
+                                  {emailOtpCooldown > 0
+                                    ? `إعادة الإرسال بعد ${emailOtpCooldown} ثانية`
+                                    : 'إعادة إرسال الكود'}
+                                </button>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  maxLength={6}
+                                  value={emailOtpCode}
+                                  onChange={(e) => {
+                                    setEmailOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                                    setEmailChangeError('');
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      void handleVerifyAndSaveNewEmail();
+                                    }
+                                  }}
+                                  placeholder="000000"
+                                  className="sm:w-48 px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-center font-mono tabular-nums font-black text-sm tracking-[0.35em] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 dir-ltr"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleVerifyAndSaveNewEmail}
+                                  disabled={isVerifyingEmailOtp || emailOtpCode.trim().length !== 6}
+                                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                >
+                                  {isVerifyingEmailOtp ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                                  <span>تأكيد الرمز وتحديث البريد</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Phone section */}

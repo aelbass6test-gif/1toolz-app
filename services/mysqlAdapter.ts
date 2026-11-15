@@ -135,12 +135,14 @@ export const ensureMysqlTables = async () => {
         payout_method VARCHAR(50),
         payout_account VARCHAR(255),
         transfer_reference VARCHAR(255),
+        details JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_store (store_id),
         INDEX idx_merchant (merchant_id)
       )
     `);
+    await query(`ALTER TABLE merchant_requests ADD COLUMN details JSON`).catch(() => {});
 
     // 6. PARTNER_TRANSACTIONS
     await query(`
@@ -156,11 +158,35 @@ export const ensureMysqlTables = async () => {
         notes TEXT,
         reference_id VARCHAR(255),
         performed_by VARCHAR(255),
+        details JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_store (store_id),
         INDEX idx_merchant (merchant_id)
       )
     `);
+    await query(`ALTER TABLE partner_transactions ADD COLUMN details JSON`).catch(() => {});
+
+    // 7. Generic store JSON collections queried by Hostinger MySQL sync/fetch
+    const jsonCollectionTables = [
+      'suppliers',
+      'supply_orders',
+      'partners',
+      'transactions',
+      'treasury_accounts',
+      'treasury_transactions'
+    ];
+    for (const tbl of jsonCollectionTables) {
+      await query(`
+        CREATE TABLE IF NOT EXISTS ${tbl} (
+          id VARCHAR(255) PRIMARY KEY,
+          store_id VARCHAR(255),
+          details JSON,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_store (store_id)
+        )
+      `);
+    }
 
     console.log('[MYSQL] All tables verified.');
   } catch (err) {

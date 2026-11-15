@@ -18,6 +18,11 @@ migrations_dir = "cloudflare-worker/migrations"
 binding = "R2_IMAGES"
 bucket_name = "abdomedi-product-images"
 
+[assets]
+directory = "dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
 [vars]
 APP_ORIGIN = "https://app.abdomedi.com"
 APP_BACKEND_URL = "https://api.abdomedi.com"
@@ -37,3 +42,13 @@ CLOUDFLARE_ZONE_ID = "b548bd3bc36d71d87cddfa846c54c23e"
 [[routes]]
 pattern = "api.abdomedi.com/*"
 zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
+
+[[routes]]
+pattern = "abdomedi.com/*"
+zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
+
+[[routes]]
+pattern = "*.abdomedi.com/*"
+zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
+
+

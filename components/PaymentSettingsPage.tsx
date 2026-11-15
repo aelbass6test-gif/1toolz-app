@@ -14,9 +14,10 @@ const ToggleButton: React.FC<ToggleButtonProps> = ({ active, onToggle, variant =
 interface PaymentSettingsPageProps {
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
+  currentUser?: any;
 }
 
-const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, setSettings }) => {
+const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, setSettings, currentUser }) => {
   const [activeTab, setActiveTab] = useState<'moneyhash' | 'manual'>('moneyhash');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingMethod, setEditingMethod] = useState<Partial<PaymentMethod>>({ name: '', details: '', instructions: '', type: 'manual', active: true });
@@ -286,150 +287,211 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
             </div>
           </div>
 
-          {/* Credentials and Modes */}
+          {/* Platform Managed Gateway Status & Currency (Full API Keys visible ONLY to Platform Admin) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Credentials Inputs (2 Cols) */}
             <div className="lg:col-span-2 p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <Key size={18} className="text-indigo-600 dark:text-indigo-400" />
-                  <h4 className="font-black text-sm text-slate-900 dark:text-white">بيانات الاعتماد والربط المباشر (MoneyHash API Credentials)</h4>
-                </div>
-                <a
-                  href="https://docs.moneyhash.io/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-bold flex items-center gap-1"
-                >
-                  <span>وثائق API الرسمي</span>
-                  <ExternalLink size={12} />
-                </a>
-              </div>
+              {currentUser?.isAdmin ? (
+                <>
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <Key size={18} className="text-indigo-600 dark:text-indigo-400" />
+                      <h4 className="font-black text-sm text-slate-900 dark:text-white">مفاتيح الربط والحسابات الفرعية (صلاحية حصرية لمدير المنصة)</h4>
+                    </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                
-                {/* Environment Mode */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">بيئة الدفع (Environment Mode)</label>
-                  <select
-                    value={mhConfig.mode}
-                    onChange={(e) => setMhConfig(prev => ({ ...prev, mode: e.target.value as 'test' | 'live' }))}
-                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none"
-                  >
-                    <option value="test">🧪 بيئة الاختيار والمعاينة (Sandbox / Test)</option>
-                    <option value="live">🚀 البيئة المباشرة والحية (Production / Live)</option>
-                  </select>
-                </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateAccountModal(true)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[11px] font-black flex items-center gap-1.5 transition cursor-pointer"
+                      >
+                        <UserPlus size={13} />
+                        <span>إنشاء حساب تاجر فرعي (v1.1)</span>
+                      </button>
 
-                {/* Currency */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">العملة الافتراضية للمعاملات</label>
-                  <select
-                    value={mhConfig.currency || 'EGP'}
-                    onChange={(e) => setMhConfig(prev => ({ ...prev, currency: e.target.value }))}
-                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none"
-                  >
-                    <option value="EGP">🇪🇬 EGP (جنيه مصري)</option>
-                    <option value="SAR">🇸🇦 SAR (ريال سعودي)</option>
-                    <option value="AED">🇦🇪 AED (درهم إماراتي)</option>
-                    <option value="USD">🇺🇸 USD (دولار أمريكي)</option>
-                  </select>
-                </div>
+                      {/* Mode Selector */}
+                      <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setMhConfig(prev => ({ ...prev, mode: 'test' }))}
+                          className={`px-3 py-1 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                            mhConfig.mode === 'test'
+                              ? 'bg-amber-500 text-white shadow-sm'
+                              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                          }`}
+                        >
+                          Sandbox (اختبار)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMhConfig(prev => ({ ...prev, mode: 'live' }))}
+                          className={`px-3 py-1 rounded-lg text-[11px] font-black transition cursor-pointer ${
+                            mhConfig.mode === 'live'
+                              ? 'bg-emerald-600 text-white shadow-sm'
+                              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                          }`}
+                        >
+                          Live (فعلي)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
-                {/* Secret Key */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">المفتاح السري (Secret API Key) *</label>
-                  <input
-                    type="password"
-                    placeholder="mh_sec_live_... أو mh_sec_test_..."
-                    value={mhConfig.apiKey}
-                    onChange={(e) => setMhConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
-                  />
-                  <span className="text-[10px] text-slate-400 mt-1 block">يُحفظ بأمان في سيرفر الخادم لاستدعاء إنشاء نيات الدفع (Payment Intents).</span>
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        Secret API Key (المفتاح السري X-Api-Key)
+                      </label>
+                      <input
+                        type="password"
+                        value={mhConfig.apiKey || ''}
+                        onChange={(e) => setMhConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                        placeholder="mh_sec_..."
+                        className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                        dir="ltr"
+                      />
+                    </div>
 
-                {/* Public API Key */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">المفتاح العام (Public Key / Public API Key)</label>
-                  <input
-                    type="text"
-                    placeholder="mh_pub_..."
-                    value={mhConfig.publicApiKey || ''}
-                    onChange={(e) => setMhConfig(prev => ({ ...prev, publicApiKey: e.target.value }))}
-                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
-                  />
-                </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        Public API Key (مفتاح الواجهة العام)
+                      </label>
+                      <input
+                        type="text"
+                        value={mhConfig.publicApiKey || ''}
+                        onChange={(e) => setMhConfig(prev => ({ ...prev, publicApiKey: e.target.value }))}
+                        placeholder="pub_..."
+                        className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                        dir="ltr"
+                      />
+                    </div>
 
-                {/* Account Key / Sub-Account ID with Create Button */}
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400">معرف الحساب (Account Key / ID)</label>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        Account Key (مفتاح الحساب الفرعي - اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        value={mhConfig.accountKey || ''}
+                        onChange={(e) => setMhConfig(prev => ({ ...prev, accountKey: e.target.value }))}
+                        placeholder="acc_..."
+                        className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                        dir="ltr"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                        العملة الافتراضية للمعاملات
+                      </label>
+                      <select
+                        value={mhConfig.currency || 'EGP'}
+                        onChange={(e) => setMhConfig(prev => ({ ...prev, currency: e.target.value }))}
+                        className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none"
+                      >
+                        <option value="EGP">🇪🇬 EGP (جنيه مصري)</option>
+                        <option value="SAR">🇸🇦 SAR (ريال سعودي)</option>
+                        <option value="AED">🇦🇪 AED (درهم إماراتي)</option>
+                        <option value="USD">🇺🇸 USD (دولار أمريكي)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      Webhook Secret (توقيع التحقق من الإشعارات الفورية)
+                    </label>
+                    <input
+                      type="password"
+                      value={mhConfig.webhookSecret || ''}
+                      onChange={(e) => setMhConfig(prev => ({ ...prev, webhookSecret: e.target.value }))}
+                      placeholder="whsec_..."
+                      className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  {testResult && (
+                    <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2 border ${
+                      testResult.success
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
+                        : 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300'
+                    }`}>
+                      {testResult.success ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                      <span>{testResult.message}</span>
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800">
                     <button
                       type="button"
-                      onClick={() => {
-                        setAccForm({ name: settings.storeName || 'متجري الإلكتروني', email: '', phone: '', country: 'EG' });
-                        setShowCreateAccountModal(true);
-                      }}
-                      className="text-[10px] font-black text-purple-600 hover:text-purple-700 dark:text-purple-400 flex items-center gap-1 cursor-pointer"
+                      onClick={handleTestMoneyHashConnection}
+                      disabled={isTesting}
+                      className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black flex items-center gap-2 transition cursor-pointer"
                     >
-                      <UserPlus size={11} />
-                      <span>إنشاء حساب تاجر فرعي (v1.1)</span>
+                      <RefreshCw size={14} className={isTesting ? 'animate-spin' : ''} />
+                      <span>{isTesting ? 'جاري اختبار الاتصال...' : 'اختبار الاتصال بـ MoneyHash API'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveMoneyHashConfig}
+                      className="px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs shadow-md shadow-purple-600/20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save size={15} />
+                      <span>حفظ إعدادات ومفاتيح الدفع</span>
                     </button>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="mh_acc_... أو acc_key_..."
-                    value={mhConfig.accountKey || ''}
-                    onChange={(e) => setMhConfig(prev => ({ ...prev, accountKey: e.target.value }))}
-                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
-                  />
-                </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck size={18} className="text-emerald-600 dark:text-emerald-400" />
+                      <h4 className="font-black text-sm text-slate-900 dark:text-white">الربط المركزي المدار بواسطة المنصة (Managed Payment Gateway)</h4>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-black border border-indigo-200 dark:border-indigo-800">
+                      مؤمن مركزياً 🔒
+                    </span>
+                  </div>
 
-                {/* Webhook Secret */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">توقيع الويب هوك (Webhook Secret)</label>
-                  <input
-                    type="text"
-                    placeholder="mh_wh_..."
-                    value={mhConfig.webhookSecret || ''}
-                    onChange={(e) => setMhConfig(prev => ({ ...prev, webhookSecret: e.target.value }))}
-                    className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono outline-none dir-ltr text-left"
-                  />
-                </div>
-              </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    يتم إدارة مفاتيح الربط البنكية (API Keys)، وشهادات الأمان، والحسابات الفرعية لبوابة الدفع مركزياً بواسطة **إدارة المنصة** لضمان أمان التحصيل وإيداع المدفوعات في محفظة متجرك تلقائياً. يمكنك من هنا اختيار عملة العرض وتحديد وسائل الدفع المتاحة لعملائك.
+                  </p>
 
-              {/* Test Action */}
-              <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={handleTestMoneyHashConnection}
-                  disabled={isTesting}
-                  className="px-4 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <RefreshCw size={14} className={isTesting ? 'animate-spin' : ''} />
-                  <span>{isTesting ? 'جاري فحص الاتصال...' : 'اختبار صحة الاتصال بـ MoneyHash'}</span>
-                </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">العملة الافتراضية للمعاملات</label>
+                      <select
+                        value={mhConfig.currency || 'EGP'}
+                        onChange={(e) => setMhConfig(prev => ({ ...prev, currency: e.target.value }))}
+                        className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold outline-none"
+                      >
+                        <option value="EGP">🇪🇬 EGP (جنيه مصري)</option>
+                        <option value="SAR">🇸🇦 SAR (ريال سعودي)</option>
+                        <option value="AED">🇦🇪 AED (درهم إماراتي)</option>
+                        <option value="USD">🇺🇸 USD (دولار أمريكي)</option>
+                      </select>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={handleSaveMoneyHashConfig}
-                  className="px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs shadow-md shadow-purple-600/20 flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Save size={15} />
-                  <span>حفظ إعدادات MoneyHash</span>
-                </button>
-              </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">معرف حساب التاجر الفرعي (Sub-Account)</label>
+                      <div className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-600 dark:text-slate-300 flex items-center justify-between">
+                        <span dir="ltr">{mhConfig.accountKey ? mhConfig.accountKey : 'مدار عبر الحساب المركزي للمنصة'}</span>
+                        <CheckCircle size={14} className="text-emerald-500 shrink-0" />
+                      </div>
+                    </div>
+                  </div>
 
-              {testResult && (
-                <div className={`p-3 rounded-xl border text-xs font-bold ${
-                  testResult.success 
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300' 
-                    : 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300'
-                }`}>
-                  {testResult.message}
-                </div>
+                  <div className="pt-2 flex items-center justify-end border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={handleSaveMoneyHashConfig}
+                      className="px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs shadow-md shadow-purple-600/20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save size={15} />
+                      <span>حفظ تفضيلات الدفع للمتجر</span>
+                    </button>
+                  </div>
+                </>
               )}
             </div>
 
@@ -443,7 +505,7 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
 
                 <div className="mt-4 space-y-3 text-xs">
                   <div className="flex justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800">
-                    <span className="text-slate-500">حالة الربط العامة:</span>
+                    <span className="text-slate-500">حالة البوابة بالمتجر:</span>
                     <span className={`font-black ${mhConfig.isActive ? 'text-emerald-600' : 'text-rose-500'}`}>
                       {mhConfig.isActive ? 'نشطة ومفعلة ✅' : 'غير مفعلة ❌'}
                     </span>
@@ -451,15 +513,15 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
 
                   <div className="flex justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800">
                     <span className="text-slate-500">طرق الدفع المفعلة:</span>
-                    <span className="font-mono font-black text-purple-600 dark:text-purple-400">
+                    <span className="font-mono font-black text-purple-600 dark:text-purple-400 tabular-nums">
                       {activeMoneyHashCount} من أصل {MONEYHASH_DEFAULT_METHODS.length} طرق
                     </span>
                   </div>
 
                   <div className="flex justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800">
-                    <span className="text-slate-500">رابط Webhook الموصى به:</span>
-                    <span className="font-mono font-bold text-slate-700 dark:text-slate-300 dir-ltr text-[10px]">
-                      /api/webhooks/moneyhash
+                    <span className="text-slate-500">بيئة التشغيل المركزية:</span>
+                    <span className="font-bold text-slate-700 dark:text-slate-300 text-[11px]">
+                      {mhConfig.mode === 'live' ? 'البيئة الحية (Live) 🚀' : 'بيئة الاختبار (Sandbox) 🧪'}
                     </span>
                   </div>
                 </div>
@@ -470,7 +532,7 @@ const PaymentSettingsPage: React.FC<PaymentSettingsPageProps> = ({ settings, set
                   <AlertTriangle size={13} className="text-amber-600" />
                   <span>تلميح لأصحاب المتاجر:</span>
                 </div>
-                <p>يمكن لكل صاحب متجر اختيار وتحديد وسائل الدفع المناسبة لعملاء متجره بحرية كاملة دون التأثير على المتاجر الأخرى.</p>
+                <p>يمكنك تفعيل أو تعطيل وسائل الدفع المناسبة لعملاء متجرك بحرية كاملة من القائمة أدناه.</p>
               </div>
             </div>
           </div>

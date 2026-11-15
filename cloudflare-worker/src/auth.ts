@@ -104,6 +104,16 @@ export async function verifyPasswordHash(password: string, storedHash: string | 
     return constantTimeEqual(toHex(derived), expectedHex);
   }
 
+  // Legacy salted SHA-256 format from syncIntegrity (`sha256$<salt>$<hex>`)
+  if (trimmed.startsWith("sha256$")) {
+    const parts = trimmed.split("$");
+    if (parts.length !== 3) return false;
+    const [, salt, expectedHex] = parts;
+    if (!salt || !expectedHex) return false;
+    const hashed = await sha256Hex(`${salt}:${password}`);
+    return constantTimeEqual(hashed.toLowerCase(), expectedHex.toLowerCase());
+  }
+
   // Legacy SHA-256 hex compatibility
   if (/^[a-f0-9]{64}$/i.test(trimmed)) {
     const hashed = await sha256Hex(password);
@@ -112,6 +122,35 @@ export async function verifyPasswordHash(password: string, storedHash: string | 
 
   // Legacy plain-text compatibility (auto-upgraded on login)
   return constantTimeEqual(password, trimmed);
+}
+
+function toAsciiDigits(val: string): string {
+  return val
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+}
+
+function getPhoneLookupCandidates(raw: string): string[] {
+  const trimmed = toAsciiDigits(String(raw || "").trim());
+  if (!trimmed) return [];
+  const compact = trimmed.replace(/[\s\-()]/g, "");
+  const digits = compact.replace(/[^\d]/g, "");
+  const out = new Set<string>([String(raw || "").trim(), trimmed, compact]);
+  if (digits) {
+    out.add(digits);
+    if (/^01\d{9}$/.test(digits)) {
+      out.add(`2${digits}`);
+      out.add(`+2${digits}`);
+    } else if (/^201\d{9}$/.test(digits)) {
+      out.add(`+${digits}`);
+      out.add(digits.slice(1));
+    } else if (/^1\d{9}$/.test(digits)) {
+      out.add(`0${digits}`);
+      out.add(`20${digits}`);
+      out.add(`+20${digits}`);
+    }
+  }
+  return Array.from(out).filter(Boolean);
 }
 
 async function signPayload(payload: AuthTokenPayload, secret: string): Promise<string> {
@@ -419,8 +458,14 @@ export async function handleAuthRequest(
       return json(request, env, { success: false, error: "يرجى إدخال رقم الهاتف وكلمة المرور." }, 400);
     }
 
-    const lowerId = identifier.toLowerCase();
+    const lowerId = toAsciiDigits(identifier).toLowerCase();
     let row = await db.prepare("SELECT * FROM users WHERE phone = ? OR LOWER(email) = ?").bind(identifier, lowerId).first<any>();
+    if (!row && !identifier.includes("@")) {
+      for (const cand of getPhoneLookupCandidates(identifier)) {
+        row = await db.prepare("SELECT * FROM users WHERE phone = ?").bind(cand).first<any>();
+        if (row) break;
+      }
+    }
 
     // Built-in platform admin bootstrap compatibility if DB is fresh
     if (!row && (identifier === "010010010" || identifier === "01000000000" || lowerId === "admin")) {
@@ -500,17 +545,23 @@ export async function handleAuthRequest(
     }
 
     const settings = storeRow.settings_json ? JSON.parse(storeRow.settings_json) : {};
-    const empFromTable = await db
-      .prepare("SELECT * FROM employees WHERE store_id = ? AND (phone = ? OR id = ? OR LOWER(email) = ?)")
-      .bind(storeId, phoneOrEmail, phoneOrEmail, phoneOrEmail.toLowerCase())
-      .first<any>();
+    const empCandidates = phoneOrEmail.includes("@") ? [phoneOrEmail] : getPhoneLookupCandidates(phoneOrEmail);
+    let empFromTable: any = null;
+    for (const cand of empCandidates) {
+      empFromTable = await db
+        .prepare("SELECT * FROM employees WHERE store_id = ? AND (phone = ? OR id = ? OR LOWER(email) = ?)")
+        .bind(storeId, cand, cand, cand.toLowerCase())
+        .first<any>();
+      if (empFromTable) break;
+    }
 
     const settingsEmployees: any[] = Array.isArray(settings.employees) ? settings.employees : [];
+    const empCandidateSet = new Set(empCandidates.map((c) => c.toLowerCase()));
     const empFromSettings = settingsEmployees.find(
       (e: any) =>
-        e?.phone === phoneOrEmail ||
-        e?.id === phoneOrEmail ||
-        (e?.email && String(e.email).toLowerCase() === phoneOrEmail.toLowerCase())
+        (e?.phone && empCandidateSet.has(toAsciiDigits(String(e.phone).trim()).toLowerCase())) ||
+        (e?.id && empCandidateSet.has(toAsciiDigits(String(e.id).trim()).toLowerCase())) ||
+        (e?.email && empCandidateSet.has(String(e.email).trim().toLowerCase()))
     );
 
     const empData = empFromTable?.data_json ? JSON.parse(empFromTable.data_json) : empFromSettings;

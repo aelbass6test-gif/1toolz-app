@@ -1,4 +1,5 @@
 import type { D1LikeDatabase, JsonResponder } from "./d1Types";
+import { ensureMissingAppTables } from "./dbApi";
 
 function safeParseJson<T>(raw: any, fallback: T): T {
   if (raw === null || raw === undefined) return fallback;
@@ -49,24 +50,40 @@ export async function handleNativeWhatsAppWebhook(
   const now = new Date().toISOString();
   const storeIdHint = url.searchParams.get("storeId") || "main_store";
 
-  // Persist webhook audit log immediately
+  // Persist webhook audit log immediately (auto-heal missing D1 tables if needed)
+  const logId = `whlog_wa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const logPayload = JSON.stringify({
+    id: logId,
+    store_id: storeIdHint,
+    source: "meta_whatsapp",
+    event_type: payload?.object || "message",
+    occurred_at: now,
+    success: true,
+    status_code: 200,
+    payload
+  });
   try {
-    const logId = `whlog_wa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     await db
       .prepare(
         `INSERT INTO webhook_logs (id, store_id, source, event_type, success, status_code, occurred_at, data_json)
          VALUES (?, ?, 'meta_whatsapp', ?, 1, 200, ?, ?)`
       )
-      .bind(
-        logId,
-        storeIdHint,
-        payload?.object || payload?.event_type || "whatsapp.webhook",
-        now,
-        JSON.stringify({ id: logId, store_id: storeIdHint, source: "meta_whatsapp", event_type: payload?.object || "message", occurred_at: now, success: true, status_code: 200, payload })
-      )
+      .bind(logId, storeIdHint, payload?.object || payload?.event_type || "whatsapp.webhook", now, logPayload)
       .run();
-  } catch (err) {
-    console.warn("[CF-WA-WEBHOOK] Failed saving webhook log:", err);
+  } catch (err: any) {
+    if (/no such table/i.test(String(err?.message || err))) {
+      await ensureMissingAppTables(db).catch(() => {});
+      await db
+        .prepare(
+          `INSERT INTO webhook_logs (id, store_id, source, event_type, success, status_code, occurred_at, data_json)
+           VALUES (?, ?, 'meta_whatsapp', ?, 1, 200, ?, ?)`
+        )
+        .bind(logId, storeIdHint, payload?.object || payload?.event_type || "whatsapp.webhook", now, logPayload)
+        .run()
+        .catch(() => {});
+    } else {
+      console.warn("[CF-WA-WEBHOOK] Failed saving webhook log:", err);
+    }
   }
 
   // Parse Meta Cloud API messages

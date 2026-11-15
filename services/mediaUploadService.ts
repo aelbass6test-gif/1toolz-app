@@ -1,4 +1,4 @@
-import { getCfAuthToken } from './cloudflareClient';
+import { getCfAuthToken, getStoredCfAuthUser } from './cloudflareClient';
 
 export interface ProductImageUploadResult {
   key: string;
@@ -14,7 +14,71 @@ const WEBP_QUALITY = 0.82;
 const COMPRESSIBLE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 function mediaApiBase(): string {
-  return (import.meta.env.VITE_MEDIA_API_URL || 'https://app.abdomedi.com').replace(/\/$/, '');
+  return (
+    import.meta.env.VITE_MEDIA_API_URL ||
+    import.meta.env.VITE_CLOUDFLARE_API_URL ||
+    'https://api.abdomedi.com'
+  ).replace(/\/$/, '');
+}
+
+function mediaPublicOrigin(): string {
+  return (import.meta.env.VITE_MEDIA_PUBLIC_ORIGIN || 'https://abdomedi.com').replace(/\/$/, '');
+}
+
+/**
+ * Normalizes product/media R2 image URLs to the canonical public domain (https://abdomedi.com/images/...).
+ */
+export function normalizePublicImageUrl(urlOrKey: string): string {
+  if (!urlOrKey || typeof urlOrKey !== 'string') return urlOrKey || '';
+  const trimmed = urlOrKey.trim();
+  if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed;
+  if (trimmed.startsWith('/images/')) {
+    return `${mediaPublicOrigin()}${trimmed}`;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      (host === 'api.abdomedi.com' || host === 'app.abdomedi.com' || host === 'www.abdomedi.com' || host === 'abdomedi.com') &&
+      parsed.pathname.startsWith('/images/')
+    ) {
+      return `${mediaPublicOrigin()}${parsed.pathname}${parsed.search}`;
+    }
+  } catch {
+    if (trimmed.startsWith('images/')) {
+      return `${mediaPublicOrigin()}/${trimmed}`;
+    }
+  }
+  return trimmed;
+}
+
+function resolveMediaAuthToken(): string | null {
+  const cfToken = getCfAuthToken();
+  if (cfToken) return cfToken;
+
+  try {
+    if (typeof window === 'undefined') return null;
+    const storedUser = getStoredCfAuthUser<any>();
+    if (storedUser?.phone || storedUser?.email) {
+      return `cf-session:${storedUser.phone || storedUser.email}`;
+    }
+    const rawCurrentUser = localStorage.getItem('currentUser');
+    if (rawCurrentUser) {
+      const parsed = JSON.parse(rawCurrentUser);
+      if (parsed?.phone || parsed?.email) {
+        return `cf-session:${parsed.phone || parsed.email}`;
+      }
+    }
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('partner_portal_auth_')) {
+        return `partner-session:${key}`;
+      }
+    }
+  } catch {
+    // Ignore storage access errors
+  }
+  return null;
 }
 
 export async function compressProductImages(files: File[]): Promise<File[]> {
@@ -97,7 +161,13 @@ function sendUploadRequest(
         reject(new Error(data?.error || 'تعذر رفع صور المنتج'));
         return;
       }
-      resolve(data.images || []);
+      const normalized = Array.isArray(data.images)
+        ? data.images.map((img: ProductImageUploadResult) => ({
+            ...img,
+            url: img?.url ? normalizePublicImageUrl(img.url) : img?.key ? normalizePublicImageUrl(img.key) : img?.url
+          }))
+        : [];
+      resolve(normalized);
     });
     xhr.addEventListener('error', () => reject(new Error('تعذر الاتصال بخادم رفع الصور')));
     xhr.addEventListener('timeout', () => reject(new Error('انتهت مهلة رفع الصور؛ حاول مرة أخرى')));
@@ -123,7 +193,7 @@ export async function uploadProductImages(
     form.append('files', file, file.name);
   }
 
-  const accessToken = getCfAuthToken();
+  const accessToken = resolveMediaAuthToken();
   if (!accessToken) throw new Error('يجب تسجيل الدخول قبل رفع الصور');
   const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
 
@@ -187,7 +257,7 @@ export async function deleteProductImages(imageUrlsOrKeys: string[]): Promise<bo
 
   if (!keys.length) return false;
 
-  const accessToken = getCfAuthToken();
+  const accessToken = resolveMediaAuthToken();
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

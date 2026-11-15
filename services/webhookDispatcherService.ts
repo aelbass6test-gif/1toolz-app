@@ -1,7 +1,9 @@
 import { Order, Product, CustomerProfile, Settings, WebhookSubscription, WebhookEventType } from '../types';
+import { cfFetch } from './cloudflareClient';
 
 export interface WebhookDeliveryLog {
   id: string;
+  storeId?: string;
   eventId: string;
   event: WebhookEventType;
   url: string;
@@ -22,30 +24,125 @@ export interface WebhookDeliveryLog {
 }
 
 const LOCAL_STORAGE_LOGS_KEY = 'store_webhook_delivery_logs';
+let activeWebhookStoreId: string | null = null;
+const memoryWebhookLogsByStore = new Map<string, WebhookDeliveryLog[]>();
+
+function resolveWebhookStoreId(storeId?: string | null): string {
+  if (storeId && String(storeId).trim()) return String(storeId).trim();
+  if (activeWebhookStoreId) return activeWebhookStoreId;
+  try {
+    return localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || 'main_store';
+  } catch {
+    return 'main_store';
+  }
+}
+
+export function setWebhookStoreContext(storeId?: string | null) {
+  activeWebhookStoreId = storeId ? String(storeId).trim() : null;
+}
 
 /**
- * Get recent webhook delivery logs from localStorage
+ * Get recent webhook delivery logs from local cache
  */
-export function getStoredWebhookLogs(): WebhookDeliveryLog[] {
+export function getStoredWebhookLogs(storeId?: string): WebhookDeliveryLog[] {
+  const sid = resolveWebhookStoreId(storeId);
+  const mem = memoryWebhookLogsByStore.get(sid);
+  if (mem) return mem;
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_LOGS_KEY);
+    const raw = localStorage.getItem(`${LOCAL_STORAGE_LOGS_KEY}_${sid}`) || localStorage.getItem(LOCAL_STORAGE_LOGS_KEY);
     if (!raw) return [];
-    return JSON.parse(raw);
-  } catch (e) {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
     return [];
   }
 }
 
 /**
- * Save a webhook delivery log
+ * Fetch recent outbound webhook logs from Cloudflare D1
  */
-export function recordWebhookDeliveryLog(log: WebhookDeliveryLog) {
+export async function fetchCloudWebhookLogs(storeId?: string): Promise<WebhookDeliveryLog[]> {
+  const sid = resolveWebhookStoreId(storeId);
   try {
-    const logs = getStoredWebhookLogs();
-    const updated = [log, ...logs.slice(0, 49)]; // keep latest 50
-    localStorage.setItem(LOCAL_STORAGE_LOGS_KEY, JSON.stringify(updated));
+    const res = await cfFetch<{ success?: boolean; logs?: any[] }>(
+      `/api/db/whatsapp/${encodeURIComponent(sid)}/webhook-logs?source=outbound`
+    );
+    if (Array.isArray(res?.logs)) {
+      const normalized: WebhookDeliveryLog[] = res.logs.map((l: any) => ({
+        id: l.id,
+        storeId: l.store_id || sid,
+        eventId: l.eventId || l.event_id || l.id,
+        event: l.event || l.event_type || 'order.completed',
+        url: l.url || '',
+        statusCode: l.statusCode ?? l.status_code,
+        statusText: l.statusText || l.status_text,
+        success: l.success !== false && l.success !== 0,
+        durationMs: l.durationMs ?? l.duration_ms,
+        error: l.error || l.error_message,
+        timestamp: l.timestamp || l.occurred_at || new Date().toISOString(),
+        payloadSummary: l.payloadSummary || {},
+        fullPayload: l.fullPayload || l.payload
+      }));
+      memoryWebhookLogsByStore.set(sid, normalized);
+      try {
+        localStorage.setItem(`${LOCAL_STORAGE_LOGS_KEY}_${sid}`, JSON.stringify(normalized.slice(0, 50)));
+      } catch {}
+      return normalized;
+    }
+  } catch {
+    // fallback to local cache
+  }
+  return getStoredWebhookLogs(sid);
+}
+
+/**
+ * Clear outbound webhook logs in Cloudflare D1 and local cache
+ */
+export async function clearCloudWebhookLogs(storeId?: string): Promise<void> {
+  const sid = resolveWebhookStoreId(storeId);
+  memoryWebhookLogsByStore.set(sid, []);
+  try {
+    localStorage.removeItem(`${LOCAL_STORAGE_LOGS_KEY}_${sid}`);
+    localStorage.removeItem(LOCAL_STORAGE_LOGS_KEY);
+  } catch {}
+  try {
+    await cfFetch(`/api/db/whatsapp/${encodeURIComponent(sid)}/webhook-logs?source=outbound`, {
+      method: 'DELETE'
+    });
+  } catch (err: any) {
+    console.warn('[Webhooks] Failed clearing cloud logs:', err?.message || err);
+  }
+}
+
+/**
+ * Save a webhook delivery log (to memory cache + Cloudflare D1)
+ */
+export function recordWebhookDeliveryLog(log: WebhookDeliveryLog, storeId?: string) {
+  const sid = resolveWebhookStoreId(storeId || log.storeId);
+  const enrichedLog: WebhookDeliveryLog = { ...log, storeId: sid };
+  try {
+    const logs = getStoredWebhookLogs(sid);
+    const updated = [enrichedLog, ...logs.filter((l) => l.id !== enrichedLog.id)].slice(0, 50);
+    memoryWebhookLogsByStore.set(sid, updated);
+    try {
+      localStorage.setItem(`${LOCAL_STORAGE_LOGS_KEY}_${sid}`, JSON.stringify(updated));
+    } catch {}
+    void cfFetch(`/api/db/whatsapp/${encodeURIComponent(sid)}/webhook-logs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        log: {
+          ...enrichedLog,
+          source: 'outbound',
+          event_type: enrichedLog.event,
+          status_code: enrichedLog.statusCode ?? (enrichedLog.success ? 200 : 500),
+          occurred_at: enrichedLog.timestamp
+        }
+      })
+    }).catch((err) => console.warn('[Webhooks] Failed persisting delivery log to D1:', err?.message || err));
     // Dispatch custom event so listeners in UI update in real-time
-    window.dispatchEvent(new CustomEvent('store_webhook_delivered', { detail: log }));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('store_webhook_delivered', { detail: enrichedLog }));
+    }
   } catch (e) {
     console.error('Failed to record webhook log:', e);
   }
@@ -269,6 +366,7 @@ export async function triggerWebhookEvent(
 
         recordWebhookDeliveryLog({
           id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          storeId,
           eventId: `evt_${Date.now()}`,
           event,
           url: r.url || sub?.url || '',
@@ -280,7 +378,7 @@ export async function triggerWebhookEvent(
           timestamp: new Date().toISOString(),
           payloadSummary,
           fullPayload: realData
-        });
+        }, storeId);
       });
     }
 

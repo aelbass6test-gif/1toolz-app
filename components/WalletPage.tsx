@@ -41,9 +41,10 @@ interface WalletPageProps {
   settings: Settings;
   treasury?: Treasury;
   setTreasury?: (updater: any) => void;
+  currentUser?: any;
 }
 
-const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders: allOrders, settings, treasury, setTreasury }) => {
+const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders: allOrders, settings, treasury, setTreasury, currentUser }) => {
   const navigate = useNavigate();
   // Merchant orders settle in the merchant account, never in the store wallet.
   const orders = useMemo(() => getStoreOwnedOrders(allOrders), [allOrders]);
@@ -91,25 +92,32 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const [cycleItemsPerPage, setCycleItemsPerPage] = useState<number>(10);
 
   useEffect(() => {
-    const currentRequests = wallet.withdrawRequests || [];
-    
-    // Check if we need to seed
-    const needsSeed = currentRequests.length === 0;
+    const DEMO_SAMPLE_IDS = new Set(['WR-7281', 'WR-9104', 'WR-5512', 'WR-3942']);
+    const rawRequests = wallet.withdrawRequests || [];
+    const realTxIds = new Set((wallet.transactions || []).map(t => t.id));
 
-    // Filter transactions that look like withdrawals
+    // Purge any legacy hardcoded sample records that do not correspond to an actual user transaction
+    const cleanedRequests = rawRequests.filter(r => {
+      if (!DEMO_SAMPLE_IDS.has(r.id)) return true;
+      const rawId = r.id.replace(/^WR-/, '');
+      return realTxIds.has(r.id) || realTxIds.has(rawId);
+    });
+    const removedLegacySamples = cleanedRequests.length !== rawRequests.length;
+
+    // Filter transactions that look like actual user withdrawals
     const withdrawalTransactions = (wallet.transactions || []).filter(t => 
       t.type === 'سحب' && 
       (t.category === 'wallet_withdrawal' || t.category === 'manual_withdrawal' || (t.note && t.note.includes('سحب')))
     );
 
-    // Check if there's any transaction not in requests
+    // Check if there's any real transaction not yet represented in withdrawRequests
     const unrepresentedTxs = withdrawalTransactions.filter(tx => {
       const idToCheck = tx.id.startsWith('WR-') ? tx.id : `WR-${tx.id}`;
-      return !currentRequests.some(r => r.id === tx.id || r.id === idToCheck);
+      return !cleanedRequests.some(r => r.id === tx.id || r.id === idToCheck);
     });
 
-    if (needsSeed || unrepresentedTxs.length > 0) {
-      let updatedRequests = [...currentRequests];
+    if (removedLegacySamples || unrepresentedTxs.length > 0) {
+      const updatedRequests = [...cleanedRequests];
 
       unrepresentedTxs.forEach(tx => {
         let method: 'bank' | 'instapay' | 'wallet' | 'treasury' = 'bank';
@@ -121,8 +129,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           method = 'treasury';
         }
 
-        // Try to find a matching withdrawal fee transaction
-        // Look for a 'withdrawal_fee' category transaction close in time (within 10 seconds)
         const txTime = new Date(tx.date).getTime();
         const matchingFeeTx = (wallet.transactions || []).find(t => 
           t.category === 'withdrawal_fee' && 
@@ -133,7 +139,6 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         if (matchingFeeTx) {
           fee = matchingFeeTx.amount;
         } else if (settings.enableWithdrawalFees) {
-          // If no matching fee transaction is found, calculate it based on settings
           if (!(method === 'treasury' && !settings.enableInternalWithdrawalFees)) {
             const isSameDay = tx.note?.includes('فوري') || tx.note?.includes('نفس اليوم') || tx.note?.includes('same_day') || false;
             if (isSameDay) {
@@ -173,69 +178,12 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         });
       });
 
-      if (updatedRequests.length === 0) {
-        const sampleRequests: WithdrawRequest[] = [
-          {
-            id: 'WR-7281',
-            amount: 5000,
-            fee: 50,
-            netAmount: 4950,
-            date: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
-            method: 'bank',
-            status: 'accepted',
-            details: JSON.stringify({
-              bankName: 'البنك الأهلي المصري',
-              accountHolder: 'عبدالرحمن أحمد',
-              accountNumber: 'EG12000300019283748591023'
-            })
-          },
-          {
-            id: 'WR-9104',
-            amount: 2500,
-            fee: 25,
-            netAmount: 2475,
-            date: new Date(Date.now() - 3600000 * 18).toISOString(),
-            method: 'instapay',
-            status: 'pending',
-            details: JSON.stringify({
-              instapayId: 'abdo@instapay'
-            })
-          },
-          {
-            id: 'WR-5512',
-            amount: 1500,
-            fee: 15,
-            netAmount: 1485,
-            date: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-            method: 'wallet',
-            status: 'accepted',
-            details: JSON.stringify({
-              mobileNumber: '01019283746',
-              walletType: 'فودافون كاش'
-            })
-          },
-          {
-            id: 'WR-3942',
-            amount: 800,
-            fee: 8,
-            netAmount: 792,
-            date: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-            method: 'treasury',
-            status: 'rejected',
-            details: JSON.stringify({
-              rejectReason: 'تجاوز الحد اليومي للخزينة الفرعية'
-            })
-          }
-        ];
-        updatedRequests = sampleRequests;
-      }
-
       setWallet(prev => ({
         ...prev,
         withdrawRequests: updatedRequests
       }));
     }
-  }, [wallet.transactions, wallet.withdrawRequests, setWallet]);
+  }, [wallet.transactions, wallet.withdrawRequests, setWallet, settings]);
 
   const filteredWithdrawRequests = useMemo(() => {
     let requests = wallet.withdrawRequests || [];
@@ -1484,35 +1432,43 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
             </div>
 
             {/* Transactions Summary Card */}
-            <div className="bg-slate-900 dark:bg-slate-800/50 rounded-[3rem] p-8 text-white flex flex-col shadow-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
+            {(() => {
+              const allWithdraws = wallet.withdrawRequests || [];
+              const acceptedWithdraws = allWithdraws.filter(r => r.status === 'accepted');
+              const totalWithdrawnAccepted = acceptedWithdraws.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+              const avgWithdrawn = acceptedWithdraws.length > 0 ? Math.round(totalWithdrawnAccepted / acceptedWithdraws.length) : 0;
+              return (
+                <div className="bg-slate-900 dark:bg-slate-800/50 rounded-[3rem] p-8 text-white flex flex-col shadow-2xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
                     <TrendingUp size={140} />
-                </div>
-                <div className="flex justify-between items-start flex-row-reverse relative z-10">
-                  <div className="text-right">
-                      <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">إجمالي ما تم سحبه</p>
-                      <h4 className="text-4xl font-black tracking-tight">{(wallet.withdrawRequests || []).reduce((sum, r) => r.status === 'accepted' ? sum + r.amount : sum, 0).toLocaleString()} <span className="text-lg opacity-30">ج.م</span></h4>
                   </div>
-                  <button 
-                    onClick={() => setModalMode('history')}
-                    className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-all border border-white/10"
-                    title="عرض سجل السحوبات"
-                  >
-                    <History size={18} />
-                  </button>
-                </div>
+                  <div className="flex justify-between items-start flex-row-reverse relative z-10">
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-1">إجمالي ما تم سحبه</p>
+                      <h4 className="text-4xl font-black tracking-tight tabular-nums">{totalWithdrawnAccepted.toLocaleString()} <span className="text-lg opacity-30">ج.م</span></h4>
+                    </div>
+                    <button 
+                      onClick={() => setModalMode('history')}
+                      className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-all border border-white/10 cursor-pointer"
+                      title="عرض سجل السحوبات"
+                    >
+                      <History size={18} />
+                    </button>
+                  </div>
 
-                <div className="relative z-10 grid grid-cols-2 gap-4 mt-8">
+                  <div className="relative z-10 grid grid-cols-2 gap-4 mt-8">
                     <div className="p-5 bg-white/5 rounded-[2rem] border border-white/10 hover:bg-white/10 transition-colors">
-                        <p className="text-[10px] font-bold text-white/40 mb-1">طلبات السحب</p>
-                        <p className="text-2xl font-black text-emerald-400">{wallet.withdrawRequests?.length || 0}</p>
+                      <p className="text-[10px] font-bold text-white/40 mb-1">طلبات السحب</p>
+                      <p className="text-2xl font-black text-emerald-400 tabular-nums">{allWithdraws.length}</p>
                     </div>
                     <div className="p-5 bg-white/5 rounded-[2rem] border border-white/10 hover:bg-white/10 transition-colors">
-                        <p className="text-[10px] font-bold text-white/40 mb-1">متوسط السحب</p>
-                        <p className="text-2xl font-black text-emerald-400">٠ <span className="text-[10px] opacity-40">ج.م</span></p>
+                      <p className="text-[10px] font-bold text-white/40 mb-1">متوسط السحب</p>
+                      <p className="text-2xl font-black text-emerald-400 tabular-nums">{avgWithdrawn.toLocaleString()} <span className="text-[10px] opacity-40">ج.م</span></p>
                     </div>
+                  </div>
                 </div>
-            </div>
+              );
+            })()}
         </motion.div>
       </>) : (
           <>
@@ -2138,16 +2094,23 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                 )}
                                 <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
                                 <div className="flex justify-end pt-2">
-                                    <button 
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteTransaction(item.id);
-                                        }}
-                                        className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-2xl text-[10px] font-black transition-all shadow-sm active:scale-95"
-                                    >
-                                        <Trash2 size={14} />
-                                        <span>حذف العملية نهائياً وتصحيح الرصيد</span>
-                                    </button>
+                                    {currentUser?.isAdmin ? (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setTxToDelete(item.id);
+                                            }}
+                                            className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 rounded-xl text-xs font-black transition-all border border-rose-200/60 dark:border-rose-900/40 cursor-pointer"
+                                        >
+                                            <Trash2 size={14} />
+                                            <span>حذف العملية نهائياً وتصحيح الرصيد (مدير المنصة)</span>
+                                        </button>
+                                    ) : (
+                                        <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 rounded-xl text-[10px] font-bold border border-slate-200/70 dark:border-slate-700">
+                                            <ShieldCheck size={14} className="text-emerald-500 shrink-0" />
+                                            <span>قيد مالي موثق — تتم التسويات أو العكس المحاسبي عبر إدارة المنصة فقط</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                           </motion.div>
@@ -2960,12 +2923,12 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                     <div className="flex gap-10 flex-row-reverse">
                         <div className="text-right">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">إجمالي ما تم سحبه</p>
-                            <p className="text-3xl font-black text-slate-900 dark:text-white">{(wallet.withdrawRequests || []).reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()} <span className="text-sm font-bold opacity-30 tracking-tight">ج.م</span></p>
+                            <p className="text-3xl font-black text-slate-900 dark:text-white tabular-nums">{(wallet.withdrawRequests || []).reduce((acc, curr) => curr.status === 'accepted' ? acc + (Number(curr.amount) || 0) : acc, 0).toLocaleString()} <span className="text-sm font-bold opacity-30 tracking-tight">ج.م</span></p>
                         </div>
                         <div className="w-px h-12 bg-slate-200 dark:bg-slate-700 mx-4"></div>
                         <div className="text-right">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">عدد العمليات الناجحة</p>
-                            <p className="text-3xl font-black text-emerald-500">{(wallet.withdrawRequests || []).filter(r => r.status === 'accepted').length}</p>
+                            <p className="text-3xl font-black text-emerald-500 tabular-nums">{(wallet.withdrawRequests || []).filter(r => r.status === 'accepted').length}</p>
                         </div>
                     </div>
                     <div>

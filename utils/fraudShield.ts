@@ -1,6 +1,9 @@
+import { cfFetch } from '../services/cloudflareClient';
+
 /**
  * Fraud & Fake Orders Shield Service
  * Identifies abusive, fake, and high-return phone numbers to protect profit margins
+ * Persisted in Cloudflare D1 (`store_collections` -> `fraud_blacklist`) with local offline cache.
  */
 
 export interface BlacklistEntry {
@@ -16,42 +19,140 @@ export interface BlacklistEntry {
 
 const LOCAL_STORAGE_BLACKLIST_KEY = 'store_fraud_shield_blacklist';
 
-export function getStoredBlacklist(): BlacklistEntry[] {
+let activeFraudStoreId: string | null = null;
+const memoryBlacklistByStore = new Map<string, BlacklistEntry[]>();
+
+function resolveStoreId(storeId?: string | null): string {
+  if (storeId && String(storeId).trim()) return String(storeId).trim();
+  if (activeFraudStoreId) return activeFraudStoreId;
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_BLACKLIST_KEY);
+    return localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || 'main_store';
+  } catch {
+    return 'main_store';
+  }
+}
+
+function getLocalCacheKey(storeId: string): string {
+  return `${LOCAL_STORAGE_BLACKLIST_KEY}_${storeId}`;
+}
+
+function writeCache(storeId: string, list: BlacklistEntry[]) {
+  memoryBlacklistByStore.set(storeId, list);
+  try {
+    localStorage.setItem(getLocalCacheKey(storeId), JSON.stringify(list));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function setFraudShieldStoreContext(storeId: string | null | undefined, initialEntries?: BlacklistEntry[]) {
+  if (!storeId) {
+    activeFraudStoreId = null;
+    return;
+  }
+  activeFraudStoreId = storeId;
+  if (Array.isArray(initialEntries)) {
+    writeCache(storeId, initialEntries);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fraud_shield_updated', { detail: initialEntries }));
+    }
+  }
+}
+
+export async function fetchCloudBlacklist(storeId?: string): Promise<BlacklistEntry[]> {
+  const sid = resolveStoreId(storeId);
+  try {
+    const res = await cfFetch<{ success?: boolean; entries?: BlacklistEntry[] }>(
+      `/api/db/fraud-blacklist/${encodeURIComponent(sid)}`
+    );
+    if (Array.isArray(res?.entries)) {
+      const localCached = getStoredBlacklist(sid);
+      // Merge any offline-only local entries that have not been pushed yet
+      const cloudPhones = new Set(res.entries.map((e) => String(e.phone || '').replace(/\D/g, '').slice(-10)));
+      const localOnly = localCached.filter((e) => {
+        const p = String(e.phone || '').replace(/\D/g, '').slice(-10);
+        return p && !cloudPhones.has(p);
+      });
+      const merged = [...res.entries, ...localOnly];
+      writeCache(sid, merged);
+      for (const orphan of localOnly) {
+        void cfFetch(`/api/db/fraud-blacklist/${encodeURIComponent(sid)}`, {
+          method: 'POST',
+          body: JSON.stringify({ entry: orphan })
+        }).catch(() => {});
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('fraud_shield_updated', { detail: merged }));
+      }
+      return merged;
+    }
+  } catch {
+    // fallback to cache when offline
+  }
+  return getStoredBlacklist(sid);
+}
+
+export function getStoredBlacklist(storeId?: string): BlacklistEntry[] {
+  const sid = resolveStoreId(storeId);
+  const mem = memoryBlacklistByStore.get(sid);
+  if (mem) return mem;
+  try {
+    const raw = localStorage.getItem(getLocalCacheKey(sid)) || localStorage.getItem(LOCAL_STORAGE_BLACKLIST_KEY);
     if (!raw) return [];
-    return JSON.parse(raw);
-  } catch (e) {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      memoryBlacklistByStore.set(sid, parsed);
+      return parsed;
+    }
+    return [];
+  } catch {
     return [];
   }
 }
 
-export function saveBlacklistEntry(entry: BlacklistEntry): BlacklistEntry[] {
+export function saveBlacklistEntry(entry: BlacklistEntry, storeId?: string): BlacklistEntry[] {
+  const sid = resolveStoreId(storeId);
   try {
-    const current = getStoredBlacklist();
+    const current = getStoredBlacklist(sid);
     const cleanPhone = entry.phone.replace(/\D/g, '').slice(-10); // match last 10 digits
     const filtered = current.filter(item => item.phone.replace(/\D/g, '').slice(-10) !== cleanPhone);
     const updated = [entry, ...filtered];
-    localStorage.setItem(LOCAL_STORAGE_BLACKLIST_KEY, JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('fraud_shield_updated', { detail: updated }));
+    writeCache(sid, updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fraud_shield_updated', { detail: updated }));
+    }
+    if (cleanPhone) {
+      void cfFetch(`/api/db/fraud-blacklist/${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        body: JSON.stringify({ entry })
+      }).catch((err) => console.warn('[FraudShield] Cloud save failed:', err?.message || err));
+    }
     return updated;
   } catch (e) {
     console.error('Failed to save blacklist entry', e);
-    return getStoredBlacklist();
+    return getStoredBlacklist(sid);
   }
 }
 
-export function removeBlacklistEntry(phone: string): BlacklistEntry[] {
+export function removeBlacklistEntry(phone: string, storeId?: string): BlacklistEntry[] {
+  const sid = resolveStoreId(storeId);
   try {
-    const current = getStoredBlacklist();
+    const current = getStoredBlacklist(sid);
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
     const updated = current.filter(item => item.phone.replace(/\D/g, '').slice(-10) !== cleanPhone);
-    localStorage.setItem(LOCAL_STORAGE_BLACKLIST_KEY, JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('fraud_shield_updated', { detail: updated }));
+    writeCache(sid, updated);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fraud_shield_updated', { detail: updated }));
+    }
+    if (cleanPhone) {
+      void cfFetch(`/api/db/fraud-blacklist/${encodeURIComponent(sid)}/${encodeURIComponent(cleanPhone)}`, {
+        method: 'DELETE'
+      }).catch((err) => console.warn('[FraudShield] Cloud delete failed:', err?.message || err));
+    }
     return updated;
   } catch (e) {
     console.error('Failed to remove blacklist entry', e);
-    return getStoredBlacklist();
+    return getStoredBlacklist(sid);
   }
 }
 
@@ -72,8 +173,8 @@ export interface FraudCheckResult {
 }
 
 export function evaluateCustomerRisk(
-  phone: string, 
-  orders: any[] = [], 
+  phone: string,
+  orders: any[] = [],
   customBlacklist?: BlacklistEntry[]
 ): FraudCheckResult {
   const cleanPhone = (phone || '').replace(/\D/g, '');

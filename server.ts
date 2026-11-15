@@ -479,7 +479,26 @@ async function getCachedStore(d1: D1LikeDatabase, storeId: string) {
     }
 
     try {
-        const data = await getStoreDataFromD1(d1, storeId);
+        let data = await getStoreDataFromD1(d1, storeId);
+        if (
+            !data &&
+            !(process.env.CF_ACCOUNT_ID?.trim() && process.env.CF_API_TOKEN?.trim() && process.env.CF_USE_REMOTE_D1 === "true") &&
+            process.env.CF_LOCAL_ONLY !== "true" &&
+            process.env.CF_PROXY_UPSTREAM !== "false" &&
+            process.env.NODE_ENV !== "test"
+        ) {
+            const upstreamBase = (process.env.CF_WORKER_URL || process.env.VITE_CLOUDFLARE_API_URL || "https://api.abdomedi.com").replace(/\/$/, "");
+            try {
+                const res = await fetch(`${upstreamBase}/api/db/stores/${encodeURIComponent(storeId)}`, {
+                    headers: { "x-abdomedi-proxy": "1" },
+                    signal: AbortSignal.timeout(10000)
+                });
+                if (res.ok) {
+                    const payload: any = await res.json().catch(() => null);
+                    if (payload?.storeData) data = payload.storeData;
+                }
+            } catch {}
+        }
         if (data) {
             if (storeCache.size >= MAX_STORE_CACHE_SIZE) {
                 const oldestKey = storeCache.keys().next().value;
@@ -498,21 +517,124 @@ async function startServer() {
   // Initialize Cloudflare D1 adapter (Remote D1 HTTP API or local D1-compatible SQLite)
   const cfD1 = getServerD1Database();
 
+  const hasRemoteD1Creds = Boolean(
+    process.env.CF_ACCOUNT_ID?.trim() &&
+    process.env.CF_API_TOKEN?.trim() &&
+    process.env.CF_USE_REMOTE_D1 === "true"
+  );
+  const CF_WORKER_UPSTREAM_URL = (
+    process.env.CF_WORKER_URL ||
+    process.env.VITE_CLOUDFLARE_API_URL ||
+    "https://api.abdomedi.com"
+  ).replace(/\/$/, "");
+  const cfWorkerHost = (() => {
+    try { return new URL(CF_WORKER_UPSTREAM_URL).host.toLowerCase(); } catch { return ""; }
+  })();
+
+  const shouldProxyToCfWorker = (reqHeaders?: Headers): boolean => {
+    if (hasRemoteD1Creds) return false;
+    if (process.env.CF_LOCAL_ONLY === "true" || process.env.CF_PROXY_UPSTREAM === "false" || process.env.NODE_ENV === "test") {
+      return false;
+    }
+    if (reqHeaders) {
+      if (reqHeaders.get("x-abdomedi-proxy") === "1") return false;
+      const incomingHost = (reqHeaders.get("x-forwarded-host") || reqHeaders.get("host") || "").toLowerCase();
+      if (cfWorkerHost && incomingHost === cfWorkerHost) return false;
+    }
+    return true;
+  };
+
+  const proxyRequestToCfWorker = async (rawReq: Request): Promise<Response | null> => {
+    if (!shouldProxyToCfWorker(rawReq.headers)) return null;
+    try {
+      const inUrl = new URL(rawReq.url, "http://localhost");
+      const targetUrl = `${CF_WORKER_UPSTREAM_URL}${inUrl.pathname}${inUrl.search}`;
+      const headers = new Headers();
+      for (const h of ["authorization", "content-type", "accept", "x-api-key", "x-requested-with"]) {
+        const val = rawReq.headers.get(h);
+        if (val) headers.set(h, val);
+      }
+      headers.set("x-abdomedi-proxy", "1");
+
+      const hasBody = rawReq.method !== "GET" && rawReq.method !== "HEAD";
+      const bodyBuffer = hasBody ? await rawReq.clone().arrayBuffer() : undefined;
+
+      const upstreamRes = await fetch(targetUrl, {
+        method: rawReq.method,
+        headers,
+        body: hasBody ? (bodyBuffer && bodyBuffer.byteLength > 0 ? bodyBuffer : "") : undefined,
+        signal: AbortSignal.timeout(15000)
+      });
+
+      const respText = await upstreamRes.text();
+      return new Response(respText, {
+        status: upstreamRes.status,
+        headers: {
+          "content-type": upstreamRes.headers.get("content-type") || "application/json; charset=utf-8"
+        }
+      });
+    } catch (err: any) {
+      console.warn(`[CF-PROXY] Upstream request to ${CF_WORKER_UPSTREAM_URL} failed, using local D1 adapter:`, err?.message || err);
+      return null;
+    }
+  };
+
   const cfJson = (_req: Request, _env: any, body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json; charset=utf-8" }
     });
 
-  // Wire atomic quota/settlement ledger service to Cloudflare D1
+  // Wire atomic quota/settlement ledger service to Cloudflare D1 (with Worker HTTP sync fallback)
   registerServerStoreDataAdapter({
-    getStoreData: (sId: string) => getStoreDataFromD1(cfD1, sId),
+    getStoreData: async (sId: string) => {
+      if (shouldProxyToCfWorker()) {
+        try {
+          const res = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/db/stores/${encodeURIComponent(sId)}`, {
+            headers: { "x-abdomedi-proxy": "1" },
+            signal: AbortSignal.timeout(12000)
+          });
+          if (res.ok) {
+            const payload: any = await res.json().catch(() => null);
+            if (payload?.storeData) return payload.storeData;
+          }
+        } catch {}
+      }
+      return getStoreDataFromD1(cfD1, sId);
+    },
     saveStoreData: async (sId: string, updatedData: any) => {
-      await saveStoreDataToD1(cfD1, sId, cleanUndefined(updatedData));
+      const cleaned = cleanUndefined(updatedData);
+      if (shouldProxyToCfWorker()) {
+        try {
+          const res = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/db/stores/${encodeURIComponent(sId)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", "x-abdomedi-proxy": "1" },
+            body: JSON.stringify({ storeData: cleaned }),
+            signal: AbortSignal.timeout(15000)
+          });
+          if (res.ok) {
+            storeCache.delete(sId);
+            return true;
+          }
+        } catch {}
+      }
+      await saveStoreDataToD1(cfD1, sId, cleaned);
       storeCache.delete(sId);
       return true;
     },
     getIdempotency: async (key: string) => {
+      if (shouldProxyToCfWorker()) {
+        try {
+          const res = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/db/idempotency/${encodeURIComponent(key)}`, {
+            headers: { "x-abdomedi-proxy": "1" },
+            signal: AbortSignal.timeout(8000)
+          });
+          if (res.ok) {
+            const payload: any = await res.json().catch(() => null);
+            if (payload?.found) return payload.result;
+          }
+        } catch {}
+      }
       const row = await cfD1.prepare("SELECT result_json, expires_at FROM idempotency_records WHERE key = ?").bind(key).first<any>();
       if (!row || (row.expires_at && Date.now() > Number(row.expires_at))) return null;
       try {
@@ -522,6 +644,17 @@ async function startServer() {
       }
     },
     saveIdempotency: async (key: string, result: any, expiresAt: number) => {
+      if (shouldProxyToCfWorker()) {
+        try {
+          const res = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/db/idempotency/${encodeURIComponent(key)}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", "x-abdomedi-proxy": "1" },
+            body: JSON.stringify({ result, expiresAt }),
+            signal: AbortSignal.timeout(8000)
+          });
+          if (res.ok) return;
+        } catch {}
+      }
       await cfD1
         .prepare(
           `INSERT INTO idempotency_records (key, result_json, timestamp, expires_at)
@@ -553,31 +686,51 @@ async function startServer() {
 
   // --- CLOUDFLARE D1 AUTH & DATABASE API PARITY ROUTES ---
   app.all("/api/auth/*", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied) return proxied;
     return handleAuthRequest(c.req.raw, process.env as any, cfD1, cfJson);
   });
 
   app.all("/api/db/*", async (c) => {
-    const res = await handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
     if (c.req.method === "PUT" || c.req.method === "POST" || c.req.method === "DELETE") {
       const m = c.req.path.match(/^\/api\/db\/stores\/([^/]+)/);
       if (m?.[1]) storeCache.delete(decodeURIComponent(m[1]));
     }
-    return res;
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied) {
+      if (proxied.status === 404) {
+        return handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
+      }
+      if (proxied.status >= 500) {
+        const errText = await proxied.clone().text().catch(() => "");
+        if (/no such table/i.test(errText)) {
+          return handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
+        }
+      }
+      return proxied;
+    }
+    return handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
   });
 
-  // --- MEDIA UPLOAD & DELETE PROXY (Cloudflare R2 / app.abdomedi.com) ---
+  // --- MEDIA UPLOAD & DELETE PROXY (Cloudflare R2 / api.abdomedi.com) ---
   app.post("/api/media/product-images", async (c) => {
     try {
       const authHeader = c.req.header("Authorization") || "";
       const body = await c.req.raw.formData();
-      const upstreamRes = await fetch("https://app.abdomedi.com/api/media/product-images", {
+      const upstreamRes = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/media/product-images`, {
         method: "POST",
         headers: {
           ...(authHeader ? { Authorization: authHeader } : {}),
         },
         body: body,
       });
-      const data = await upstreamRes.json();
+      const text = await upstreamRes.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { success: upstreamRes.ok, error: text || "استجابة غير صالحة من خادم رفع الصور" };
+      }
       return c.json(data, upstreamRes.status as any);
     } catch (err: any) {
       console.error("[MEDIA UPLOAD PROXY ERROR]", err);
@@ -589,7 +742,7 @@ async function startServer() {
     try {
       const authHeader = c.req.header("Authorization") || "";
       const body = await c.req.raw.text();
-      const upstreamRes = await fetch("https://app.abdomedi.com/api/media/product-images", {
+      const upstreamRes = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/media/product-images`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -597,7 +750,13 @@ async function startServer() {
         },
         body: body || "{}",
       });
-      const data = await upstreamRes.json();
+      const text = await upstreamRes.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { success: upstreamRes.ok, error: text || "استجابة غير صالحة من خادم حذف الصور" };
+      }
       return c.json(data, upstreamRes.status as any);
     } catch (err: any) {
       console.error("[MEDIA DELETE PROXY ERROR]", err);
@@ -609,7 +768,7 @@ async function startServer() {
     try {
       const authHeader = c.req.header("Authorization") || "";
       const body = await c.req.raw.text();
-      const upstreamRes = await fetch("https://app.abdomedi.com/api/media/delete", {
+      const upstreamRes = await fetch(`${CF_WORKER_UPSTREAM_URL}/api/media/delete`, {
         method: c.req.method,
         headers: {
           "Content-Type": "application/json",
@@ -617,7 +776,13 @@ async function startServer() {
         },
         body: body || "{}",
       });
-      const data = await upstreamRes.json();
+      const text = await upstreamRes.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { success: upstreamRes.ok, error: text || "استجابة غير صالحة من خادم حذف الصور" };
+      }
       return c.json(data, upstreamRes.status as any);
     } catch (err: any) {
       console.error("[MEDIA DELETE PROXY ERROR]", err);
@@ -625,10 +790,41 @@ async function startServer() {
     }
   });
 
+  app.all("/images/*", async (c) => {
+    try {
+      const inUrl = new URL(c.req.url);
+      const targetUrl = `${CF_WORKER_UPSTREAM_URL}${inUrl.pathname}${inUrl.search}`;
+      const authHeader = c.req.header("Authorization") || "";
+      const upstreamRes = await fetch(targetUrl, {
+        method: c.req.method,
+        headers: {
+          ...(authHeader ? { Authorization: authHeader } : {}),
+        },
+      });
+      const outHeaders = new Headers();
+      const ct = upstreamRes.headers.get("content-type");
+      const cc = upstreamRes.headers.get("cache-control");
+      const etag = upstreamRes.headers.get("etag");
+      if (ct) outHeaders.set("content-type", ct);
+      if (cc) outHeaders.set("cache-control", cc);
+      if (etag) outHeaders.set("etag", etag);
+      outHeaders.set("access-control-allow-origin", "*");
+      return new Response(c.req.method === "HEAD" ? null : upstreamRes.body, {
+        status: upstreamRes.status,
+        headers: outHeaders,
+      });
+    } catch (err: any) {
+      console.error("[MEDIA IMAGE PROXY ERROR]", err);
+      return c.json({ success: false, error: err.message || "تعذر جلب الصورة" }, 502);
+    }
+  });
+
   // --- SHARED REPORTS IN-MEMORY & CLOUDFLARE D1 CACHE ---
   const sharedReportsCache = new Map<string, { content: string; createdAt: number }>();
 
   app.post("/api/shared-reports", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status < 500) return proxied;
     try {
       const { id, content } = await c.req.json();
       if (!id || !content) {
@@ -653,6 +849,8 @@ async function startServer() {
   });
 
   app.get("/api/shared-reports/:id", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status < 500) return proxied;
     try {
       const id = c.req.param("id");
       if (!id) {
@@ -678,6 +876,21 @@ async function startServer() {
   });
 
   // --- CUSTOM MYSQL CLOUD ADAPTER ROUTES (Hostinger Proxy) ---
+  const ALLOWED_MYSQL_TABLES = new Set([
+    "stores_data",
+    "users",
+    "products",
+    "orders",
+    "merchant_requests",
+    "partner_transactions",
+    "suppliers",
+    "supply_orders",
+    "partners",
+    "transactions",
+    "treasury_accounts",
+    "treasury_transactions",
+  ]);
+
   app.get("/api/mysql/status", async (c) => {
     const pool = getMysqlPool();
     return c.json({ active: !!pool, host: process.env.MYSQL_HOST || 'not set' });
@@ -687,16 +900,13 @@ async function startServer() {
     try {
       const { table, items, storeId } = await c.req.json();
       if (!table || !storeId) return c.json({ error: "Missing table or storeId" }, 400);
+      if (!ALLOWED_MYSQL_TABLES.has(table)) return c.json({ error: `Unsupported table: ${table}` }, 400);
       
       const pool = getMysqlPool();
       if (!pool) return c.json({ error: "MySQL not configured" }, 503);
 
       const itemsList = Array.isArray(items) ? items : [items];
       if (itemsList.length === 0) return c.json({ success: true, count: 0 });
-
-      // Build bulk upsert query
-      // This is a generic upsert. Since it's MySQL 8+, we can use JSON and other features.
-      // For simplicity, we'll iterate and upsert for now to handle different schemas.
       
       let successCount = 0;
       for (const item of itemsList) {
@@ -718,36 +928,24 @@ async function startServer() {
              ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), password = VALUES(password), email = VALUES(email), stores = VALUES(stores), sites = VALUES(sites), is_admin = VALUES(is_admin)`,
             [id, item.fullName || item.full_name, item.password, item.email, JSON.stringify(item.stores || []), JSON.stringify(item.sites || []), item.isAdmin || false]
           );
+        } else if (table === 'products') {
+          const sql = `INSERT INTO products (id, store_id, name, price, cost_price, stock_quantity, details) VALUES (?, ?, ?, ?, ?, ?, ?) 
+                       ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), cost_price = VALUES(cost_price), stock_quantity = VALUES(stock_quantity), details = VALUES(details)`;
+          await mysqlQuery(sql, [id, storeId, item.name, item.price || 0, item.costPrice || item.cost_price || 0, item.stockQuantity || item.stock_quantity || 0, jsonContent]);
+        } else if (table === 'orders') {
+          const sql = `INSERT INTO orders (id, store_id, order_number, customer_name, customer_phone, status, date, total_price, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                       ON DUPLICATE KEY UPDATE status = VALUES(status), total_price = VALUES(total_price), details = VALUES(details)`;
+          await mysqlQuery(sql, [id, storeId, item.orderNumber || item.order_number, item.customerName || item.customer_name, item.customerPhone || item.customer_phone, item.status, item.date, item.totalPrice || item.total_price || 0, jsonContent]);
+        } else if (table === 'merchant_requests') {
+          const sql = `INSERT INTO merchant_requests (id, store_id, merchant_id, merchant_name, type, amount, status, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
+                       ON DUPLICATE KEY UPDATE status = VALUES(status), amount = VALUES(amount), details = VALUES(details)`;
+          await mysqlQuery(sql, [id, storeId, item.merchantId || item.merchant_id, item.merchantName || item.merchant_name, item.type, item.amount || 0, item.status, jsonContent]);
+        } else if (table === 'partner_transactions') {
+          const sql = `INSERT INTO partner_transactions (id, store_id, merchant_id, merchant_name, date, type, amount, balance_after, notes, reference_id, performed_by, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                       ON DUPLICATE KEY UPDATE type = VALUES(type), amount = VALUES(amount), balance_after = VALUES(balance_after), details = VALUES(details)`;
+          await mysqlQuery(sql, [id, storeId, item.merchantId || item.merchant_id || null, item.merchantName || item.merchant_name || null, item.date || null, item.type || null, item.amount || 0, item.balanceAfter || item.balance_after || 0, item.notes || null, item.referenceId || item.reference_id || null, item.performedBy || item.performed_by || null, jsonContent]);
         } else {
-          // Dynamic handler for generic collections
-          // We'll use a JSON-heavy approach or specific columns if we added them in mysqlAdapter.ts
-          const columns = ['id', 'store_id', 'details'];
-          const values = [id, storeId, jsonContent];
-          
-          // Try to use specific columns for better indexing if they exist in schema
-          let sql = `INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`;
-          
-          if (table === 'products') {
-            sql = `INSERT INTO products (id, store_id, name, price, cost_price, stock_quantity, details) VALUES (?, ?, ?, ?, ?, ?, ?) 
-                   ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), cost_price = VALUES(cost_price), stock_quantity = VALUES(stock_quantity), details = VALUES(details)`;
-            await mysqlQuery(sql, [id, storeId, item.name, item.price || 0, item.costPrice || item.cost_price || 0, item.stockQuantity || item.stock_quantity || 0, jsonContent]);
-          } else if (table === 'orders') {
-            sql = `INSERT INTO orders (id, store_id, order_number, customer_name, customer_phone, status, date, total_price, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
-                   ON DUPLICATE KEY UPDATE status = VALUES(status), total_price = VALUES(total_price), details = VALUES(details)`;
-            await mysqlQuery(sql, [id, storeId, item.orderNumber || item.order_number, item.customerName || item.customer_name, item.customerPhone || item.customer_phone, item.status, item.date, item.totalPrice || item.total_price || 0, jsonContent]);
-          } else if (table === 'merchant_requests') {
-            sql = `INSERT INTO merchant_requests (id, store_id, merchant_id, merchant_name, type, amount, status, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
-                   ON DUPLICATE KEY UPDATE status = VALUES(status), amount = VALUES(amount), details = VALUES(details)`;
-            await mysqlQuery(sql, [id, storeId, item.merchantId || item.merchant_id, item.merchantName || item.merchant_name, item.type, item.amount || 0, item.status, jsonContent]);
-          } else {
-             // Fallback for other tables: just use a generic 'partner_transactions' style or generic table if we add more
-             try {
-               await mysqlQuery(`INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`, [id, storeId, jsonContent]);
-             } catch (e) {
-               // If table doesn't have id/store_id/details structure, log it
-               console.warn(`[MYSQL-SYNC] Table ${table} might not support generic upsert`, e);
-             }
-          }
+          await mysqlQuery(`INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`, [id, storeId, jsonContent]);
         }
         successCount++;
       }
@@ -764,25 +962,26 @@ async function startServer() {
       const table = c.req.query("table");
       const storeId = c.req.query("storeId");
       if (!table || !storeId) return c.json({ error: "Missing table or storeId" }, 400);
+      if (!ALLOWED_MYSQL_TABLES.has(table)) return c.json({ error: `Unsupported table: ${table}` }, 400);
 
       const pool = getMysqlPool();
       if (!pool) return c.json({ error: "MySQL not configured" }, 503);
 
-      const rows: any = await mysqlQuery(`SELECT * FROM ${table} WHERE store_id = ?`, [storeId]);
+      const idCol = table === "stores_data" ? "id" : "store_id";
+      const rows: any = await mysqlQuery(`SELECT * FROM ${table} WHERE ${idCol} = ?`, [storeId]);
       
       const items = rows.map((r: any) => {
         let details = {};
         try {
-          details = r.details ? (typeof r.details === 'string' ? JSON.parse(r.details) : r.details) : {};
+          const rawDetails = r.details || r.settings;
+          details = rawDetails ? (typeof rawDetails === 'string' ? JSON.parse(rawDetails) : rawDetails) : {};
         } catch(e) {}
         
-        // Merge indexed columns back into the object
         return {
           ...details,
           id: r.id,
-          storeId: r.store_id,
-          store_id: r.store_id,
-          // Special columns
+          storeId: r.store_id || r.id,
+          store_id: r.store_id || r.id,
           ...(r.name ? { name: r.name } : {}),
           ...(r.price !== undefined ? { price: Number(r.price) } : {}),
           ...(r.status ? { status: r.status } : {}),
@@ -810,7 +1009,7 @@ async function startServer() {
       await mysqlQuery(
         `INSERT INTO stores_data (id, name, settings) VALUES (?, ?, ?) 
          ON DUPLICATE KEY UPDATE name = VALUES(name), settings = VALUES(settings)`,
-        [storeId, storeName || 'Store', JSON.stringify(data.settings || {})]
+        [storeId, storeName || 'Store', JSON.stringify({ ...(data.settings || {}), wallet_balance: data.wallet?.balance ?? 0 })]
       );
 
       // 2. Helper for bulk sync
@@ -832,6 +1031,9 @@ async function startServer() {
             } else if (table === 'merchant_requests') {
               sql = `INSERT INTO merchant_requests (id, store_id, merchant_id, merchant_name, type, amount, status, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?) 
                      ON DUPLICATE KEY UPDATE status = VALUES(status), amount = VALUES(amount), details = VALUES(details)`;
+            } else if (table === 'partner_transactions') {
+              sql = `INSERT INTO partner_transactions (id, store_id, merchant_id, merchant_name, date, type, amount, balance_after, notes, reference_id, performed_by, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+                     ON DUPLICATE KEY UPDATE type = VALUES(type), amount = VALUES(amount), balance_after = VALUES(balance_after), details = VALUES(details)`;
             } else {
               sql = `INSERT INTO ${table} (id, store_id, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE details = VALUES(details)`;
             }
@@ -843,13 +1045,18 @@ async function startServer() {
         }
       };
 
-      // 3. Execute bulk migrations
+      // 3. Execute bulk migrations for all store MySQL tables
       await Promise.all([
         bulkSync('products', data.settings?.products || [], (p) => [p.id, storeId, p.name, p.price || 0, p.costPrice || 0, p.stockQuantity || 0, JSON.stringify(p)]),
         bulkSync('orders', data.orders || [], (o) => [o.id, storeId, o.orderNumber, o.customerName, o.customerPhone, o.status, o.date, o.totalPrice || 0, JSON.stringify(o)]),
-        bulkSync('merchant_requests', data.merchantRequests || [], (m) => [m.id, storeId, m.merchantId, m.merchantName, m.type, m.amount || 0, m.status, JSON.stringify(m)]),
+        bulkSync('merchant_requests', data.merchantRequests || [], (m) => [m.id, storeId, m.merchantId || null, m.merchantName || null, m.type || null, m.amount || 0, m.status || 'pending', JSON.stringify(m)]),
         bulkSync('suppliers', data.settings?.suppliers || [], (s) => [s.id, storeId, JSON.stringify(s)]),
-        bulkSync('partners', data.settings?.partners || [], (p) => [p.id, storeId, JSON.stringify(p)])
+        bulkSync('supply_orders', data.settings?.supplyOrders || [], (so) => [so.id, storeId, JSON.stringify(so)]),
+        bulkSync('partners', data.settings?.partners || [], (p) => [p.id, storeId, JSON.stringify(p)]),
+        bulkSync('partner_transactions', data.settings?.partnerTransactions || [], (pt) => [pt.id, storeId, pt.merchantId || null, pt.merchantName || null, pt.date || null, pt.type || null, pt.amount || 0, pt.balanceAfter || 0, pt.notes || null, pt.referenceId || null, pt.performedBy || null, JSON.stringify(pt)]),
+        bulkSync('transactions', data.wallet?.transactions || [], (t) => [t.id, storeId, JSON.stringify(t)]),
+        bulkSync('treasury_accounts', data.treasury?.accounts || [], (a) => [a.id, storeId, JSON.stringify(a)]),
+        bulkSync('treasury_transactions', data.treasury?.transactions || [], (tt) => [tt.id, storeId, JSON.stringify(tt)])
       ]);
 
       return c.json({ success: true });
@@ -907,6 +1114,8 @@ async function startServer() {
   }, 10 * 60 * 1000);
 
   app.post("/api/send-otp", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status < 500) return proxied;
     try {
       const body = await c.req.json().catch(() => ({}));
       const phone = (body.phone || "").trim();
@@ -1063,6 +1272,8 @@ async function startServer() {
   const accountActivationStore = new Map<string, { code: string; phone: string; email: string; createdAt: number; verified: boolean }>();
 
   app.post("/api/send-account-activation", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status < 500) return proxied;
     try {
       const body = await c.req.json().catch(() => ({}));
       const phone = (body.phone || "").trim();
@@ -1117,6 +1328,8 @@ async function startServer() {
   });
 
   app.post("/api/verify-account-activation", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status < 500) return proxied;
     try {
       const body = await c.req.json().catch(() => ({}));
       const identifier = (body.identifier || body.email || body.phone || "").trim().toLowerCase();
@@ -1733,6 +1946,8 @@ async function startServer() {
   });
 
   app.post("/api/verify-otp", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status < 500) return proxied;
     try {
       const body = await c.req.json().catch(() => ({}));
       const phone = (body.phone || "").trim();
@@ -3912,10 +4127,28 @@ async function startServer() {
     }
   });
 
-  // Cloudflare SaaS Domain Automation Helpers
+  // Cloudflare SaaS Domain Automation Helpers (delegates to D1 + DNS/Cloudflare API in handleDbRequest, with upstream sync)
+  app.all("/api/domains/*", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status !== 404 && proxied.status < 500) {
+      return proxied;
+    }
+    return handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
+  });
+
+  app.all("/api/cloudflare/*", async (c) => {
+    const proxied = await proxyRequestToCfWorker(c.req.raw);
+    if (proxied && proxied.status !== 404 && proxied.status < 500) {
+      return proxied;
+    }
+    return handleDbRequest(c.req.raw, process.env as any, cfD1, cfJson);
+  });
+
   const fetchHostnameInternal = async (hostname: string) => {
-    const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-    const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+    const rawZoneId = process.env.CLOUDFLARE_ZONE_ID || "";
+    const rawToken = process.env.CLOUDFLARE_API_TOKEN || "";
+    const zoneId = rawZoneId.includes("your_") ? "" : rawZoneId;
+    const apiToken = rawToken.includes("your_") ? "" : rawToken;
     if (!zoneId || !apiToken) return null;
     try {
         const res = await fetch(
@@ -3948,131 +4181,6 @@ async function startServer() {
       }
       return false;
   };
-
-  app.post("/api/domains/add", async (c) => {
-    try {
-      const { domain, storeId } = await c.req.json();
-      
-      if (!domain || !storeId) {
-        return c.json({ success: false, error: "النطاق ومعرف المتجر مطلوبان" }, 400);
-      }
-
-      const cleanDomain = domain
-        .replace(/^(https?:\/\/)?(www\.)?/, "")
-        .replace(/\/.*$/, '')
-        .replace(/[^a-zA-Z0-9.-]/g, '')
-        .toLowerCase();
-      const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-      const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-
-      if (!zoneId || !apiToken) {
-        return c.json({ success: false, error: "يجب ضبط أسرار Cloudflare (API Token & Zone ID) في الإعدادات أولاً لتفعيل الأتمتة." }, 400);
-      }
-
-      console.log(`[DOMAIN-AUTOMATION] Processing custom domain: ${cleanDomain} for store: ${storeId}`);
-      
-      // 1. Check if hostname already exists in our zone
-      let hostnameInfo = await fetchHostnameInternal(cleanDomain);
-
-      if (!hostnameInfo) {
-          // 2. Create if not exists
-          const response = await fetch(
-            `https://api.cloudflare.com/client/v4/zones/${zoneId}/custom_hostnames`,
-            {
-              method: "POST",
-              headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ 
-                  hostname: cleanDomain, 
-                  ssl: { 
-                      method: "txt", 
-                      type: "dv",
-                      settings: { "http2": "on", "min_tls_version": "1.2" }
-                  } 
-              })
-            }
-          );
-
-          const data: any = await response.json();
-          if (!response.ok || !data.success) {
-            // "Already exists" error (1406) - This is the "Reserved" case
-            if (data.errors?.[0]?.code === 1406) {
-                // Try to search for it specifically to get the verification records
-                hostnameInfo = await fetchHostnameInternal(cleanDomain);
-                if (hostnameInfo) {
-                    await updateStoreDomainSettings(storeId, { 
-                        customDomain: cleanDomain, 
-                        domainStatus: 'pending_validation', 
-                        domainDNSRecords: hostnameInfo,
-                        domainConflict: true
-                    });
-                    
-                    return c.json({ 
-                        success: true, 
-                        isConflict: true,
-                        message: "الدومين محجوز مسبقاً. يرجى إضافة سجلات التوثيق أدناه لإثبات ملكيتك ونقله لمتجرك.",
-                        details: hostnameInfo
-                    });
-                } else {
-                    // Hostname exists in another Cloudflare account/zone not accessible by this token
-                    return c.json({ 
-                        success: false, 
-                        error: "هذا النطاق محجوز في حساب Cloudflare آخر. يرجى إزالته من هناك أولاً أو التواصل مع الدعم الفني.",
-                        details: data.errors
-                    }, 400);
-                }
-            }
-            return c.json({ success: false, error: data.errors?.[0]?.message || "فشلت عملية إضافة النطاق" }, 400);
-          }
-          hostnameInfo = data.result;
-      }
-
-      // 3. Update Firestore
-      const isStatusActive = hostnameInfo.status === 'active' && hostnameInfo.ssl?.status === 'active';
-      const domainStatus = isStatusActive ? 'active' : 'pending_validation';
-      await updateStoreDomainSettings(storeId, { 
-          customDomain: cleanDomain, 
-          customAppDomain: cleanDomain,
-          domainStatus, 
-          domainDNSRecords: hostnameInfo 
-      });
-
-      return c.json({
-        success: true,
-        message: domainStatus === 'active' ? "النطاق نشط ومفعل!" : "تم تسجيل النطاق، يرجى إتمام سجلات التوثيق.",
-        domain: cleanDomain,
-        details: hostnameInfo
-      });
-    } catch (err: any) {
-      console.error("[DOMAIN-ADD-EXCEPTION]", err);
-      return c.json({ success: false, error: "خطأ في المعالجة: " + err.message }, 500);
-    }
-  });
-
-  app.post("/api/domains/status", async (c) => {
-    try {
-      const { domain, storeId } = await c.req.json();
-      if (!domain || !storeId) return c.json({ success: false, error: "Missing data" }, 400);
-
-      const zoneId = process.env.CLOUDFLARE_ZONE_ID;
-      const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-
-      if (!zoneId || !apiToken) {
-        return c.json({ success: true, simulation: true, status: "active", ssl_status: "active", domainStatus: 'active' });
-      }
-
-      const hostnameInfo = await fetchHostnameInternal(domain);
-      if (!hostnameInfo) return c.json({ success: false, error: "النطاق غير موجود" }, 404);
-
-      const isStatusActive = hostnameInfo.status === 'active' && hostnameInfo.ssl?.status === 'active';
-      const domainStatus = isStatusActive ? 'active' : (hostnameInfo.status === 'pending' ? 'pending_validation' : 'error');
-
-      await updateStoreDomainSettings(storeId, { domainStatus, domainDNSRecords: hostnameInfo });
-
-      return c.json({ success: true, domainStatus, details: hostnameInfo });
-    } catch (err: any) {
-      return c.json({ success: false, error: err.message }, 500);
-    }
-  });
 
   app.post("/api/domains/delete", async (c) => {
     try {
@@ -11710,11 +11818,11 @@ async function startServer() {
 
   // Provide fallback static files for production Hono server
   if (isProd) {
-    // 1. Serve static files FIRST, but ONLY if they are not API requests
+    // 1. Serve static files FIRST, but ONLY if they are not API or R2 media requests
     app.use("/*", async (c, next) => {
       const pathName = c.req.path;
-      if (pathName.startsWith("/api/") || pathName.includes("/api/") || pathName.includes("/wa-webhook-direct")) {
-        return await next(); // Skip static file serving for APIs
+      if (pathName.startsWith("/api/") || pathName.startsWith("/images/") || pathName.includes("/api/") || pathName.includes("/wa-webhook-direct")) {
+        return await next(); // Skip static file serving for APIs & R2 images
       }
       return serveStatic({ root: "dist" })(c, next);
     });
@@ -11724,6 +11832,9 @@ async function startServer() {
       const pathName = c.req.path;
       if (pathName.startsWith("/api/") || pathName.includes("/api/") || pathName.includes("/wa-webhook-direct")) {
         return c.json({ success: false, error: `مسار API غير موجود: ${pathName}` }, 404);
+      }
+      if (pathName.startsWith("/images/")) {
+        return c.text("Not Found", 404);
       }
       
       // Exclude asset files to prevent browser console MIME type errors
@@ -11761,7 +11872,7 @@ async function startServer() {
     // Robust URL parsing to handle Cloudflare / reverse proxy absolute URLs and custom domains
     const urlPath = rawUrl.replace(/^https?:\/\/[^\/]+/, "");
     req.url = urlPath; // Ensure Hono & Vite always receive relative path (/api/...)
-    const isApiRequest = urlPath.startsWith("/api/") || urlPath.includes("/api/") || urlPath.includes("/wa-webhook-direct");
+    const isApiRequest = urlPath.startsWith("/api/") || urlPath.startsWith("/images/") || urlPath.includes("/api/") || urlPath.includes("/wa-webhook-direct");
 
     if (!isProd && vite) {
       if (isApiRequest) {

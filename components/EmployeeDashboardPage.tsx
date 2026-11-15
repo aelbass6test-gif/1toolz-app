@@ -34,6 +34,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { cfFetch } from '../services/cloudflareClient';
 
 interface EmployeeDashboardPageProps {
   orders: Order[];
@@ -76,7 +77,7 @@ export const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({
         setTimeout(() => setCopiedKey(null), 2000);
     };
 
-    // Employee specific tasks stored in localStorage
+    // Employee specific tasks synced with Cloudflare D1 (+ local cache)
     const [tasks, setTasks] = useState<ShiftTask[]>(() => {
         try {
             const raw = localStorage.getItem(`emp_tasks_${currentUser?.phone}`);
@@ -91,34 +92,39 @@ export const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({
 
     const [newTaskText, setNewTaskText] = useState('');
 
+    const persistTasksToCloud = (updated: ShiftTask[]) => {
+        if (!currentUser?.phone) return;
+        try {
+            localStorage.setItem(`emp_tasks_${currentUser.phone}`, JSON.stringify(updated));
+        } catch {}
+        void cfFetch(`/api/db/settings/${encodeURIComponent(`emp_tasks_${currentUser.phone}`)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ value: updated })
+        }).catch(() => {});
+    };
+
     const handleAddTask = (e: React.FormEvent) => {
         e.preventDefault();
         if (!newTaskText.trim()) return;
         const updated = [...tasks, { id: String(Date.now()), text: newTaskText.trim(), done: false, createdAt: Date.now() }];
         setTasks(updated);
         setNewTaskText('');
-        try {
-            localStorage.setItem(`emp_tasks_${currentUser?.phone}`, JSON.stringify(updated));
-        } catch {}
+        persistTasksToCloud(updated);
     };
 
     const toggleTask = (id: string) => {
         const updated = tasks.map(t => t.id === id ? { ...t, done: !t.done } : t);
         setTasks(updated);
-        try {
-            localStorage.setItem(`emp_tasks_${currentUser?.phone}`, JSON.stringify(updated));
-        } catch {}
+        persistTasksToCloud(updated);
     };
 
     const deleteTask = (id: string) => {
         const updated = tasks.filter(t => t.id !== id);
         setTasks(updated);
-        try {
-            localStorage.setItem(`emp_tasks_${currentUser?.phone}`, JSON.stringify(updated));
-        } catch {}
+        persistTasksToCloud(updated);
     };
 
-    // Shift Status & Timer from LocalStorage
+    // Shift Status & Timer synced with Cloudflare D1
     const [shiftStatus, setShiftStatus] = useState<'working' | 'break' | 'stopped'>(() => {
         try {
             return (localStorage.getItem(`emp_shift_status_${currentUser?.phone}`) as any) || 'working';
@@ -126,6 +132,37 @@ export const EmployeeDashboardPage: React.FC<EmployeeDashboardPageProps> = ({
             return 'working';
         }
     });
+
+    useEffect(() => {
+        const phoneKey = currentUser?.phone;
+        if (!phoneKey) return;
+        void cfFetch<{ success?: boolean; value?: ShiftTask[] | null }>(
+            `/api/db/settings/${encodeURIComponent(`emp_tasks_${phoneKey}`)}`
+        ).then((res) => {
+            if (Array.isArray(res?.value)) {
+                setTasks(res.value);
+                try { localStorage.setItem(`emp_tasks_${phoneKey}`, JSON.stringify(res.value)); } catch {}
+            }
+        }).catch(() => {});
+        void cfFetch<{ success?: boolean; value?: 'working' | 'break' | 'stopped' | null }>(
+            `/api/db/settings/${encodeURIComponent(`emp_shift_${phoneKey}`)}`
+        ).then((res) => {
+            if (res?.value === 'working' || res?.value === 'break' || res?.value === 'stopped') {
+                setShiftStatus(res.value);
+                try { localStorage.setItem(`emp_shift_status_${phoneKey}`, res.value); } catch {}
+            }
+        }).catch(() => {});
+    }, [currentUser?.phone]);
+
+    useEffect(() => {
+        const phoneKey = currentUser?.phone;
+        if (!phoneKey) return;
+        try { localStorage.setItem(`emp_shift_status_${phoneKey}`, shiftStatus); } catch {}
+        void cfFetch(`/api/db/settings/${encodeURIComponent(`emp_shift_${phoneKey}`)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ value: shiftStatus })
+        }).catch(() => {});
+    }, [shiftStatus, currentUser?.phone]);
 
     // Assigned Orders
     const assignedOrders = useMemo(() => {

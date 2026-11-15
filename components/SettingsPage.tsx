@@ -12,6 +12,7 @@ import {
 import { calculateOrderProfitLoss } from '../utils/financials';
 import { clearStoreData, verifyCloudflareD1Connection } from '../services/databaseService';
 import * as dbService from '../services/databaseService';
+import { cfFetch } from '../services/cloudflareClient';
 import { db as localDb } from '../src/lib/db';
 import { TRANSACTION_CATEGORY_LABELS } from '../constants';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
@@ -32,6 +33,7 @@ interface SettingsPageProps {
   customers?: any[];
   wallet?: any;
   treasury?: any;
+  currentUser?: any;
 }
 
 const handleImportData = (file: File) => {
@@ -242,7 +244,7 @@ const DatabaseCard: React.FC<{
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Load available local snapshots
+    // Load available snapshots (cloud D1 + local fallback)
     if (activeStore?.id) {
       loadSnapshotsList();
     }
@@ -251,21 +253,28 @@ const DatabaseCard: React.FC<{
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [activeStore?.id]);
+  }, [activeStore?.id, (settings as any)?.storeSnapshots]);
 
   const loadSnapshotsList = () => {
     const storeId = activeStore?.id || 'default';
     const listKey = `wuilt_snapshots_list_${storeId}`;
+    const cloudList: any[] = Array.isArray((settings as any)?.storeSnapshots) ? (settings as any).storeSnapshots : [];
+    let localList: any[] = [];
     try {
       const saved = localStorage.getItem(listKey);
-      if (saved) {
-        setSnapshots(JSON.parse(saved));
-      } else {
-        setSnapshots([]);
-      }
-    } catch (e) {
-      console.error(e);
-    }
+      if (saved) localList = JSON.parse(saved);
+    } catch {}
+    const seen = new Set<string>();
+    const merged = [...cloudList, ...localList].filter((item) => {
+      if (!item?.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+    merged.sort((a, b) => String(b.id || '').localeCompare(String(a.id || '')));
+    setSnapshots(merged);
+    try {
+      localStorage.setItem(listKey, JSON.stringify(merged));
+    } catch {}
   };
 
   const handleTestPing = async () => {
@@ -319,6 +328,46 @@ const DatabaseCard: React.FC<{
     }
   };
 
+  const persistSnapshotToCloud = async (storeId: string, item: any, payload: any) => {
+    if (!storeId || storeId === 'default') return;
+    try {
+      await cfFetch(`/api/db/settings/${encodeURIComponent(`snap_${storeId}_${item.id}`)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ value: payload })
+      });
+      await cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item`, {
+        method: 'POST',
+        body: JSON.stringify({
+          collectionName: 'store_snapshots',
+          itemId: item.id,
+          item
+        })
+      });
+    } catch (err) {
+      console.warn('[Snapshots] Cloud save failed:', err);
+    }
+  };
+
+  const loadSnapshotPayload = async (snapId: string): Promise<any | null> => {
+    const storeId = activeStore?.id || 'default';
+    if (storeId && storeId !== 'default') {
+      try {
+        const res = await cfFetch<{ success?: boolean; value?: any }>(
+          `/api/db/settings/${encodeURIComponent(`snap_${storeId}_${snapId}`)}`
+        );
+        if (res?.value && typeof res.value === 'object') {
+          return res.value;
+        }
+      } catch {}
+    }
+    try {
+      const savedData = localStorage.getItem(`wuilt_snapshot_data_${snapId}`);
+      return savedData ? JSON.parse(savedData) : null;
+    } catch {
+      return null;
+    }
+  };
+
   const handleUploadAndSync = async () => {
     if (autoSnapshotBeforeSync) {
       const storeId = activeStore?.id || 'default';
@@ -326,21 +375,25 @@ const DatabaseCard: React.FC<{
       const timestamp = new Date().toLocaleString('ar-EG', { hour12: true });
 
       try {
+        const cleanSettings = settings ? { ...settings, storeSnapshots: undefined } : settings;
         const snapshotPayload = {
           orders,
-          settings,
+          settings: cleanSettings,
           wallet,
           treasury,
           customers
         };
 
-        localStorage.setItem(`wuilt_snapshot_data_${snapshotId}`, JSON.stringify(snapshotPayload));
+        try {
+          localStorage.setItem(`wuilt_snapshot_data_${snapshotId}`, JSON.stringify(snapshotPayload));
+        } catch {}
 
         const listKey = `wuilt_snapshots_list_${storeId}`;
         const autoName = `تلقائي: قبل رفع المجموع السحابي [${new Date().toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'})}]`;
         const newSnapshotItem = {
           id: snapshotId,
           name: autoName,
+          isAuto: true,
           timestamp,
           ordersCount: orders.length,
           productsCount: products.length,
@@ -348,15 +401,26 @@ const DatabaseCard: React.FC<{
           size: Math.round(JSON.stringify(snapshotPayload).length / 1024)
         };
 
-        let existingList: any[] = [];
+        // Keep at most 5 auto snapshots to prevent unnecessary DB bloat
+        const existingList = [...snapshots];
+        const autoSnaps = existingList.filter(s => s.isAuto || String(s.name || '').startsWith('تلقائي:'));
+        if (autoSnaps.length >= 5) {
+          const toDrop = autoSnaps.slice(4);
+          for (const old of toDrop) {
+            try { localStorage.removeItem(`wuilt_snapshot_data_${old.id}`); } catch {}
+            if (storeId !== 'default') {
+              void cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item?collectionName=store_snapshots&itemId=${encodeURIComponent(old.id)}`, { method: 'DELETE' }).catch(() => {});
+              void cfFetch(`/api/db/settings/${encodeURIComponent(`snap_${storeId}_${old.id}`)}`, { method: 'PUT', body: JSON.stringify({ value: null }) }).catch(() => {});
+            }
+          }
+        }
+        const dropIds = new Set(autoSnaps.slice(4).map(s => s.id));
+        const updatedList = [newSnapshotItem, ...existingList.filter(s => !dropIds.has(s.id))];
         try {
-          const saved = localStorage.getItem(listKey);
-          if (saved) existingList = JSON.parse(saved);
+          localStorage.setItem(listKey, JSON.stringify(updatedList));
         } catch {}
-
-        const updatedList = [newSnapshotItem, ...existingList];
-        localStorage.setItem(listKey, JSON.stringify(updatedList));
         setSnapshots(updatedList);
+        void persistSnapshotToCloud(storeId, newSnapshotItem, snapshotPayload);
       } catch (err) {
         console.warn('Failed to take automatic pre-sync snapshot:', err);
       }
@@ -369,8 +433,8 @@ const DatabaseCard: React.FC<{
     }
   };
 
-  // Create local snapshot recovery point
-  const handleCreateSnapshot = () => {
+  // Create snapshot recovery point (Cloudflare D1 + local cache)
+  const handleCreateSnapshot = async () => {
     if (!newSnapshotName.trim()) {
       alert('يرجى إدخال اسم مميز لللقطة الاحتياطية');
       return;
@@ -380,38 +444,43 @@ const DatabaseCard: React.FC<{
     const timestamp = new Date().toLocaleString('ar-EG', { hour12: true });
 
     try {
+      const cleanSettings = settings ? { ...settings, storeSnapshots: undefined } : settings;
       const snapshotPayload = {
         orders,
-        settings,
+        settings: cleanSettings,
         wallet,
         treasury,
         customers
       };
 
-      // Save payload to localstorage
-      localStorage.setItem(`wuilt_snapshot_data_${snapshotId}`, JSON.stringify(snapshotPayload));
+      try {
+        localStorage.setItem(`wuilt_snapshot_data_${snapshotId}`, JSON.stringify(snapshotPayload));
+      } catch {}
 
-      // Update manifest list
       const listKey = `wuilt_snapshots_list_${storeId}`;
       const newSnapshotItem = {
         id: snapshotId,
         name: newSnapshotName.trim(),
+        isAuto: false,
         timestamp,
         ordersCount: orders.length,
         productsCount: products.length,
         customersCount: customers.length,
-        size: Math.round(JSON.stringify(snapshotPayload).length / 1024) // size in KB
+        size: Math.round(JSON.stringify(snapshotPayload).length / 1024)
       };
 
       const updatedList = [newSnapshotItem, ...snapshots];
-      localStorage.setItem(listKey, JSON.stringify(updatedList));
+      try {
+        localStorage.setItem(listKey, JSON.stringify(updatedList));
+      } catch {}
       setSnapshots(updatedList);
       setNewSnapshotName('');
-      
-      setSnapshotSuccessMsg('تم التقاط لقطة استرجاع كاملة للنظام وحفظها بذاكرة المتصفح بأمان!');
+
+      await persistSnapshotToCloud(storeId, newSnapshotItem, snapshotPayload);
+      setSnapshotSuccessMsg('تم التقاط لقطة استرجاع كاملة للنظام وحفظها سحابياً على Cloudflare D1 وبذاكرة المتصفح بأمان!');
       setTimeout(() => setSnapshotSuccessMsg(''), 4000);
     } catch (err: any) {
-      alert('فشل التقاط النسخة الاحتياطية: قد يكون حجم البيانات الإجمالي تجاوز الحد المسموح به في متصفحك.');
+      alert('فشل التقاط النسخة الاحتياطية: ' + (err?.message || 'خطأ غير متوقع'));
     }
   };
 
@@ -426,16 +495,13 @@ const DatabaseCard: React.FC<{
     if (!ok) return;
 
     try {
-      const savedData = localStorage.getItem(`wuilt_snapshot_data_${snap.id}`);
-      if (!savedData) {
-        await inAppAlert('يتعذر العثور على ملفات النسخة في ذاكرة هذا المتصفح', { type: 'error' });
+      const parsed = await loadSnapshotPayload(snap.id);
+      if (!parsed) {
+        await inAppAlert('يتعذر العثور على ملفات النسخة الاحتياطية لا سحابياً ولا في ذاكرة المتصفح.', { type: 'error' });
         return;
       }
 
-      const parsed = JSON.parse(savedData);
       const storeId = activeStore?.id || 'default';
-
-      // Rewrite IndexedDB
       await dbService.saveLocal(storeId, parsed);
 
       await inAppAlert(`تم استرداد لقطة النظام "${snap.name}" بنجاح! سيتم الآن إعادة تحميل المتجر.`, { type: 'success' });
@@ -446,7 +512,7 @@ const DatabaseCard: React.FC<{
   };
 
   const handleDeleteSnapshot = async (snapId: string) => {
-    const ok = await inAppConfirm('هل تود بالتأكيد حذف هذه اللقطة بشكل نهائي من جهازك؟', {
+    const ok = await inAppConfirm('هل تود بالتأكيد حذف هذه اللقطة بشكل نهائي من السحابة وجهازك؟', {
       title: "حذف لقطة النظام",
       type: "danger",
       confirmText: "نعم، حذف نهائي",
@@ -460,19 +526,27 @@ const DatabaseCard: React.FC<{
       const filtered = snapshots.filter(s => s.id !== snapId);
       localStorage.setItem(listKey, JSON.stringify(filtered));
       setSnapshots(filtered);
+      if (storeId !== 'default') {
+        void cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item?collectionName=store_snapshots&itemId=${encodeURIComponent(snapId)}`, {
+          method: 'DELETE'
+        }).catch(() => {});
+        void cfFetch(`/api/db/settings/${encodeURIComponent(`snap_${storeId}_${snapId}`)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ value: null })
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error(e);
     }
   };
 
-  const handleExportSnapshotFile = (snap: any) => {
+  const handleExportSnapshotFile = async (snap: any) => {
     try {
-      const savedData = localStorage.getItem(`wuilt_snapshot_data_${snap.id}`);
-      if (!savedData) {
-        alert('الملفات التالفة أو غير متوفرة');
+      const parsed = await loadSnapshotPayload(snap.id);
+      if (!parsed) {
+        alert('ملفات اللقطة غير متوفرة');
         return;
       }
-      const parsed = JSON.parse(savedData);
       const blob = new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -481,7 +555,7 @@ const DatabaseCard: React.FC<{
       link.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert('خطأ في تصدير وتصدير ملف اللقطة');
+      alert('خطأ في تصدير ملف اللقطة');
     }
   };
 
@@ -1674,7 +1748,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   products = [],
   customers = [],
   wallet,
-  treasury
+  treasury,
+  currentUser
 }) => {
   const [activeTab, setActiveTab ] = useState<'general' | 'database' | 'admin-alerts'>('general');
 
@@ -1720,12 +1795,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div className="space-y-1">
               <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight flex items-center gap-3">
-                <span>الإعدادات العامة وإدارة النظام</span>
+                <span>الإعدادات العامة وإدارة المتجر</span>
               </h1>
               <p className="text-xs sm:text-sm font-medium text-slate-300/90 max-w-2xl leading-relaxed">
-                التحكم الموحد في المزامنة السحابية وقواعد البيانات المحلية، إدارة التنبيهات الفورية، وتخصيص إعدادات المتجر الأساسية.
+                تخصيص إعدادات المتجر الأساسية، الفواتير، نقاط البيع، وإدارة التنبيهات الفورية مع مزامنة سحابية تلقائية.
               </p>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={handleExportData}
+              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/15 rounded-xl font-bold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer backdrop-blur-md"
+            >
+              <Database size={15} className="text-indigo-300" />
+              <span>تصدير نسخة احتياطية للمتجر (.json)</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1743,18 +1829,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         >
           <SettingsIcon size={16} />
           <span>إدارة وتخصيص المتجر ⚙️</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('database')}
-          className={`flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-black text-xs sm:text-sm transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'database'
-              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-              : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
-          }`}
-        >
-          <Database size={16} />
-          <span>المزامنة والاتصال السحابي ☁️</span>
         </button>
         <button
           type="button"
@@ -1784,6 +1858,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <ExpenseCategoriesSettingsCard settings={settings} setSettings={setSettings} />
           <CommunicationSettingsCard settings={settings} setSettings={setSettings} />
           <EmployeeDashboardSettingsCard settings={settings} setSettings={setSettings} />
+          {currentUser?.isAdmin && (
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 text-xs font-black border border-amber-200 dark:border-amber-800">
+                <ShieldCheck size={14} />
+                <span>تحكم حصري لمدير المنصة فقط (مخفي عن التاجر)</span>
+              </div>
+              <DisplaySettingsCard settings={settings} setSettings={setSettings} />
+            </div>
+          )}
         </div>
       )}
 
@@ -1810,98 +1893,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
           
           <AdminAlertsSettingsCard settings={settings} setSettings={setSettings} />
-        </div>
-      )}
-
-      {activeTab === 'database' && (
-        <div className="space-y-8 animate-in fade-in duration-300">
-          {/* Hybrid Database Explain Banner */}
-          <div className="bg-gradient-to-l from-emerald-50 to-blue-50 dark:from-emerald-950/20 dark:to-blue-950/20 p-6 rounded-[2rem] border border-emerald-100 dark:border-emerald-900/40 shadow-sm flex flex-col lg:flex-row items-center gap-6 justify-between animate-in slide-in-from-top duration-700">
-            <div className="flex items-center gap-4">
-              <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-md shrink-0">
-                <CheckCircle2 className="text-emerald-500 w-8 h-8" />
-              </div>
-              <div>
-                <h3 className="text-lg font-black dark:text-white">نظام الحفظ المتقدم (Hybrid Database)</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-lg leading-relaxed">
-                  تطبيقك يستخدم تقنية **IndexedDB** وهي قاعدة بيانات حقيقية مخزنة على الهارد ديسك الخاص بجهازك. البيانات لا تضيع حتى لو انقطع الإنترنت أو تم تحديث الصفحة. المزامنة السحابية هي فقط "نسخة إضافية" للتأمين والوصول من أجهزة أخرى.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-4 flex-wrap justify-end">
-                <div className="flex flex-col gap-1 items-end">
-                  <span className="text-[10px] text-slate-400 font-bold">المتجر الحالي الفردي:</span>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={handleExportData}
-                      className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-705 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 dark:text-white hover:bg-slate-50 cursor-pointer"
-                    >
-                      <Database size={14} className="text-indigo-500" /> تصدير المتجر النشط (.json)
-                    </button>
-                    <label className="px-4 py-2 bg-white hover:bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-705 dark:text-white text-slate-700 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
-                      <Upload size={14} className="text-indigo-500" /> استيراد المتجر النشط
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept=".json"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImportData(file);
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1 items-end border-r border-slate-200 dark:border-slate-800 pr-4">
-                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">🔧 النظام بالكامل وجميع المتاجر:</span>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={handleExportMasterBackup}
-                      className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-150 dark:border-indigo-900 rounded-xl font-bold text-[11px] shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <CloudUpload size={14} /> تصدير نسخة النظام الكلي
-                    </button>
-                    <label className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold text-[11px] shadow-lg shadow-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95">
-                      <CloudDownload size={14} /> استيراد نسخة النظام الكلي
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        accept=".json"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImportMasterBackup(file);
-                        }}
-                      />
-                    </label>
-                  </div>
-                </div>
-            </div>
-          </div>
-
-          {/* Sync mode options & Manual Sync push/pull */}
-          <DatabaseCard 
-            dbSyncMode={dbSyncMode} 
-            setDbSyncMode={setDbSyncMode} 
-            forceSync={forceSync} 
-            forcePullFromCloud={forcePullFromCloud}
-            saveStatus={saveStatus} 
-            activeStore={activeStore}
-            orders={orders}
-            products={products}
-            customers={customers}
-            settings={settings}
-            wallet={wallet}
-            treasury={treasury}
-          />
-
-          {onManualSave && (
-              <DatabaseManagementCard onSync={onManualSave} />
-          )}
-
-          <DisplaySettingsCard settings={settings} setSettings={setSettings} orders={orders} />
-
-          <DangerZone activeStore={activeStore} />
         </div>
       )}
     </div>
@@ -2977,221 +2968,87 @@ const DangerZone: React.FC<{ activeStore?: Store }> = ({ activeStore }) => {
         </div>
     );
 };
-const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>> }> = ({ settings, setSettings }) => {
-
+const WalletFeesSettingsCard: React.FC<{ settings: Settings, setSettings: React.Dispatch<React.SetStateAction<Settings>> }> = ({ settings }) => {
     const applicableMethods = settings.feeApplicableMethods || [];
-    
     const methods = [
         { id: 'card', label: 'بطاقة دفع', icon: CreditCard },
         { id: 'wallet', label: 'محفظة هاتف', icon: Smartphone },
         { id: 'instapay', label: 'إنستاباي', icon: Banknote }
     ];
 
-    const toggleMethod = (id: string) => {
-        setSettings(prev => ({
-            ...prev,
-            feeApplicableMethods: applicableMethods.includes(id) 
-                ? applicableMethods.filter(m => m !== id) 
-                : [...applicableMethods, id]
-        }));
-    };
+    const normalWithdrawalLabel = settings.withdrawalFeeType === 'percent'
+        ? `${settings.withdrawalFeePercent ?? 0}%`
+        : `${(settings.withdrawalFlatFee ?? 0).toLocaleString('ar-EG')} ج.م`;
+
+    const expressWithdrawalLabel = settings.sameDayWithdrawalFeeType === 'percent'
+        ? `${settings.sameDayWithdrawalFeePercent ?? 0}%`
+        : `${(settings.sameDayWithdrawalFlatFee ?? 0).toLocaleString('ar-EG')} ج.م`;
 
     return (
         <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm text-right">
-            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
-                <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg"><Wallet size={24}/></div>
-                <div>
-                    <h2 className="text-xl font-black dark:text-white">إعدادات رسوم المحفظة</h2>
-                    <p className="text-xs text-slate-500">تحديد النسب المئوية أو القيم الثابتة لرسوم السحب والإيداع والطرق المطبق عليها.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-6">
+                <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400">
+                    <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg"><Wallet size={24}/></div>
+                    <div>
+                        <h2 className="text-xl font-black dark:text-white">سياسة رسوم المحفظة والتسويات المعتمدة</h2>
+                        <p className="text-xs text-slate-500">عرض سياسة رسوم السحب والإيداع المطبقة على المحفظة المالية لمتجرك.</p>
+                    </div>
                 </div>
+                <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 text-xs font-black shrink-0">
+                    <ShieldCheck size={15} />
+                    <span>تُدار حصرياً بواسطة إدارة المنصة</span>
+                </span>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* 💳 رسوم الإيداع */}
-                <div className="space-y-6">
-                    <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
-                        <ArrowUpRight size={18} className="text-emerald-500" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 tabular-nums">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800 space-y-1">
+                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                        <ArrowUpRight size={15} className="text-emerald-500" />
                         رسوم الإيداع (الشحن)
-                    </h3>
-                    <div className="flex items-center gap-3">
-                        <div className="relative flex-1">
-                            <input 
-                                type="number" 
-                                value={settings.depositFeePercent || 0}
-                                onChange={e => setSettings(prev => ({ ...prev, depositFeePercent: parseFloat(e.target.value) }))}
-                                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                            />
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
-                        </div>
-                        <span className="text-xs text-slate-500 font-bold">نسبة رسوم الإيداع</span>
+                    </span>
+                    <div className="text-lg font-black text-slate-900 dark:text-white">
+                        {settings.depositFeePercent ?? 0}%
                     </div>
-
-                    <div className="space-y-3">
-                        <p className="text-xs font-bold text-slate-600 dark:text-slate-400">تطبيق الرسوم على الطرق التالية:</p>
-                        <div className="flex flex-wrap gap-2">
-                            {methods.map(method => (
-                                <button 
-                                    key={method.id}
-                                    type="button"
-                                    onClick={() => toggleMethod(method.id)}
-                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 transition-all text-[11px] font-black ${
-                                        applicableMethods.includes(method.id)
-                                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 shadow-sm'
-                                        : 'border-slate-200 dark:border-slate-800 text-slate-400 bg-slate-50 dark:bg-slate-900 hover:border-slate-200'
-                                    }`}
-                                >
-                                    <method.icon size={16} />
-                                    {method.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    <p className="text-[11px] text-slate-400">
+                        {applicableMethods.length > 0
+                            ? `مطبق على: ${methods.filter(m => applicableMethods.includes(m.id)).map(m => m.label).join('، ')}`
+                            : 'بدون رسوم إضافية على الإيداع'}
+                    </p>
                 </div>
 
-                {/* 💸 رسوم السحب */}
-                <div className="space-y-8 border-r border-slate-200 dark:border-slate-800 pr-0 lg:pr-8">
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between flex-row-reverse bg-rose-50 dark:bg-rose-900/10 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/30">
-                            <div className="text-right">
-                                <h3 className="font-black text-rose-800 dark:text-rose-400 text-sm">تفعيل رسوم السحب</h3>
-                                <p className="text-[10px] text-rose-600 dark:text-rose-500">عند التعطيل، لن يتم خصم أي رسوم عند طلب سحب رصيد.</p>
-                            </div>
-                            <button
-                                onClick={() => setSettings(prev => ({ ...prev, enableWithdrawalFees: !prev.enableWithdrawalFees }))}
-                                className={`w-12 h-6 rounded-full relative transition-colors ${settings.enableWithdrawalFees ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-700'}`}
-                            >
-                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.enableWithdrawalFees ? 'left-7' : 'left-1'}`} />
-                            </button>
-                        </div>
-
-                        <div className="flex items-center justify-between flex-row-reverse bg-indigo-50 dark:bg-indigo-900/10 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30">
-                            <div className="text-right">
-                                <h3 className="font-black text-indigo-800 dark:text-indigo-400 text-sm">تطبيق الرسوم على التحويل للخزينة (داخلي)</h3>
-                                <p className="text-[10px] text-indigo-600 dark:text-indigo-500">عند التفعيل، سيتم تطبيق نفس رسوم السحب عند تحويل الرصيد إلى الخزينة الداخلية.</p>
-                            </div>
-                            <button
-                                onClick={() => setSettings(prev => ({ ...prev, enableInternalWithdrawalFees: !prev.enableInternalWithdrawalFees }))}
-                                className={`w-12 h-6 rounded-full relative transition-colors ${settings.enableInternalWithdrawalFees ? 'bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}`}
-                            >
-                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${settings.enableInternalWithdrawalFees ? 'left-7' : 'left-1'}`} />
-                            </button>
-                        </div>
-
-                        <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
-                            <ArrowDownLeft size={18} className="text-rose-500" />
-                            رسوم السحب العادي
-                        </h3>
-                        
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                            <button 
-                                type="button"
-                                onClick={() => setSettings(prev => ({ ...prev, withdrawalFeeType: 'percent' }))}
-                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.withdrawalFeeType === 'percent' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                نسبة مئوية %
-                            </button>
-                            <button 
-                                type="button"
-                                onClick={() => setSettings(prev => ({ ...prev, withdrawalFeeType: 'flat' }))}
-                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.withdrawalFeeType === 'flat' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                قيمة ثابتة (ج.م)
-                            </button>
-                        </div>
-
-                        {settings.withdrawalFeeType === 'percent' ? (
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1">
-                                    <input 
-                                        type="number" 
-                                        value={settings.withdrawalFeePercent || 0}
-                                        onChange={e => setSettings(prev => ({ ...prev, withdrawalFeePercent: parseFloat(e.target.value) }))}
-                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                    />
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
-                                </div>
-                                <span className="text-xs text-slate-500 font-bold">نسبة السحب</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1">
-                                    <input 
-                                        type="number" 
-                                        value={settings.withdrawalFlatFee || 0}
-                                        onChange={e => setSettings(prev => ({ ...prev, withdrawalFlatFee: parseFloat(e.target.value) }))}
-                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                    />
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
-                                </div>
-                                <span className="text-xs text-slate-500 font-bold">رسوم ثابتة</span>
-                            </div>
-                        )}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800 space-y-1">
+                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                        <ArrowDownLeft size={15} className="text-rose-500" />
+                        رسوم السحب العادي
+                    </span>
+                    <div className="text-lg font-black text-slate-900 dark:text-white">
+                        {settings.enableWithdrawalFees === false ? 'معفى (0 ج.م)' : normalWithdrawalLabel}
                     </div>
+                    <p className="text-[11px] text-slate-400">مدة المعالجة القياسية ٢٤ - ٤٨ ساعة</p>
+                </div>
 
-                    <div className="space-y-6 pt-6 border-t border-slate-200 dark:border-slate-800">
-                        <h3 className="font-black text-slate-800 dark:text-white text-sm flex items-center gap-2">
-                            <Clock size={18} className="text-amber-500" />
-                            رسوم السحب الفوري (Same Day)
-                        </h3>
-
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                            <button 
-                                type="button"
-                                onClick={() => setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'percent' }))}
-                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.sameDayWithdrawalFeeType === 'percent' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                نسبة مئوية %
-                            </button>
-                            <button 
-                                type="button"
-                                onClick={() => setSettings(prev => ({ ...prev, sameDayWithdrawalFeeType: 'flat' }))}
-                                className={`flex-1 py-2 text-center rounded-lg font-black text-[10px] transition-all ${settings.sameDayWithdrawalFeeType === 'flat' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                قيمة ثابتة (ج.م)
-                            </button>
-                        </div>
-
-                        {settings.sameDayWithdrawalFeeType === 'percent' ? (
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1">
-                                    <input 
-                                        type="number" 
-                                        value={settings.sameDayWithdrawalFeePercent || 0}
-                                        onChange={e => setSettings(prev => ({ ...prev, sameDayWithdrawalFeePercent: parseFloat(e.target.value) }))}
-                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                    />
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
-                                </div>
-                                <span className="text-xs text-slate-500 font-bold">نسبة الفوري</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1">
-                                    <input 
-                                        type="number" 
-                                        value={settings.sameDayWithdrawalFlatFee || 0}
-                                        onChange={e => setSettings(prev => ({ ...prev, sameDayWithdrawalFlatFee: parseFloat(e.target.value) }))}
-                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                                    />
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
-                                </div>
-                                <span className="text-xs text-slate-500 font-bold">رسوم ثابتة</span>
-                            </div>
-                        )}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800 space-y-1">
+                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                        <Clock size={15} className="text-amber-500" />
+                        رسوم السحب الفوري (Same Day)
+                    </span>
+                    <div className="text-lg font-black text-slate-900 dark:text-white">
+                        {settings.enableWithdrawalFees === false ? 'معفى (0 ج.م)' : expressWithdrawalLabel}
                     </div>
+                    <p className="text-[11px] text-slate-400">تحويل سريع في نفس اليوم عبر إنستاباي/المحافظ</p>
+                </div>
 
-                    <div className="flex items-center gap-3 pt-6 border-t border-slate-200 dark:border-slate-800">
-                        <div className="relative flex-1">
-                            <input 
-                                type="number" 
-                                value={settings.minWithdrawalFee || 0}
-                                onChange={e => setSettings(prev => ({ ...prev, minWithdrawalFee: parseFloat(e.target.value) }))}
-                                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500 text-center"
-                            />
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">ج.م</span>
-                        </div>
-                        <span className="text-xs text-slate-500 font-bold">الحد الأدنى لرسوم السحب (لأي عملية)</span>
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800 space-y-1">
+                    <span className="text-xs font-bold text-slate-500 flex items-center gap-1.5">
+                        <ShieldCheck size={15} className="text-indigo-500" />
+                        الحد الأدنى لرسوم السحب
+                    </span>
+                    <div className="text-lg font-black text-slate-900 dark:text-white">
+                        {(settings.minWithdrawalFee ?? 0).toLocaleString('ar-EG')} ج.م
                     </div>
+                    <p className="text-[11px] text-slate-400">
+                        {settings.enableInternalWithdrawalFees ? 'تُطبق أيضاً على التحويل للخزينة الداخلية' : 'التحويل للخزينة الداخلية معفى من الرسوم'}
+                    </p>
                 </div>
             </div>
         </div>

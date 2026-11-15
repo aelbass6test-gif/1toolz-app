@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { 
   getStoredWebhookLogs, 
+  fetchCloudWebhookLogs,
+  clearCloudWebhookLogs,
   recordWebhookDeliveryLog, 
   WebhookDeliveryLog, 
   triggerWebhookEvent 
@@ -20,6 +22,7 @@ interface WebhookMonitorPageProps {
   setSettings?: React.Dispatch<React.SetStateAction<Settings>> | ((s: any) => void);
   orders?: Order[];
   activeStoreId?: string;
+  currentUser?: any;
 }
 
 export interface InboundWebhookEvent {
@@ -52,11 +55,23 @@ export function getStoredInboundLogs(): InboundWebhookEvent[] {
   }
 }
 
-export function recordInboundLog(log: InboundWebhookEvent) {
+export function recordInboundLog(log: InboundWebhookEvent, storeId?: string) {
   try {
+    const sid = storeId || (typeof localStorage !== 'undefined' ? (localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId') || 'main_store') : 'main_store');
     const current = getStoredInboundLogs();
-    const updated = [log, ...current.slice(0, 99)];
+    const updated = [log, ...current.filter((l) => l.id !== log.id)].slice(0, 100);
     localStorage.setItem(LOCAL_INBOUND_LOGS_KEY, JSON.stringify(updated));
+    void cfFetch(`/api/db/whatsapp/${encodeURIComponent(sid)}/webhook-logs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        log: {
+          ...log,
+          event_type: log.eventType,
+          status_code: log.statusCode,
+          occurred_at: log.timestamp
+        }
+      })
+    }).catch(() => {});
     window.dispatchEvent(new CustomEvent('inbound_webhook_recorded', { detail: log }));
   } catch (e) {
     console.error('Failed to save inbound webhook log', e);
@@ -66,7 +81,8 @@ export function recordInboundLog(log: InboundWebhookEvent) {
 export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
   settings,
   orders = [],
-  activeStoreId
+  activeStoreId,
+  currentUser
 }) => {
   const [logs, setLogs] = useState<InboundWebhookEvent[]>([]);
   const [activeFilter, setActiveFilter] = useState<'all' | 'bosta' | 'turbo' | 'whatsapp' | 'akked' | 'outbound'>('all');
@@ -110,9 +126,9 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
         error: o.error_message || o.error
       }));
 
-      // Add local inbound + outbound logs if any
+      // Add local inbound + cloud outbound logs if any
       const inboundLocal = getStoredInboundLogs();
-      const outboundRaw = getStoredWebhookLogs();
+      const outboundRaw = await fetchCloudWebhookLogs(activeStoreId);
       const outboundFormatted: InboundWebhookEvent[] = outboundRaw.map(o => ({
         id: o.id || `out_${o.eventId}_${Math.random()}`,
         source: 'outbound',
@@ -145,9 +161,9 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
   };
 
   useEffect(() => {
-    refreshLogs();
-    const handleInbound = () => refreshLogs();
-    const handleOutbound = () => refreshLogs();
+    void refreshLogs();
+    const handleInbound = () => void refreshLogs();
+    const handleOutbound = () => void refreshLogs();
 
     window.addEventListener('inbound_webhook_recorded', handleInbound);
     window.addEventListener('store_webhook_delivered', handleOutbound);
@@ -155,8 +171,9 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
     let timer: any;
     if (autoRefresh) {
       timer = setInterval(() => {
-        refreshLogs();
-      }, 4000);
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        void refreshLogs();
+      }, 10000);
     }
 
     return () => {
@@ -306,8 +323,8 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
       };
     }
 
-    recordInboundLog(newEvent);
-    refreshLogs();
+    recordInboundLog(newEvent, activeStoreId);
+    void refreshLogs();
     setSimulationResult({ success: true, message: `تم محاكاة واستقبال حدث ${newEvent.sourceLabel} بنجاح!` });
     audioSynth.playSuccess();
 
@@ -324,11 +341,13 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
     setTimeout(() => setCopiedId(null), 1800);
   };
 
-  const handleClearLogs = () => {
+  const handleClearLogs = async () => {
     if (window.confirm('هل أنت متأكد من رغبتك في تفريغ سجل مراقبة الـ Webhooks؟')) {
       localStorage.removeItem(LOCAL_INBOUND_LOGS_KEY);
-      localStorage.removeItem('store_webhook_delivery_logs');
-      refreshLogs();
+      await clearCloudWebhookLogs(activeStoreId);
+      const storeKey = encodeURIComponent(activeStoreId || 'main_store');
+      await cfFetch(`/api/db/whatsapp/${storeKey}/webhook-logs`, { method: 'DELETE' }).catch(() => {});
+      void refreshLogs();
       audioSynth.playClick();
     }
   };
@@ -378,21 +397,33 @@ export const WebhookMonitorPage: React.FC<WebhookMonitorPageProps> = ({
               <span>تحديث الآن</span>
             </button>
 
-            <button
-              onClick={() => setSimulateModalOpen(true)}
-              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-            >
-              <Zap size={13} />
-              <span>تجربة إرسال Webhook اختباري</span>
-            </button>
+            {currentUser?.isAdmin ? (
+              <>
+                <button
+                  onClick={() => { setSimulateModalOpen(true); audioSynth.playClick(); }}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 shadow-sm shadow-indigo-500/20 cursor-pointer"
+                >
+                  <Play size={13} />
+                  <span>تجربة إرسال Webhook اختباري (مدير المنصة)</span>
+                </button>
 
-            <button
-              onClick={handleClearLogs}
-              title="تفريغ السجل"
-              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all border border-slate-200 dark:border-slate-800 cursor-pointer"
-            >
-              <Trash2 size={15} />
-            </button>
+                {logs.length > 0 && (
+                  <button
+                    onClick={handleClearLogs}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border border-rose-200/60 dark:border-rose-900/40"
+                    title="مسح السجل السحابي (مدير المنصة)"
+                  >
+                    <Trash2 size={13} />
+                    <span>تفريغ السجل</span>
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck size={14} className="text-emerald-500" />
+                <span>سجل رقابي موثق (للعرض والمتابعة)</span>
+              </span>
+            )}
           </div>
         </div>
 

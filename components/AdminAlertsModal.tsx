@@ -56,6 +56,12 @@ export const AdminAlertsModal: React.FC<AdminAlertsModalProps> = ({
   const [webNotifPermission, setWebNotifPermission] = useState<string>(() => getWebNotificationPermission());
   const [isWebNotifTesting, setIsWebNotifTesting] = useState(false);
 
+  React.useEffect(() => {
+    if (isOpen && (settings as any)?.adminAlerts) {
+      setConfig((settings as any).adminAlerts);
+    }
+  }, [isOpen, settings]);
+
   if (!isOpen) return null;
 
   const handleAddPhone = () => {

@@ -6,12 +6,15 @@ import {
   Store as StoreIconLucide, Tag, Globe, Search, Sparkles, CheckCircle2, 
   Copy, Users, ShieldCheck, Layers, Radio, Pin, PinOff, Star, Zap,
   Check, ArrowRight, Package, ShoppingBag, DollarSign, TrendingUp,
-  X, ShieldAlert, Award, Compass, RefreshCw
+  X, ShieldAlert, Award, Compass, RefreshCw, Wallet, ArrowLeftRight,
+  Trash2, LogIn, LayoutDashboard, AlertTriangle, Lock, Unlock, Wrench
 } from 'lucide-react';
-import { User, Store, StoreData, Employee } from '../types';
+import { User, Store, StoreData, Employee, Transaction } from '../types';
+import { INITIAL_SETTINGS } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import * as db from '../services/databaseService';
+import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -42,6 +45,7 @@ interface ManageSitesPageProps {
   setAllStoresData: React.Dispatch<React.SetStateAction<Record<string, StoreData>>>;
   currentUser: User | null;
   setCurrentUser?: React.Dispatch<React.SetStateAction<User | null>>;
+  onImpersonate?: (user: User, targetStoreId?: string) => void;
 }
 
 const getGreetingByTime = (name?: string): { greeting: string; period: string } => {
@@ -90,25 +94,34 @@ const formatArabicDate = (dateString?: string | Date): string => {
   }
 };
 
+const sanitizeStoreSubdomain = (raw?: string, storeId?: string): string => {
+  const cleaned = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.abdomedi\.com.*$/i, '')
+    .replace(/^https?:\/\//i, '')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!cleaned) {
+    const suffix = String(storeId || '').replace(/[^a-z0-9]/gi, '').slice(-6).toLowerCase() || '1000';
+    return `store-${suffix}`;
+  }
+  if (/^\d+$/.test(cleaned) || cleaned.length < 3) {
+    return `store-${cleaned}`;
+  }
+  return cleaned.slice(0, 30).replace(/-+$/g, '');
+};
+
 const formatDisplayDomain = (store: Store): string => {
   if (store.customDomain && store.customDomain.trim()) {
     return store.customDomain.trim();
   }
-  if (store.subdomain) {
-    const cleanSub = store.subdomain.trim();
-    if (cleanSub.length > 24) {
-      return `...${cleanSub.slice(-18)}.abdomedi.com`;
-    }
-    return `${cleanSub}.abdomedi.com`;
+  const cleanSub = sanitizeStoreSubdomain(store.subdomain || store.url, store.id);
+  if (cleanSub.length > 24) {
+    return `...${cleanSub.slice(-18)}.abdomedi.com`;
   }
-  if (store.url) {
-    const clean = store.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    if (clean.length > 25) {
-      return `...${clean.slice(-20)}`;
-    }
-    return clean;
-  }
-  return `${store.id.slice(-8)}.abdomedi.com`;
+  return `${cleanSub}.abdomedi.com`;
 };
 
 // Only calculate revenue for successfully collected/delivered orders
@@ -165,7 +178,8 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
   users, 
   setUsers, 
   allStoresData, 
-  setAllStoresData 
+  setAllStoresData,
+  onImpersonate
 }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -178,6 +192,18 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'pinned' | 'collaborating'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Admin Platform Sync & Inline Controls State
+  const [isSyncingPlatform, setIsSyncingPlatform] = useState(false);
+  const [adjustingStoreWallet, setAdjustingStoreWallet] = useState<{ id: string; name: string } | null>(null);
+  const [adjustmentDetails, setAdjustmentDetails] = useState({ amount: '', type: 'deposit' as 'deposit' | 'withdraw', note: '' });
+  const [adjustError, setAdjustError] = useState('');
+  const [isSavingWallet, setIsSavingWallet] = useState(false);
+
+  const [showAdminCreateStoreModal, setShowAdminCreateStoreModal] = useState(false);
+  const [adminNewStore, setAdminNewStore] = useState({ name: '', url: '', ownerPhone: '', specialization: 'عام' });
+  const [adminCreateStoreError, setAdminCreateStoreError] = useState('');
+  const [isCreatingAdminStore, setIsCreatingAdminStore] = useState(false);
 
   // Trigger celebratory confetti if arriving from OTP confirmation
   useEffect(() => {
@@ -204,12 +230,119 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
 
   const isAdminView = currentUser?.isAdmin;
 
+  // Hydrate all platform users and stores data from Cloudflare D1 when opened in Admin view
+  const syncPlatformData = async (showFeedback: boolean = false) => {
+    if (!isAdminView) return;
+    setIsSyncingPlatform(true);
+    try {
+      let targetUsers = users;
+      const remoteUsers = await db.getAllUsers().catch(() => null);
+      if (remoteUsers && remoteUsers.length > 0) {
+        targetUsers = remoteUsers;
+        setUsers(remoteUsers);
+      }
+
+      const storeIds: string[] = [];
+      targetUsers.forEach(u => {
+        u.stores?.forEach(s => {
+          if (s.id && !storeIds.includes(s.id)) {
+            storeIds.push(s.id);
+          }
+        });
+      });
+
+      const validSet = new Set(storeIds);
+      try {
+        const savedLast = localStorage.getItem('lastActiveStoreId');
+        if (savedLast && !validSet.has(savedLast)) {
+          localStorage.removeItem('lastActiveStoreId');
+        }
+        const savedDef = localStorage.getItem('defaultStoreId');
+        if (savedDef && !validSet.has(savedDef)) {
+          localStorage.removeItem('defaultStoreId');
+        }
+      } catch {}
+
+      if (storeIds.length > 0) {
+        const results = await Promise.all(
+          storeIds.map(async (id) => {
+            try {
+              const data = await db.getStoreData(id, true);
+              return { id, data };
+            } catch {
+              return null;
+            }
+          })
+        );
+        setAllStoresData(prev => {
+          const next: Record<string, StoreData> = {};
+          storeIds.forEach(id => {
+            if (prev[id]) next[id] = prev[id];
+          });
+          results.forEach(res => {
+            if (res && res.data && validSet.has(res.id)) {
+              next[res.id] = res.data;
+            }
+          });
+          return next;
+        });
+      } else {
+        setAllStoresData({});
+      }
+
+      if (showFeedback) {
+        showToast('تمت مزامنة كافة بيانات المنظومة والمتاجر والمحافظ مع السيرفر السحابي بنجاح ✅');
+      }
+    } catch (err) {
+      console.error('Platform sync error:', err);
+      if (showFeedback) {
+        showToast('تعذر تحديث بعض بيانات السيرفر، حاول مرة أخرى.');
+      }
+    } finally {
+      setIsSyncingPlatform(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdminView) {
+      syncPlatformData(false);
+    }
+  }, [isAdminView]);
+
   const allPlatformStores = useMemo(() => {
     if (!isAdminView) return [];
     return users.flatMap(user => 
-        user.stores?.map(store => ({ store, ownerName: user.fullName })) || []
-    ).filter(item => !item.ownerName?.toLowerCase().includes('admin'));
+        user.stores?.map(store => ({ store, ownerName: user.fullName, owner: user })) || []
+    );
   }, [isAdminView, users]);
+
+  const adminSystemMetrics = useMemo(() => {
+    if (!isAdminView) {
+      return { totalUsersCount: 0, activeMerchantsCount: 0, totalWalletsBalance: 0, pendingFinancialCount: 0 };
+    }
+    const nonAdminUsers = users.filter(u => !u.isAdmin);
+    let totalWalletsBalance = 0;
+    let pendingFinancialCount = 0;
+
+    allPlatformStores.forEach(({ store }) => {
+      const data = allStoresData[store.id];
+      if (data) {
+        totalWalletsBalance += Number(data.wallet?.balance || 0);
+        data.wallet?.transactions?.forEach(t => {
+          if (t.status === 'pending' && !String(t.id || '').startsWith('WF-')) {
+            pendingFinancialCount++;
+          }
+        });
+      }
+    });
+
+    return {
+      totalUsersCount: nonAdminUsers.length,
+      activeMerchantsCount: nonAdminUsers.filter(u => !u.isBanned).length,
+      totalWalletsBalance,
+      pendingFinancialCount
+    };
+  }, [isAdminView, users, allPlatformStores, allStoresData]);
 
   // Actual owned stores from currentUser or props
   const userOwnedStores = useMemo(() => {
@@ -263,7 +396,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
     return [...new Set(storesForSpec.map(s => s.specialization).filter(Boolean))];
   }, [isAdminView, allPlatformStores, userOwnedStores, collaboratingStores]);
 
-  const filterStore = (s: Store, ownerName?: string) => {
+  const filterStore = (s: Store, ownerName?: string, ownerPhone?: string) => {
     const matchesSpec = specializationFilter === 'all' || s.specialization === specializationFilter;
     const isPinned = currentUser?.defaultStoreId === s.id;
     
@@ -275,13 +408,14 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
     const matchesName = s.name.toLowerCase().includes(query);
     const matchesDomain = (s.customDomain || s.subdomain || s.url || '').toLowerCase().includes(query);
     const matchesOwner = ownerName ? ownerName.toLowerCase().includes(query) : false;
+    const matchesPhone = ownerPhone ? ownerPhone.includes(query) : false;
     
-    return matchesSpec && (matchesName || matchesDomain || matchesOwner);
+    return matchesSpec && (matchesName || matchesDomain || matchesOwner || matchesPhone);
   };
 
   const filteredOwnedStores = useMemo(() => sortedOwnedStores.filter(s => filterStore(s)), [sortedOwnedStores, specializationFilter, statusFilter, searchQuery]);
   const filteredCollaboratingStores = useMemo(() => collaboratingStores.filter(s => filterStore(s)), [collaboratingStores, specializationFilter, statusFilter, searchQuery]);
-  const filteredAdminStores = useMemo(() => allPlatformStores.filter(({ store, ownerName }) => filterStore(store, ownerName)), [allPlatformStores, specializationFilter, statusFilter, searchQuery]);
+  const filteredAdminStores = useMemo(() => allPlatformStores.filter(({ store, ownerName, owner }) => filterStore(store, ownerName, owner?.phone)), [allPlatformStores, specializationFilter, statusFilter, searchQuery]);
 
   // Pin / Unpin handler
   const handleTogglePinStore = (storeId: string, storeName: string) => {
@@ -378,31 +512,229 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
 
   const handlePreviewStore = (storeId: string) => {
     const store = [...userOwnedStores, ...collaboratingStores].find(s => s.id === storeId);
+    const cleanSub = sanitizeStoreSubdomain(store?.subdomain, storeId);
     const isInternal = typeof window !== 'undefined' && (
-      window.location.hostname.includes('run.app') || 
+      window.location.hostname.includes('run.app') ||
       window.location.hostname.includes('pages.dev') ||
       window.location.hostname.includes('localhost') ||
       window.location.hostname.includes('127.0.0.1')
     );
-    const linkUrl = isInternal 
-      ? `${window.location.origin}${window.location.pathname}?preview_store=${storeId}`
-      : (store?.customDomain ? `https://${store.customDomain}` : `https://${store?.subdomain || storeId}.abdomedi.com`);
+    const linkUrl = store?.customDomain
+      ? (store.customDomain.startsWith('http') ? store.customDomain : `https://${store.customDomain}`)
+      : (isInternal ? `${window.location.origin}/s/${cleanSub || storeId}` : `https://abdomedi.com/s/${cleanSub || storeId}`);
     
     window.open(linkUrl, '_blank');
   };
   
-  const handleSaveSettings = (updatedStore: Store) => {
+  const handleSaveSettings = async (updatedStore: Store) => {
     const owner = users.find(u => u.stores?.some(s => s.id === updatedStore.id));
     if (!owner) return;
     
-    const updatedOwner = {
+    const updatedOwner: User = {
       ...owner,
       stores: (owner.stores || []).map(s => s.id === updatedStore.id ? updatedStore : s)
     };
-    
-    setUsers(currentUsers => currentUsers.map(u => u.phone === owner.phone ? updatedOwner : u));
+    const updatedUsers = users.map(u => u.phone === owner.phone ? updatedOwner : u);
+
+    setUsers(updatedUsers);
+    if (currentUser?.phone === owner.phone && setCurrentUser) {
+      setCurrentUser(updatedOwner);
+    }
+
+    const existingStoreData = allStoresData[updatedStore.id];
+    if (existingStoreData) {
+      const updatedStoreData: StoreData = {
+        ...existingStoreData,
+        settings: {
+          ...existingStoreData.settings,
+          storeName: updatedStore.name
+        }
+      };
+      setAllStoresData(prev => ({ ...prev, [updatedStore.id]: updatedStoreData }));
+      db.saveStoreData(updatedStore, updatedStoreData).catch(console.warn);
+    }
+
+    db.createUserDoc(updatedOwner).catch(console.warn);
+    db.saveGlobalData({ users: updatedUsers, loyaltyData: {} }).catch(console.warn);
+
     setStoreToEdit(null);
-    showToast(`تم حفظ وتحديث إعدادات متجر "${updatedStore.name}" بنجاح.`);
+    showToast(`تم حفظ ومزامنة إعدادات متجر "${updatedStore.name}" سحابياً بنجاح ✅`);
+  };
+
+  const handleToggleOwnerBan = async (owner: User) => {
+    const nextAction = owner.isBanned ? 'إلغاء حظر' : 'حظر';
+    const ok = await inAppConfirm(`هل أنت متأكد من ${nextAction} التاجر "${owner.fullName}" (${owner.phone})؟`, {
+      title: `${nextAction} حساب تاجر`,
+      type: owner.isBanned ? 'info' : 'warning',
+      confirmText: `تأكيد الـ${nextAction}`,
+      cancelText: 'إلغاء'
+    });
+    if (!ok) return;
+
+    const updatedOwner: User = { ...owner, isBanned: !owner.isBanned };
+    const updatedUsers = users.map(u => u.phone === owner.phone ? updatedOwner : u);
+    setUsers(updatedUsers);
+
+    try {
+      await db.createUserDoc(updatedOwner);
+      await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
+      showToast(`تم ${nextAction} حساب "${owner.fullName}" بنجاح.`);
+    } catch {
+      await inAppAlert('تعذر تحديث حالة الحظر على الخادم السحابي.', { type: 'error' });
+    }
+  };
+
+  const handleToggleStoreBan = async (owner: User, store: Store) => {
+    const nextBanned = !store.isBanned;
+    const nextAction = nextBanned ? 'إيقاف وحظر' : 'إعادة تفعيل وفك حظر';
+    const ok = await inAppConfirm(`هل أنت متأكد من ${nextAction} متجر "${store.name}"؟`, {
+      title: `${nextAction} متجر`,
+      type: nextBanned ? 'danger' : 'info',
+      confirmText: `نعم، ${nextAction}`,
+      cancelText: 'إلغاء'
+    });
+    if (!ok) return;
+
+    const updatedOwner: User = {
+      ...owner,
+      stores: (owner.stores || []).map(s => s.id === store.id ? { ...s, isBanned: nextBanned } : s)
+    };
+    const updatedUsers = users.map(u => u.phone === owner.phone ? updatedOwner : u);
+    setUsers(updatedUsers);
+
+    try {
+      await db.createUserDoc(updatedOwner);
+      await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
+      showToast(`تم ${nextAction} متجر "${store.name}" بنجاح.`);
+    } catch {
+      await inAppAlert('تعذر تحديث حالة حظر المتجر على الخادم السحابي.', { type: 'error' });
+    }
+  };
+
+  const handleAdjustStoreBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdjustError('');
+    if (!adjustingStoreWallet) return;
+
+    const amountNum = parseFloat(adjustmentDetails.amount);
+    if (!amountNum || amountNum <= 0) {
+      setAdjustError('يجب إدخال مبلغ صحيح أكبر من الصفر.');
+      return;
+    }
+
+    const storeId = adjustingStoreWallet.id;
+    let storeInfo = allStoresData[storeId];
+    if (!storeInfo) {
+      storeInfo = await db.getStoreData(storeId, true).catch(() => undefined as any);
+    }
+    if (!storeInfo) {
+      setAdjustError('بيانات المتجر غير متوفرة للمزامنة حالياً.');
+      return;
+    }
+
+    const currentBalance = storeInfo.wallet?.balance || 0;
+    const isDeposit = adjustmentDetails.type === 'deposit';
+
+    if (!isDeposit && amountNum > currentBalance) {
+      setAdjustError(`المبلغ المراد خصمه أكبر من رصيد المحفظة الحالي (${currentBalance.toLocaleString('ar-EG')} ج.م).`);
+      return;
+    }
+
+    setIsSavingWallet(true);
+    const newTx: Transaction = {
+      id: `MANUAL-${Math.floor(100000 + Math.random() * 900000)}`,
+      amount: amountNum,
+      type: isDeposit ? 'إيداع' : 'سحب',
+      category: 'wallet_charge',
+      status: 'completed',
+      date: new Date().toISOString(),
+      note: adjustmentDetails.note.trim() || 'تسوية رصيد يدوية بواسطة مدير المنظومة'
+    };
+
+    const newBalance = isDeposit ? currentBalance + amountNum : currentBalance - amountNum;
+    const updatedPayload: StoreData = {
+      ...storeInfo,
+      wallet: {
+        ...storeInfo.wallet,
+        balance: newBalance,
+        transactions: [newTx, ...(storeInfo.wallet?.transactions || [])]
+      }
+    };
+
+    try {
+      await db.saveStoreData({ id: storeId, name: adjustingStoreWallet.name } as any, updatedPayload);
+      setAllStoresData(prev => ({ ...prev, [storeId]: updatedPayload }));
+      const targetName = adjustingStoreWallet.name;
+      setAdjustingStoreWallet(null);
+      setAdjustmentDetails({ amount: '', type: 'deposit', note: '' });
+      showToast(`تمت تسوية محفظة "${targetName}" بنجاح. الرصيد الحالي: ${newBalance.toLocaleString('ar-EG')} ج.م`);
+    } catch (err: any) {
+      setAdjustError(`فشل حفظ التعديل السحابي: ${err.message}`);
+    } finally {
+      setIsSavingWallet(false);
+    }
+  };
+
+  const handleAdminCreateStore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminCreateStoreError('');
+    if (!adminNewStore.name.trim() || !adminNewStore.url.trim() || !adminNewStore.ownerPhone) {
+      setAdminCreateStoreError('يرجى تعبئة اسم المتجر والرابط واختيار التاجر المالك.');
+      return;
+    }
+
+    const selectedOwner = users.find(u => u.phone === adminNewStore.ownerPhone);
+    if (!selectedOwner) {
+      setAdminCreateStoreError('المالك المحدد غير موجود.');
+      return;
+    }
+
+    setIsCreatingAdminStore(true);
+    const newStoreId = `store-${Math.floor(100000 + Math.random() * 900000)}`;
+    const cleanSlug = sanitizeStoreSubdomain(adminNewStore.url, newStoreId);
+    const newStoreObj: Store = {
+      id: newStoreId,
+      name: adminNewStore.name.trim(),
+      url: `${cleanSlug}.abdomedi.com`,
+      subdomain: cleanSlug,
+      creationDate: new Date().toISOString(),
+      specialization: adminNewStore.specialization,
+      language: 'ar',
+      currency: 'ج.م'
+    };
+
+    const updatedOwner: User = {
+      ...selectedOwner,
+      stores: [...(selectedOwner.stores || []), newStoreObj]
+    };
+    const updatedUsers = users.map(u => u.phone === selectedOwner.phone ? updatedOwner : u);
+
+    const newStorePayload: StoreData = {
+      orders: [],
+      settings: {
+        ...INITIAL_SETTINGS,
+        storeName: newStoreObj.name,
+        products: []
+      },
+      wallet: { balance: 0, transactions: [], withdrawRequests: [] },
+      cart: [],
+      customers: []
+    };
+
+    try {
+      await db.saveStoreData(newStoreObj, newStorePayload);
+      await db.createUserDoc(updatedOwner);
+      await db.saveGlobalData({ users: updatedUsers, loyaltyData: {} });
+      setUsers(updatedUsers);
+      setAllStoresData(prev => ({ ...prev, [newStoreId]: newStorePayload }));
+      setShowAdminCreateStoreModal(false);
+      setAdminNewStore({ name: '', url: '', ownerPhone: '', specialization: 'عام' });
+      showToast(`تم تأسيس متجر "${newStoreObj.name}" وربطه بالتاجر ${selectedOwner.fullName} بنجاح ✅`);
+    } catch (err: any) {
+      setAdminCreateStoreError(`تعذر إنشاء المتجر: ${err.message}`);
+    } finally {
+      setIsCreatingAdminStore(false);
+    }
   };
   
   const handleInvite = (storeId: string, email: string) => {
@@ -415,10 +747,15 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
       throw new Error('هذا المستخدم هو بالفعل عضو في هذا المتجر.');
     }
     const newEmployee: Employee = { id: userToInvite.phone, name: userToInvite.fullName, email: userToInvite.email, permissions: [], status: 'invited' };
+    const updatedStoreData: StoreData = {
+      ...storeData,
+      settings: { ...storeData.settings, employees: [...(storeData.settings?.employees || []), newEmployee] }
+    };
     setAllStoresData(prevData => ({
         ...prevData,
-        [storeId]: { ...storeData, settings: { ...storeData.settings, employees: [...(storeData.settings?.employees || []), newEmployee] }}
+        [storeId]: updatedStoreData
     }));
+    db.saveStoreData({ id: storeId, name: storeData.settings?.storeName || storeId } as any, updatedStoreData).catch(console.warn);
     setStoreToInvite(null);
     showToast(`تم إرسال الدعوة إلى ${email} بنجاح.`);
   };
@@ -539,6 +876,27 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
             </div>
 
             <div className="flex items-center gap-3 shrink-0 flex-wrap">
+              {isAdminView && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => syncPlatformData(true)}
+                    disabled={isSyncingPlatform}
+                    className="bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold px-4 py-3.5 rounded-2xl shadow-xs transition-all flex items-center gap-2 text-xs md:text-sm cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw size={16} className={isSyncingPlatform ? 'animate-spin text-indigo-500' : 'text-indigo-500'} />
+                    <span>{isSyncingPlatform ? 'جاري المزامنة...' : 'تحديث المنظومة'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAdminCreateStoreError(''); setShowAdminCreateStoreModal(true); }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-5 py-3.5 rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2 text-xs md:text-sm active:scale-95 cursor-pointer"
+                  >
+                    <Plus size={18} />
+                    <span>تأسيس متجر لتاجر</span>
+                  </button>
+                </>
+              )}
               <Link 
                 to="/create-store" 
                 className="bg-[#00c48c] hover:bg-[#00b07d] text-slate-950 font-black px-6 py-3.5 rounded-2xl shadow-lg shadow-[#00c48c]/20 hover:shadow-[#00c48c]/30 transition-all flex items-center gap-2 text-sm active:scale-95 cursor-pointer"
@@ -548,6 +906,125 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
               </Link>
             </div>
           </div>
+
+          {/* System-Wide Admin Control Center Hub */}
+          {isAdminView && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950 text-white border border-indigo-500/30 shadow-xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300 shrink-0">
+                    <ShieldAlert size={22} />
+                  </div>
+                  <div>
+                    <h2 className="text-base md:text-lg font-black text-white flex items-center gap-2 flex-wrap">
+                      مركز التحكم الشامل في المنظومة
+                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        SUPER ADMIN
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-300 mt-0.5">
+                      تحكم فوري في التجار، أرصدة المحافظ، الطلبات المالية، العمولات، وصيانة البيانات من مكان واحد.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Live System Financial & User KPIs */}
+                <div className="grid grid-cols-3 gap-2.5 shrink-0">
+                  <div className="px-3.5 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-right">
+                    <span className="text-[10px] text-slate-300 font-bold block">التجار المسجلون</span>
+                    <span className="text-sm md:text-base font-black tabular-nums text-white">
+                      {adminSystemMetrics.totalUsersCount}
+                      <span className="text-[10px] font-bold text-emerald-400 mr-1">({adminSystemMetrics.activeMerchantsCount} نشط)</span>
+                    </span>
+                  </div>
+                  <div className="px-3.5 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-right">
+                    <span className="text-[10px] text-slate-300 font-bold block">أرصدة محافظ المنصة</span>
+                    <span className="text-sm md:text-base font-black tabular-nums text-emerald-400">
+                      {adminSystemMetrics.totalWalletsBalance.toLocaleString('ar-EG')} <span className="text-[10px]">ج.م</span>
+                    </span>
+                  </div>
+                  <div className="px-3.5 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-right">
+                    <span className="text-[10px] text-slate-300 font-bold block">طلبات مالية معلقة</span>
+                    <span className={`text-sm md:text-base font-black tabular-nums ${adminSystemMetrics.pendingFinancialCount > 0 ? 'text-amber-400' : 'text-slate-200'}`}>
+                      {adminSystemMetrics.pendingFinancialCount}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Direct Quick Control Shortcuts */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 pt-2 border-t border-white/10">
+                <Link
+                  to="/admin?tab=exclusive_controls"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-400/50 text-xs font-black text-emerald-200 transition-all shadow-sm"
+                >
+                  <ShieldCheck size={15} className="text-emerald-300 shrink-0" />
+                  <span>الصلاحيات الحصرية والرقابة</span>
+                </Link>
+
+                <Link
+                  to="/admin?tab=dashboard"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
+                >
+                  <LayoutDashboard size={15} className="text-sky-400 shrink-0" />
+                  <span>التحليلات العامة</span>
+                </Link>
+
+                <Link
+                  to="/admin?tab=users"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
+                >
+                  <Users size={15} className="text-indigo-400 shrink-0" />
+                  <span>التجار والمستخدمين</span>
+                </Link>
+
+                <Link
+                  to="/admin?tab=financial"
+                  className="relative flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
+                >
+                  <TrendingUp size={15} className="text-emerald-400 shrink-0" />
+                  <span>الطلبات المالية</span>
+                  {adminSystemMetrics.pendingFinancialCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black tabular-nums">
+                      {adminSystemMetrics.pendingFinancialCount}
+                    </span>
+                  )}
+                </Link>
+
+                <Link
+                  to="/admin?tab=fee_settings"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
+                >
+                  <SettingsIcon size={15} className="text-amber-400 shrink-0" />
+                  <span>الرسوم والعمولات</span>
+                </Link>
+
+                <Link
+                  to="/admin?tab=support"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-xs font-black text-amber-200 transition-all"
+                >
+                  <Wrench size={15} className="text-amber-300 shrink-0" />
+                  <span>الدعم الفني وحل المشاكل</span>
+                </Link>
+
+                <Link
+                  to="/admin?tab=user_migration"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
+                >
+                  <ShieldCheck size={15} className="text-teal-400 shrink-0" />
+                  <span>ترحيل المستخدمين</span>
+                </Link>
+
+                <Link
+                  to="/admin?tab=danger_zone"
+                  className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-xs font-bold text-rose-200 transition-all"
+                >
+                  <AlertTriangle size={15} className="text-rose-400 shrink-0" />
+                  <span>صيانة وإبادة البيانات</span>
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Pinned Default Store Spotlight Bar */}
           {defaultPinnedStore ? (
@@ -720,11 +1197,13 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                     </h2>
                     {filteredAdminStores.length > 0 ? (
                         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {filteredAdminStores.map(({ store, ownerName }) => 
+                            {filteredAdminStores.map(({ store, ownerName, owner }) => 
                                 <StoreCard 
                                   key={store.id} 
                                   store={store} 
-                                  ownerName={ownerName} 
+                                  ownerName={ownerName}
+                                  owner={owner}
+                                  isAdminView={true}
                                   storeData={allStoresData[store.id]}
                                   isDefaultPinned={currentUser?.defaultStoreId === store.id}
                                   onSelect={handleSelectStore} 
@@ -732,6 +1211,16 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                                   onInvite={setStoreToInvite} 
                                   onSettings={setStoreToEdit} 
                                   onTogglePin={handleTogglePinStore}
+                                  onImpersonate={onImpersonate}
+                                  onAdjustWallet={(s) => {
+                                    setAdjustError('');
+                                    setAdjustmentDetails({ amount: '', type: 'deposit', note: '' });
+                                    setAdjustingStoreWallet({ id: s.id, name: s.name });
+                                  }}
+                                  onMaintenance={(s) => navigate(`/admin?tab=danger_zone&storeId=${s.id}`)}
+                                  onSupport={(s) => navigate(`/admin?tab=support&storeId=${s.id}`)}
+                                  onToggleOwnerBan={handleToggleOwnerBan}
+                                  onToggleStoreBan={handleToggleStoreBan}
                                 />
                             )}
                             <CreateNewStoreCard />
@@ -805,13 +1294,200 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
       {/* Modals */}
       {storeToEdit && <StoreSettingsModal store={storeToEdit} onClose={() => setStoreToEdit(null)} onSave={handleSaveSettings} />}
       {storeToInvite && <InviteEmployeeModal store={storeToInvite} onClose={() => setStoreToInvite(null)} onInvite={handleInvite} users={users} />}
+
+      {/* Admin Inline Wallet Adjustment Modal */}
+      {adjustingStoreWallet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setAdjustingStoreWallet(null)} dir="rtl">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <ArrowLeftRight size={18} className="text-indigo-600" />
+                <span>تعديل رصيد محفظة: {adjustingStoreWallet.name}</span>
+              </h3>
+              <button onClick={() => setAdjustingStoreWallet(null)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><XCircle size={20} /></button>
+            </div>
+
+            <form onSubmit={handleAdjustStoreBalance} className="space-y-4 text-xs">
+              <div className="p-3.5 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-900/50 rounded-2xl flex items-center justify-between">
+                <span className="font-bold text-slate-600 dark:text-slate-300">الرصيد الحالي بالمحفظة:</span>
+                <span className="font-black text-sm tabular-nums text-indigo-700 dark:text-indigo-300">
+                  {(allStoresData[adjustingStoreWallet.id]?.wallet?.balance || 0).toLocaleString('ar-EG')} ج.م
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setAdjustmentDetails(p => ({ ...p, type: 'deposit' }))}
+                  className={`py-2 rounded-lg font-black transition-all cursor-pointer ${adjustmentDetails.type === 'deposit' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500'}`}
+                >
+                  إضافة / شحن (+)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjustmentDetails(p => ({ ...p, type: 'withdraw' }))}
+                  className={`py-2 rounded-lg font-black transition-all cursor-pointer ${adjustmentDetails.type === 'withdraw' ? 'bg-rose-600 text-white shadow-sm' : 'text-slate-500'}`}
+                >
+                  خصم / تسوية (-)
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">المبلغ (ج.م)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={adjustmentDetails.amount}
+                  onChange={e => setAdjustmentDetails(p => ({ ...p, amount: e.target.value }))}
+                  placeholder="مثال: 500"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold tabular-nums outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">سبب التسوية / ملاحظة</label>
+                <input
+                  type="text"
+                  value={adjustmentDetails.note}
+                  onChange={e => setAdjustmentDetails(p => ({ ...p, note: e.target.value }))}
+                  placeholder="مثال: شحن رصيد شحن أو تسوية مالية"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {adjustError && (
+                <p className="text-rose-600 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-xl border border-rose-200 dark:border-rose-800">
+                  {adjustError}
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={isSavingWallet}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {isSavingWallet ? 'جاري الحفظ...' : 'اعتماد التعديل'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjustingStoreWallet(null)}
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Inline Create Store For Merchant Modal */}
+      {showAdminCreateStoreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setShowAdminCreateStoreModal(false)} dir="rtl">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <StoreIconLucide size={18} className="text-emerald-500" />
+                <span>تأسيس متجر جديد لتاجر بالمنظومة</span>
+              </h3>
+              <button onClick={() => setShowAdminCreateStoreModal(false)} className="text-slate-400 hover:text-rose-500 cursor-pointer"><XCircle size={20} /></button>
+            </div>
+
+            <form onSubmit={handleAdminCreateStore} className="space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">اسم المتجر</label>
+                <input
+                  type="text"
+                  required
+                  value={adminNewStore.name}
+                  onChange={e => setAdminNewStore(p => ({ ...p, name: e.target.value }))}
+                  placeholder="مثال: متجر النخبة"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">النطاق أو الرابط (Subdomain / URL)</label>
+                <input
+                  type="text"
+                  required
+                  value={adminNewStore.url}
+                  onChange={e => setAdminNewStore(p => ({ ...p, url: e.target.value }))}
+                  placeholder="elite-store"
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-mono font-bold dir-ltr text-right outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">التخصص</label>
+                <select
+                  value={adminNewStore.specialization}
+                  onChange={e => setAdminNewStore(p => ({ ...p, specialization: e.target.value }))}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="عام">نشاط عام / متعدد الأقسام</option>
+                  <option value="ملابس">ملابس وأزياء</option>
+                  <option value="أحذية">أحذية وحقائب</option>
+                  <option value="إلكترونيات">إلكترونيات ذكية</option>
+                  <option value="مستحضرات تجميل">مستحضرات تجميل وعناية بالبشرة</option>
+                  <option value="أدوات منزلية">أدوات منزلية</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-700 dark:text-slate-300 block">اختر التاجر المالك للمتجر</label>
+                <select
+                  required
+                  value={adminNewStore.ownerPhone}
+                  onChange={e => setAdminNewStore(p => ({ ...p, ownerPhone: e.target.value }))}
+                  className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">-- اختر مالك المتجر --</option>
+                  {users.map(u => (
+                    <option key={u.phone} value={u.phone}>
+                      {u.fullName} ({u.phone}){u.isAdmin ? ' [مشرف]' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {adminCreateStoreError && (
+                <p className="text-rose-600 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-xl border border-rose-200 dark:border-rose-800">
+                  {adminCreateStoreError}
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={isCreatingAdminStore}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {isCreatingAdminStore ? 'جاري التأسيس...' : 'إنشاء وربط المتجر'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminCreateStoreModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 };
 
 const StoreCard: React.FC<{ 
   store: Store; 
-  ownerName?: string; 
+  ownerName?: string;
+  owner?: User;
+  isAdminView?: boolean;
   storeData?: StoreData;
   isDefaultPinned: boolean;
   onSelect: (id: string) => void; 
@@ -819,24 +1495,45 @@ const StoreCard: React.FC<{
   onInvite: (store: Store) => void; 
   onSettings: (store: Store) => void; 
   onTogglePin: (id: string, name: string) => void;
-}> = ({ store, ownerName, storeData, isDefaultPinned, onSelect, onPreview, onInvite, onSettings, onTogglePin }) => {
+  onImpersonate?: (user: User, targetStoreId?: string) => void;
+  onAdjustWallet?: (store: Store) => void;
+  onMaintenance?: (store: Store) => void;
+  onSupport?: (store: Store) => void;
+  onToggleOwnerBan?: (owner: User) => void;
+  onToggleStoreBan?: (owner: User, store: Store) => void;
+}> = ({
+  store,
+  ownerName,
+  owner,
+  isAdminView,
+  storeData,
+  isDefaultPinned,
+  onSelect,
+  onPreview,
+  onInvite,
+  onSettings,
+  onTogglePin,
+  onImpersonate,
+  onAdjustWallet,
+  onMaintenance,
+  onSupport,
+  onToggleOwnerBan,
+  onToggleStoreBan
+}) => {
   const [copied, setCopied] = useState(false);
   const formattedDate = formatArabicDate(store.creationDate);
   const displayUrl = formatDisplayDomain(store);
 
+  const cleanSub = sanitizeStoreSubdomain(store.subdomain, store.id);
   const isInternal = typeof window !== 'undefined' && (
-      window.location.hostname.includes('run.app') || 
-      window.location.hostname.includes('pages.dev') ||
-      window.location.hostname.includes('localhost') ||
-      window.location.hostname.includes('127.0.0.1')
+    window.location.hostname.includes('run.app') ||
+    window.location.hostname.includes('pages.dev') ||
+    window.location.hostname.includes('localhost') ||
+    window.location.hostname.includes('127.0.0.1')
   );
-  
-  const linkUrl = isInternal 
-    ? `${window.location.origin}${window.location.pathname}?preview_store=${store.id}`
-    : (store.customDomain 
-        ? (store.customDomain.startsWith('http') ? store.customDomain : `https://${store.customDomain}`)
-        : (store.subdomain ? `https://${store.subdomain}.abdomedi.com` : (store.url || `${window.location.origin}/?preview_store=${store.id}`))
-      );
+  const linkUrl = store.customDomain 
+    ? (store.customDomain.startsWith('http') ? store.customDomain : `https://${store.customDomain}`)
+    : (isInternal ? `${window.location.origin}/s/${cleanSub || store.id}` : `https://abdomedi.com/s/${cleanSub || store.id}`);
 
   const copyStoreUrl = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -852,6 +1549,7 @@ const StoreCard: React.FC<{
     const val = getOrderProductSales(o);
     return sum + (isNaN(val) ? 0 : val);
   }, 0);
+  const walletBalance = Number(storeData?.wallet?.balance || 0);
 
   return (
     <motion.div 
@@ -873,14 +1571,21 @@ const StoreCard: React.FC<{
         {/* Top Badges & Pin Action */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           {/* Status & Category */}
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-200/80 dark:border-emerald-800/80">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {store.isBanned || owner?.isBanned ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2.5 py-1 rounded-full border border-rose-200 dark:border-rose-800">
+                <Lock size={11} />
+                <span>{owner?.isBanned ? 'حساب المالك محظور' : 'متجر موقوف إدارياً'}</span>
               </span>
-              <span>نشط أونلاين</span>
-            </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-full border border-emerald-200/80 dark:border-emerald-800/80">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>نشط أونلاين</span>
+              </span>
+            )}
 
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/60 px-2.5 py-1 rounded-full">
               <ShoppingCart size={12}/> 
@@ -920,37 +1625,58 @@ const StoreCard: React.FC<{
             )}
           </div>
           {ownerName && (
-            <p className="text-xs font-bold text-slate-400 mt-1 flex items-center justify-start gap-1">
-              <ShieldCheck size={13} className="text-indigo-400" />
-              المالك: <span className="text-slate-600 dark:text-slate-300">{ownerName}</span>
-            </p>
+            <div className="flex items-center justify-between gap-2 mt-1.5 flex-wrap">
+              <p className="text-xs font-bold text-slate-400 flex items-center justify-start gap-1">
+                <ShieldCheck size={13} className="text-indigo-400" />
+                المالك: <span className="text-slate-600 dark:text-slate-300">{ownerName}</span>
+                {owner?.phone && (
+                  <span className="font-mono tabular-nums text-[11px] text-slate-400 mr-1" dir="ltr">({owner.phone})</span>
+                )}
+              </p>
+              {owner?.isBanned && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50">
+                  حساب محظور
+                </span>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Store Micro-Stats (Products, Orders, Revenue) */}
-        <div className="grid grid-cols-3 gap-2 pt-1">
+        {/* Store Micro-Stats (Products, Orders, Revenue, + Wallet for Admin) */}
+        <div className={`grid ${isAdminView ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-2 pt-1`}>
           <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800 flex flex-col items-center justify-center text-center">
             <span className="text-[11px] text-slate-400 font-bold flex items-center gap-1 mb-0.5">
               <Package size={12} className="text-teal-500" /> المنتجات
             </span>
-            <span className="font-black text-sm text-slate-800 dark:text-slate-100">{productCount}</span>
+            <span className="font-black text-sm tabular-nums text-slate-800 dark:text-slate-100">{productCount}</span>
           </div>
 
           <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800 flex flex-col items-center justify-center text-center">
             <span className="text-[11px] text-slate-400 font-bold flex items-center gap-1 mb-0.5">
               <ShoppingBag size={12} className="text-indigo-500" /> الطلبات
             </span>
-            <span className="font-black text-sm text-slate-800 dark:text-slate-100">{orderCount}</span>
+            <span className="font-black text-sm tabular-nums text-slate-800 dark:text-slate-100">{orderCount}</span>
           </div>
 
           <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-800 flex flex-col items-center justify-center text-center">
             <span className="text-[11px] text-slate-400 font-bold flex items-center gap-1 mb-0.5">
               <DollarSign size={12} className="text-emerald-500" /> المبيعات
             </span>
-            <span className="font-black text-xs text-emerald-600 dark:text-emerald-400 truncate max-w-full">
-              {(revenue ?? 0).toLocaleString('ar-EG')}
+            <span className="font-black text-xs tabular-nums text-emerald-600 dark:text-emerald-400 truncate max-w-full">
+              {(revenue ?? 0).toLocaleString('ar-EG')} ج.م
             </span>
           </div>
+
+          {isAdminView && (
+            <div className="p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/60 dark:border-indigo-900/50 flex flex-col items-center justify-center text-center">
+              <span className="text-[11px] text-indigo-600 dark:text-indigo-300 font-bold flex items-center gap-1 mb-0.5">
+                <Wallet size={12} /> المحفظة
+              </span>
+              <span className={`font-black text-xs tabular-nums truncate max-w-full ${walletBalance >= 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-rose-600 dark:text-rose-400'}`}>
+                {walletBalance.toLocaleString('ar-EG')} ج.م
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Domain Link Box */}
@@ -983,6 +1709,86 @@ const StoreCard: React.FC<{
             <Globe size={14} className="text-teal-500 shrink-0" />
           </div>
         </div>
+
+        {/* Admin Quick Controls Row inside Card */}
+        {isAdminView && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1">
+            {onImpersonate && owner && !owner.isAdmin && (
+              <button
+                type="button"
+                onClick={() => onImpersonate(owner, store.id)}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/50 text-[11px] font-black transition-all cursor-pointer"
+                title="الدخول لحساب التاجر وإدارة هذا المتجر مباشرة"
+              >
+                <LogIn size={12} />
+                <span>دخول كتاجر</span>
+              </button>
+            )}
+            {onSupport && (
+              <button
+                type="button"
+                onClick={() => onSupport(store)}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/50 text-[11px] font-black transition-all cursor-pointer"
+                title="تشخيص المتجر وحل مشاكل العميل"
+              >
+                <Wrench size={12} />
+                <span>دعم وحل مشاكل</span>
+              </button>
+            )}
+            {onAdjustWallet && (
+              <button
+                type="button"
+                onClick={() => onAdjustWallet(store)}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/50 text-[11px] font-black transition-all cursor-pointer"
+                title="تعديل رصيد المحفظة"
+              >
+                <ArrowLeftRight size={12} />
+                <span>تعديل الرصيد</span>
+              </button>
+            )}
+            {onToggleOwnerBan && owner && !owner.isAdmin && (
+              <button
+                type="button"
+                onClick={() => onToggleOwnerBan(owner)}
+                className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl border text-[11px] font-black transition-all cursor-pointer ${
+                  owner.isBanned
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200/70 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800/50'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                }`}
+                title={owner.isBanned ? 'فك حظر المالك' : 'حظر المالك بالكامل'}
+              >
+                {owner.isBanned ? <Unlock size={12} /> : <Lock size={12} />}
+                <span>{owner.isBanned ? 'فك حظر المالك' : 'حظر المالك'}</span>
+              </button>
+            )}
+            {onToggleStoreBan && owner && (
+              <button
+                type="button"
+                onClick={() => onToggleStoreBan(owner, store)}
+                className={`flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl border text-[11px] font-black transition-all cursor-pointer ${
+                  store.isBanned
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200/70 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800/50'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200/70 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800/50'
+                }`}
+                title={store.isBanned ? 'إعادة تفعيل المتجر' : 'حظر وإيقاف هذا المتجر فقط'}
+              >
+                {store.isBanned ? <Unlock size={12} /> : <Lock size={12} />}
+                <span>{store.isBanned ? 'تفعيل المتجر' : 'حظر المتجر'}</span>
+              </button>
+            )}
+            {onMaintenance && (
+              <button
+                type="button"
+                onClick={() => onMaintenance(store)}
+                className="flex items-center justify-center gap-1 py-1.5 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/30 dark:hover:bg-rose-900/40 dark:text-rose-300 border border-rose-200/70 dark:border-rose-800/50 text-[11px] font-black transition-all cursor-pointer"
+                title="صيانة وتصفير أو حذف المتجر"
+              >
+                <Trash2 size={12} />
+                <span>صيانة/حذف</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Creation Date */}
         <div className="text-center pt-0.5 text-slate-400 text-xs font-semibold">

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation, Link } from 'react-router-dom';
+import { Loader2, ShieldAlert, Store as StoreIcon, LayoutDashboard, Users, TrendingUp, Settings as SettingsIcon, AlertTriangle, Wallet as WalletIcon, UserCog, Wrench, ArrowRight } from 'lucide-react';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
@@ -13,9 +13,13 @@ import { migrateLegacyProductMerchantLinks, isDummyMockSupplier, sanitizeSupplie
 
 import { triggerWebhooks } from './utils/webhook';
 import { audioSynth } from './utils/audioSynth';
+import { setFraudShieldStoreContext, fetchCloudBlacklist } from './utils/fraudShield';
+import { setWebhookStoreContext } from './services/webhookDispatcherService';
+import { notificationService } from './services/notificationService';
 import { lazyWithRetry } from './utils/lazyWithRetry';
 import GlobalLoader from './components/GlobalLoader';
 import WelcomeLoader from './components/WelcomeLoader';
+import SuspendedAccountSupportScreen from './components/SuspendedAccountSupportScreen';
 import { computeEnrichedCustomers } from './components/crm/crmUtils';
 
 const getAuthOtpApiBase = () => {
@@ -163,7 +167,9 @@ const MainLayout = ({
     saveMessage,
     isShippingCalculatorOpen,
     setIsShippingCalculatorOpen,
-    pendingRequestsCounts
+    pendingRequestsCounts,
+    impersonatingFromAdmin,
+    onExitImpersonation
 }: any) => {
     const location = useLocation();
 
@@ -239,7 +245,7 @@ const MainLayout = ({
                     setSharedAudits(res.audits);
                 }
             },
-            15000,
+            30000,
             (err) => console.warn('[Notification] shared_audits polling notice:', err?.message || err)
         );
 
@@ -255,7 +261,7 @@ const MainLayout = ({
                 }));
                 setChatMessages(list);
             },
-            10000,
+            20000,
             (err) => console.warn('[Notification] chat_messages polling notice:', err?.message || err)
         );
 
@@ -547,6 +553,43 @@ const MainLayout = ({
             <div className="absolute bottom-[-16%] left-[-10%] w-[38vw] h-[38vw] rounded-full bg-lime-500/5 dark:bg-lime-500/8 blur-[140px] pointer-events-none z-0" />
 
             <div className="relative z-10 flex flex-col h-full min-h-0 overflow-hidden">
+                {impersonatingFromAdmin && (
+                    <div className="no-print shrink-0 bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-950 text-white px-4 py-2 border-b border-indigo-400/30 flex items-center justify-between gap-3 flex-wrap text-xs">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-400/30 font-black shrink-0">
+                                <Wrench size={12} />
+                                وضع الدعم الفني
+                            </span>
+                            <span className="font-bold truncate">
+                                تتصفح الآن حساب: <strong className="text-emerald-300">{currentUser?.fullName}</strong>
+                                {activeStore?.name ? ` — متجر: ${activeStore.name}` : ''}
+                            </span>
+                            {(currentUser?.isBanned || activeStore?.isBanned) && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/30 text-rose-200 border border-rose-400/40 font-black shrink-0">
+                                    ⛔ {currentUser?.isBanned ? 'حساب المالك محظور' : 'المتجر موقوف إدارياً'}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => onExitImpersonation(`/admin?tab=support${activeStore?.id ? `&storeId=${encodeURIComponent(activeStore.id)}` : ''}`)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-black transition-all cursor-pointer"
+                            >
+                                <Wrench size={12} />
+                                <span>تشخيص وإصلاح هذا المتجر</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onExitImpersonation('/admin/manage-stores')}
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black transition-all cursor-pointer"
+                            >
+                                <ArrowRight size={12} />
+                                <span>العودة للوحة الإدارة</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
                 <div className="no-print shrink-0">
                     <Header 
                         currentUser={currentUser} 
@@ -575,6 +618,7 @@ const MainLayout = ({
                                 isDesktopCollapsed={isDesktopCollapsed}
                                 onToggleDesktopCollapse={toggleDesktopSidebar}
                                 pendingRequestsCounts={pendingRequestsCounts}
+                                isAdmin={Boolean(currentUser?.isAdmin)}
                             />
                         </div>
                     )}
@@ -599,7 +643,34 @@ const MainLayout = ({
     );
 };
 
-const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad }: any) => {
+const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad, allStoresData, users, impersonatingFromAdmin, activeStoreId }: any) => {
+    const location = useLocation();
+    const searchParams = new URLSearchParams(location.search);
+    const currentTab = searchParams.get('tab') || 'dashboard';
+
+    const validStoreIds = useMemo(() => {
+        const ids = new Set<string>();
+        (users || []).forEach((u: any) => {
+            (u.stores || []).forEach((s: any) => {
+                if (s?.id) ids.add(s.id);
+            });
+        });
+        return ids;
+    }, [users]);
+
+    const pendingFinancialCount = useMemo(() => {
+        let count = 0;
+        Object.entries(allStoresData || {}).forEach(([storeId, storeData]: [string, any]) => {
+            if (validStoreIds.size > 0 && !validStoreIds.has(storeId)) return;
+            storeData?.wallet?.transactions?.forEach((t: any) => {
+                if (t?.status === 'pending' && !String(t?.id || '').startsWith('WF-')) {
+                    count++;
+                }
+            });
+        });
+        return count;
+    }, [allStoresData, validStoreIds]);
+
     if (isInitialLoad) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-100" dir="rtl">
@@ -610,9 +681,35 @@ const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad
             </div>
         );
     }
-    if (!currentUser || !currentUser.isAdmin) {
+    if (!currentUser) {
         return <Navigate to="/owner-login" replace />;
     }
+    if (!currentUser.isAdmin) {
+        if (impersonatingFromAdmin) {
+            return <Navigate to={activeStoreId ? `/store/${activeStoreId}/dashboard` : '/manage-stores'} replace />;
+        }
+        return <Navigate to="/owner-login" replace />;
+    }
+
+    const isStoresHub = location.pathname === '/admin/manage-stores' || location.pathname === '/admin/select-store' || location.pathname === '/admin/projects';
+    const isAdminRoot = location.pathname === '/admin';
+    const isAccountSettings = location.pathname === '/admin/account-settings';
+
+    const navItems = [
+        { label: 'متاجر المنصة', to: '/admin/manage-stores', icon: <StoreIcon size={14} />, active: isStoresHub },
+        { label: 'نظرة عامة والتحليلات', to: '/admin?tab=dashboard', icon: <LayoutDashboard size={14} />, active: isAdminRoot && currentTab === 'dashboard' },
+        { label: 'الصلاحيات الحصرية والرقابة', to: '/admin?tab=exclusive_controls', icon: <ShieldAlert size={14} />, active: isAdminRoot && currentTab === 'exclusive_controls', badge: pendingFinancialCount },
+        { label: 'المستخدمين والتجار', to: '/admin?tab=users', icon: <Users size={14} />, active: isAdminRoot && currentTab === 'users' },
+        { label: 'المحافظ والأرصدة', to: '/admin?tab=stores', icon: <WalletIcon size={14} />, active: isAdminRoot && currentTab === 'stores' },
+        { label: 'الطلبات المالية', to: '/admin?tab=financial', icon: <TrendingUp size={14} />, active: isAdminRoot && currentTab === 'financial', badge: pendingFinancialCount },
+        { label: 'الرسوم والعمولات', to: '/admin?tab=fee_settings', icon: <SettingsIcon size={14} />, active: isAdminRoot && currentTab === 'fee_settings' },
+        { label: 'البريد والبنية السحابية', to: '/admin?tab=infrastructure', icon: <SettingsIcon size={14} />, active: isAdminRoot && currentTab === 'infrastructure' },
+        { label: 'الدعم الفني وحل المشاكل', to: '/admin?tab=support', icon: <Wrench size={14} />, active: isAdminRoot && currentTab === 'support' },
+        { label: 'ترحيل المستخدمين', to: '/admin?tab=user_migration', icon: <ShieldAlert size={14} />, active: isAdminRoot && currentTab === 'user_migration' },
+        { label: 'صيانة وإبادة البيانات', to: '/admin?tab=danger_zone', icon: <AlertTriangle size={14} />, active: isAdminRoot && currentTab === 'danger_zone', danger: true },
+        { label: 'إعدادات الحساب', to: '/admin/account-settings', icon: <UserCog size={14} />, active: isAccountSettings },
+    ];
+
     return (
         <div className="flex flex-col h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-50 overflow-hidden relative" dir="rtl">
             {/* Floating Ambient Glow Elements */}
@@ -621,6 +718,40 @@ const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad
             
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 <Header currentUser={currentUser} onLogout={handleLogout} theme={theme} setTheme={setTheme} onToggleSidebar={() => {}} />
+                
+                {/* System-Wide Admin Command Navigation Bar */}
+                <nav aria-label="تنقل تحكم المنظومة" className="bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-white/[0.08] px-4 md:px-6 py-2.5 shrink-0">
+                    <div className="max-w-7xl mx-auto flex items-center gap-2 overflow-x-auto no-scrollbar">
+                        <span className="hidden lg:inline-flex items-center gap-1.5 text-[11px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/80 dark:border-indigo-800/60 px-2.5 py-1.5 rounded-xl shrink-0">
+                            <ShieldAlert size={13} />
+                            تحكم المنظومة
+                        </span>
+                        {navItems.map((item) => (
+                            <Link
+                                key={item.to}
+                                to={item.to}
+                                className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all duration-200 border ${
+                                    item.active
+                                        ? item.danger
+                                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                                            : 'bg-slate-900 dark:bg-indigo-600 text-white border-slate-900 dark:border-indigo-600 shadow-sm'
+                                        : item.danger
+                                            ? 'bg-rose-50/70 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 border-rose-200/70 dark:border-rose-900/40 hover:bg-rose-100 dark:hover:bg-rose-900/40'
+                                            : 'bg-slate-50/80 dark:bg-white/[0.04] text-slate-600 dark:text-slate-300 border-slate-200/70 dark:border-white/[0.08] hover:bg-slate-100 dark:hover:bg-white/[0.08] hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                            >
+                                {item.icon}
+                                <span>{item.label}</span>
+                                {item.badge !== undefined && item.badge > 0 && (
+                                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black tabular-nums rounded-full bg-rose-500 text-white shadow-xs">
+                                        {item.badge}
+                                    </span>
+                                )}
+                            </Link>
+                        ))}
+                    </div>
+                </nav>
+
                 <main className="flex-1 overflow-y-auto p-4 md:p-6 no-scrollbar relative">
                     <Outlet />
                 </main>
@@ -632,6 +763,17 @@ const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad
 const EmployeeLayoutWrapper = ({ children, isEmployeeSession, ...props }: any) => {
     if (!props.currentUser || !isEmployeeSession) {
         return <Navigate to="/employee-login" replace />;
+    }
+    const storeInOwner = props.storeOwner?.stores?.find((s: any) => s.id === props.activeStoreId);
+    if (props.storeOwner?.isBanned || storeInOwner?.isBanned) {
+        return (
+            <SuspendedAccountSupportScreen
+                mode="employee"
+                currentUser={props.currentUser}
+                activeStore={storeInOwner}
+                onLogout={props.onLogout}
+            />
+        );
     }
     return <EmployeeLayout currentUser={props.currentUser} {...props}>{children}</EmployeeLayout>;
 };
@@ -806,6 +948,9 @@ function sanitizeData(storeData: StoreData): StoreData {
 // -------------------------------------------------------------------------------------------------
 const OwnerLayoutWrapper = ({
     currentUser,
+    setCurrentUser,
+    users,
+    setUsers,
     isEmployeeSession,
     welcomeScreenShown,
     setWelcomeScreenShown,
@@ -824,7 +969,9 @@ const OwnerLayoutWrapper = ({
     saveMessage,
     isShippingCalculatorOpen,
     setIsShippingCalculatorOpen,
-    isInitialLoad
+    isInitialLoad,
+    impersonatingFromAdmin,
+    onExitImpersonation
 }: any) => {
     const location = useLocation();
     const { storeId: urlStoreId } = useParams();
@@ -977,6 +1124,43 @@ const OwnerLayoutWrapper = ({
         return <Navigate to="/welcome" replace />;
     }
 
+    // Enforce Merchant Account Ban (unless Platform Admin is impersonating for support)
+    if (currentUser.isBanned && !currentUser.isAdmin && !impersonatingFromAdmin) {
+        return (
+            <SuspendedAccountSupportScreen
+                mode="account"
+                currentUser={currentUser}
+                activeStore={activeStore}
+                users={users}
+                setCurrentUser={setCurrentUser}
+                setUsers={setUsers}
+                onLogout={handleLogout}
+            />
+        );
+    }
+
+    // Enforce Single Store Ban when inside a specific store route (unless Platform Admin)
+    const isStoreSwitchRoute =
+        location.pathname === '/manage-stores' ||
+        location.pathname === '/select-store' ||
+        location.pathname === '/projects' ||
+        location.pathname === '/create-store' ||
+        location.pathname === '/account-settings';
+
+    if (activeStore?.isBanned && !isStoreSwitchRoute && !currentUser.isAdmin && !impersonatingFromAdmin) {
+        return (
+            <SuspendedAccountSupportScreen
+                mode="store"
+                currentUser={currentUser}
+                activeStore={activeStore}
+                users={users}
+                setCurrentUser={setCurrentUser}
+                setUsers={setUsers}
+                onLogout={handleLogout}
+            />
+        );
+    }
+
     const hasNoStores = !currentUser.stores || currentUser.stores.length === 0;
 
     if (hasNoStores && !currentUser.isAdmin) {
@@ -1023,6 +1207,8 @@ const OwnerLayoutWrapper = ({
             isShippingCalculatorOpen={isShippingCalculatorOpen}
             setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
             pendingRequestsCounts={pendingRequestsCounts}
+            impersonatingFromAdmin={impersonatingFromAdmin}
+            onExitImpersonation={onExitImpersonation}
         />
     );
 };
@@ -1045,6 +1231,14 @@ export const AppComponent = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [allStoresData, setAllStoresData] = useState<Record<string, StoreData>>({});
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [impersonatingFromAdmin, setImpersonatingFromAdmin] = useState<User | null>(() => {
+        try {
+            const raw = localStorage.getItem('admin_impersonation_origin');
+            return raw ? (JSON.parse(raw) as User) : null;
+        } catch {
+            return null;
+        }
+    });
     const [activeStoreId, setActiveStoreId] = useState<string | null>(null);
     const [isInitialLoad, setIsInitialLoad] = useState<boolean>(true);
     const [syncedSnapshot, setSyncedSnapshot] = useState<{ users: User[]; allStoresData: Record<string, StoreData>; } | null>(null);
@@ -1120,6 +1314,10 @@ export const AppComponent = () => {
     const allStoresDataRef = useRef<any>(null);
     const knownOrderIdsRef = useRef<Set<string>>(new Set());
     const hasInitialOrdersLoadedRef = useRef<boolean>(false);
+    const lastSyncedUsersSigRef = useRef<string | null>(null);
+    const lastSyncedStoreSigRef = useRef<{ storeId: string; sig: string } | null>(null);
+    const lastStoreMetaVersionRef = useRef<number | null>(null);
+    const lastFullStoreRefreshAtRef = useRef<number>(0);
     
     // 2FA State
     const [userForOtp, setUserForOtp] = useState<User | null>(null);
@@ -1432,7 +1630,32 @@ export const AppComponent = () => {
         return changes;
     };
 
-    // Ensure every store has a subdomain and generate a random one if missing
+    const normalizeAppSubdomain = (raw: unknown, fallbackStoreId: string): string => {
+        const cleaned = String(raw || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\.abdomedi\.com.*$/i, '')
+            .replace(/^https?:\/\//i, '')
+            .replace(/[^a-z0-9-]/g, '')
+            .replace(/-+/g, '-')
+            .replace(/^-+|-+$/g, '');
+        if (!cleaned) {
+            const suffix = String(fallbackStoreId || '').replace(/[^a-z0-9]/gi, '').slice(-6).toLowerCase() || Math.floor(1000 + Math.random() * 9000).toString();
+            return `store-${suffix}`;
+        }
+        if (/^\d+$/.test(cleaned) || cleaned.length < 3) {
+            return `store-${cleaned}`;
+        }
+        return cleaned.slice(0, 30).replace(/-+$/g, '');
+    };
+
+    const isInvalidAppSubdomain = (raw: unknown): boolean => {
+        const s = String(raw || '').trim();
+        if (!s) return true;
+        return /^-+|-+$|--|^\d+$/.test(s) || s.length < 3 || !/^[a-z0-9]([a-z0-9-]{1,28}[a-z0-9])?$/.test(s);
+    };
+
+    // Ensure every store has a valid subdomain and heal malformed ones (e.g. ---1128 -> store-1128)
     useEffect(() => {
         if (isInitialLoad || isRefreshing.current) return;
         
@@ -1441,28 +1664,25 @@ export const AppComponent = () => {
         
         Object.keys(newAllStoresData).forEach(storeId => {
             const data = newAllStoresData[storeId];
-            if (data && data.settings && !data.settings.subdomain && !data.settings.isSubdomainFixed) {
-                // Find existing subdomain in users object first
+            if (!data || !data.settings) return;
+            const currentSub = data.settings.subdomain;
+            if ((!currentSub && !data.settings.isSubdomainFixed) || (currentSub && isInvalidAppSubdomain(currentSub))) {
                 const owner = users.find(u => u.stores?.some(s => s.id === storeId));
                 const storeMeta = owner?.stores?.find(s => s.id === storeId);
-                const existingSub = storeMeta?.subdomain;
-
-                const generatedSubdomain = existingSub || (() => {
-                    const storeName = storeId;
-                    const base = storeName.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
-                    const random = Math.floor(1000 + Math.random() * 9000).toString();
-                    return `${base || 'store'}-${random}`;
-                })();
+                const candidate = currentSub || storeMeta?.subdomain || '';
+                const generatedSubdomain = normalizeAppSubdomain(candidate, storeId);
                 
-                newAllStoresData[storeId] = {
-                    ...data,
-                    settings: {
-                        ...data.settings,
-                        subdomain: generatedSubdomain,
-                        isSubdomainFixed: true
-                    }
-                };
-                changed = true;
+                if (generatedSubdomain && generatedSubdomain !== currentSub) {
+                    newAllStoresData[storeId] = {
+                        ...data,
+                        settings: {
+                            ...data.settings,
+                            subdomain: generatedSubdomain,
+                            isSubdomainFixed: true
+                        }
+                    };
+                    changed = true;
+                }
             }
         });
         
@@ -1491,16 +1711,13 @@ export const AppComponent = () => {
                         if (storeData && storeData.settings) {
                             currentCustomDomain = storeData.settings.customAppDomain || currentCustomDomain;
                             currentSubdomain = storeData.settings.subdomain || currentSubdomain;
-                            // If it's fixed in settings, respect that even if currentSubdomain is somehow null in store object
                             if (storeData.settings.isSubdomainFixed && storeData.settings.subdomain) {
                                 currentSubdomain = storeData.settings.subdomain;
                             }
                         }
 
-                        if (!currentSubdomain && !storeData?.settings?.isSubdomainFixed && (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
-                            const base = store.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
-                            const random = Math.floor(1000 + Math.random() * 9000).toString();
-                            currentSubdomain = `${base || 'store'}-${random}`;
+                        if (!currentSubdomain || isInvalidAppSubdomain(currentSubdomain) || (!store.url || store.url.includes('wuitstore') || store.url.includes('---'))) {
+                            currentSubdomain = normalizeAppSubdomain(currentSubdomain || store.name, store.id);
                         }
                         
                         let bestUrl = store.url;
@@ -1574,6 +1791,25 @@ export const AppComponent = () => {
         }
     }, [activeStore?.name, activeStoreId, allStoresData, isStandaloneStorefront, location.pathname]);
 
+    const lastSyncedFraudStoreRef = useRef<string | null>(null);
+    useEffect(() => {
+        const currentBlacklist = activeStoreId
+            ? ((allStoresData[activeStoreId]?.settings as any)?.fraudBlacklist as any[] | undefined)
+            : undefined;
+        setFraudShieldStoreContext(activeStoreId, currentBlacklist);
+        setWebhookStoreContext(activeStoreId);
+        void notificationService.setStoreContext(activeStoreId);
+
+        if (activeStoreId && lastSyncedFraudStoreRef.current !== activeStoreId) {
+            lastSyncedFraudStoreRef.current = activeStoreId;
+            if (!Array.isArray(currentBlacklist)) {
+                void fetchCloudBlacklist(activeStoreId);
+            }
+        } else if (!activeStoreId) {
+            lastSyncedFraudStoreRef.current = null;
+        }
+    }, [activeStoreId, allStoresData]);
+
     // --- Aggressive Auto-Save Logic ---
     // 1. Instant local persistence to IndexedDB
     useEffect(() => {
@@ -1615,6 +1851,13 @@ export const AppComponent = () => {
         // Do not trigger a dirty cloud sync immediately on the first render when initial load completes
         if (isFirstSyncAfterLoadRef.current) {
             isFirstSyncAfterLoadRef.current = false;
+            lastSyncedUsersSigRef.current = JSON.stringify(users);
+            if (activeStoreId && allStoresData[activeStoreId]) {
+                lastSyncedStoreSigRef.current = {
+                    storeId: activeStoreId,
+                    sig: JSON.stringify(allStoresData[activeStoreId])
+                };
+            }
             return;
         }
 
@@ -1645,29 +1888,47 @@ export const AppComponent = () => {
                 return;
             }
 
+            const { users: curUsers, allStoresData: curAllStoresData, activeStore: curActiveStore, activeStoreId: curActiveStoreId } = latestStateRef.current;
+
+            const usersSig = JSON.stringify(curUsers);
+            const shouldSyncUsers = curUsers.length > 0 && usersSig !== lastSyncedUsersSigRef.current;
+
+            let storeSig: string | null = null;
+            let shouldSyncStore = false;
+            const storeDataToSync = curActiveStoreId ? curAllStoresData[curActiveStoreId] : undefined;
+            if (curActiveStoreId && storeDataToSync && curActiveStore) {
+                const isUninitializedShell = !storeDataToSync.settings?.storeName &&
+                    (!storeDataToSync.settings?.products || storeDataToSync.settings.products.length === 0) &&
+                    (!storeDataToSync.orders || storeDataToSync.orders.length === 0);
+
+                if (!isUninitializedShell) {
+                    storeSig = JSON.stringify(storeDataToSync);
+                    shouldSyncStore =
+                        lastSyncedStoreSigRef.current?.storeId !== curActiveStoreId ||
+                        lastSyncedStoreSigRef.current?.sig !== storeSig;
+                }
+            }
+
+            if (!shouldSyncUsers && !shouldSyncStore) {
+                isDirtyRef.current = false;
+                setSaveStatus('idle');
+                return;
+            }
+
             isSavingRef.current = true;
             setSaveStatus('saving');
             setSaveMessage('جاري المزامنة مع السحاب...');
 
             try {
-                const { users: curUsers, allStoresData: curAllStoresData, activeStore: curActiveStore, activeStoreId: curActiveStoreId } = latestStateRef.current;
-
-                const cloudPromises = [];
-                cloudPromises.push(db.saveGlobalData({ users: curUsers, loyaltyData: {} }));
-                
-                if (curActiveStoreId && curAllStoresData[curActiveStoreId] && curActiveStore) {
-                    const storeDataToSync = curAllStoresData[curActiveStoreId];
-                    // Safeguard: only sync to cloud if store data is actually populated
-                    const isUninitializedShell = !storeDataToSync.settings?.storeName && 
-                        (!storeDataToSync.settings?.products || storeDataToSync.settings.products.length === 0) && 
-                        (!storeDataToSync.orders || storeDataToSync.orders.length === 0);
-
-                    if (!isUninitializedShell) {
-                        cloudPromises.push(db.saveStoreData(curActiveStore, storeDataToSync));
-                    }
+                const syncTasks: { kind: 'users' | 'store'; promise: Promise<{ success: boolean; version?: number; error?: string }> }[] = [];
+                if (shouldSyncUsers) {
+                    syncTasks.push({ kind: 'users', promise: db.saveGlobalData({ users: curUsers, loyaltyData: {} }) });
+                }
+                if (shouldSyncStore && curActiveStore && storeDataToSync) {
+                    syncTasks.push({ kind: 'store', promise: db.saveStoreData(curActiveStore, storeDataToSync) });
                 }
 
-                const results = await Promise.all(cloudPromises);
+                const results = await Promise.all(syncTasks.map(t => t.promise));
                 const quotaExceeded = results.some(r => r.error === 'QUOTA_EXCEEDED');
                 
                 if (quotaExceeded) {
@@ -1676,6 +1937,20 @@ export const AppComponent = () => {
                     setSaveMessage('تم استهلاك حصة الاستخدام اليومية. تم التحويل للعمل دون اتصال.');
                     return;
                 }
+
+                results.forEach((res, idx) => {
+                    if (!res.success) return;
+                    const task = syncTasks[idx];
+                    if (task.kind === 'users') {
+                        lastSyncedUsersSigRef.current = usersSig;
+                    } else if (task.kind === 'store' && curActiveStoreId && storeSig !== null) {
+                        lastSyncedStoreSigRef.current = { storeId: curActiveStoreId, sig: storeSig };
+                        if (typeof res.version === 'number') {
+                            lastStoreMetaVersionRef.current = res.version;
+                        }
+                        lastFullStoreRefreshAtRef.current = Date.now();
+                    }
+                });
 
                 const failed = results.find(r => !r.success);
                 
@@ -1781,8 +2056,11 @@ export const AppComponent = () => {
             // Check if there is a store ID in the path (e.g. /store/:storeId/partner-portal or /store/:storeId)
             const pathParts = window.location.pathname.split('/');
             let pathStoreId = '';
+            let pathStoreSlug = '';
             if (pathParts[1] === 'store' && pathParts[2] && pathParts[2].startsWith('store-')) {
                 pathStoreId = pathParts[2];
+            } else if (pathParts[1] === 's' && pathParts[2]) {
+                pathStoreSlug = decodeURIComponent(pathParts[2]).trim();
             }
 
             if (pathStoreId) {
@@ -1802,11 +2080,30 @@ export const AppComponent = () => {
             // Refined isMainDomain check: exact match for root domains or the dev/preview pages
             const isExactMainDomain = mainDomains.includes(hostNoWww) || hostNoWww.includes('run.app') || hostNoWww.includes('pages.dev') || hostNoWww.includes('aistudio.google') || hostNoWww.includes('web-preview');
             
-            // Support for forcing storefront view in development via query param
+            // Support for forcing storefront view via query param (?preview_store= or ?store=) or /s/:slug path
             const urlParams = new URLSearchParams(window.location.search);
-            const previewId = urlParams.get('preview_store');
+            const previewParam = urlParams.get('preview_store') || urlParams.get('store') || pathStoreSlug;
 
-            let foundStoreId: string | null = previewId;
+            let foundStoreId: string | null = null;
+            if (previewParam) {
+                if (/^store-\d{6,}/.test(previewParam)) {
+                    foundStoreId = previewParam;
+                } else {
+                    try {
+                        const lookupRes = await cfFetch<any>(
+                            `/api/db/stores/resolve-domain?subdomain=${encodeURIComponent(previewParam)}`,
+                            { timeoutMs: 5000 }
+                        );
+                        if (lookupRes?.found && lookupRes.storeId) {
+                            foundStoreId = lookupRes.storeId;
+                        } else {
+                            foundStoreId = previewParam;
+                        }
+                    } catch {
+                        foundStoreId = previewParam;
+                    }
+                }
+            }
             
             if (!foundStoreId && !isExactMainDomain) {
                 // High-performance domain/subdomain lookup in Cloudflare D1 stores_data table
@@ -1834,7 +2131,7 @@ export const AppComponent = () => {
                 if (storeData) {
                     const sanitizedStoreData = sanitizeData(storeData);
                     setAllStoresData(prev => ({ ...prev, [foundStoreId!]: sanitizedStoreData }));
-                } else if (!isExactMainDomain || previewId) {
+                } else if (!isExactMainDomain || previewParam) {
                     setIsStoreNotFound(true);
                 }
             } else if (!isExactMainDomain) {
@@ -1851,9 +2148,24 @@ export const AppComponent = () => {
                         let user = await db.getUserByPhone(savedUserPhone);
                         
                         if (user) {
+                            const userStoreIds = new Set((user.stores || []).map(s => s.id));
                             const localDefault = localStorage.getItem('defaultStoreId');
-                            if (!user.defaultStoreId && localDefault) {
-                                user.defaultStoreId = localDefault;
+                            if (savedSessionType !== 'employee') {
+                                if (localDefault && !userStoreIds.has(localDefault)) {
+                                    localStorage.removeItem('defaultStoreId');
+                                }
+                                if (user.defaultStoreId && !userStoreIds.has(user.defaultStoreId)) {
+                                    user.defaultStoreId = undefined;
+                                    user.autoLaunchDefaultStore = false;
+                                    void db.createUserDoc(user).catch(() => {});
+                                }
+                                if (savedStoreId && !userStoreIds.has(savedStoreId)) {
+                                    localStorage.removeItem('lastActiveStoreId');
+                                }
+                            }
+                            const validLocalDefault = localDefault && userStoreIds.has(localDefault) ? localDefault : null;
+                            if (!user.defaultStoreId && validLocalDefault) {
+                                user.defaultStoreId = validLocalDefault;
                                 user.autoLaunchDefaultStore = true;
                             }
                             setUsers(prev => prev.some(u => u.phone === user!.phone) ? prev : [...prev, user!]);
@@ -1861,7 +2173,10 @@ export const AppComponent = () => {
                             if (savedSessionType === 'employee') {
                                 setIsEmployeeSession(true);
                             }
-                            const storeId = user.defaultStoreId || savedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
+                            const validSavedStoreId = (savedSessionType === 'employee' || (savedStoreId && userStoreIds.has(savedStoreId)))
+                                ? savedStoreId
+                                : null;
+                            const storeId = user.defaultStoreId || validSavedStoreId || (user.stores && user.stores.length > 0 ? user.stores[0].id : null);
                             if (storeId) {
                                 setActiveStoreId(storeId);
                                 localStorage.setItem('lastActiveStoreId', storeId);
@@ -1871,6 +2186,9 @@ export const AppComponent = () => {
                                     const sanitizedStoreData = sanitizeData(storeData);
                                     setAllStoresData(prev => ({ ...prev, [storeId]: sanitizedStoreData }));
                                 }
+                            } else {
+                                setActiveStoreId(null);
+                                localStorage.removeItem('lastActiveStoreId');
                             }
                         } else {
                             // Invalid session or doc not found
@@ -1934,11 +2252,13 @@ export const AppComponent = () => {
     const handleLogout = () => {
         void cfAuthLogout();
         setCurrentUser(null);
+        setImpersonatingFromAdmin(null);
         setActiveStoreId(null);
         setIsEmployeeSession(false);
         localStorage.removeItem('currentUserPhone');
         localStorage.removeItem('lastActiveStoreId');
         localStorage.removeItem('sessionType');
+        localStorage.removeItem('admin_impersonation_origin');
         setWelcomeScreenShown(false);
         navigate('/welcome');
     };
@@ -2366,9 +2686,96 @@ export const AppComponent = () => {
         return { success: result.success, error: result.error };
     };
 
-    const handleImpersonate = (userToImpersonate: User) => {
-        console.log(`Impersonating user: ${userToImpersonate.fullName}`);
-        completeLogin(userToImpersonate, null); 
+    const handleImpersonate = (userToImpersonate: User, targetStoreId?: string) => {
+        console.log(`Impersonating user: ${userToImpersonate.fullName}`, targetStoreId || '');
+        if (currentUser?.isAdmin) {
+            setImpersonatingFromAdmin(currentUser);
+            try {
+                localStorage.setItem('admin_impersonation_origin', JSON.stringify(currentUser));
+            } catch {}
+        }
+
+        const resolvedStoreId =
+            targetStoreId ||
+            userToImpersonate.defaultStoreId ||
+            userToImpersonate.stores?.[0]?.id ||
+            null;
+
+        let effectiveUser = userToImpersonate;
+        if (resolvedStoreId && !(userToImpersonate.stores || []).some(s => s.id === resolvedStoreId)) {
+            const storeSnap = allStoresData[resolvedStoreId];
+            effectiveUser = {
+                ...userToImpersonate,
+                stores: [
+                    ...(userToImpersonate.stores || []),
+                    {
+                        id: resolvedStoreId,
+                        name: storeSnap?.settings?.storeName || resolvedStoreId,
+                        subdomain: storeSnap?.settings?.subdomain || resolvedStoreId,
+                        url: '',
+                        currency: 'EGP'
+                    } as Store
+                ]
+            };
+        }
+
+        setUsers(prev => {
+            if (!prev.some(u => u.phone === effectiveUser.phone)) return [...prev, effectiveUser];
+            return prev.map(u => (u.phone === effectiveUser.phone ? effectiveUser : u));
+        });
+
+        try {
+            localStorage.setItem('currentUserPhone', effectiveUser.phone);
+            localStorage.setItem('sessionType', 'owner');
+            if (resolvedStoreId) {
+                localStorage.setItem('lastActiveStoreId', resolvedStoreId);
+            } else {
+                localStorage.removeItem('lastActiveStoreId');
+            }
+        } catch {}
+
+        setIsEmployeeSession(false);
+        setWelcomeScreenShown(true);
+        setUserForOtp(null);
+        setSessionInfoForOtp(null);
+        setOtpError('');
+
+        if (resolvedStoreId) {
+            void handleSetActiveStore(resolvedStoreId);
+        } else {
+            setActiveStoreId(null);
+        }
+
+        setCurrentUser(effectiveUser);
+        navigate(resolvedStoreId ? `/store/${resolvedStoreId}/dashboard` : '/manage-stores');
+    };
+
+    const handleExitImpersonation = (redirectPath?: string) => {
+        let adminOrigin = impersonatingFromAdmin;
+        if (!adminOrigin) {
+            try {
+                const raw = localStorage.getItem('admin_impersonation_origin');
+                if (raw) adminOrigin = JSON.parse(raw) as User;
+            } catch {}
+        }
+        if (!adminOrigin) {
+            navigate('/admin/manage-stores');
+            return;
+        }
+
+        setImpersonatingFromAdmin(null);
+        try {
+            localStorage.removeItem('admin_impersonation_origin');
+            localStorage.setItem('currentUserPhone', adminOrigin.phone);
+            localStorage.setItem('sessionType', 'admin');
+            localStorage.removeItem('lastActiveStoreId');
+        } catch {}
+
+        setIsEmployeeSession(false);
+        setActiveStoreId(null);
+        setCurrentUser(adminOrigin);
+        setWelcomeScreenShown(true);
+        navigate(redirectPath || '/admin/manage-stores');
     };
 
     const refreshStoreData = (storeId: string): Promise<void> => {
@@ -2392,9 +2799,12 @@ export const AppComponent = () => {
                 const storeData = await db.getStoreData(storeId, true) as StoreData | null;
                 if (storeData) {
                     const sanitizedStoreData = sanitizeData(storeData);
+                    const sig = JSON.stringify(sanitizedStoreData);
+                    lastSyncedStoreSigRef.current = { storeId, sig };
+                    lastFullStoreRefreshAtRef.current = Date.now();
                     
                     setAllStoresData(prev => {
-                        const isIdentical = JSON.stringify(prev[storeId]) === JSON.stringify(sanitizedStoreData);
+                        const isIdentical = JSON.stringify(prev[storeId]) === sig;
                         if (isIdentical) {
                             resolve();
                             return prev;
@@ -2424,6 +2834,7 @@ export const AppComponent = () => {
             console.log('[REALTIME] Debounced global refresh executing.');
             const globalData = await db.getGlobalData(true);
             if (globalData?.users) {
+                lastSyncedUsersSigRef.current = JSON.stringify(globalData.users);
                 isRefreshing.current = true;
                 setUsers(globalData.users);
                 setCurrentUser(prevUser => {
@@ -2475,16 +2886,37 @@ export const AppComponent = () => {
         };
 
         const unsubscribers: (() => void)[] = [];
+        lastStoreMetaVersionRef.current = null;
+        lastFullStoreRefreshAtRef.current = 0;
 
         if (activeStoreId) {
             const unsubStorePoll = subscribePolling(
                 async () => {
                     if (isSavingRef.current || isDirtyRef.current) return null;
-                    return await db.getStoreData(activeStoreId, true);
+                    const now = Date.now();
+                    const meta = await cfFetch<{ success: boolean; exists?: boolean; version?: number }>(
+                        `/api/db/stores/${encodeURIComponent(activeStoreId)}/meta`
+                    );
+                    const remoteVersion = typeof meta?.version === 'number' ? meta.version : null;
+                    const shouldFetchFull =
+                        lastStoreMetaVersionRef.current === null ||
+                        (remoteVersion !== null && remoteVersion !== lastStoreMetaVersionRef.current) ||
+                        now - lastFullStoreRefreshAtRef.current >= 120000;
+                    if (!shouldFetchFull) {
+                        return null;
+                    }
+                    const fullStoreData = await db.getStoreData(activeStoreId, true);
+                    if (remoteVersion !== null) {
+                        lastStoreMetaVersionRef.current = remoteVersion;
+                    }
+                    lastFullStoreRefreshAtRef.current = Date.now();
+                    return fullStoreData;
                 },
                 (remoteStoreData) => {
                     if (!remoteStoreData || isSavingRef.current || isDirtyRef.current) return;
                     const sanitizedStore = sanitizeData(remoteStoreData as StoreData);
+                    const sig = JSON.stringify(sanitizedStore);
+                    lastSyncedStoreSigRef.current = { storeId: activeStoreId, sig };
                     const newOrders = sanitizedStore.orders || [];
 
                     if (!hasInitialOrdersLoadedRef.current) {
@@ -2505,14 +2937,14 @@ export const AppComponent = () => {
 
                     setAllStoresData(prev => {
                         const existing = prev[activeStoreId];
-                        if (existing && JSON.stringify(existing) === JSON.stringify(sanitizedStore)) {
+                        if (existing && JSON.stringify(existing) === sig) {
                             return prev;
                         }
                         isRefreshing.current = true;
                         return { ...prev, [activeStoreId]: sanitizedStore };
                     });
                 },
-                12000
+                15000
             );
             unsubscribers.push(unsubStorePoll);
 
@@ -2526,7 +2958,7 @@ export const AppComponent = () => {
                     if (!Array.isArray(messages)) return;
                     messages.slice(-10).forEach(notifyWhatsAppMessage);
                 },
-                18000
+                25000
             );
             unsubscribers.push(unsubWaPoll);
         }
@@ -2539,10 +2971,12 @@ export const AppComponent = () => {
                 },
                 (globalData) => {
                     if (!globalData?.users || isSavingRef.current || isDirtyRef.current) return;
+                    const sig = JSON.stringify(globalData.users);
+                    lastSyncedUsersSigRef.current = sig;
                     isRefreshing.current = true;
-                    setUsers(prev => JSON.stringify(prev) === JSON.stringify(globalData.users) ? prev : globalData.users);
+                    setUsers(prev => JSON.stringify(prev) === sig ? prev : globalData.users);
                 },
-                25000
+                30000
             );
             unsubscribers.push(unsubUsersPoll);
         }
@@ -2687,15 +3121,32 @@ export const AppComponent = () => {
             }
 
             // 3. Cloud sync (Parallel with Timeout)
-            const syncPromises = [];
-            syncPromises.push(db.saveGlobalData({ users: updatedUsers, loyaltyData: {} }));
+            const usersSig = JSON.stringify(updatedUsers);
+            const storeSig = activeStoreId && storeDataToSync ? JSON.stringify(storeDataToSync) : null;
+            const syncTasks: { kind: 'users' | 'store'; promise: Promise<{ success: boolean; version?: number; error?: string }> }[] = [];
+            if (updatedUsers.length > 0 && (customUsers || usersSig !== lastSyncedUsersSigRef.current)) {
+                syncTasks.push({ kind: 'users', promise: db.saveGlobalData({ users: updatedUsers, loyaltyData: {} }) });
+            }
             if (activeStoreId && storeDataToSync && activeStore) {
                 // Must pass updated version of store!
                 const updatedStore = updatedUsers.find(u => u.stores?.some(s => s.id === activeStoreId))?.stores?.find(s => s.id === activeStoreId) || activeStore;
-                syncPromises.push(db.saveStoreData(updatedStore, storeDataToSync));
+                syncTasks.push({ kind: 'store', promise: db.saveStoreData(updatedStore, storeDataToSync) });
             }
 
-            const results = await Promise.all(syncPromises);
+            const results = await Promise.all(syncTasks.map(t => t.promise));
+            results.forEach((res, idx) => {
+                if (!res.success) return;
+                const task = syncTasks[idx];
+                if (task.kind === 'users') {
+                    lastSyncedUsersSigRef.current = usersSig;
+                } else if (task.kind === 'store' && activeStoreId && storeSig !== null) {
+                    lastSyncedStoreSigRef.current = { storeId: activeStoreId, sig: storeSig };
+                    if (typeof res.version === 'number') {
+                        lastStoreMetaVersionRef.current = res.version;
+                    }
+                    lastFullStoreRefreshAtRef.current = Date.now();
+                }
+            });
             const failed = results.find(r => !r.success);
             
             if (failed) {
@@ -3304,6 +3755,7 @@ export const AppComponent = () => {
             <Suspense fallback={<WelcomeLoader userName="" />}>
                 <Routes>
                     <Route path="/" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
+                    <Route path="/s/:storeSlug" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/products" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                     <Route path="/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />
@@ -3338,11 +3790,11 @@ export const AppComponent = () => {
                 <Route path="/welcome" element={<WelcomeLandingPage />} />
                 <Route path="/landing" element={<WelcomeLandingPage />} />
                 
-                <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} />}>
+                <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} allStoresData={allStoresData} users={users} impersonatingFromAdmin={impersonatingFromAdmin} activeStoreId={activeStoreId} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
-                    <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
-                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
-                    <Route path="projects" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
+                    <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} onImpersonate={handleImpersonate} {...pageProps} />} />
+                    <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} onImpersonate={handleImpersonate} {...pageProps} />} />
+                    <Route path="projects" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} onImpersonate={handleImpersonate} {...pageProps} />} />
                     <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
                 </Route>
 
@@ -3402,6 +3854,9 @@ export const AppComponent = () => {
                 <Route path="/" element={
                     <OwnerLayoutWrapper
                         currentUser={currentUser}
+                        setCurrentUser={setCurrentUser}
+                        users={users}
+                        setUsers={setUsers}
                         isEmployeeSession={isEmployeeSession}
                         welcomeScreenShown={welcomeScreenShown}
                         setWelcomeScreenShown={setWelcomeScreenShown}
@@ -3425,6 +3880,8 @@ export const AppComponent = () => {
                         isShippingCalculatorOpen={isShippingCalculatorOpen}
                         setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
                         isInitialLoad={isInitialLoad}
+                        impersonatingFromAdmin={impersonatingFromAdmin}
+                        onExitImpersonation={handleExitImpersonation}
                     />
                 }>
                     <Route index element={
@@ -3444,6 +3901,9 @@ export const AppComponent = () => {
                 <Route path="/store/:storeId" element={
                     <OwnerLayoutWrapper
                         currentUser={currentUser}
+                        setCurrentUser={setCurrentUser}
+                        users={users}
+                        setUsers={setUsers}
                         isEmployeeSession={isEmployeeSession}
                         welcomeScreenShown={welcomeScreenShown}
                         setWelcomeScreenShown={setWelcomeScreenShown}
@@ -3467,6 +3927,8 @@ export const AppComponent = () => {
                         isShippingCalculatorOpen={isShippingCalculatorOpen}
                         setIsShippingCalculatorOpen={setIsShippingCalculatorOpen}
                         isInitialLoad={isInitialLoad}
+                        impersonatingFromAdmin={impersonatingFromAdmin}
+                        onExitImpersonation={handleExitImpersonation}
                     />
                 }>
                     <Route index element={<Navigate to="dashboard" replace />} />
@@ -3501,7 +3963,7 @@ export const AppComponent = () => {
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
                     <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
                     <Route path="shipping" element={<ShippingPage {...pageProps} />} />
-                    <Route path="failed-delivery-compensation" element={<FailedDeliveryCompensationPage orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} settings={pageProps.settings} updateSettings={pageProps.setSettings} forceSync={pageProps.forceSync} wallet={pageProps.wallet} setWallet={pageProps.setWallet} customers={pageProps.customers} />} />
+                    <Route path="failed-delivery-compensation" element={<FailedDeliveryCompensationPage orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} settings={pageProps.settings} updateSettings={pageProps.setSettings} forceSync={pageProps.forceSync} wallet={pageProps.wallet} setWallet={pageProps.setWallet} customers={pageProps.customers} currentUser={currentUser} />} />
                     <Route path="abandoned-carts" element={<AbandonedCartsPage {...pageProps} />} />
                     <Route path="discounts" element={<DiscountsPage {...pageProps} />} />
                     <Route path="reviews" element={<ReviewsPage {...pageProps} />} />
@@ -3526,7 +3988,7 @@ export const AppComponent = () => {
                     <Route path="employees-payroll" element={<EmployeesPayrollPage {...pageProps} />} />
                     <Route path="team-chat" element={<TeamChatPage {...pageProps} activeStoreId={activeStoreId} />} />
                     <Route path="whatsapp" element={<WhatsAppPage {...pageProps} onRefresh={() => activeStoreId ? refreshStoreData(activeStoreId) : Promise.resolve()} />} />
-                    <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} />} />
+                    <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} currentUser={currentUser} />} />
                     
                     {/* Coming Soon Routes */}
                     <Route path="product-attributes" element={<ComingSoonPage />} />
@@ -3553,7 +4015,7 @@ export const AppComponent = () => {
                             setAllStoresData={setAllStoresData}
                         />
                     } />
-                    <Route path="webhook-monitor" element={<WebhookMonitorPage />} />
+                    <Route path="webhook-monitor" element={<WebhookMonitorPage settings={pageProps.settings} setSettings={pageProps.setSettings} orders={pageProps.orders} activeStoreId={activeStoreId} currentUser={currentUser} />} />
                     <Route path="docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                     <Route path="api-docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
                     <Route path="tracking" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
@@ -3679,7 +4141,8 @@ export const AppComponent = () => {
                 <Route path="checkout" element={<CheckoutPage {...pageProps} onPlaceOrder={handlePlaceOrder} />} />
                 <Route path="order-success/:orderId" element={<OrderSuccessPage {...pageProps} />} />
 
-                {/* Path with store ID */}
+                {/* Path with store ID or slug */}
+                <Route path="/s/:storeSlug" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/store" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/catalog" element={<StorefrontPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} />} />
                 <Route path="/store/:storeId/product/:slug" element={<ProductDetailPage {...pageProps} onAddToCart={handleAddToCart} onUpdateCartQuantity={handleUpdateCartQuantity} onRemoveFromCart={handleRemoveFromCart} onPlaceOrder={handlePlaceOrder} />} />

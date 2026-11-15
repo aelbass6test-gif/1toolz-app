@@ -12,7 +12,13 @@ import reportWebVitals from './reportWebVitals';
 // Keep the active PWA worker in sync with deployed assets. With autoUpdate,
 // explicitly importing registerSW allows the plugin to reload open tabs after
 // a new worker activates instead of leaving users on a stale cached app shell.
-registerSW({ immediate: true });
+if (import.meta.env.PROD) {
+  registerSW({ immediate: true });
+} else if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => reg.unregister().catch(() => {}));
+  }).catch(() => {});
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

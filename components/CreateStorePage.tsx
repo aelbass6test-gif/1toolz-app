@@ -247,17 +247,21 @@ export const CreateStorePage: React.FC<CreateStorePageProps> = ({ currentUser, o
   const [isSuccessLaunched, setIsSuccessLaunched] = useState(false);
   const [createdStoreData, setCreatedStoreData] = useState<Store | null>(null);
 
-  // Auto slug generation
+  // Auto slug generation (ensures Arabic names with spaces don't become "---")
   const slug = useMemo(() => {
-    return storeName
+    const cleaned = storeName
       .toLowerCase()
       .trim()
       .replace(/\s+/g, '-')
       .replace(/[^a-z0-9-]/g, '')
-      .substring(0, 24);
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .substring(0, 24)
+      .replace(/-+$/g, '');
+    return /[a-z0-9]{2,}/.test(cleaned) ? cleaned : '';
   }, [storeName]);
 
-  const previewDomain = slug ? `${slug}.abdomedi.com` : 'yourstore.abdomedi.com';
+  const previewDomain = slug ? `${slug}.abdomedi.com` : 'store-xxxx.abdomedi.com';
 
   const selectedTemplate = useMemo(() => {
     return STORE_TEMPLATES.find(t => t.id === selectedTemplateId) || STORE_TEMPLATES[0];

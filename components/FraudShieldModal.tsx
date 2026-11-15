@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { 
   getStoredBlacklist, 
+  fetchCloudBlacklist,
   saveBlacklistEntry, 
   removeBlacklistEntry, 
   BlacklistEntry 
@@ -36,14 +37,22 @@ export const FraudShieldModal: React.FC<FraudShieldModalProps> = ({
   const [severity, setSeverity] = useState<'high' | 'medium'>('high');
 
   useEffect(() => {
-    if (isOpen) {
-      setBlacklist(getStoredBlacklist());
-      if (defaultPhone) {
-        setPhone(defaultPhone);
-        setCustomerName(defaultName);
-        setIsAdding(true);
-      }
+    if (!isOpen) return;
+    setBlacklist(getStoredBlacklist());
+    void fetchCloudBlacklist().then((entries) => {
+      setBlacklist(entries);
+    });
+    const onUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (Array.isArray(detail)) setBlacklist(detail);
+    };
+    window.addEventListener('fraud_shield_updated', onUpdate);
+    if (defaultPhone) {
+      setPhone(defaultPhone);
+      setCustomerName(defaultName);
+      setIsAdding(true);
     }
+    return () => window.removeEventListener('fraud_shield_updated', onUpdate);
   }, [isOpen, defaultPhone, defaultName]);
 
   if (!isOpen) return null;

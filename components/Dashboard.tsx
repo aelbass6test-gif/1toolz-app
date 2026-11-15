@@ -11,6 +11,7 @@ import { DashboardManager, DashboardWidget, WidgetWrapper } from './dashboard/Da
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { DailySalesProfitChart } from './dashboard/DailySalesProfitChart';
+import { cfFetch } from '../services/cloudflareClient';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -717,7 +718,32 @@ const Dashboard = ({ orders: allOrders, settings, wallet, treasury, currentUser,
     }
     return null;
   });
-  const announcementType = useMemo(() => localStorage.getItem('platform_announcement_type') || 'info', []);
+  const [announcementType, setAnnouncementType] = useState<string>(() => localStorage.getItem('platform_announcement_type') || 'info');
+
+  useEffect(() => {
+    void cfFetch<{ success?: boolean; value?: { text?: string; type?: string } | null }>(
+      '/api/db/settings/platform_announcement'
+    ).then((res) => {
+      if (!res?.value || typeof res.value !== 'object') return;
+      const text = (res.value.text || '').trim();
+      const type = res.value.type || 'info';
+      setAnnouncementType(type);
+      const dismissed = localStorage.getItem('platform_announcement_dismissed');
+      if (text && type !== 'none' && dismissed !== text) {
+        setAnnouncementText(text);
+        try {
+          localStorage.setItem('platform_announcement_text', text);
+          localStorage.setItem('platform_announcement_type', type);
+        } catch {}
+      } else {
+        setAnnouncementText(null);
+        try {
+          localStorage.removeItem('platform_announcement_text');
+          localStorage.setItem('platform_announcement_type', type);
+        } catch {}
+      }
+    }).catch(() => {});
+  }, []);
 
   const handleDismissAnnouncement = () => {
     if (announcementText) {

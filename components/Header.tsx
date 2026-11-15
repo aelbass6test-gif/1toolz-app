@@ -64,7 +64,10 @@ const PATH_TITLES: { [key: string]: string } = {
     '/manage-stores': 'إدارة المتاجر',
     '/projects': 'إدارة المشاريع',
     '/create-store': 'إنشاء متجر جديد',
-    '/admin/manage-stores': 'إدارة المتاجر',
+    '/admin': 'لوحة تحكم المنظومة بالكامل',
+    '/admin/manage-stores': 'إدارة المتاجر وتحكم المنظومة',
+    '/admin/select-store': 'إدارة المتاجر وتحكم المنظومة',
+    '/admin/projects': 'إدارة المتاجر وتحكم المنظومة',
     '/': 'لوحة التحكم',
     '/confirmation-queue': 'تأكيد الطلبات',
     '/orders': 'الطلبات والمبيعات',
@@ -350,7 +353,15 @@ const Header: React.FC<HeaderProps> = ({
         if (activeStore.customDomain) {
             return `https://${activeStore.customDomain}`;
         }
-        return `/store/${activeStore.id}`;
+        const rawSub = String(activeStore.subdomain || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+        const cleanSub = rawSub ? (/^\d+$/.test(rawSub) || rawSub.length < 3 ? `store-${rawSub}` : rawSub) : activeStore.id;
+        const isInternal = typeof window !== 'undefined' && (
+            window.location.hostname.includes('run.app') ||
+            window.location.hostname.includes('pages.dev') ||
+            window.location.hostname.includes('localhost') ||
+            window.location.hostname.includes('127.0.0.1')
+        );
+        return isInternal ? `/s/${cleanSub}` : `https://abdomedi.com/s/${cleanSub}`;
     }, [activeStore]);
 
     return (
@@ -771,6 +782,18 @@ const Header: React.FC<HeaderProps> = ({
                                 )}
                             </div>
 
+                            {/* Admin System Control Quick Button */}
+                            {currentUser?.isAdmin && (
+                                <Link
+                                    to="/admin"
+                                    className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 border border-indigo-200/80 dark:border-indigo-800/60 transition-all cursor-pointer shadow-2xs"
+                                    title="لوحة تحكم المنظومة بالكامل"
+                                >
+                                    <ShieldAlert size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                    <span>تحكم المنظومة</span>
+                                </Link>
+                            )}
+
                             {/* Store Switcher Quick Button */}
                             <button 
                                 onClick={handleManageStoresClick}
@@ -831,6 +854,31 @@ const Header: React.FC<HeaderProps> = ({
                                 </div>
 
                                 <div className="space-y-0.5">
+                                    {currentUser?.isAdmin && (
+                                        <>
+                                            <Link 
+                                                to="/admin" 
+                                                onClick={() => setIsUserMenuOpen(false)} 
+                                                className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50/70 hover:bg-indigo-100/80 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-black text-xs transition-colors group"
+                                            >
+                                                <div className="flex items-center gap-2.5">
+                                                    <ShieldAlert size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                                    <span>تحكم المنظومة بالكامل</span>
+                                                </div>
+                                                <span className="text-[9px] font-mono font-black bg-indigo-100 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded">ADMIN</span>
+                                            </Link>
+
+                                            <Link 
+                                                to="/admin/manage-stores" 
+                                                onClick={() => setIsUserMenuOpen(false)} 
+                                                className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/[0.05] text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors group"
+                                            >
+                                                <StoreIcon size={14} className="text-emerald-500 transition-colors" />
+                                                <span>إدارة متاجر المنصة</span>
+                                            </Link>
+                                        </>
+                                    )}
+
                                     <Link 
                                         to={currentUser?.isAdmin ? "/admin/account-settings" : "/account-settings"} 
                                         onClick={() => setIsUserMenuOpen(false)} 

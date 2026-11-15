@@ -15,6 +15,7 @@ import {
   registerBiometricCredential,
   authenticateBiometricCredential,
   getStoredBiometrics,
+  hydrateBiometricsFromCloud,
   saveStoredBiometric,
   isBiometricEnabledFor
 } from '../utils/webAuthnService';
@@ -97,17 +98,24 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     checkBiometrics();
   }, []);
 
-  // Sync selected partner's enrolled biometrics count
+  // Sync selected partner's enrolled biometrics count (including cloud passkeys)
   useEffect(() => {
     if (selectedPartnerId) {
       const p = partners.find(item => item.id === selectedPartnerId);
       const stored = getStoredBiometrics(selectedPartnerId);
-      const count = (p?.biometricCredentials?.length || 0) + stored.length;
-      setEnrolledPartnerBioCount(count);
-      // Auto-switch to biometric if partner already has enrolled passkey on this device
-      if (count > 0 && authMode === 'otp' && !isOtpSent) {
+      const initialCount = (p?.biometricCredentials?.length || 0) + stored.length;
+      setEnrolledPartnerBioCount(initialCount);
+      if (initialCount > 0 && authMode === 'otp' && !isOtpSent) {
         setAuthMode('biometric');
       }
+      void hydrateBiometricsFromCloud(selectedPartnerId, false).then(({ credentials }) => {
+        const mergedIds = new Set([...(p?.biometricCredentials || []).map(c => c.id), ...credentials.map(c => c.id)]);
+        const count = mergedIds.size;
+        setEnrolledPartnerBioCount(count);
+        if (count > 0 && authMode === 'otp' && !isOtpSent) {
+          setAuthMode('biometric');
+        }
+      });
     }
   }, [selectedPartnerId, partners]);
 
@@ -440,10 +448,11 @@ export const PartnerAuthView: React.FC<PartnerAuthViewProps> = ({
     setIsScanningBiometric(true);
 
     try {
-      const storedCreds = getStoredBiometrics(partnerToAuth.id);
+      const hydrated = await hydrateBiometricsFromCloud(partnerToAuth.id, false);
+      const storedCreds = hydrated.credentials.length > 0 ? hydrated.credentials : getStoredBiometrics(partnerToAuth.id);
       const combinedCreds = [
         ...(partnerToAuth.biometricCredentials || []),
-        ...storedCreds
+        ...storedCreds.filter(sc => !(partnerToAuth.biometricCredentials || []).some(pc => pc.id === sc.id))
       ];
 
       const result = await authenticateBiometricCredential(

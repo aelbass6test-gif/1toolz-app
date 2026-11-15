@@ -6,8 +6,9 @@ import {
   Filter, Eye, ArrowUpDown, Sparkles
 } from 'lucide-react';
 import { Settings, Product } from '../types';
-import { deleteProductImage, deleteProductImages, uploadProductImages, compressProductImages } from '../services/mediaUploadService';
+import { deleteProductImage, deleteProductImages, uploadProductImages, compressProductImages, normalizePublicImageUrl } from '../services/mediaUploadService';
 import { ProductImage } from './ProductImage';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface MediaLibraryModalProps {
   isOpen: boolean;
@@ -134,13 +135,13 @@ export const MediaLibraryModal: React.FC<MediaLibraryModalProps> = ({
   }, [mediaItems, searchTerm, filterType]);
 
   const copyToClipboard = (url: string) => {
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(normalizePublicImageUrl(url));
     setCopiedUrl(url);
     setTimeout(() => setCopiedUrl(null), 2000);
   };
 
   const handleDeleteImage = async (url: string) => {
-    if (!window.confirm("هل أنت متأكد من حذف هذه الصورة نهائيًا من مساحة التخزين R2؟")) return;
+    if (!(await inAppConfirm("هل أنت متأكد من حذف هذه الصورة نهائيًا من مساحة التخزين R2؟"))) return;
     setIsDeleting(url);
     try {
       await deleteProductImage(url);
@@ -364,7 +365,7 @@ export const MediaLibraryModal: React.FC<MediaLibraryModalProps> = ({
                         </button>
 
                         <a
-                          href={item.url}
+                          href={normalizePublicImageUrl(item.url)}
                           target="_blank"
                           rel="noreferrer"
                           className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-600 dark:text-slate-300 transition-colors"

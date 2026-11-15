@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { normalizePublicImageUrl } from '../services/mediaUploadService';
 
 // In-memory cache for images already loaded during this session to prevent re-skeleton flashing
 const loadedImagesCache = new Set<string>();
@@ -27,7 +28,7 @@ export const ProductImage: React.FC<ProductImageProps> = ({
   priority = false,
   onClick
 }) => {
-  const cleanSrc = src && typeof src === 'string' && src.trim().length > 0 ? src.trim() : null;
+  const cleanSrc = src && typeof src === 'string' && src.trim().length > 0 ? normalizePublicImageUrl(src.trim()) : null;
   const isAlreadyCached = cleanSrc ? loadedImagesCache.has(cleanSrc) : false;
 
   const [isLoaded, setIsLoaded] = useState<boolean>(isAlreadyCached);

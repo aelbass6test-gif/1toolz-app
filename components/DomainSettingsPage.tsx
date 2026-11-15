@@ -70,7 +70,14 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     message: '',
     type: 'info'
   });
-  const [localSubdomain, setLocalSubdomain] = useState(settings.subdomain || '');
+  const normalizeSubdomainValue = (raw?: string) => {
+    if (!raw) return '';
+    const cleaned = raw.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    if (!cleaned) return '';
+    if (/^\d+$/.test(cleaned) || cleaned.length < 3) return `store-${cleaned}`;
+    return cleaned.slice(0, 30).replace(/-+$/g, '');
+  };
+  const [localSubdomain, setLocalSubdomain] = useState(normalizeSubdomainValue(settings.subdomain));
   const [isSubdomainSaving, setIsSubdomainSaving] = useState(false);
   const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [typedPassword, setTypedPassword] = useState('');
@@ -146,11 +153,12 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
   // --- Effects ---
   useEffect(() => {
-    checkCfSaasStatus();
-  }, []);
-  useEffect(() => {
     if (settings.subdomain) {
-      setLocalSubdomain(settings.subdomain);
+      const normalized = normalizeSubdomainValue(settings.subdomain);
+      setLocalSubdomain(normalized);
+      if (normalized && normalized !== settings.subdomain) {
+        setSettings((prev: any) => ({ ...prev, subdomain: normalized }));
+      }
     } else {
       setLocalSubdomain('');
     }
@@ -671,7 +679,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
           {settings.subdomain && (
             <span className={`flex items-center gap-1.5 px-3 py-1 text-xs font-black rounded-xl border ${settings.isSubdomainFixed ? 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-800' : 'bg-green-50 dark:bg-green-950/40 text-green-600 dark:text-green-450 border-green-200/50 dark:border-green-900/30'}`}>
               <CheckCircle2 size={12} />
-              <span>النطاق الفرعي نشط: {settings.subdomain}.abdomedi.com</span>
+              <span>النطاق الفرعي نشط: {normalizeSubdomainValue(settings.subdomain)}.abdomedi.com</span>
               {settings.isSubdomainFixed && <Shield size={10} className="fill-indigo-600 dark:fill-indigo-400" />}
             </span>
           )}
@@ -775,11 +783,14 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                        const targetDomain = customDomain || settings.customDomain || settings.customAppDomain || (settings.subdomain ? `${settings.subdomain}.abdomedi.com` : '');
-                        const isInternal = window.location.hostname.includes('run.app') || window.location.hostname.includes('pages.dev') || window.location.hostname.includes('localhost');
+                        const activeCustomDom = customDomain || settings.customDomain || settings.customAppDomain;
+                        const cleanSub = normalizeSubdomainValue(settings.subdomain);
+                        const isInternal = window.location.hostname.includes('run.app') || window.location.hostname.includes('pages.dev') || window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1');
                         const url = isInternal 
-                            ? `${window.location.origin}${window.location.pathname}?preview_store=${activeStoreId}`
-                            : `https://${targetDomain}`;
+                            ? `${window.location.origin}/s/${cleanSub || activeStoreId}`
+                            : (activeCustomDom && domainStatus === 'active'
+                                ? `https://${activeCustomDom}`
+                                : `https://abdomedi.com/s/${cleanSub || activeStoreId}`);
                         window.open(url, '_blank');
                     }}
                     className="px-4 py-2.5 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
@@ -817,13 +828,13 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
 
                 <button
                   type="button"
-                  onClick={handleActivateDemoMode}
-                  disabled={isSaving || !customDomain.trim()}
-                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2"
-                  title="تفعيل وحفظ مباشر داخل المتجر"
+                  onClick={handleSaveDomain}
+                  disabled={isSaving || domainStatus === 'verifying' || !customDomain.trim()}
+                  className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/20 transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+                  title="حفظ وربط النطاق المخصص لمتجرك سحابياً"
                 >
-                  <CheckCircle2 size={16} />
-                  <span>تفعيل وربط النطاق الآن 🟢</span>
+                  {isSaving ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                  <span>تفعيل وربط النطاق المخصص الآن 🟢</span>
                 </button>
               </div>
 
@@ -831,12 +842,12 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={handleSaveDomain}
-                  disabled={isSaving || domainStatus === 'verifying' || !customDomain.trim()}
-                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/30 dark:text-indigo-300 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2"
+                  onClick={handleVerify}
+                  disabled={isSaving || domainStatus === 'verifying' || !(customDomain || settings.customDomain)}
+                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/30 dark:text-indigo-300 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
                 >
-                  {isSaving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                  <span>ربط تلقائي متقدم (Cloudflare Sync) ⚡</span>
+                  {domainStatus === 'verifying' ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  <span>فحص سجلات DNS وتفعيل SSL ⚡</span>
                 </button>
 
                 {(customDomain || settings.customDomain || settings.customAppDomain) && (
@@ -1110,17 +1121,36 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
               
               <div className="space-y-3 pt-1">
                 {settings.subdomain && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-slate-400 block font-bold">الرابط الفرعي المجاني:</span>
-                    <a 
-                      href={`http://${settings.subdomain}.abdomedi.com`} 
-                      target="_blank" 
-                      className="text-xs font-mono text-indigo-300 hover:underline flex items-center gap-1 shrink-0 break-all"
-                      dir="ltr"
-                    >
-                      <span>{settings.subdomain}.abdomedi.com</span>
-                      <ExternalLink size={10} />
-                    </a>
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 block font-bold">الرابط السريع المباشر:</span>
+                      <a 
+                        href={`https://abdomedi.com/s/${normalizeSubdomainValue(settings.subdomain)}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs font-mono text-emerald-400 hover:underline flex items-center gap-1 shrink-0 break-all"
+                        dir="ltr"
+                      >
+                        <span>{`https://abdomedi.com/s/${normalizeSubdomainValue(settings.subdomain)}`}</span>
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+                    <div className="space-y-1 pt-2 border-t border-slate-800/80">
+                      <span className="text-[10px] text-slate-400 block font-bold">الرابط الفرعي المجاني (Subdomain):</span>
+                      <a 
+                        href={`https://${normalizeSubdomainValue(settings.subdomain)}.abdomedi.com`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs font-mono text-indigo-300 hover:underline flex items-center gap-1 shrink-0 break-all"
+                        dir="ltr"
+                      >
+                        <span>{normalizeSubdomainValue(settings.subdomain)}.abdomedi.com</span>
+                        <ExternalLink size={10} />
+                      </a>
+                      <p className="text-[10px] text-slate-400 leading-relaxed pt-0.5">
+                        لتشغيل الرابطين مباشرة على Cloudflare، تأكد من ربط Worker Routes على <code className="text-amber-300 font-mono">abdomedi.com/*</code> و <code className="text-amber-300 font-mono">*.abdomedi.com/*</code> مع سجل DNS <code className="text-amber-300 font-mono">CNAME @, * → app.abdomedi.com</code> (Proxied).
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -1128,8 +1158,9 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
                   <div className="space-y-1 pt-1 border-t border-slate-800">
                     <span className="text-[10px] text-slate-400 block font-bold">النطاق الخاص المخصص:</span>
                     <a 
-                      href={`http://${customDomain}`} 
+                      href={`https://${customDomain}`} 
                       target="_blank" 
+                      rel="noopener noreferrer"
                       className="text-xs font-mono text-emerald-400 hover:underline flex items-center gap-1 shrink-0 break-all"
                       dir="ltr"
                     >

@@ -3,9 +3,11 @@ import { Partner, Settings } from '../types';
 import { 
   User, Mail, Phone, MapPin, ShieldCheck, Key, CheckCircle2, 
   AlertCircle, Loader2, Save, Send, Smartphone, Landmark,
-  CreditCard, ShieldAlert, Award
+  CreditCard, ShieldAlert, Award, Lock, Edit3, X
 } from 'lucide-react';
 import * as db from '../services/databaseService';
+import { getCfApiBaseUrl } from '../services/cloudflareClient';
+import { inAppConfirm } from '../utils/inAppAlert';
 
 interface PartnerProfileTabProps {
   partner: Partner;
@@ -48,7 +50,17 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [requireEmailOtp, setRequireEmailOtp] = useState<boolean>(partner.requireEmailOtp ?? true);
 
-  // Email verification state
+  // Email verification state (2-step when changing an already-verified email)
+  const [isChangingEmail, setIsChangingEmail] = useState(false);
+  const [emailChangeStep, setEmailChangeStep] = useState<'verify_old' | 'verify_new'>('verify_old');
+  const [oldEmailVerified, setOldEmailVerified] = useState(false);
+  const [oldEmailOtpSent, setOldEmailOtpSent] = useState(false);
+  const [oldEmailOtp, setOldEmailOtp] = useState('');
+  const [isSendingOldOtp, setIsSendingOldOtp] = useState(false);
+  const [isCheckingOldOtp, setIsCheckingOldOtp] = useState(false);
+  const [pendingActionAfterOld, setPendingActionAfterOld] = useState<'change' | 'unlink'>('change');
+
+  const [newEmailInput, setNewEmailInput] = useState('');
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
   const [emailOtp, setEmailOtp] = useState('');
   const [isSendingOtp, setIsSendingOtp] = useState(false);
@@ -57,15 +69,26 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
   // Saving state
   const [isSaving, setIsSaving] = useState(false);
 
+  const hasVerifiedExistingEmail = Boolean(partner.email && partner.email.includes('@') && partner.isEmailVerified);
+
   // Save profile updates to settings and Cloudflare D1
   const handleSaveProfile = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    const normalizedInputEmail = email.trim().toLowerCase();
+    const currentPartnerEmail = (partner.email || '').trim().toLowerCase();
+    const emailChanged = normalizedInputEmail !== currentPartnerEmail;
+
+    if (emailChanged && normalizedInputEmail) {
+      showToast('لتغيير البريد الإلكتروني، يجب أولاً الضغط على "تأكيد البريد بكود OTP" وإدخال الرمز المرسل.', 'error');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const updatedPartner: Partner = {
         ...partner,
         name: name.trim() || partner.name,
-        email: email.trim().toLowerCase() || undefined,
+        email: currentPartnerEmail || undefined,
         phone: phone.trim() || undefined,
         address: address.trim() || undefined,
         nationalId: nationalId.trim() || undefined,
@@ -108,99 +131,66 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
     }
   };
 
-  // Send Email OTP for verification
-  const handleSendEmailVerification = async () => {
-    const targetEmail = email.trim().toLowerCase();
-    if (!targetEmail || !targetEmail.includes('@')) {
-      showToast('يرجى كتابة بريد إلكتروني صحيح أولاً', 'error');
+  const handleOpenEmailChangeFlow = (action: 'change' | 'unlink' = 'change') => {
+    setPendingActionAfterOld(action);
+    const needsOldFirst = hasVerifiedExistingEmail;
+    setEmailChangeStep(needsOldFirst ? 'verify_old' : 'verify_new');
+    setOldEmailVerified(!needsOldFirst);
+    setOldEmailOtpSent(false);
+    setOldEmailOtp('');
+    setNewEmailInput(action === 'change' && !hasVerifiedExistingEmail ? email : '');
+    setIsVerifyingEmail(false);
+    setEmailOtp('');
+    setIsChangingEmail(true);
+  };
+
+  const handleCloseEmailChangeFlow = () => {
+    setIsChangingEmail(false);
+    setEmailChangeStep('verify_old');
+    setOldEmailVerified(false);
+    setOldEmailOtpSent(false);
+    setOldEmailOtp('');
+    setNewEmailInput('');
+    setIsVerifyingEmail(false);
+    setEmailOtp('');
+  };
+
+  // Step 1: Send OTP to OLD verified email
+  const handleSendOldEmailOtp = async () => {
+    const oldEmail = (partner.email || '').trim().toLowerCase();
+    if (!oldEmail || !oldEmail.includes('@')) {
+      setOldEmailVerified(true);
+      setEmailChangeStep('verify_new');
       return;
     }
 
-    setIsSendingOtp(true);
+    setIsSendingOldOtp(true);
     try {
-      const res = await fetch('/api/send-otp', {
+      const res = await fetch(`${getCfApiBaseUrl()}/api/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: targetEmail,
-          userName: partner.name,
-          phone: partner.phone
+          email: oldEmail,
+          userName: partner.name
         })
       });
       const data = await res.json();
       if (data.success) {
-        setIsVerifyingEmail(true);
-        showToast('تم إرسال كود التحقق (6 أرقام) إلى بريدك الإلكتروني', 'success');
+        setOldEmailOtpSent(true);
+        setOldEmailOtp('');
+        showToast(`تم إرسال كود التحقق (6 أرقام) إلى البريد القديم: ${oldEmail}`, 'success');
       } else {
-        showToast(data.error || 'تعذر إرسال الرمز، يرجى المحاولة لاحقاً', 'error');
+        showToast(data.error || 'تعذر إرسال الرمز للبريد القديم، يرجى المحاولة لاحقاً', 'error');
       }
     } catch (err: any) {
-      showToast('خطأ أثناء إرسال البريد: ' + err.message, 'error');
+      showToast('خطأ أثناء إرسال رمز البريد القديم: ' + err.message, 'error');
     } finally {
-      setIsSendingOtp(false);
+      setIsSendingOldOtp(false);
     }
   };
 
-  // Verify Email OTP
-  const handleVerifyEmailOtp = async () => {
-    if (!emailOtp || emailOtp.trim().length !== 6) {
-      showToast('يرجى إدخال رمز التحقق المكون من 6 أرقام', 'error');
-      return;
-    }
-
-    setIsCheckingOtp(true);
-    try {
-      const res = await fetch('/api/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          otp: emailOtp.trim()
-        })
-      });
-      const data = await res.json();
-      if (data.valid) {
-        const updatedPartner: Partner = {
-          ...partner,
-          email: email.trim().toLowerCase(),
-          isEmailVerified: true,
-          emailVerifiedAt: new Date().toISOString()
-        };
-
-        const updatedPartners = (settings.partners || []).map(p => 
-          p.id === partner.id ? updatedPartner : p
-        );
-
-        const newSettings = { ...settings, partners: updatedPartners };
-        updateSettings(newSettings);
-
-        if (storeId) {
-          const cur = await db.getStoreData(storeId);
-          if (cur) {
-            await db.saveStoreData({ id: storeId, name: storeName } as any, {
-              ...cur,
-              settings: newSettings
-            });
-          }
-        }
-
-        sessionStorage.setItem(`partner_portal_auth_${storeId}`, JSON.stringify(updatedPartner));
-        showToast('تم توثيق وتأكيد بريدك الإلكتروني بنجاح! 🎉', 'success');
-        setIsVerifyingEmail(false);
-        setEmailOtp('');
-      } else {
-        showToast(data.message || 'رمز التحقق غير صحيح أو منتهي الصلاحية', 'error');
-      }
-    } catch (err: any) {
-      showToast('خطأ أثناء التحقق: ' + err.message, 'error');
-    } finally {
-      setIsCheckingOtp(false);
-    }
-  };
-
-  // Remove or unlink email
-  const handleRemoveEmail = async () => {
-    if (!window.confirm('هل أنت متأكد من حذف وإلغاء ربط هذا البريد الإلكتروني من حساب الشريك؟')) return;
+  // Commit email unlink after old email OTP passes (or if unverified)
+  const commitRemoveEmail = async () => {
     setIsSaving(true);
     try {
       const updatedPartner: Partner = {
@@ -210,7 +200,7 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
         emailVerifiedAt: undefined
       };
       setEmail('');
-      const updatedPartners = (settings.partners || []).map(p => 
+      const updatedPartners = (settings.partners || []).map(p =>
         p.id === partner.id ? updatedPartner : p
       );
       const newSettings = { ...settings, partners: updatedPartners };
@@ -228,13 +218,171 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
 
       sessionStorage.setItem(`partner_portal_auth_${storeId}`, JSON.stringify(updatedPartner));
       showToast('تم حذف وإلغاء ربط البريد الإلكتروني بنجاح', 'success');
-      setIsVerifyingEmail(false);
-      setEmailOtp('');
+      handleCloseEmailChangeFlow();
     } catch (err: any) {
       showToast('حدث خطأ أثناء حذف البريد: ' + err.message, 'error');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Step 1 Verify OTP on OLD email
+  const handleVerifyOldEmailOtp = async () => {
+    const oldEmail = (partner.email || '').trim().toLowerCase();
+    if (!oldEmailOtp || oldEmailOtp.trim().length !== 6) {
+      showToast('يرجى إدخال رمز التحقق المكون من 6 أرقام المرسل للبريد القديم', 'error');
+      return;
+    }
+
+    setIsCheckingOldOtp(true);
+    try {
+      const res = await fetch(`${getCfApiBaseUrl()}/api/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: oldEmail,
+          otp: oldEmailOtp.trim()
+        })
+      });
+      const data = await res.json();
+      if (!data.valid) {
+        showToast(data.message || 'رمز التحقق للبريد القديم غير صحيح أو منتهي الصلاحية', 'error');
+        return;
+      }
+
+      setOldEmailVerified(true);
+      setOldEmailOtpSent(false);
+      setOldEmailOtp('');
+
+      if (pendingActionAfterOld === 'unlink') {
+        await commitRemoveEmail();
+        return;
+      }
+
+      setEmailChangeStep('verify_new');
+      showToast('تم تأكيد البريد القديم! أدخل البريد الجديد الآن لتأكيده بكود OTP.', 'success');
+    } catch (err: any) {
+      showToast('خطأ أثناء التحقق من البريد القديم: ' + err.message, 'error');
+    } finally {
+      setIsCheckingOldOtp(false);
+    }
+  };
+
+  // Step 2: Send Email OTP to NEW email
+  const handleSendEmailVerification = async () => {
+    if (hasVerifiedExistingEmail && !oldEmailVerified) {
+      setEmailChangeStep('verify_old');
+      showToast('يجب تأكيد رمز التحقق المرسل على البريد القديم أولاً', 'error');
+      return;
+    }
+
+    const targetEmail = (isChangingEmail ? newEmailInput : email).trim().toLowerCase();
+    const currentPartnerEmail = (partner.email || '').trim().toLowerCase();
+    if (!targetEmail || !targetEmail.includes('@')) {
+      showToast('يرجى كتابة بريد إلكتروني صحيح أولاً', 'error');
+      return;
+    }
+    if (hasVerifiedExistingEmail && targetEmail === currentPartnerEmail) {
+      showToast('البريد الجديد مطابق لبريدك الحالي بالفعل', 'error');
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      const res = await fetch(`${getCfApiBaseUrl()}/api/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: targetEmail,
+          userName: partner.name
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsVerifyingEmail(true);
+        showToast(`تم إرسال كود التحقق (6 أرقام) إلى البريد الجديد: ${targetEmail}`, 'success');
+      } else {
+        showToast(data.error || 'تعذر إرسال الرمز، يرجى المحاولة لاحقاً', 'error');
+      }
+    } catch (err: any) {
+      showToast('خطأ أثناء إرسال البريد: ' + err.message, 'error');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Step 2: Verify NEW Email OTP & Save
+  const handleVerifyEmailOtp = async () => {
+    if (hasVerifiedExistingEmail && !oldEmailVerified) {
+      setEmailChangeStep('verify_old');
+      showToast('يجب تأكيد البريد القديم أولاً قبل اعتماد البريد الجديد', 'error');
+      return;
+    }
+
+    const targetEmail = (isChangingEmail ? newEmailInput : email).trim().toLowerCase();
+    if (!emailOtp || emailOtp.trim().length !== 6) {
+      showToast('يرجى إدخال رمز التحقق المكون من 6 أرقام', 'error');
+      return;
+    }
+
+    setIsCheckingOtp(true);
+    try {
+      const res = await fetch(`${getCfApiBaseUrl()}/api/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: targetEmail,
+          otp: emailOtp.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.valid) {
+        const updatedPartner: Partner = {
+          ...partner,
+          email: targetEmail,
+          isEmailVerified: true,
+          emailVerifiedAt: new Date().toISOString()
+        };
+
+        const updatedPartners = (settings.partners || []).map(p =>
+          p.id === partner.id ? updatedPartner : p
+        );
+
+        const newSettings = { ...settings, partners: updatedPartners };
+        updateSettings(newSettings);
+
+        if (storeId) {
+          const cur = await db.getStoreData(storeId);
+          if (cur) {
+            await db.saveStoreData({ id: storeId, name: storeName } as any, {
+              ...cur,
+              settings: newSettings
+            });
+          }
+        }
+
+        setEmail(targetEmail);
+        sessionStorage.setItem(`partner_portal_auth_${storeId}`, JSON.stringify(updatedPartner));
+        showToast('تم توثيق وتأكيد بريدك الإلكتروني بنجاح! 🎉', 'success');
+        handleCloseEmailChangeFlow();
+      } else {
+        showToast(data.message || 'رمز التحقق غير صحيح أو منتهي الصلاحية', 'error');
+      }
+    } catch (err: any) {
+      showToast('خطأ أثناء التحقق: ' + err.message, 'error');
+    } finally {
+      setIsCheckingOtp(false);
+    }
+  };
+
+  // Remove or unlink email (requires old email OTP first if currently verified)
+  const handleRemoveEmail = async () => {
+    if (hasVerifiedExistingEmail) {
+      handleOpenEmailChangeFlow('unlink');
+      return;
+    }
+    if (!(await inAppConfirm('هل أنت متأكد من حذف وإلغاء ربط هذا البريد الإلكتروني من حساب الشريك؟'))) return;
+    await commitRemoveEmail();
   };
 
   // System permissions list for display
@@ -342,18 +490,17 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
                 <div className="flex justify-between items-center mb-1 flex-wrap gap-2">
                   <label className="text-xs font-bold text-slate-700">البريد الإلكتروني المعتمد للدخول والإشعارات:</label>
                   <div className="flex items-center gap-3">
-                    {!partner.isEmailVerified && email && (
+                    {!isChangingEmail && (
                       <button
                         type="button"
-                        onClick={handleSendEmailVerification}
-                        disabled={isSendingOtp}
+                        onClick={() => handleOpenEmailChangeFlow('change')}
                         className="text-[11px] text-[#008060] font-black hover:underline flex items-center gap-1 cursor-pointer"
                       >
-                        {isSendingOtp ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-                        <span>تأكيد البريد بكود OTP ✉️</span>
+                        <Edit3 size={12} />
+                        <span>{hasVerifiedExistingEmail ? 'تغيير البريد بكود OTP (القديم ثم الجديد)' : 'إضافة / توثيق بريد بكود OTP ✉️'}</span>
                       </button>
                     )}
-                    {(partner.email || email) && (
+                    {(partner.email || email) && !isChangingEmail && (
                       <button
                         type="button"
                         onClick={handleRemoveEmail}
@@ -368,45 +515,129 @@ export const PartnerProfileTab: React.FC<PartnerProfileTabProps> = ({
                 <div className="relative">
                   <input
                     type="email"
+                    readOnly
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
                     placeholder="partner@example.com"
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#008060]"
+                    className="w-full bg-slate-100 border border-slate-300 rounded-xl pl-10 pr-9 py-2.5 text-xs font-mono font-bold text-slate-700 cursor-not-allowed"
                   />
+                  <Lock size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
 
-                {/* OTP Verification Prompt */}
-                {isVerifyingEmail && (
-                  <div className="mt-3 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2">
-                    <span className="text-xs font-black text-emerald-900 block">
-                      تم إرسال رمز التحقق المكون من 6 أرقام إلى ({email}):
-                    </span>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        maxLength={6}
-                        value={emailOtp}
-                        onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, ''))}
-                        placeholder="أدخل الرمز (6 أرقام)"
-                        className="w-48 bg-white border border-emerald-300 rounded-xl px-3 py-2 text-center font-mono font-black text-sm tracking-widest text-slate-900 focus:outline-none focus:border-[#008060]"
-                      />
+                {/* 2-Step Secure Email Change / Verification Card */}
+                {isChangingEmail && (
+                  <div className="mt-3 p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-3">
+                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-emerald-200/70">
+                      <span className="text-xs font-black text-emerald-950">
+                        {hasVerifiedExistingEmail
+                          ? (pendingActionAfterOld === 'unlink'
+                              ? 'تأكيد ملكية البريد القديم قبل فك الربط'
+                              : 'تغيير البريد بتأكيد مزدوج (القديم ثم الجديد)')
+                          : 'إضافة وتأكيد البريد الإلكتروني بكود OTP'}
+                      </span>
                       <button
                         type="button"
-                        onClick={handleVerifyEmailOtp}
-                        disabled={isCheckingOtp}
-                        className="bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black cursor-pointer shadow-xs disabled:opacity-50"
+                        onClick={handleCloseEmailChangeFlow}
+                        className="text-slate-500 hover:text-slate-800 p-1 rounded-lg cursor-pointer"
+                        title="إغلاق"
                       >
-                        {isCheckingOtp ? <Loader2 size={14} className="animate-spin" /> : 'تأكيد الآن'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsVerifyingEmail(false)}
-                        className="bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
-                      >
-                        إلغاء
+                        <X size={15} />
                       </button>
                     </div>
+
+                    {hasVerifiedExistingEmail && emailChangeStep === 'verify_old' && (
+                      <div className="space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-emerald-200">
+                          <div>
+                            <span className="text-[11px] font-bold text-slate-500 block">1. أرسل رمز التحقق إلى البريد الحالي أولاً:</span>
+                            <span className="text-xs font-mono font-black text-slate-900">{partner.email}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleSendOldEmailOtp}
+                            disabled={isSendingOldOtp}
+                            className="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSendingOldOtp ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                            <span>{oldEmailOtpSent ? 'إعادة الإرسال للقديم' : 'إرسال كود للبريد القديم'}</span>
+                          </button>
+                        </div>
+
+                        {oldEmailOtpSent && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              maxLength={6}
+                              value={oldEmailOtp}
+                              onChange={(e) => setOldEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                              placeholder="كود القديم (6 أرقام)"
+                              className="w-48 bg-white border border-emerald-300 rounded-xl px-3 py-2 text-center font-mono tabular-nums font-black text-sm tracking-widest text-slate-900 focus:outline-none focus:border-[#008060]"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleVerifyOldEmailOtp}
+                              disabled={isCheckingOldOtp || oldEmailOtp.trim().length !== 6}
+                              className="bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black cursor-pointer shadow-xs disabled:opacity-50"
+                            >
+                              {isCheckingOldOtp ? <Loader2 size={14} className="animate-spin" /> : (pendingActionAfterOld === 'unlink' ? 'تأكيد وفك الربط' : 'تأكيد القديم والمتابعة')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {emailChangeStep === 'verify_new' && (
+                      <div className="space-y-2.5">
+                        {hasVerifiedExistingEmail && oldEmailVerified && (
+                          <div className="text-[11px] font-bold text-emerald-800 bg-emerald-100/70 px-3 py-1.5 rounded-lg">
+                            ✓ تم تأكيد ملكية البريد القديم ({partner.email}). أدخل البريد الجديد وأكده بالرمز:
+                          </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="email"
+                            value={newEmailInput}
+                            readOnly={isVerifyingEmail}
+                            onChange={(e) => setNewEmailInput(e.target.value)}
+                            placeholder="أدخل البريد الإلكتروني الجديد..."
+                            className="flex-1 bg-white border border-emerald-300 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#008060]"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSendEmailVerification}
+                            disabled={isSendingOtp}
+                            className="bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSendingOtp ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                            <span>{isVerifyingEmail ? 'إعادة إرسال الكود' : 'إرسال كود للبريد الجديد'}</span>
+                          </button>
+                        </div>
+
+                        {isVerifyingEmail && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              maxLength={6}
+                              value={emailOtp}
+                              onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                              placeholder="كود الجديد (6 أرقام)"
+                              className="w-48 bg-white border border-emerald-300 rounded-xl px-3 py-2 text-center font-mono tabular-nums font-black text-sm tracking-widest text-slate-900 focus:outline-none focus:border-[#008060]"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleVerifyEmailOtp}
+                              disabled={isCheckingOtp || emailOtp.trim().length !== 6}
+                              className="bg-[#008060] hover:bg-[#0a664e] text-white px-4 py-2 rounded-xl text-xs font-black cursor-pointer shadow-xs disabled:opacity-50"
+                            >
+                              {isCheckingOtp ? <Loader2 size={14} className="animate-spin" /> : 'تأكيد وحفظ البريد الجديد'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

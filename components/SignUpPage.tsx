@@ -10,6 +10,7 @@ import { getUserByPhone, createUserDoc } from '../services/databaseService';
 import { cfAuthLogin, cfAuthSignup } from '../services/cloudflareClient';
 import { useAuthActions } from '../src/hooks/useAuthActions';
 import { verifyPasswordSecure } from '../utils/syncIntegrity';
+import { usePlatformSupport } from '../utils/platformSupport';
 import { motion } from 'framer-motion';
 
 const AuthModal: React.FC<{ onClose: () => void; children: React.ReactNode }> = ({ onClose, children }) => (
@@ -43,6 +44,7 @@ interface SignUpPageProps {
 }
 
 const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUsers }) => {
+  const { supportPhone, openSupportWhatsApp } = usePlatformSupport();
   const [isLoginView, setIsLoginView] = useState(true);
   const [fullName, setFullName] = useState('');
   const [userPhone, setUserPhone] = useState('');
@@ -219,6 +221,12 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           };
         }
 
+        if (foundUser.isBanned && !foundUser.isAdmin) {
+          setUserError('⛔ هذا الحساب محظور وموقوف من قِبل إدارة المنصة. يرجى التواصل مع الإدارة.');
+          setIsLoading(false);
+          return;
+        }
+
         if (!Array.isArray(foundUser.stores) && !foundUser.isAdmin) {
           setUserError('أنت مسجل كموظف. يرجى تسجيل الدخول من صفحة دخول الموظفين.');
           setIsLoading(false);
@@ -228,6 +236,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         return;
       } catch (err: any) {
         const msg = String(err?.message || '');
+        if (msg.includes('محظور') || err?.status === 403) {
+          setUserError('⛔ هذا الحساب محظور وموقوف من قِبل إدارة المنصة. يرجى التواصل مع الإدارة.');
+          setIsLoading(false);
+          return;
+        }
         if (msg.includes('Failed to fetch') || msg.includes('Network')) {
           setUserError("فشل الاتصال بخادم Cloudflare. يرجى التحقق من اتصال الإنترنت.");
           setIsLoading(false);
@@ -235,6 +248,11 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         }
         try {
           const d1User = await getUserByPhone(trimmedPhone);
+          if (d1User?.isBanned && !d1User.isAdmin) {
+            setUserError('⛔ هذا الحساب محظور وموقوف من قِبل إدارة المنصة. يرجى التواصل مع الإدارة.');
+            setIsLoading(false);
+            return;
+          }
           if (d1User && d1User.password && (await verifyPasswordSecure(userPassword, d1User.password)).valid) {
             onPasswordSuccess(d1User, userPassword);
             return;
@@ -286,7 +304,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
           stores: [],
           joinDate: new Date().toISOString() 
         };
-        await createUserDoc({ ...newUser, password: userPassword });
+        await createUserDoc(newUser);
 
         setUsers(prevUsers => [...prevUsers, newUser]);
         setIsLoading(false);
@@ -783,8 +801,20 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                   required 
                 />
                 {authActionsError && (
-                  <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-xs font-bold text-rose-700">
-                    {authActionsError}
+                  <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-xs font-bold text-rose-700 space-y-2">
+                    <p>{authActionsError}</p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openSupportWhatsApp(
+                          `مرحباً فريق الدعم الفني، أحتاج مساعدة في استعادة حسابي المسجل برقم: ${resetPhone || userPhone || ''}`
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black transition-all cursor-pointer"
+                    >
+                      <Phone size={12} />
+                      <span>تواصل مباشر مع واتساب الدعم الفني ({supportPhone})</span>
+                    </button>
                   </div>
                 )}
                 <button 

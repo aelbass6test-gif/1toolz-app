@@ -19,6 +19,7 @@ interface FailedDeliveryCompensationPageProps {
   wallet: Wallet;
   setWallet: React.Dispatch<React.SetStateAction<Wallet>>;
   customers?: any[];
+  currentUser?: any;
 }
 
 type CompensationStatus = 'none' | 'pending' | 'compensated' | 'rejected' | 'flexship';
@@ -33,7 +34,8 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
   forceSync,
   wallet,
   setWallet,
-  customers = []
+  customers = [],
+  currentUser
 }) => {
   // Navigation & View Tabs
   const [activeTab, setActiveTab] = useState<'list' | 'analytics'>('list');
@@ -499,7 +501,11 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
 
     setIsSubmitting(true);
     try {
-      const compAmount = modalStatus === 'compensated' ? Number(modalAmount) : 0;
+      const isAdminUser = Boolean(currentUser?.isAdmin);
+      const isCentralWalletClaim = modalStatus === 'compensated' && modalTreasuryAccountId === 'central_wallet';
+      // Direct central wallet credit by merchant is prohibited; it becomes a pending claim for Platform Admin approval unless performed by Platform Admin
+      const effectiveOrderCompStatus: CompensationStatus = (isCentralWalletClaim && !isAdminUser) ? 'pending' : modalStatus;
+      const compAmount = (modalStatus === 'compensated' || isCentralWalletClaim) ? Number(modalAmount) : 0;
       const taxAmt = Number(modalShippingTax) || 0;
       const insAmt = Number(modalShippingInsurance) || 0;
       const inspAmt = Number(modalShippingInspection) || 0;
@@ -513,10 +519,12 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
         if (o.id === selectedOrder.id) {
           return {
             ...o,
-            compensationStatus: modalStatus,
+            compensationStatus: effectiveOrderCompStatus,
             compensationAmount: compAmount,
             compensationCourierName: modalCourierName,
-            compensationNotes: modalNotes,
+            compensationNotes: (isCentralWalletClaim && !isAdminUser)
+              ? `${modalNotes ? modalNotes + ' | ' : ''}مطالبة تعويض للمحفظة المركزية بانتظار اعتماد إدارة المنصة`
+              : modalNotes,
             compensationDate: modalStatus === 'compensated' ? new Date().toISOString().split('T')[0] : (o as any).compensationDate,
             compensationTreasuryAccountId: modalStatus === 'compensated' ? modalTreasuryAccountId : undefined,
             shippingTax: taxAmt,
@@ -527,29 +535,36 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
         return o;
       });
 
-      // 2. Financial Integration: Record deposit in Treasury or Wallet
+      // 2. Financial Integration: Record deposit in Treasury or Pending/Completed Claim in Central Wallet
       let updatedWallet = wallet;
       let updatedTreasury = treasury;
 
       if (isNewCompensation && modalRecordFinancial && modalTreasuryAccountId) {
         if (modalTreasuryAccountId === 'central_wallet' && wallet && setWallet) {
-          const newTx: Transaction = {
-            id: `tx-comp-${Date.now()}`,
-            date: new Date().toISOString().split('T')[0],
-            amount: compAmount,
-            type: 'إيداع',
-            note: `تعويض شركة الشحن (${selectedOrder.shippingCompany}) للطلب الملغي رقم #${selectedOrder.orderNumber} - مندوب: ${modalCourierName || 'غير محدد'} (يشمل الشحن والمصاريف)`,
-            category: 'shipping_compensation',
-            status: 'completed',
-            orderId: selectedOrder.id,
-            orderNumber: String(selectedOrder.orderNumber)
-          };
-          updatedWallet = {
-            ...wallet,
-            balance: (wallet.balance || 0) + compAmount,
-            transactions: [newTx, ...(wallet.transactions || [])]
-          };
-          setWallet(updatedWallet);
+          const existingPending = (wallet.transactions || []).some(
+            t => t.orderId === selectedOrder.id && t.category === 'shipping_compensation' && (t.status === 'pending' || t.status === 'completed')
+          );
+          if (!existingPending && compAmount > 0) {
+            const newTx: Transaction = {
+              id: `tx-comp-${Date.now()}`,
+              date: new Date().toISOString(),
+              amount: compAmount,
+              type: 'إيداع',
+              note: isAdminUser
+                ? `إيداع تعويض شحن معتمد من مدير المنصة (${selectedOrder.shippingCompany}) للطلب #${selectedOrder.orderNumber}`
+                : `طلب تعويض شحن (${selectedOrder.shippingCompany}) للطلب #${selectedOrder.orderNumber} - مندوب: ${modalCourierName || 'غير محدد'} (بانتظار اعتماد مدير المنصة)`,
+              category: 'shipping_compensation',
+              status: isAdminUser ? 'completed' : 'pending',
+              orderId: selectedOrder.id,
+              orderNumber: String(selectedOrder.orderNumber)
+            };
+            updatedWallet = {
+              ...wallet,
+              balance: isAdminUser ? Number(wallet.balance || 0) + compAmount : wallet.balance,
+              transactions: [newTx, ...(wallet.transactions || [])]
+            };
+            setWallet(updatedWallet);
+          }
         } else if (setTreasury && treasury) {
           const newTx: TreasuryTransaction = {
             id: `tx-comp-${Date.now()}`,
@@ -596,7 +611,11 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
       // 3. Save to database / local persistence with complete store data payload
       try {
         await forceSync(customStoreData);
-        showAlert('تم حفظ تفاصيل التعويض ومزامنة البيانات بنجاح!', 'success');
+        if (isCentralWalletClaim) {
+          showAlert('تم إرسال مطالبة التعويض للمحفظة المركزية إلى مدير المنصة للمراجعة والاعتماد!', 'success');
+        } else {
+          showAlert('تم حفظ تفاصيل التعويض ومزامنة البيانات بنجاح!', 'success');
+        }
         setShowManageModal(false);
         setSelectedOrder(null);
       } catch (syncErr) {
@@ -1354,7 +1373,9 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
                       <option value="">-- اختر حساب الخزينة أو المحفظة للإيداع --</option>
                       {wallet && (
                         <option value="central_wallet">
-                          المحفظة الماليّة المركزيّة (الرصيد الأساسي) - الرصيد: {Math.round(calculateWalletLiveBalance(wallet, treasury) * 100) / 100} ج.م
+                          {currentUser?.isAdmin
+                            ? `المحفظة المركزية (اعتماد وإيداع فوري — مدير المنصة) - الرصيد: ${Math.round(calculateWalletLiveBalance(wallet, treasury) * 100) / 100} ج.م`
+                            : `طلب تعويض للمحفظة المركزية (يُعتمد بواسطة مدير المنظومة) - الرصيد: ${Math.round(calculateWalletLiveBalance(wallet, treasury) * 100) / 100} ج.م`}
                         </option>
                       )}
                       {(Array.isArray(treasury?.accounts) ? treasury.accounts : Object.values(treasury?.accounts || {})).map((acc: any) => (
@@ -1366,7 +1387,20 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
                   </div>
 
                   {/* Toggle integration log */}
-                  {modalTreasuryAccountId && (
+                  {modalTreasuryAccountId === 'central_wallet' ? (
+                    <div className={`p-3 rounded-xl border text-[11px] font-bold flex items-center gap-2 ${
+                      currentUser?.isAdmin
+                        ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300'
+                        : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300'
+                    }`}>
+                      <ShieldCheck size={16} className={currentUser?.isAdmin ? 'text-emerald-600 shrink-0' : 'text-amber-600 shrink-0'} />
+                      <span>
+                        {currentUser?.isAdmin
+                          ? 'صلاحية مدير المنصة: سيتم اعتماد التعويض وإيداع المبلغ فوراً في المحفظة المركزية للمتجر.'
+                          : 'عند اختيار المحفظة المركزية، يتم إرسال المطالبة كـ (طلب معلق) لمدير المنظومة للمراجعة وإيداع المبلغ رسمياً في محفظتك.'}
+                      </span>
+                    </div>
+                  ) : modalTreasuryAccountId ? (
                     <div className="flex items-center gap-2 pt-1">
                       <input 
                         id="modal-record-financial-checkbox"
@@ -1375,9 +1409,9 @@ export const FailedDeliveryCompensationPage: React.FC<FailedDeliveryCompensation
                         onChange={(e) => setModalRecordFinancial(e.target.checked)}
                         className="w-4 h-4 text-indigo-600 border-slate-300 rounded-sm focus:ring-indigo-500/50"
                       />
-                      <span className="text-[10px] font-bold text-slate-500">إضافة إيصال إيداع فوري تلقائياً بالخزينة المختارة</span>
+                      <span className="text-[10px] font-bold text-slate-500">إضافة إيصال إيداع فوري تلقائياً بالخزينة الدفترية المختارة</span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               )}
 

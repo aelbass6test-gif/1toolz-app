@@ -26,11 +26,14 @@ database_name = "abdomedi-otp"
 database_id = "bee8445c-49fc-4458-8405-afa56575b7c9"
 migrations_dir = "migrations"
 
-# After the first successful deploy, attach the custom domain from
+# After the first successful deploy, attach the custom domain / routes from
 # Cloudflare Dashboard or uncomment this block if your account supports it.
 # [[routes]]
-# pattern = "api.abdomedi.com"
-# custom_domain = true
+# pattern = "api.abdomedi.com/*"
+# zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
+# [[routes]]
+# pattern = "*.abdomedi.com/*"
+# zone_id = "b548bd3bc36d71d87cddfa846c54c23e"
 # Product-media routes are owned by the separate `abdomedi-media` Worker.
 # Do not declare them here; duplicate routes make production builds fail.
 [vars]

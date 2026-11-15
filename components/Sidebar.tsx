@@ -17,6 +17,7 @@ interface SidebarProps {
   isDesktopCollapsed?: boolean;
   onToggleDesktopCollapse?: () => void;
   pendingRequestsCounts?: { merchants: number, partners: number };
+  isAdmin?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -26,7 +27,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     onClose,
     isDesktopCollapsed = false,
     onToggleDesktopCollapse,
-    pendingRequestsCounts = { merchants: 0, partners: 0 }
+    pendingRequestsCounts = { merchants: 0, partners: 0 },
+    isAdmin = false
 }) => {
     const location = useLocation();
     const isPosEnabled = settings?.isPosEnabled !== false;
@@ -50,7 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             title: 'الرئيسية والمتابعة العامة', 
             links: [
                 { to: `${storePrefix}/dashboard`, label: 'لوحة التحكم الرئيسية', icon: <LayoutDashboard size={18} /> },
-                { to: '/store', label: 'معاينة المتجر المباشر', icon: <Eye size={18} />, external: true },
+                { to: `${storePrefix}/store`, label: 'معاينة المتجر المباشر', icon: <Eye size={18} />, external: true },
                 { to: `${storePrefix}/reports`, label: 'تحليلات الأداء الذكية', icon: <BarChart2 size={18} /> },
                 { to: `${storePrefix}/standard-reports`, label: 'تقارير المبيعات التفصيلية', icon: <FileSpreadsheet size={18} /> },
                 { to: `${storePrefix}/activity-logs`, label: 'سجل نشاط النظام والعمليات', icon: <Activity size={18} /> },
@@ -194,7 +196,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 { to: `${storePrefix}/maintenance`, label: 'صيانة وفحص سلامة البيانات', icon: <Wrench size={18} /> },
                 { to: `/select-store`, label: 'إدارة واختيار المتاجر والمشاريع', icon: <LayoutGrid size={18} /> },
                 { to: `${storePrefix}/account-settings`, label: 'إعدادات حساب المالك', icon: <UserCog size={18} /> },
-                { to: '/admin', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={18} /> },
+                ...(isAdmin ? [{ to: '/admin', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={18} /> }] : []),
             ]
         }
     ];

@@ -129,6 +129,8 @@ interface DeveloperSettingsPageProps {
   activeStoreId?: string | null;
   activeStore?: Store;
   hostUrl?: string;
+  dbSyncMode?: string;
+  setDbSyncMode?: (mode: any) => void;
   forcePullFromCloud?: () => Promise<{ success: boolean; error?: string }>;
   forceSync?: () => Promise<void>;
   saveStatus?: string;
@@ -160,7 +162,7 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
     wallet: any[];
     storeId: string;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<'database' | 'security' | 'mail' | 'webhooks' | 'apikeys' | 'logs' | 'platforms'>('database');
+  const [activeTab, setActiveTab] = useState<'database' | 'security' | 'mail' | 'webhooks' | 'apikeys' | 'logs' | 'platforms'>('webhooks');
 
   // Central Mail Configuration State
   const [mailProvider, setMailProvider] = useState<'resend' | 'brevo' | 'gmail' | 'smtp'>('resend');
@@ -517,13 +519,10 @@ const DeveloperSettingsPage: React.FC<DeveloperSettingsPageProps> = ({
       {/* Modern Tabs */}
       <div className="flex overflow-x-auto hide-scrollbar gap-2 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
         {[
-          { id: 'database', label: 'قاعدة البيانات', icon: <Database size={16} /> },
-          { id: 'security', label: 'الأمان والمزامنة', icon: <ShieldAlert size={16} /> },
-          { id: 'mail', label: 'خادم البريد المركزي (SMTP)', icon: <Mail size={16} /> },
-          { id: 'webhooks', label: 'Webhooks', icon: <Webhook size={16} /> },
+          { id: 'webhooks', label: 'الربط البرمجي (Webhooks)', icon: <Webhook size={16} /> },
           { id: 'apikeys', label: 'مفاتيح الربط (API Keys)', icon: <Key size={16} /> },
-          { id: 'logs', label: 'سجل النشاط', icon: <History size={16} /> },
-          { id: 'platforms', label: 'المنصات', icon: <ShoppingCart size={16} /> }
+          { id: 'platforms', label: 'ربط المنصات الخارجية', icon: <ShoppingCart size={16} /> },
+          { id: 'logs', label: 'سجل النشاط البرمجي', icon: <History size={16} /> }
         ].map(tab => (
           <button
             key={tab.id}

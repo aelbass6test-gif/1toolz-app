@@ -1,4 +1,5 @@
 import { soundManager } from '../utils/soundNotification';
+import { cfFetch } from './cloudflareClient';
 
 export interface AppNotification {
   id: string;
@@ -14,15 +15,20 @@ export interface AppNotification {
 class NotificationService {
   private notifications: AppNotification[] = [];
   private listeners: Array<(notifications: AppNotification[]) => void> = [];
+  private storeId: string | null = null;
 
   constructor() {
     this.loadFromStorage();
   }
 
+  private getStorageKey(): string {
+    return this.storeId ? `app_inbox_notifications_${this.storeId}` : 'app_inbox_notifications';
+  }
+
   private loadFromStorage() {
     if (typeof window === 'undefined') return;
     try {
-      const stored = localStorage.getItem('app_inbox_notifications');
+      const stored = localStorage.getItem(this.getStorageKey()) || localStorage.getItem('app_inbox_notifications');
       if (stored) {
         this.notifications = JSON.parse(stored).slice(0, 50);
       }
@@ -32,8 +38,41 @@ class NotificationService {
   private saveToStorage() {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem('app_inbox_notifications', JSON.stringify(this.notifications.slice(0, 50)));
+      localStorage.setItem(this.getStorageKey(), JSON.stringify(this.notifications.slice(0, 50)));
     } catch (_) {}
+  }
+
+  public async setStoreContext(storeId: string | null | undefined) {
+    const normalized = storeId ? String(storeId).trim() : null;
+    if (this.storeId === normalized && this.notifications.length > 0) return;
+    this.storeId = normalized;
+    this.loadFromStorage();
+    this.listeners.forEach(l => l([...this.notifications]));
+
+    if (!normalized) return;
+    try {
+      const res = await cfFetch<{ success?: boolean; notifications?: AppNotification[] }>(
+        `/api/db/notifications/${encodeURIComponent(normalized)}`
+      );
+      if (Array.isArray(res?.notifications)) {
+        this.notifications = res.notifications.slice(0, 50);
+        this.notifyListeners();
+      }
+    } catch {
+      // keep local cache when offline
+    }
+  }
+
+  private resolveStoreId(): string | null {
+    if (this.storeId) return this.storeId;
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('lastActiveStoreId') || localStorage.getItem('activeStoreId');
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
 
   public subscribe(listener: (notifications: AppNotification[]) => void) {
@@ -69,7 +108,7 @@ class NotificationService {
   }
 
   /**
-   * Dispatches an in-app and browser notification with sound
+   * Dispatches an in-app and browser notification with sound + persists to Cloudflare D1
    */
   public triggerNotification(data: {
     title: string;
@@ -100,6 +139,14 @@ class NotificationService {
     this.notifications = [item, ...this.notifications].slice(0, 50);
     this.notifyListeners();
 
+    const sid = this.resolveStoreId();
+    if (sid) {
+      void cfFetch(`/api/db/notifications/${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        body: JSON.stringify({ notification: item })
+      }).catch((err) => console.warn('[Notification] Failed cloud save:', err?.message || err));
+    }
+
     // Trigger Browser / System Notification if allowed
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       try {
@@ -126,16 +173,36 @@ class NotificationService {
   public markAsRead(id: string) {
     this.notifications = this.notifications.map(n => n.id === id ? { ...n, read: true } : n);
     this.notifyListeners();
+    const sid = this.resolveStoreId();
+    if (sid) {
+      void cfFetch(`/api/db/notifications/${encodeURIComponent(sid)}/read`, {
+        method: 'PATCH',
+        body: JSON.stringify({ id })
+      }).catch(() => {});
+    }
   }
 
   public markAllAsRead() {
     this.notifications = this.notifications.map(n => ({ ...n, read: true }));
     this.notifyListeners();
+    const sid = this.resolveStoreId();
+    if (sid) {
+      void cfFetch(`/api/db/notifications/${encodeURIComponent(sid)}/read`, {
+        method: 'PATCH',
+        body: JSON.stringify({ all: true })
+      }).catch(() => {});
+    }
   }
 
   public clearAll() {
     this.notifications = [];
     this.notifyListeners();
+    const sid = this.resolveStoreId();
+    if (sid) {
+      void cfFetch(`/api/db/notifications/${encodeURIComponent(sid)}`, {
+        method: 'DELETE'
+      }).catch(() => {});
+    }
   }
 
   public getUnreadCount(): number {

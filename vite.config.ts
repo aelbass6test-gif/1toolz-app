@@ -52,15 +52,19 @@ export default defineConfig(({ mode }) => {
             ],
           },
           workbox: {
+            cleanupOutdatedCaches: true,
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
             // Do not serve a potentially old precached index.html for deep links.
             // Cloudflare Workers Static Assets already performs the SPA fallback,
             // so navigations should reach the network first and receive the
             // currently deployed application shell. Keep a short offline fallback.
-            navigateFallbackDenylist: [/^\/.+/],
+            navigateFallbackDenylist: [/^\/api\//, /^\/images\//, /^\/.+/],
             runtimeCaching: [
               {
-                urlPattern: ({ request }) => request.mode === 'navigate',
+                urlPattern: ({ request, url }) =>
+                  request.mode === 'navigate' &&
+                  !url.pathname.startsWith('/api/') &&
+                  !url.pathname.startsWith('/images/'),
                 handler: 'NetworkFirst',
                 options: {
                   cacheName: 'app-navigation-cache',
@@ -108,7 +112,7 @@ export default defineConfig(({ mode }) => {
             ],
           },
           devOptions: {
-            enabled: true,
+            enabled: false,
             type: 'module',
           },
         }),

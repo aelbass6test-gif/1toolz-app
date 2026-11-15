@@ -7,6 +7,13 @@ const CF_AUTH_TOKEN_KEY = 'cf_auth_token';
 const CF_AUTH_USER_KEY = 'cf_auth_user';
 
 export function getCfApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const host = window.location.hostname.toLowerCase();
+    // Always use same-origin relative requests on AI Studio preview (*.run.app) and localhost
+    if (host.endsWith('.run.app') || host === 'localhost' || host === '127.0.0.1') {
+      return window.location.origin.replace(/\/$/, '');
+    }
+  }
   const configured = (import.meta as any).env?.VITE_CLOUDFLARE_API_URL;
   if (configured && typeof configured === 'string' && configured.trim()) {
     return configured.trim().replace(/\/$/, '');
@@ -68,8 +75,9 @@ export async function cfFetch<T = any>(
   options: RequestInit & { timeoutMs?: number } = {}
 ): Promise<T> {
   const { timeoutMs = 15000, headers: customHeaders, ...rest } = options;
+  const normalizedPath = path.startsWith('http') ? path : (path.startsWith('/') ? path : `/${path}`);
   const base = getCfApiBaseUrl();
-  const url = path.startsWith('http') ? path : `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  const primaryUrl = path.startsWith('http') ? path : `${base}${normalizedPath}`;
 
   const headers = new Headers(customHeaders || {});
   if (!headers.has('Content-Type') && !(rest.body instanceof FormData)) {
@@ -80,32 +88,51 @@ export async function cfFetch<T = any>(
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const executeAttempt = async (targetUrl: string): Promise<T> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(targetUrl, {
+        ...rest,
+        headers,
+        signal: rest.signal || controller.signal
+      });
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { success: res.ok, raw: text };
+      }
+      if (!res.ok) {
+        const err: any = new Error(data?.error || `HTTP ${res.status}`);
+        err.status = res.status;
+        err.code = data?.code;
+        err.data = data;
+        throw err;
+      }
+      return data as T;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   try {
-    const res = await fetch(url, {
-      ...rest,
-      headers,
-      signal: rest.signal || controller.signal
-    });
-    const text = await res.text();
-    let data: any = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch {
-      data = { success: res.ok, raw: text };
+    return await executeAttempt(primaryUrl);
+  } catch (err: any) {
+    // If transient network fetch error ("Failed to fetch"), wait 450ms and retry once (using relative path if origin differs)
+    const isNetworkError =
+      !err?.status &&
+      (err?.name === 'TypeError' || String(err?.message || '').toLowerCase().includes('failed to fetch'));
+    if (isNetworkError && !rest.signal?.aborted) {
+      await new Promise(resolve => setTimeout(resolve, 450));
+      const fallbackUrl =
+        typeof window !== 'undefined' && !path.startsWith('http')
+          ? `${window.location.origin.replace(/\/$/, '')}${normalizedPath}`
+          : primaryUrl;
+      return await executeAttempt(fallbackUrl);
     }
-    if (!res.ok) {
-      const err: any = new Error(data?.error || `HTTP ${res.status}`);
-      err.status = res.status;
-      err.code = data?.code;
-      err.data = data;
-      throw err;
-    }
-    return data as T;
-  } finally {
-    clearTimeout(timer);
+    throw err;
   }
 }
 
@@ -212,27 +239,45 @@ export function subscribePolling<T>(
   onError?: (err: any) => void
 ): () => void {
   let active = true;
-  let timer: any = null;
+  let inFlight = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let consecutiveErrors = 0;
+
+  const scheduleNext = (delayMs: number) => {
+    if (!active) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (!active) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        scheduleNext(delayMs);
+        return;
+      }
+      void tick();
+    }, delayMs);
+  };
 
   const tick = async () => {
-    if (!active) return;
+    if (!active || inFlight) return;
+    inFlight = true;
     try {
       const data = await fetcher();
+      consecutiveErrors = 0;
       if (active) onData(data);
+      scheduleNext(intervalMs);
     } catch (err) {
+      consecutiveErrors += 1;
       if (active && onError) onError(err);
+      const backoffMs = Math.min(Math.max(intervalMs, 15000) * Math.pow(2, Math.min(consecutiveErrors - 1, 2)), 60000);
+      scheduleNext(backoffMs);
+    } finally {
+      inFlight = false;
     }
   };
 
   void tick();
-  timer = setInterval(() => {
-    if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
-      void tick();
-    }
-  }, intervalMs);
 
   return () => {
     active = false;
-    if (timer) clearInterval(timer);
+    if (timer) clearTimeout(timer);
   };
 }

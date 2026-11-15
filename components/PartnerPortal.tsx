@@ -26,6 +26,7 @@ import {
   registerBiometricCredential, 
   authenticateBiometricCredential,
   getStoredBiometrics,
+  hydrateBiometricsFromCloud,
   saveStoredBiometric,
   removeStoredBiometric,
   setBiometricEnabledFor
@@ -360,12 +361,31 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     return role.includes('موكل') || role.includes('مورد') || role.includes('بضاعة') || role.includes('supplier') || role.includes('merchant');
   }, [modeFromPath, livePartner]);
 
-  // Sync fresh partner data with session storage
+  // Sync fresh partner data with session storage and hydrate cloud biometrics
+  const [bioCloudTick, setBioCloudTick] = useState(0);
   useEffect(() => {
     if (livePartner && effectiveStoreId) {
       sessionStorage.setItem(`partner_portal_auth_${effectiveStoreId}`, JSON.stringify(livePartner));
     }
   }, [livePartner, effectiveStoreId]);
+
+  useEffect(() => {
+    if (!livePartner?.id) return;
+    void hydrateBiometricsFromCloud(livePartner.id, false).then(() => {
+      setBioCloudTick(t => t + 1);
+    });
+  }, [livePartner?.id]);
+
+  const partnerMergedBiometrics = useMemo(() => {
+    if (!livePartner?.id) return [];
+    const seen = new Set<string>();
+    const combined = [...(livePartner.biometricCredentials || []), ...getStoredBiometrics(livePartner.id)];
+    return combined.filter(c => {
+      if (!c?.id || seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }, [livePartner, bioCloudTick]);
 
   // Partner Portal Permissions
   const portalPerms = useMemo(() => {
@@ -645,7 +665,8 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
     setIsTestingBiometric(true);
     setBioTestSuccessMsg('');
     try {
-      const stored = getStoredBiometrics(livePartner.id);
+      const hydrated = await hydrateBiometricsFromCloud(livePartner.id, false);
+      const stored = hydrated.credentials.length > 0 ? hydrated.credentials : getStoredBiometrics(livePartner.id);
       const allCreds = [...(livePartner.biometricCredentials || []), ...stored];
       const res = await authenticateBiometricCredential(allCreds.length > 0 ? allCreds : undefined, storeName);
       if (res.success) {
@@ -665,6 +686,7 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
   const handleRemoveBiometric = (credId: string) => {
     if (!livePartner) return;
     removeStoredBiometric(livePartner.id, credId, false);
+    setBioCloudTick(t => t + 1);
     const updatedCreds = (livePartner.biometricCredentials || []).filter(c => c.id !== credId);
     const updatedPartners = partners.map(p => 
       p.id === livePartner.id ? { ...p, biometricCredentials: updatedCreds } : p
@@ -3157,15 +3179,15 @@ export default function PartnerPortal({ allStoresData, updateSettings, showToast
                 )}
 
                 {/* Enrolled Biometrics List */}
-                {((livePartner.biometricCredentials && livePartner.biometricCredentials.length > 0) || getStoredBiometrics(livePartner.id).length > 0) ? (
+                {partnerMergedBiometrics.length > 0 ? (
                   <div className="space-y-3">
                     <div className="text-xs font-black text-slate-800 flex items-center justify-between">
-                      <span>الأجهزة ومفاتيح الأمان المسجلة ({[...(livePartner.biometricCredentials || []), ...getStoredBiometrics(livePartner.id)].length}):</span>
+                      <span>الأجهزة ومفاتيح الأمان المسجلة ({partnerMergedBiometrics.length}):</span>
                       <span className="text-[11px] text-emerald-600 font-bold">الدخول الحيوي مفعل ونشط</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {[...(livePartner.biometricCredentials || []), ...getStoredBiometrics(livePartner.id)].map((cred, idx) => (
+                      {partnerMergedBiometrics.map((cred, idx) => (
                         <div key={cred.id + idx} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-emerald-600">

@@ -568,6 +568,39 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     }); 
   }, [settings.products, searchTerm, selectedCategory]); 
 
+  if (activeStore?.isBanned) {
+    return (
+      <div className="min-h-screen relative overflow-hidden flex items-center justify-center bg-[#f7f8f4] text-slate-900 p-6 font-sans" dir="rtl">
+        <div className="pointer-events-none fixed inset-0 overflow-hidden">
+          <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-emerald-200/40 blur-3xl" />
+          <div className="absolute -bottom-24 -left-24 w-80 h-80 rounded-full bg-lime-200/35 blur-3xl" />
+        </div>
+        <div className="relative z-10 max-w-md w-full bg-white/95 border border-emerald-100 rounded-[2rem] p-8 text-center shadow-[0_24px_70px_rgba(23,60,45,0.10)] space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mx-auto">
+            <StoreIcon size={32} />
+          </div>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-xs font-black">
+            متوقف مؤقتاً للتحديث
+          </span>
+          <h1 className="text-xl font-black text-slate-900">
+            هذا المتجر متوقف مؤقتاً عن استقبال الطلبات
+          </h1>
+          <p className="text-xs font-bold text-slate-500 leading-relaxed">
+            متجر &quot;{activeStore.name}&quot; غير متاح حالياً بقرار من إدارة المنصة. يرجى المحاولة في وقت لاحق.
+          </p>
+          {isOwnerSession && (
+            <Link
+              to={`/store/${activeStore.id}/dashboard`}
+              className="inline-flex items-center justify-center w-full py-3 px-4 rounded-2xl bg-[#00c48c] hover:bg-[#00b07d] text-slate-950 font-black text-xs transition-all shadow-md"
+            >
+              الانتقال لبوابة التواصل مع الدعم الفني
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return ( 
     <div 
       className="min-h-screen flex flex-col antialiased overflow-x-hidden bg-slate-50 text-slate-900" 
@@ -809,6 +842,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         onSaveCustomer={(c) => setCustomerSession(c)}
         primaryColor={primaryColor}
         storeName={activeStore?.name || 'متجرنا'}
+        storeId={activeStore?.id}
       />
 
       {/* Product Detail Modal */}
