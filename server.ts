@@ -8,7 +8,7 @@ import { createServer } from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import fs from "fs";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import { getServerD1Database } from "./server/cfDatabaseAdapter";
 import type { D1LikeDatabase } from "./cloudflare-worker/src/d1Types";
 import { handleAuthRequest, hashPasswordPbkdf2 } from "./cloudflare-worker/src/auth";
@@ -29,17 +29,23 @@ import {
 import { hashPasswordSecure } from "./utils/syncIntegrity";
 import { ensureMysqlTables, query as mysqlQuery, getMysqlPool } from "./services/mysqlAdapter";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "AIzaSy_placeholder_key_for_dev_mode",
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
+let _geminiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!_geminiClient) {
+    _geminiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
-});
+  return _geminiClient;
+}
 
 /**
- * Executes a generateContent call with multiple models as fallbacks and exponential backoff on transient errors (like 503 Service Unavailable or high demand).
+ * Executes a generateContent call with active Gemini models and exponential backoff on transient errors (like 503 Service Unavailable or high demand).
  */
 async function generateContentWithRobustRetry(params: {
   contents: any;
@@ -47,58 +53,104 @@ async function generateContentWithRobustRetry(params: {
   config?: any;
 }) {
   const requestedModel = params.model;
-  
-  // Resolve deprecated models to non-deprecated modern equivalents
+
+  // Resolve legacy/deprecated/unsupported model names to active supported models
   const cleanModelName = (name: string): string => {
-    if (!name) return "gemini-3.5-flash";
-    const normalized = name.toLowerCase();
+    if (!name) return "gemini-4-hydrogen";
+    const normalized = name.toLowerCase().trim();
     if (
-      normalized.includes("gemini-1.5-flash") ||
-      normalized.includes("gemini-2.0-flash") ||
+      normalized.includes("gemini-1.5") ||
+      normalized.includes("gemini-2.0") ||
+      normalized.includes("gemini-2.5") ||
+      normalized.includes("gemini-3.5") ||
       normalized.includes("gemini-pro") ||
-      normalized.includes("1.5") ||
-      normalized.includes("2.0")
+      normalized.includes("gemini-flash-latest") ||
+      normalized === "gemini-flash"
     ) {
-      return "gemini-3.5-flash";
+      return "gemini-4-hydrogen";
     }
     return name;
   };
 
   const resolvedModel = cleanModelName(requestedModel);
 
-  // We build a list of fallback models to try if the initial choice fails due to service availability issues.
+  const sanitizeConfigForModel = (rawConfig: any, modelName: string) => {
+    if (!rawConfig || typeof rawConfig !== "object") return undefined;
+    const cfg: any = { ...rawConfig };
+    const isGemini4 =
+      modelName === "gemini-4-hydrogen" ||
+      modelName === "gemini-4-argon" ||
+      modelName === "gemini-4-carbon";
+
+    if (isGemini4) {
+      delete cfg.temperature;
+      delete cfg.topP;
+      delete cfg.topK;
+      delete cfg.candidateCount;
+    }
+
+    if (cfg.thinkingConfig && typeof cfg.thinkingConfig === "object") {
+      const rawLevel = cfg.thinkingConfig.thinkingLevel;
+      const rawBudget = cfg.thinkingConfig.thinkingBudget;
+      if (isGemini4) {
+        let level: ThinkingLevel | undefined;
+        if (typeof rawLevel === "string") {
+          const upper = rawLevel.toUpperCase();
+          if (upper === "XHIGH" && modelName === "gemini-4-hydrogen") level = ThinkingLevel.XHIGH;
+          else if (upper === "HIGH") level = ThinkingLevel.HIGH;
+          else if (upper === "MEDIUM") level = ThinkingLevel.MEDIUM;
+          else if (upper === "LOW") level = ThinkingLevel.LOW;
+        } else if (typeof rawBudget === "number") {
+          level = rawBudget > 0 ? ThinkingLevel.HIGH : ThinkingLevel.LOW;
+        }
+        if (level) {
+          cfg.thinkingConfig = { thinkingLevel: level };
+        } else {
+          delete cfg.thinkingConfig;
+        }
+      } else if (modelName === "gemini-3.1-flash-lite") {
+        delete cfg.thinkingConfig;
+      }
+    }
+
+    return Object.keys(cfg).length > 0 ? cfg : undefined;
+  };
+
+  // Fallback chain using only active supported Gemini models
   const modelCandidates = [
     resolvedModel,
-    "gemini-flash-latest",
+    "gemini-4-hydrogen",
     "gemini-3.1-flash-lite"
-  ].filter((value, index, self) => self.indexOf(value) === index); // unique values only
+  ].filter((value, index, self) => self.indexOf(value) === index);
 
   let lastError: any = null;
+  const ai = getGeminiClient();
 
   for (const currentModel of modelCandidates) {
     let attempts = 3;
     let delayMs = 600;
+    const sanitizedConfig = sanitizeConfigForModel(params.config, currentModel);
 
     while (attempts > 0) {
       try {
         console.log(`[GEMINI-ROBUST] Attempting content generation using model: "${currentModel}" (attempts remaining: ${attempts})`);
-        
+
         const response = await ai.models.generateContent({
           model: currentModel,
           contents: params.contents,
-          config: params.config
+          ...(sanitizedConfig ? { config: sanitizedConfig } : {})
         });
 
         if (response && response.text !== undefined) {
           console.log(`[GEMINI-ROBUST] Successful generation with model: "${currentModel}"`);
           return response;
         }
-        
+
         throw new Error("Received empty or corrupt response from Gemini API");
       } catch (err: any) {
         lastError = err;
         const msg = err.message || String(err);
-        
+
         // Extract status or code
         let status = err.status || (err.error && err.error.code) || 0;
         if (!status && msg) {
@@ -107,44 +159,40 @@ async function generateContentWithRobustRetry(params: {
             status = parseInt(match[1], 10);
           }
         }
-        
-        // Clean log to prevent test environment scanners from flagging standard 503 transient status retries as raw warnings/errors.
+
         console.log(`[GEMINI-ROBUST] Model "${currentModel}" status response indicates heavy load (${status}). Safe auto-fallback handling in progress...`);
 
-        // If it's a non-retriable client error (e.g. 400 Bad Request, invalid credentials, parameters, etc., but not 429)
+        // If it's a non-retriable client error (e.g. 400 Bad Request, 404 Not Found, etc., but not 429)
         const isClientError = status >= 400 && status < 500 && status !== 429;
         if (isClientError) {
           console.log(`[GEMINI-ROBUST] Client error (${status}). Skipping retries for model: "${currentModel}"`);
           break; // break retry loop, try next model candidate or bubble up the error
         }
 
-        // If it's a 503 (high demand) or 429 (rate/congestion limit) or unavailable, 
-        // we try other model candidates immediately to reduce latency.
         const msgLower = msg.toLowerCase();
-        const isOverloaded = status === 503 || status === 429 || 
-                             msgLower.includes("503") || 
-                             msgLower.includes("unavailable") || 
-                             msgLower.includes("high demand") || 
+        const isOverloaded = status === 503 || status === 429 ||
+                             msgLower.includes("503") ||
+                             msgLower.includes("unavailable") ||
+                             msgLower.includes("high demand") ||
                              msgLower.includes("resource exhausted") ||
                              msgLower.includes("overloaded");
-                             
+
         const hasNextCandidate = modelCandidates.indexOf(currentModel) < modelCandidates.length - 1;
         if (isOverloaded && hasNextCandidate) {
           console.log(`[GEMINI-ROBUST] Model "${currentModel}" is loaded. Fast-routing to backup pathway...`);
-          break; // break out of 'attempts' loop to proceed to next modelCandidate
+          break;
         }
 
         attempts--;
         if (attempts > 0) {
           console.log(`[GEMINI-ROBUST] Retrying backup call shortly (delay: ${delayMs}ms)...`);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
-          delayMs *= 2; // exponential backoff
+          delayMs *= 2;
         }
       }
     }
   }
 
-  // All attempts failed
   const lastMsg = lastError?.message || String(lastError || "");
   if (lastMsg.toLowerCase().includes("resource_exhausted") || lastMsg.toLowerCase().includes("quota") || lastMsg.toLowerCase().includes("429")) {
     console.log("[GEMINI-ROBUST] Quota exhausted detected. Providing graceful fallback response.");
@@ -1073,7 +1121,7 @@ async function startServer() {
     try {
         const { model, prompt, config, service } = await c.req.json();
         const response = await generateContentWithRobustRetry({
-            model: model || "gemini-3.5-flash",
+            model: model || "gemini-4-hydrogen",
             contents: prompt,
             config: config
         });
@@ -1113,11 +1161,71 @@ async function startServer() {
     }
   }, 10 * 60 * 1000);
 
+  app.post("/api/send-password-reset-email", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const email = String(body.email || "").trim().toLowerCase();
+      const userName = String(body.userName || "التاجر العزيز").trim();
+      const resetLink = String(body.resetLink || "").trim();
+      const resetCode = String(body.resetCode || "").trim();
+
+      if (!email || !email.includes("@")) {
+        return c.json({ success: false, delivered: false, error: "عنوان البريد الإلكتروني غير صالح." }, 400);
+      }
+
+      const mailResult = await sendPasswordResetEmail({
+        toEmail: email,
+        userName,
+        resetLink: /^https?:\/\//i.test(resetLink) ? resetLink : undefined,
+        resetCode: resetCode || undefined
+      });
+
+      if (!mailResult.delivered) {
+        return c.json({
+          success: false,
+          delivered: false,
+          code: "RESET_LINK_MAIL_UNCONFIGURED",
+          error: mailResult.error || "خدمة إرسال رابط التعيين غير مهيأة محلياً."
+        }, 422);
+      }
+
+      return c.json({
+        success: true,
+        delivered: true,
+        deliveryMode: "link",
+        email,
+        message: "تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني بنجاح."
+      });
+    } catch (err: any) {
+      return c.json({ success: false, delivered: false, error: err?.message || "فشل إرسال رابط الاستعادة." }, 500);
+    }
+  });
+
   app.post("/api/send-otp", async (c) => {
+    const peekBody = await c.req.raw.clone().json().catch(() => ({} as any));
+    if (peekBody?.type === "password_reset" && peekBody?.resetLink) {
+      const email = String(peekBody.email || "").trim().toLowerCase();
+      const mailResult = await sendPasswordResetEmail({
+        toEmail: email,
+        userName: String(peekBody.userName || "التاجر العزيز").trim(),
+        resetLink: String(peekBody.resetLink).trim(),
+        resetCode: peekBody.resetCode ? String(peekBody.resetCode).trim() : undefined
+      });
+      if (mailResult.delivered) {
+        return c.json({ success: true, delivered: true, deliveryMode: "link", email });
+      }
+      return c.json({
+        success: false,
+        delivered: false,
+        code: "RESET_LINK_MAIL_UNCONFIGURED",
+        error: mailResult.error || "تعذر إرسال رابط التعيين محلياً."
+      }, 422);
+    }
+
     const proxied = await proxyRequestToCfWorker(c.req.raw);
     if (proxied && proxied.status < 500) return proxied;
     try {
-      const body = await c.req.json().catch(() => ({}));
+      const body = peekBody || {};
       const phone = (body.phone || "").trim();
       let email = (body.email || "").trim().toLowerCase();
       const userName = (body.userName || "العميل العزيز").trim();
@@ -6525,7 +6633,7 @@ async function startServer() {
 5. لا تذكر أي تفاصيل تقنية معقدة غير مطلوبة، ركز على العاطفة وثقة المتجر وسرعة التوصيل وعروض خاصة.`;
 
       const response = await generateContentWithRobustRetry({
-        model: "gemini-3.5-flash",
+        model: "gemini-4-hydrogen",
         contents: prompt,
       });
 

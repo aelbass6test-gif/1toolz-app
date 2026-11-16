@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useParams } from 'react-router-dom';
 import { 
   Landmark, 
   Wallet, 
@@ -41,14 +42,15 @@ import {
   Paperclip
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { Settings, Treasury, TreasuryAccount, TreasuryTransaction, Order } from '../types';
+import { Settings, Treasury, TreasuryAccount, TreasuryTransaction, Order, GovernanceCorrectionRequest } from '../types';
 import { calculateOrderProfitLoss, getVirtualOrderHandovers } from '../utils/financials';
-import { inAppConfirm } from '../utils/inAppAlert';
+import { inAppConfirm, inAppToast } from '../utils/inAppAlert';
 import { generateSafeId } from '../utils/idUtils';
 import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 
 interface TreasuryPageProps {
   settings: Settings;
+  setSettings?: React.Dispatch<React.SetStateAction<Settings>>;
   treasury?: Treasury;
   setTreasury?: (updater: any) => void;
   wallet?: any;
@@ -70,6 +72,7 @@ const CASH_DENOMINATIONS = [
 
 export const TreasuryPage: React.FC<TreasuryPageProps> = ({ 
   settings, 
+  setSettings,
   treasury, 
   setTreasury, 
   wallet, 
@@ -77,6 +80,11 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
   orders = [],
   currentUser
 }) => {
+  const { storeId: activeStoreId } = useParams<{ storeId: string }>();
+  const [treasuryCorrectionTx, setTreasuryCorrectionTx] = useState<TreasuryTransaction | null>(null);
+  const [treasuryCorrectionReason, setTreasuryCorrectionReason] = useState('');
+  const [showPeriodCloseModal, setShowPeriodCloseModal] = useState(false);
+  const [periodCloseReason, setPeriodCloseReason] = useState('');
   const accounts = treasury?.accounts || [];
   const transactions = treasury?.transactions || [];
 
@@ -1130,6 +1138,17 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               <span>تصدير Excel</span>
             </button>
+
+            {setSettings && (
+              <button
+                type="button"
+                onClick={() => { setPeriodCloseReason(''); setShowPeriodCloseModal(true); }}
+                className="flex items-center gap-1.5 px-3.5 py-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 rounded-2xl font-black text-xs transition-all cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>طلب إقفال فترة محاسبية</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1915,11 +1934,17 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
-                            ) : (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold"
-                                title="القيود المحاسبية المعتمدة لا تُحذف يدوياً؛ لإجراء تسوية قم بتسجيل قيد عكسي أو تواصل مع مدير المنظومة"
+                            ) : setSettings ? (
+                              <button
+                                type="button"
+                                onClick={() => { setTreasuryCorrectionReason(''); setTreasuryCorrectionTx(tx); }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-900/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[11px] font-black cursor-pointer transition-colors"
                               >
+                                <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                                <span>طلب تصحيح / عكس</span>
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold">
                                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                                 <span>موثق</span>
                               </span>
@@ -2669,6 +2694,130 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
               مفهوم
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Modal: Maker-Checker Treasury Reversal / Correction Request */}
+      {treasuryCorrectionTx && setSettings && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[110] flex items-center justify-center p-4" onClick={() => setTreasuryCorrectionTx(null)}>
+          <form
+            onClick={e => e.stopPropagation()}
+            onSubmit={e => {
+              e.preventDefault();
+              if (!treasuryCorrectionReason.trim()) {
+                inAppToast('يرجى توضيح سبب طلب تصحيح القيد.', 'warning');
+                return;
+              }
+              const req: GovernanceCorrectionRequest = {
+                id: `REQ-T-${Date.now()}`,
+                kind: 'treasury_correction',
+                storeId: activeStoreId || settings?.storeName || 'store',
+                storeName: settings?.storeName || 'المتجر',
+                requestedBy: currentUser?.fullName || currentUser?.name || 'أمين الخزينة',
+                requestedByPhone: currentUser?.phone,
+                requestedAt: new Date().toISOString(),
+                targetTxId: String(treasuryCorrectionTx.id),
+                targetTxSummary: treasuryCorrectionTx.description,
+                targetAmount: Number(treasuryCorrectionTx.amount || 0),
+                correctionType: 'reverse',
+                reason: treasuryCorrectionReason.trim(),
+                status: 'pending'
+              };
+              setSettings(prev => ({
+                ...prev,
+                governanceRequests: [req, ...(prev.governanceRequests || [])].slice(0, 100)
+              }));
+              setTreasuryCorrectionTx(null);
+              inAppToast('تم رفع طلب عكس قيد الخزينة لمراجعة إدارة المنصة.', 'success');
+            }}
+            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-800 space-y-4 text-right"
+          >
+            <h3 className="text-base font-black text-slate-900 dark:text-white">طلب تصحيح / عكس قيد خزينة</h3>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 text-xs space-y-1">
+              <div className="font-black text-slate-900 dark:text-white">{treasuryCorrectionTx.description}</div>
+              <div className="font-mono text-slate-500 tabular-nums">
+                {treasuryCorrectionTx.amount.toLocaleString()} ج.م · {new Date(treasuryCorrectionTx.date).toLocaleDateString('ar-EG')}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">سبب العكس المحاسبي</label>
+              <textarea
+                rows={3}
+                value={treasuryCorrectionReason}
+                onChange={e => setTreasuryCorrectionReason(e.target.value)}
+                placeholder="اكتب السبب ليتم إنشاء قيد عكسي معتمد تلقائياً..."
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-xs font-bold text-slate-900 dark:text-white"
+                required
+              />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-black text-xs cursor-pointer">
+                إرسال الطلب للإدارة
+              </button>
+              <button type="button" onClick={() => setTreasuryCorrectionTx(null)} className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs cursor-pointer">
+                إلغاء
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal: Accounting Period Closing Request */}
+      {showPeriodCloseModal && setSettings && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[110] flex items-center justify-center p-4" onClick={() => setShowPeriodCloseModal(false)}>
+          <form
+            onClick={e => e.stopPropagation()}
+            onSubmit={e => {
+              e.preventDefault();
+              if (!periodCloseReason.trim()) {
+                inAppToast('أدخل الفترة المطلوب إقفالها أو الملاحظة.', 'warning');
+                return;
+              }
+              const req: GovernanceCorrectionRequest = {
+                id: `REQ-P-${Date.now()}`,
+                kind: 'period_closing',
+                storeId: activeStoreId || settings?.storeName || 'store',
+                storeName: settings?.storeName || 'المتجر',
+                requestedBy: currentUser?.fullName || currentUser?.name || 'مدير المتجر',
+                requestedByPhone: currentUser?.phone,
+                requestedAt: new Date().toISOString(),
+                correctionType: 'close_period',
+                reason: periodCloseReason.trim(),
+                status: 'pending'
+              };
+              setSettings(prev => ({
+                ...prev,
+                governanceRequests: [req, ...(prev.governanceRequests || [])].slice(0, 100)
+              }));
+              setShowPeriodCloseModal(false);
+              inAppToast('تم تقديم طلب إقفال الفترة المحاسبية لاعتماده في السجل الرقابي.', 'success');
+            }}
+            className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 dark:border-slate-800 space-y-4 text-right"
+          >
+            <h3 className="text-base font-black text-slate-900 dark:text-white">طلب إقفال فترة محاسبية</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              يؤدي اعتماد إقفال الفترة إلى توثيق أرصدة الخزائن حتى تاريخه ومنع التعديل بأثر رجعي.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">بيان الفترة والملاحظات</label>
+              <textarea
+                rows={3}
+                value={periodCloseReason}
+                onChange={e => setPeriodCloseReason(e.target.value)}
+                placeholder="مثال: إقفال حسابات شهر أكتوبر 2026 بعد مطابقة الجرد الفعلي..."
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-xs font-bold text-slate-900 dark:text-white"
+                required
+              />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 py-2.5 bg-[#008060] hover:bg-[#006e52] text-white rounded-xl font-black text-xs cursor-pointer">
+                رفع طلب الإقفال
+              </button>
+              <button type="button" onClick={() => setShowPeriodCloseModal(false)} className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs cursor-pointer">
+                إلغاء
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -5,9 +5,12 @@ import {
     Archive, Package, ClipboardList, ListOrdered, Star, Grid3x3, Users, Truck, Percent, 
     Wallet as WalletIcon, ArrowRightLeft, LayoutGrid, Brush, FileText, Globe, BarChart2, Shield, ShieldAlert,
     AppWindow, Settings2, CreditCard, Landmark, Users2, Code, Receipt, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, X, UserCog, History, Megaphone, MessageSquare, Wand2, DollarSign, RotateCcw, RotateCw, Monitor, Handshake,
-    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet, Activity, PanelLeftClose, PanelLeftOpen, Building2
+    Search, ChevronDown, Minimize2, Maximize2, Wrench, FileSpreadsheet, Activity, PanelLeftClose, PanelLeftOpen, Building2, Lock, Sparkles
 } from 'lucide-react';
 import { Store as StoreType, Settings } from '../types';
+import { evaluateStoreModuleAccess, getRouteModuleId, getStoreVerificationTier, isStoreVerified, usePlatformCommercialCatalog } from '../utils/commerceEcosystem';
+import { getOwnerRouteRequiredPermission, hasEffectiveOwnerPermission } from '../utils/ownerPermissions';
+import { VerifiedStoreBadge } from './VerifiedStoreBadge';
 
 interface SidebarProps {
   activeStore: StoreType | undefined;
@@ -18,6 +21,7 @@ interface SidebarProps {
   onToggleDesktopCollapse?: () => void;
   pendingRequestsCounts?: { merchants: number, partners: number };
   isAdmin?: boolean;
+  isImpersonating?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -28,9 +32,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     isDesktopCollapsed = false,
     onToggleDesktopCollapse,
     pendingRequestsCounts = { merchants: 0, partners: 0 },
-    isAdmin = false
+    isAdmin = false,
+    isImpersonating = false
 }) => {
     const location = useLocation();
+    const { catalog } = usePlatformCommercialCatalog();
     const isPosEnabled = settings?.isPosEnabled !== false;
     const storePrefix = activeStore ? `/store/${activeStore.id}` : '';
     const prevPathnameRef = useRef(location.pathname);
@@ -159,6 +165,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                     icon: <WalletIcon size={18} />,
                     badge: { text: "الرئيسية 💎", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
                 },
+                {
+                    to: `${storePrefix}/subscription`,
+                    label: 'الاشتراك ومحفظة الكوتا والموديولات',
+                    icon: <Sparkles size={18} />,
+                    badge: { text: "الباقات", color: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 text-[9px] font-black" }
+                },
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
                 { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={18} /> },
@@ -196,7 +208,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 { to: `${storePrefix}/maintenance`, label: 'صيانة وفحص سلامة البيانات', icon: <Wrench size={18} /> },
                 { to: `/select-store`, label: 'إدارة واختيار المتاجر والمشاريع', icon: <LayoutGrid size={18} /> },
                 { to: `${storePrefix}/account-settings`, label: 'إعدادات حساب المالك', icon: <UserCog size={18} /> },
-                ...(isAdmin ? [{ to: '/admin', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={18} /> }] : []),
+                ...(isAdmin ? [{ to: '/saeed', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={18} /> }] : []),
             ]
         }
     ];
@@ -350,6 +362,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                             <h2 className="text-xs font-black text-slate-900 dark:text-white truncate" title={activeStore?.name}>
                                 {activeStore?.name || 'منظومة التشغيل'}
                             </h2>
+                            <VerifiedStoreBadge verified={isStoreVerified(settings)} tier={getStoreVerificationTier(settings)} size="xs" />
                             <span className="relative flex h-1.5 w-1.5 shrink-0" title="المتجر نشط">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
@@ -488,6 +501,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                                         <div className="space-y-0.5 mt-0.5 transition-all">
                                             {item.links.map(link => {
                                                 const active = isLinkActive(link);
+                                                const modId = getRouteModuleId(link.to);
+                                                const isModLocked = modId ? evaluateStoreModuleAccess(settings, modId, catalog, isAdmin).isReadOnly : false;
+                                                const reqOwnerPerm = getOwnerRouteRequiredPermission(link.to);
+                                                const isOwnerPermRestricted = !hasEffectiveOwnerPermission(
+                                                    settings,
+                                                    reqOwnerPerm,
+                                                    Boolean(isAdmin || isImpersonating)
+                                                );
                                                 return (
                                                     <NavLink 
                                                         to={link.to} 
@@ -498,6 +519,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                         className={`relative flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-150 text-xs ${
                                                             active 
                                                                 ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-950 dark:text-emerald-50 font-black border border-emerald-500/20 dark:border-emerald-500/30 shadow-xs' 
+                                                                : isOwnerPermRestricted
+                                                                ? 'text-slate-400 dark:text-slate-600 opacity-70 hover:bg-rose-50/50 dark:hover:bg-rose-950/10 font-bold'
                                                                 : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-bold'
                                                         }`}
                                                     >
@@ -514,8 +537,17 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                                     <span className="truncate pr-0.5">{link.label}</span>
                                                                 </div>
 
-                                                                {/* Interactive Status Badge (Architectural Monospace Tag) */}
-                                                                {link.badge && (
+                                                                {isOwnerPermRestricted ? (
+                                                                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400" title="مقيّد من صلاحيات المالك بواسطة إدارة المنصة">
+                                                                        <Lock size={11} />
+                                                                        <span>مقيّد</span>
+                                                                    </span>
+                                                                ) : isModLocked ? (
+                                                                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400" title="وضع القراءة فقط — اضغط للتفعيل من محفظة الكوتا">
+                                                                        <Lock size={11} />
+                                                                        <span>مقفل</span>
+                                                                    </span>
+                                                                ) : link.badge ? (
                                                                     <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-mono font-black rounded-md leading-none ${
                                                                         active 
                                                                             ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' 
@@ -523,7 +555,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                                     }`}>
                                                                         {link.badge.text}
                                                                     </span>
-                                                                )}
+                                                                ) : null}
                                                             </>
                                                         )}
                                                     </NavLink>

@@ -15,6 +15,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import * as db from '../services/databaseService';
 import { inAppAlert, inAppConfirm } from '../utils/inAppAlert';
+import { getStoreVerificationTier, isStoreVerified } from '../utils/commerceEcosystem';
+import { VerifiedStoreBadge } from './VerifiedStoreBadge';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -529,7 +531,22 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
   const handleSaveSettings = async (updatedStore: Store) => {
     const owner = users.find(u => u.stores?.some(s => s.id === updatedStore.id));
     if (!owner) return;
-    
+
+    const existingStoreData = allStoresData[updatedStore.id];
+    const verified = isStoreVerified(existingStoreData?.settings);
+    const prevStoreObj = (owner.stores || []).find(s => s.id === updatedStore.id);
+    const lockedName =
+      existingStoreData?.settings?.commerceState?.verification?.verifiedStoreNameLocked ||
+      prevStoreObj?.name;
+
+    if (verified && !currentUser?.isAdmin && lockedName && updatedStore.name.trim() !== lockedName.trim()) {
+      await inAppAlert(
+        'لا يمكن تعديل الاسم التجاري للمتجر بعد توثيقه بالشارة الخضراء إلا عن طريق مراجعة إدارة المنصة.',
+        { title: 'الاسم التجاري محمي بالتوثيق', type: 'warning' }
+      );
+      return;
+    }
+
     const updatedOwner: User = {
       ...owner,
       stores: (owner.stores || []).map(s => s.id === updatedStore.id ? updatedStore : s)
@@ -541,13 +558,24 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
       setCurrentUser(updatedOwner);
     }
 
-    const existingStoreData = allStoresData[updatedStore.id];
     if (existingStoreData) {
+      const nextCommerceState =
+        verified && currentUser?.isAdmin && lockedName && updatedStore.name.trim() !== lockedName.trim() && existingStoreData.settings?.commerceState?.verification
+          ? {
+              ...existingStoreData.settings.commerceState,
+              verification: {
+                ...existingStoreData.settings.commerceState.verification,
+                verifiedStoreNameLocked: updatedStore.name.trim()
+              }
+            }
+          : existingStoreData.settings?.commerceState;
+
       const updatedStoreData: StoreData = {
         ...existingStoreData,
         settings: {
           ...existingStoreData.settings,
-          storeName: updatedStore.name
+          storeName: updatedStore.name,
+          ...(nextCommerceState ? { commerceState: nextCommerceState } : {})
         }
       };
       setAllStoresData(prev => ({ ...prev, [updatedStore.id]: updatedStoreData }));
@@ -955,7 +983,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
               {/* Direct Quick Control Shortcuts */}
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 pt-2 border-t border-white/10">
                 <Link
-                  to="/admin?tab=exclusive_controls"
+                  to="/saeed?tab=exclusive_controls"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-400/50 text-xs font-black text-emerald-200 transition-all shadow-sm"
                 >
                   <ShieldCheck size={15} className="text-emerald-300 shrink-0" />
@@ -963,7 +991,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=dashboard"
+                  to="/saeed?tab=dashboard"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
                 >
                   <LayoutDashboard size={15} className="text-sky-400 shrink-0" />
@@ -971,7 +999,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=users"
+                  to="/saeed?tab=users"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
                 >
                   <Users size={15} className="text-indigo-400 shrink-0" />
@@ -979,7 +1007,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=financial"
+                  to="/saeed?tab=financial"
                   className="relative flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
                 >
                   <TrendingUp size={15} className="text-emerald-400 shrink-0" />
@@ -992,7 +1020,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=fee_settings"
+                  to="/saeed?tab=fee_settings"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
                 >
                   <SettingsIcon size={15} className="text-amber-400 shrink-0" />
@@ -1000,7 +1028,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=support"
+                  to="/saeed?tab=support"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-xs font-black text-amber-200 transition-all"
                 >
                   <Wrench size={15} className="text-amber-300 shrink-0" />
@@ -1008,7 +1036,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=user_migration"
+                  to="/saeed?tab=user_migration"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/10 text-xs font-bold text-white transition-all"
                 >
                   <ShieldCheck size={15} className="text-teal-400 shrink-0" />
@@ -1016,7 +1044,7 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                 </Link>
 
                 <Link
-                  to="/admin?tab=danger_zone"
+                  to="/saeed?tab=danger_zone"
                   className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-xs font-bold text-rose-200 transition-all"
                 >
                   <AlertTriangle size={15} className="text-rose-400 shrink-0" />
@@ -1217,8 +1245,8 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
                                     setAdjustmentDetails({ amount: '', type: 'deposit', note: '' });
                                     setAdjustingStoreWallet({ id: s.id, name: s.name });
                                   }}
-                                  onMaintenance={(s) => navigate(`/admin?tab=danger_zone&storeId=${s.id}`)}
-                                  onSupport={(s) => navigate(`/admin?tab=support&storeId=${s.id}`)}
+                                  onMaintenance={(s) => navigate(`/saeed?tab=danger_zone&storeId=${s.id}`)}
+                                  onSupport={(s) => navigate(`/saeed?tab=support&storeId=${s.id}`)}
                                   onToggleOwnerBan={handleToggleOwnerBan}
                                   onToggleStoreBan={handleToggleStoreBan}
                                 />
@@ -1292,7 +1320,14 @@ const ManageSitesPage: React.FC<ManageSitesPageProps> = ({
       </div>
       
       {/* Modals */}
-      {storeToEdit && <StoreSettingsModal store={storeToEdit} onClose={() => setStoreToEdit(null)} onSave={handleSaveSettings} />}
+      {storeToEdit && (
+        <StoreSettingsModal
+          store={storeToEdit}
+          isNameLocked={isStoreVerified(allStoresData[storeToEdit.id]?.settings) && !currentUser?.isAdmin}
+          onClose={() => setStoreToEdit(null)}
+          onSave={handleSaveSettings}
+        />
+      )}
       {storeToInvite && <InviteEmployeeModal store={storeToInvite} onClose={() => setStoreToInvite(null)} onInvite={handleInvite} users={users} />}
 
       {/* Admin Inline Wallet Adjustment Modal */}
@@ -1618,6 +1653,7 @@ const StoreCard: React.FC<{
             <h3 className="text-xl font-black text-slate-900 dark:text-white group-hover:text-teal-600 dark:group-hover:text-teal-400 transition-colors leading-snug line-clamp-1">
               {store.name}
             </h3>
+            <VerifiedStoreBadge verified={isStoreVerified(storeData?.settings)} tier={getStoreVerificationTier(storeData?.settings)} size="md" />
             {isDefaultPinned && (
               <span className="p-1 rounded-lg bg-amber-500/10 text-amber-500" title="المتجر المفضل المثبت">
                 <Star size={16} className="fill-current" />
@@ -1881,7 +1917,7 @@ const EmptyStoresState: React.FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-const StoreSettingsModal: React.FC<{ store: Store, onClose: () => void, onSave: (s: Store) => void }> = ({ store, onClose, onSave }) => {
+const StoreSettingsModal: React.FC<{ store: Store, isNameLocked?: boolean, onClose: () => void, onSave: (s: Store) => void }> = ({ store, isNameLocked = false, onClose, onSave }) => {
     const [formData, setFormData] = useState(store);
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -1904,13 +1940,25 @@ const StoreSettingsModal: React.FC<{ store: Store, onClose: () => void, onSave: 
                      <div>
                         <label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 block flex items-center gap-1.5">
                           <StoreIconLucide size={16} className="text-teal-500"/> اسم المتجر
+                          {isNameLocked && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                              <Lock size={10} />
+                              محمي بالتوثيق
+                            </span>
+                          )}
                         </label>
                         <input 
                           type="text" 
-                          value={formData.name} 
+                          value={formData.name}
+                          disabled={isNameLocked}
                           onChange={e => setFormData(p => ({...p, name: e.target.value}))} 
-                          className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-[#00c48c] outline-none text-slate-900 dark:text-white"
+                          className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold focus:ring-2 focus:ring-[#00c48c] outline-none text-slate-900 dark:text-white disabled:opacity-70 disabled:cursor-not-allowed"
                         />
+                        {isNameLocked && (
+                          <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 mt-1.5">
+                            تم توثيق المتجر بالشارة الخضراء بهذا الاسم التجاري — لا يمكن تغييره إلا من خلال مراجعة إدارة المنصة.
+                          </p>
+                        )}
                      </div>
 
                      <div>

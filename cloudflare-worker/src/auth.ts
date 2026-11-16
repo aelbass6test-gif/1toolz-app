@@ -690,6 +690,52 @@ export async function handleAuthRequest(
       .bind(token, row.email || emailOrPhone, row.phone, JSON.stringify({ code }), now + ACTION_TOKEN_TTL_MS, now)
       .run();
 
+    const rawOrigin = String(body.origin || env.APP_ORIGIN || "https://abdomedi.com").trim().replace(/\/$/, "");
+    const safeOrigin = /^https?:\/\/[^/]+$/i.test(rawOrigin) ? rawOrigin : "https://abdomedi.com";
+    const resetLink = `${safeOrigin}/auth/action?mode=resetPassword&oobCode=${encodeURIComponent(token)}`;
+    const targetEmail = String(row.email || "").trim().toLowerCase();
+    const safeName = String(row.full_name || "التاجر العزيز").replace(/[<>]/g, "");
+
+    let emailSent = false;
+    if (body.sendEmail !== false && targetEmail && targetEmail.includes("@")) {
+      const subject = "🔑 رابط إعادة تعيين كلمة المرور - AbdoMedia Prime";
+      const html = `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#172033;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px"><h2 style="margin-top:0">مرحباً ${safeName}</h2><p>تلقينا طلباً لإعادة تعيين كلمة المرور لحسابك في <strong>AbdoMedia Prime</strong>.</p><div style="text-align:center;margin:24px 0"><a href="${resetLink}" style="display:inline-block;padding:14px 28px;background:#0f9f83;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:12px">تعيين كلمة مرور جديدة</a></div><p style="font-size:13px;color:#475569">أو استخدم رمز إعادة التعيين:</p><div style="font-size:28px;font-weight:700;letter-spacing:6px;padding:8px 0;color:#0f9f83" dir="ltr">${code}</div><p style="font-size:12px;color:#64748b;word-break:break-all">إذا لم يعمل الزر، انسخ الرابط التالي:<br/>${resetLink}</p></div>`;
+      const text = `لإعادة تعيين كلمة المرور الخاصة بحسابك في AbdoMedia Prime، افتح الرابط التالي:\n${resetLink}\n\nأو استخدم الرمز: ${code}`;
+
+      try {
+        if (env.BREVO_API_KEY) {
+          const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: { "api-key": env.BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+              sender: { name: env.OTP_FROM_NAME || "AbdoMedia Prime", email: env.OTP_BREVO_FROM || "no-reply@abdomedi.com" },
+              to: [{ email: targetEmail, name: safeName }],
+              subject,
+              htmlContent: html,
+              textContent: text
+            })
+          });
+          emailSent = res.ok;
+        }
+        if (!emailSent && env.RESEND_API_KEY) {
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: `${env.OTP_FROM_NAME || "AbdoMedia Prime"} <${env.OTP_RESEND_FROM || "no-reply@abdomedi.com"}>`,
+              to: [targetEmail],
+              subject,
+              html,
+              text
+            })
+          });
+          emailSent = res.ok;
+        }
+      } catch {
+        emailSent = false;
+      }
+    }
+
     return json(request, env, {
       success: true,
       token,
@@ -697,7 +743,10 @@ export async function handleAuthRequest(
       email: row.email,
       phone: row.phone,
       fullName: row.full_name,
-      message: "تم إنشاء رمز إعادة تعيين كلمة المرور بنجاح."
+      emailSent,
+      message: emailSent
+        ? "تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني بنجاح."
+        : "تم إنشاء رمز إعادة تعيين كلمة المرور بنجاح."
     });
   }
 

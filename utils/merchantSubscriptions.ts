@@ -250,7 +250,7 @@ export function computeSelfServicePlanPricing(
   const originalCyclePrice = plan.baseMonthlyPrice * cycle.months;
   const totalSaved = Math.max(0, originalCyclePrice - totalCyclePrice);
   const totalOrdersQuota = plan.monthlyOrdersLimit !== null
-    ? plan.monthlyOrdersLimit * cycle.months
+    ? plan.monthlyOrdersLimit * (plan.id === 'free' ? 1 : cycle.months)
     : null;
 
   return {

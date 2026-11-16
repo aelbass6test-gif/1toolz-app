@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import DOMPurify from 'dompurify';
-import { Settings, Store, Product, StoreCustomization, OrderItem, Review, Order, CustomerProfile } from '../types';
+import { Settings, Store, Product, StoreCustomization, OrderItem, Review, Order, CustomerProfile, VerificationBadgeTier } from '../types';
 import { 
   ShoppingCart, 
   Package, 
@@ -45,6 +45,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { CustomerAuthModal, StoreCustomer } from './storefront/CustomerAuthModal';
 import { generateSlug, getProductUrl } from '../utils/slugUtils';
 import { ProductImage } from './ProductImage';
+import { getStoreVerificationTier, isStoreVerified } from '../utils/commerceEcosystem';
+import { VerifiedStoreBadge } from './VerifiedStoreBadge';
 
 interface StorefrontPageProps {
   settings: Settings;
@@ -351,13 +353,17 @@ const Header: React.FC<{
   onOpenCart: () => void;
   onOpenAccount: () => void;
   customerSession: StoreCustomer | null;
+  isVerified?: boolean;
+  verificationTier?: VerificationBadgeTier;
 }> = ({ 
   customization, 
   activeStore, 
   cartCount, 
   onOpenCart,
   onOpenAccount,
-  customerSession 
+  customerSession,
+  isVerified = false,
+  verificationTier = 'standard'
 }) => {
   const primaryColor = customization.primaryColor || '#059669';
 
@@ -410,9 +416,12 @@ const Header: React.FC<{
             <StoreIcon size={22} />
           </div>
           <div className="text-right">
-            <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
-              {activeStore?.name || 'متجرنا الإلكتروني'}
-            </h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-base sm:text-xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
+                {activeStore?.name || 'متجرنا الإلكتروني'}
+              </h1>
+              <VerifiedStoreBadge verified={isVerified} tier={verificationTier} size="sm" showLabel />
+            </div>
             <p className="text-[10px] text-slate-400 font-bold hidden sm:block">تجربة تسوق آمنة وسريعة</p>
           </div>
         </Link>
@@ -637,6 +646,14 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div> 
       )} 
 
+      {/* Official Platform Store Ribbon */}
+      {isStoreVerified(settings) && getStoreVerificationTier(settings) === 'platform_official' && (
+        <div className="bg-gradient-to-l from-slate-950 via-indigo-950 to-slate-900 text-amber-200 py-2 px-4 text-center text-[11px] sm:text-xs font-black border-b border-amber-400/40 flex items-center justify-center gap-2">
+          <VerifiedStoreBadge verified tier="platform_official" size="xs" />
+          <span>متجر رسمي مُعتمد تابع لإدارة منصة عبده ميديا بريميم</span>
+        </div>
+      )}
+
       {/* Main Header */}
       <Header 
         customization={customization} 
@@ -645,6 +662,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         onOpenCart={() => setIsCartOpen(true)} 
         onOpenAccount={() => setIsCustomerAuthOpen(true)}
         customerSession={customerSession}
+        isVerified={isStoreVerified(settings)}
+        verificationTier={getStoreVerificationTier(settings)}
       /> 
 
       {/* Hero Section */}
@@ -794,7 +813,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
               <div className="w-9 h-9 bg-emerald-600 rounded-xl flex items-center justify-center text-white">
                 <StoreIcon size={18} />
               </div>
-              <h2 className="text-xl font-black">{activeStore?.name || 'متجرنا'}</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-black">{activeStore?.name || 'متجرنا'}</h2>
+                <VerifiedStoreBadge verified={isStoreVerified(settings)} tier={getStoreVerificationTier(settings)} size="sm" showLabel />
+              </div>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
               {customization.footerText || 'نوفر لك تجربة تسوق فريدة تجمع بين الجودة والسرعة والضمان الشامل.'}

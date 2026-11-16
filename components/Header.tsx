@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { User, Store } from '../types';
+import { User, Store, VerificationBadgeTier } from '../types';
 import { 
     Menu, 
     ChevronDown, 
@@ -50,6 +50,7 @@ import {
 import { db as localDb } from '../src/lib/db';
 import { audioSynth } from '../utils/audioSynth';
 import { CommandPalette } from './CommandPalette';
+import { VerifiedStoreBadge } from './VerifiedStoreBadge';
 import { 
     isWebNotificationSupported, 
     getWebNotificationPermission, 
@@ -64,10 +65,10 @@ const PATH_TITLES: { [key: string]: string } = {
     '/manage-stores': 'إدارة المتاجر',
     '/projects': 'إدارة المشاريع',
     '/create-store': 'إنشاء متجر جديد',
-    '/admin': 'لوحة تحكم المنظومة بالكامل',
-    '/admin/manage-stores': 'إدارة المتاجر وتحكم المنظومة',
-    '/admin/select-store': 'إدارة المتاجر وتحكم المنظومة',
-    '/admin/projects': 'إدارة المتاجر وتحكم المنظومة',
+    '/saeed': 'لوحة تحكم المنظومة بالكامل',
+    '/saeed/manage-stores': 'إدارة المتاجر وتحكم المنظومة',
+    '/saeed/select-store': 'إدارة المتاجر وتحكم المنظومة',
+    '/saeed/projects': 'إدارة المتاجر وتحكم المنظومة',
     '/': 'لوحة التحكم',
     '/confirmation-queue': 'تأكيد الطلبات',
     '/orders': 'الطلبات والمبيعات',
@@ -89,7 +90,7 @@ const PATH_TITLES: { [key: string]: string } = {
     '/activity-logs': 'سجل النشاطات',
     '/settings': 'الإعدادات العامة',
     '/settings/employees': 'الموظفون والصلاحيات',
-    '/admin/account-settings': 'إعدادات الحساب',
+    '/saeed/account-settings': 'إعدادات الحساب',
     '/account-settings': 'إعدادات الحساب',
 };
 
@@ -111,6 +112,8 @@ interface HeaderProps {
     unsavedChanges?: any[];
     inventoryAlerts?: any[];
     onOpenShippingCalculator?: () => void;
+    isStoreVerified?: boolean;
+    verificationTier?: VerificationBadgeTier;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
@@ -130,7 +133,9 @@ const Header: React.FC<HeaderProps> = ({
     saveMessage,
     unsavedChanges,
     inventoryAlerts = [],
-    onOpenShippingCalculator
+    onOpenShippingCalculator,
+    isStoreVerified = false,
+    verificationTier = 'standard'
 }) => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
@@ -297,7 +302,7 @@ const Header: React.FC<HeaderProps> = ({
             path === '/projects' ||
             path === '/manage-stores' ||
             path === '/create-store' ||
-            path === '/admin/manage-stores' ||
+            path === '/saeed/manage-stores' ||
             path.endsWith('/select-store') ||
             path.endsWith('/projects') ||
             path.endsWith('/manage-stores') ||
@@ -307,7 +312,7 @@ const Header: React.FC<HeaderProps> = ({
 
     const handleManageStoresClick = () => {
         if (currentUser?.isAdmin) {
-            navigate('/admin/manage-stores');
+            navigate('/saeed/manage-stores');
         } else {
             navigate('/select-store');
         }
@@ -427,6 +432,7 @@ const Header: React.FC<HeaderProps> = ({
                                     <span className="max-w-[120px] md:max-w-[150px] truncate text-xs font-black">
                                         {activeStore.name}
                                     </span>
+                                    <VerifiedStoreBadge verified={isStoreVerified} tier={verificationTier} size="xs" />
                                 </button>
 
                                 <span className="hidden sm:inline-block text-slate-300 dark:text-slate-700 font-light select-none">/</span>
@@ -785,7 +791,7 @@ const Header: React.FC<HeaderProps> = ({
                             {/* Admin System Control Quick Button */}
                             {currentUser?.isAdmin && (
                                 <Link
-                                    to="/admin"
+                                    to="/saeed"
                                     className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 border border-indigo-200/80 dark:border-indigo-800/60 transition-all cursor-pointer shadow-2xs"
                                     title="لوحة تحكم المنظومة بالكامل"
                                 >
@@ -821,11 +827,19 @@ const Header: React.FC<HeaderProps> = ({
                             </div>
 
                             <div className="hidden md:block text-right leading-tight">
-                                <div className="font-black text-xs text-slate-900 dark:text-white truncate max-w-[110px]">
-                                    {currentUser?.fullName || 'المستخدم'}
+                                <div className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1">
+                                    <span className="truncate max-w-[110px]">{currentUser?.fullName || 'المستخدم'}</span>
+                                    {currentUser?.isAdmin && (
+                                        <VerifiedStoreBadge
+                                            verified
+                                            tier="platform_official"
+                                            size="xs"
+                                            customTitle="الحساب الرسمي لإدارة منصة عبده ميديا بريميم"
+                                        />
+                                    )}
                                 </div>
                                 <div className="text-[10px] font-mono font-medium text-slate-400">
-                                    {currentUser?.isAdmin ? 'ADMIN' : 'صاحب المتجر'}
+                                    {currentUser?.isAdmin ? 'إدارة المنصة الرسمية' : 'صاحب المتجر'}
                                 </div>
                             </div>
 
@@ -841,10 +855,18 @@ const Header: React.FC<HeaderProps> = ({
                                 {/* Identity Block */}
                                 <div className="px-3 py-2.5 border-b border-slate-100 dark:border-white/[0.06] mb-1.5 bg-slate-50/50 dark:bg-white/[0.02] rounded-xl">
                                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                                        <p className="font-black text-xs text-slate-900 dark:text-white truncate">
-                                            {currentUser?.fullName}
+                                        <p className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1.5 truncate">
+                                            <span className="truncate">{currentUser?.fullName}</span>
+                                            {currentUser?.isAdmin && (
+                                                <VerifiedStoreBadge
+                                                    verified
+                                                    tier="platform_official"
+                                                    size="xs"
+                                                    customTitle="الحساب الرسمي لإدارة منصة عبده ميديا بريميم"
+                                                />
+                                            )}
                                         </p>
-                                        <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
+                                        <span className="text-[9px] font-mono font-black px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 shrink-0">
                                             {currentUser?.isAdmin ? 'ADMIN' : 'OWNER'}
                                         </span>
                                     </div>
@@ -857,7 +879,7 @@ const Header: React.FC<HeaderProps> = ({
                                     {currentUser?.isAdmin && (
                                         <>
                                             <Link 
-                                                to="/admin" 
+                                                to="/saeed" 
                                                 onClick={() => setIsUserMenuOpen(false)} 
                                                 className="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50/70 hover:bg-indigo-100/80 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-black text-xs transition-colors group"
                                             >
@@ -869,7 +891,7 @@ const Header: React.FC<HeaderProps> = ({
                                             </Link>
 
                                             <Link 
-                                                to="/admin/manage-stores" 
+                                                to="/saeed/manage-stores" 
                                                 onClick={() => setIsUserMenuOpen(false)} 
                                                 className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/[0.05] text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors group"
                                             >
@@ -880,7 +902,7 @@ const Header: React.FC<HeaderProps> = ({
                                     )}
 
                                     <Link 
-                                        to={currentUser?.isAdmin ? "/admin/account-settings" : "/account-settings"} 
+                                        to={currentUser?.isAdmin ? "/saeed/account-settings" : "/account-settings"} 
                                         onClick={() => setIsUserMenuOpen(false)} 
                                         className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-white/[0.05] text-slate-700 dark:text-slate-200 font-bold text-xs transition-colors group"
                                     >

@@ -11,13 +11,16 @@ import {
     Package, Wallet, Tag, AlertTriangle, Trash2, ShoppingBasket, Grid, Copy, Plus, 
     ArrowLeftRight, AlertCircle, RefreshCw, UserMinus, Wrench, Save,
     Database, Mail, Globe, CloudUpload, CloudDownload, CreditCard, Smartphone, Banknote,
-    Headphones, PhoneCall
+    Headphones, PhoneCall, Crown, ShieldCheck, BadgeCheck
 } from 'lucide-react';
 import * as db from '../services/databaseService';
 import { clearStoreData } from '../services/databaseService';
 import { inAppConfirm, inAppAlert } from '../utils/inAppAlert';
 import UserMigrationCenter from './UserMigrationCenter';
 import AdminSupportCenter from './AdminSupportCenter';
+import AdminCommercialHub, { HubSubTab } from './AdminCommercialHub';
+import { isStoreVerified, ensureStoreCommerceState, getStoreVerificationTier } from '../utils/commerceEcosystem';
+import { VerifiedStoreBadge } from './VerifiedStoreBadge';
 import { buildNormalizedTicketMessages } from './SuspendedAccountSupportScreen';
 import {
     fetchPlatformSupportConfig,
@@ -290,12 +293,16 @@ interface AdminPageProps {
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;
 }
 
-const PERMISSION_GROUPS: { title: string; permissions: { key: Permission, label: string }[] }[] = [
-  { title: 'الأوردرات والتحكم', permissions: [ { key: 'ORDERS_VIEW', label: 'عرض الأوردرات فقط' }, { key: 'ORDERS_MANAGE', label: 'إدارة كاملة للأوردرات (إضافة، تعديل، حذف)' } ] },
-  { title: 'المنتجات والمخزون', permissions: [ { key: 'PRODUCTS_VIEW', label: 'عرض المنتجات فقط' }, { key: 'PRODUCTS_MANAGE', label: 'إدارة كاملة للمنتجات' } ] },
-  { title: 'البيانات المالية', permissions: [ { key: 'DASHBOARD_VIEW', label: 'عرض لوحة التحكم والإحصائيات' }, { key: 'WALLET_VIEW', label: 'عرض المحفظة والعمليات' }, { key: 'WALLET_MANAGE', label: 'إجراء عمليات يدوية بالمحفظة' } ] },
-  { title: 'إعدادات المتجر', permissions: [ { key: 'SETTINGS_VIEW', label: 'عرض الإعدادات فقط' }, { key: 'SETTINGS_MANAGE', label: 'تعديل كافة إعدادات المتجر' } ] },
+const PERMISSION_GROUPS: { title: string; permissions: { key: Permission; label: string }[] }[] = [
+  { title: 'الإحصائيات والتقارير', permissions: [ { key: 'DASHBOARD_VIEW', label: 'عرض لوحة التحكم والإحصائيات' }, { key: 'REPORTS_VIEW', label: 'الاطلاع على التقارير التفصيلية' } ] },
+  { title: 'الأوردرات والمبيعات', permissions: [ { key: 'ORDERS_VIEW', label: 'عرض الأوردرات فقط' }, { key: 'ORDERS_MANAGE', label: 'إدارة كاملة للأوردرات (إضافة، تعديل، حذف)' }, { key: 'RETURNS_MANAGE', label: 'إدارة المرتجعات' }, { key: 'POS_VIEW', label: 'عرض نقطة البيع (POS)' }, { key: 'POS_MANAGE', label: 'إدارة عمليات نقطة البيع' } ] },
+  { title: 'المنتجات والمخزون', permissions: [ { key: 'PRODUCTS_VIEW', label: 'عرض المنتجات فقط' }, { key: 'PRODUCTS_MANAGE', label: 'إدارة كاملة للمنتجات' }, { key: 'INVENTORY_MANAGE', label: 'إدارة المخزون والتحويلات' }, { key: 'COLLECTIONS_MANAGE', label: 'إدارة التصنيفات والمجموعات' } ] },
+  { title: 'العملاء والتسويق', permissions: [ { key: 'CUSTOMERS_VIEW', label: 'عرض بيانات العملاء' }, { key: 'CUSTOMERS_MANAGE', label: 'إدارة بيانات العملاء' }, { key: 'MARKETING_MANAGE', label: 'إدارة التسويق والحملات' }, { key: 'DISCOUNTS_MANAGE', label: 'إدارة كوبونات الخصم' }, { key: 'REVIEWS_MANAGE', label: 'إدارة تقييمات العملاء' } ] },
+  { title: 'البيانات المالية والخزينة', permissions: [ { key: 'WALLET_VIEW', label: 'عرض المحفظة والعمليات' }, { key: 'WALLET_MANAGE', label: 'إجراء عمليات وسحوبات بالمحفظة' }, { key: 'CASH_MANAGE', label: 'إدارة الخزينة والعهد النقدية' }, { key: 'EXPENSES_MANAGE', label: 'إدارة المصروفات' } ] },
+  { title: 'إعدادات المتجر وفريق العمل', permissions: [ { key: 'SETTINGS_VIEW', label: 'عرض الإعدادات فقط' }, { key: 'SETTINGS_MANAGE', label: 'تعديل كافة إعدادات المتجر' }, { key: 'STOREFRONT_MANAGE', label: 'تخصيص واجهة المتجر' }, { key: 'APPS_MANAGE', label: 'إدارة التطبيقات والربط' }, { key: 'TEAM_VIEW', label: 'عرض طاقم العمل' }, { key: 'TEAM_MANAGE', label: 'إدارة الموظفين والصلاحيات' } ] },
 ];
+
+const ALL_PERMISSION_KEYS: Permission[] = Object.keys(PERMISSIONS) as Permission[];
 
 const UserPermissionsModal: React.FC<{
     user: User;
@@ -303,20 +310,116 @@ const UserPermissionsModal: React.FC<{
     allStoresData: Record<string, StoreData>;
     setAllStoresData: React.Dispatch<React.SetStateAction<Record<string, StoreData>>>;
     users: User[];
-}> = ({ user, onClose, allStoresData, setAllStoresData, users }) => {
+}> = ({ user, onClose, allStoresData, setAllStoresData }) => {
 
-    const [editingEmployee, setEditingEmployee] = useState<{ store: Store, employee: Employee } | null>(null);
+    type EditingTarget =
+        | { kind: 'owner'; store: Store }
+        | { kind: 'employee'; store: Store; employee: Employee }
+        | null;
+
+    const [editingTarget, setEditingTarget] = useState<EditingTarget>(() =>
+        (user.stores && user.stores.length > 0) ? { kind: 'owner', store: user.stores[0] } : null
+    );
+    const [loadingStoreIds, setLoadingStoreIds] = useState<Record<string, boolean>>({});
+    const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
+
+    // Ensure every store belonging to this user is loaded into allStoresData when the modal opens
+    useEffect(() => {
+        let active = true;
+        const missingStores = (user.stores || []).filter(s => s?.id && !allStoresData[s.id]);
+        if (missingStores.length === 0) return;
+
+        setLoadingStoreIds(prev => {
+            const next = { ...prev };
+            missingStores.forEach(s => { next[s.id] = true; });
+            return next;
+        });
+
+        Promise.all(
+            missingStores.map(async (st) => {
+                try {
+                    const data = await db.getStoreData(st.id, true);
+                    return { id: st.id, data };
+                } catch {
+                    return { id: st.id, data: null };
+                }
+            })
+        ).then(results => {
+            if (!active) return;
+            setAllStoresData(prev => {
+                const next = { ...prev };
+                results.forEach(r => {
+                    if (r.data) next[r.id] = r.data;
+                });
+                return next;
+            });
+            setLoadingStoreIds({});
+        });
+
+        return () => { active = false; };
+    }, [user, allStoresData, setAllStoresData]);
+
+    const buildFallbackStoreData = (store: Store): StoreData => ({
+        orders: [],
+        cart: [],
+        wallet: { balance: 0, transactions: [] },
+        treasury: { accounts: [], transactions: [] },
+        customers: [],
+        quotations: [],
+        settings: {
+            ...INITIAL_SETTINGS,
+            storeName: store.name,
+        }
+    });
+
+    const flashSaved = (msg: string) => {
+        setSaveFeedback(msg);
+        window.setTimeout(() => setSaveFeedback(null), 2200);
+    };
 
     const handlePermissionChange = (permission: Permission, isChecked: boolean) => {
-        if (!editingEmployee) return;
+        if (!editingTarget) return;
 
-        const { store, employee } = editingEmployee;
+        if (editingTarget.kind === 'owner') {
+            const { store } = editingTarget;
+            setAllStoresData(prevData => {
+                const storeData = prevData[store.id] || buildFallbackStoreData(store);
+                const currentOwnerPerms: Permission[] = Array.isArray(storeData.settings?.ownerPermissions)
+                    ? storeData.settings.ownerPermissions
+                    : ALL_PERMISSION_KEYS;
+
+                const nextPerms: Permission[] = isChecked
+                    ? Array.from(new Set([...currentOwnerPerms, permission]))
+                    : currentOwnerPerms.filter(p => p !== permission);
+
+                const allEnabled = ALL_PERMISSION_KEYS.every(k => nextPerms.includes(k));
+                const updatedSettings: Settings = {
+                    ...storeData.settings,
+                    ownerPermissions: allEnabled ? undefined : nextPerms
+                };
+
+                const updatedStoreData: StoreData = {
+                    ...storeData,
+                    settings: updatedSettings
+                };
+
+                db.saveStoreData(store, updatedStoreData).catch(err => {
+                    console.warn('Failed saving owner permissions to D1:', err);
+                });
+
+                return { ...prevData, [store.id]: updatedStoreData };
+            });
+            flashSaved('تم تحديث صلاحيات المالك وحفظها');
+            return;
+        }
+
+        const { store, employee } = editingTarget;
         const newPermissions = isChecked
-            ? [...employee.permissions, permission]
+            ? Array.from(new Set([...employee.permissions, permission]))
             : employee.permissions.filter(p => p !== permission);
-        
+
         const updatedEmployee = { ...employee, permissions: newPermissions };
-        setEditingEmployee({ store, employee: updatedEmployee });
+        setEditingTarget({ kind: 'employee', store, employee: updatedEmployee });
 
         setAllStoresData(prevData => {
             const storeData = prevData[store.id];
@@ -339,100 +442,299 @@ const UserPermissionsModal: React.FC<{
                 [store.id]: updatedStoreData
             };
         });
+        flashSaved(`تم حفظ صلاحيات الموظف ${employee.name}`);
     };
-    
+
+    const handleApplyBulkPermissions = (grantAll: boolean) => {
+        if (!editingTarget) return;
+
+        if (editingTarget.kind === 'owner') {
+            const { store } = editingTarget;
+            setAllStoresData(prevData => {
+                const storeData = prevData[store.id] || buildFallbackStoreData(store);
+                const updatedStoreData: StoreData = {
+                    ...storeData,
+                    settings: {
+                        ...storeData.settings,
+                        ownerPermissions: grantAll ? undefined : []
+                    }
+                };
+                db.saveStoreData(store, updatedStoreData).catch(err => {
+                    console.warn('Failed updating bulk owner permissions:', err);
+                });
+                return { ...prevData, [store.id]: updatedStoreData };
+            });
+            flashSaved(grantAll ? 'تم منح المالك كامل الصلاحيات' : 'تم إلغاء تحديد جميع الصلاحيات مؤقتاً');
+            return;
+        }
+
+        const { store, employee } = editingTarget;
+        const nextPermissions: Permission[] = grantAll ? [...ALL_PERMISSION_KEYS] : [];
+        const updatedEmployee = { ...employee, permissions: nextPermissions };
+        setEditingTarget({ kind: 'employee', store, employee: updatedEmployee });
+
+        setAllStoresData(prevData => {
+            const storeData = prevData[store.id];
+            if (!storeData) return prevData;
+            const updatedStoreData: StoreData = {
+                ...storeData,
+                settings: {
+                    ...storeData.settings,
+                    employees: (storeData.settings.employees || []).map(e => e.id === employee.id ? updatedEmployee : e)
+                }
+            };
+            db.saveStoreData(store, updatedStoreData).catch(() => {});
+            return { ...prevData, [store.id]: updatedStoreData };
+        });
+        flashSaved(grantAll ? `تم منح ${employee.name} كامل الصلاحيات` : `تم سحب كافة صلاحيات ${employee.name}`);
+    };
+
+    const activeStoreData = editingTarget ? allStoresData[editingTarget.store.id] : undefined;
+    const isActiveStoreLoading = editingTarget ? Boolean(loadingStoreIds[editingTarget.store.id]) : false;
+
+    const ownerCustomPerms = editingTarget?.kind === 'owner'
+        ? activeStoreData?.settings?.ownerPermissions
+        : undefined;
+    const isOwnerUnrestricted = editingTarget?.kind === 'owner' && !Array.isArray(ownerCustomPerms);
+
+    const activePermissionsList: Permission[] = editingTarget
+        ? editingTarget.kind === 'owner'
+            ? (Array.isArray(ownerCustomPerms) ? ownerCustomPerms : ALL_PERMISSION_KEYS)
+            : editingTarget.employee.permissions
+        : [];
+
     return (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-900/70 dark:bg-black/90 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-3xl shadow-2xl flex flex-col max-h-[90vh] text-right border border-slate-300 dark:border-slate-800">
-                <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
-                    <h3 className="text-xl font-black dark:text-white flex items-center gap-3">
-                        <UserCog className="text-purple-600" /> إدارة صلاحيات موظفي التاجر: {user.fullName}
-                    </h3>
-                    <button onClick={onClose}><XCircle className="text-slate-400 hover:text-red-500"/></button>
+                <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center gap-3">
+                    <div>
+                        <h3 className="text-xl font-black dark:text-white flex items-center gap-3">
+                            <UserCog className="text-purple-600" /> إدارة صلاحيات المالك والموظفين: {user.fullName}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">
+                            يظهر مالك المتجر أعلى كل متجر بكامل صلاحياته الافتراضية ويمكنك تخصيص أو تقييد صلاحياته وصلاحيات موظفيه مباشرة.
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="cursor-pointer"><XCircle className="text-slate-400 hover:text-red-500"/></button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Stores & Employees Column */}
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Stores, Owner & Employees Column */}
                     <div className="space-y-4">
-                        <h4 className="font-bold text-slate-850 dark:text-slate-250">متاجر وموظفي التاجر</h4>
-                        {(user.stores || []).length > 0 ? (user.stores || []).map(store => (
-                            <div key={store.id} className="p-4 border border-slate-200 dark:border-slate-800 rounded-2xl">
-                                <h5 className="font-bold text-lg text-slate-850 dark:text-white flex items-center gap-2">
-                                    <StoreIcon className="text-indigo-500" size={16} />
-                                    {store.name}
-                                </h5>
-                                <div className="mt-2 space-y-2">
-                                    {(allStoresData[store.id]?.settings?.employees || []).length > 0 ? (
-                                        (allStoresData[store.id]?.settings.employees || []).map(employee => (
-                                            <button 
-                                                key={employee.id}
-                                                type="button"
-                                                onClick={() => setEditingEmployee({ store, employee })}
-                                                className={`w-full text-right p-3 rounded-xl flex items-center gap-3 transition-all border ${editingEmployee?.employee.id === employee.id ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-900' : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-                                            >
-                                                <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-black">{(employee.name || "").substring(0,2)}</div>
-                                                <div className="flex-1">
-                                                    <p className="font-bold text-sm text-slate-800 dark:text-slate-100">{employee.name}</p>
-                                                    <p className="text-[10px] text-slate-500">{employee.email}</p>
-                                                </div>
-                                            </button>
-                                        ))
-                                    ) : (
-                                        <p className="text-slate-400 text-xs py-2">لا يوجد موظفين مضافين لهذا المتجر حتى الآن.</p>
-                                    )}
+                        <h4 className="font-bold text-slate-850 dark:text-slate-250">متاجر وطاقم عمل التاجر</h4>
+                        {(user.stores || []).length > 0 ? (user.stores || []).map(store => {
+                            const storeData = allStoresData[store.id];
+                            const employees = storeData?.settings?.employees || [];
+                            const ownerPermsSetting = storeData?.settings?.ownerPermissions;
+                            const isOwnerFull = !Array.isArray(ownerPermsSetting);
+                            const ownerSelected = editingTarget?.kind === 'owner' && editingTarget.store.id === store.id;
+                            const isLoading = Boolean(loadingStoreIds[store.id]);
+
+                            return (
+                                <div key={store.id} className="p-4 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3 bg-white dark:bg-slate-900/60">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h5 className="font-bold text-base text-slate-850 dark:text-white flex items-center gap-2">
+                                            <StoreIcon className="text-indigo-500 shrink-0" size={16} />
+                                            <span>{store.name}</span>
+                                        </h5>
+                                        <span className="text-[10px] font-mono text-slate-400">{store.subdomain || store.id}</span>
+                                    </div>
+
+                                    {/* Store Owner Card (Always Visible) */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingTarget({ kind: 'owner', store })}
+                                        className={`w-full text-right p-3 rounded-xl flex items-center gap-3 transition-all border cursor-pointer ${
+                                            ownerSelected
+                                                ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-700 shadow-xs'
+                                                : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300'
+                                        }`}
+                                    >
+                                        <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                                            <Crown size={16} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                <p className="font-black text-sm text-slate-900 dark:text-white truncate">{user.fullName}</p>
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 text-[10px] font-black">
+                                                    مالك المتجر
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 font-mono truncate mt-0.5">
+                                                {user.phone}{user.email ? ` · ${user.email}` : ''}
+                                            </p>
+                                        </div>
+                                        <span
+                                            className={`shrink-0 px-2 py-0.5 rounded-md text-[10px] font-black tabular-nums ${
+                                                isOwnerFull
+                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                            }`}
+                                        >
+                                            {isOwnerFull ? 'كامل الصلاحيات' : `${ownerPermsSetting!.length}/${ALL_PERMISSION_KEYS.length}`}
+                                        </span>
+                                    </button>
+
+                                    {/* Employees List */}
+                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+                                        <div className="text-[11px] font-black text-slate-500 flex items-center justify-between">
+                                            <span>موظفو المتجر ({employees.length})</span>
+                                            {isLoading && <span className="text-indigo-500 animate-pulse">جاري التحميل...</span>}
+                                        </div>
+                                        {employees.length > 0 ? (
+                                            employees.map(employee => {
+                                                const isEmpSelected = editingTarget?.kind === 'employee' && editingTarget.employee.id === employee.id && editingTarget.store.id === store.id;
+                                                return (
+                                                    <button
+                                                        key={employee.id}
+                                                        type="button"
+                                                        onClick={() => setEditingTarget({ kind: 'employee', store, employee })}
+                                                        className={`w-full text-right p-3 rounded-xl flex items-center gap-3 transition-all border cursor-pointer ${
+                                                            isEmpSelected
+                                                                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-900'
+                                                                : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                                        }`}
+                                                    >
+                                                        <div className="w-8 h-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-black shrink-0">
+                                                            {(employee.name || '').substring(0, 2)}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="font-bold text-sm text-slate-800 dark:text-slate-100 truncate">{employee.name}</p>
+                                                            <p className="text-[10px] text-slate-500 truncate">{employee.email || employee.phone || 'موظف'}</p>
+                                                        </div>
+                                                        <span className="text-[10px] font-bold text-slate-500 tabular-nums shrink-0">
+                                                            {employee.permissions.length}/{ALL_PERMISSION_KEYS.length}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })
+                                        ) : (
+                                            <p className="text-slate-400 text-xs py-1.5">لا يوجد موظفين مضافين لهذا المتجر حتى الآن.</p>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        )) : <p className="text-slate-500 font-bold">هذا المستخدم لا يملك أي متاجر نشطة.</p>}
+                            );
+                        }) : <p className="text-slate-500 font-bold">هذا المستخدم لا يملك أي متاجر نشطة.</p>}
                     </div>
 
                     {/* Permissions Column */}
-                    <div className={`p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-850 transition-all ${!editingEmployee ? 'opacity-50' : ''}`}>
-                       {editingEmployee ? (
+                    <div className={`p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-850 transition-all ${!editingTarget ? 'opacity-50' : ''}`}>
+                       {editingTarget ? (
                             <div className="space-y-4">
-                               <h4 className="font-bold text-lg text-slate-900 dark:text-white mb-2 pb-2 border-b dark:border-slate-800">
-                                   صلاحيات الموظف: <span className="text-indigo-600 dark:text-indigo-400 font-black">{editingEmployee.employee.name}</span>
-                               </h4>
-                               <div className="grid grid-cols-1 gap-6">
-                                  {PERMISSION_GROUPS.map(group => (
-                                      <div key={group.title} className="space-y-2">
-                                          <h5 className="font-black text-xs text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">{group.title}</h5>
-                                          <div className="space-y-1.5">
-                                              {group.permissions.map(perm => {
-                                                  const hasPerm = editingEmployee.employee.permissions.includes(perm.key);
-                                                  return (
-                                                      <label key={perm.key} className={`flex items-center gap-3 p-3 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all ${hasPerm ? 'border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/10' : 'border-slate-200 dark:border-slate-800'}`}>
-                                                          <input 
-                                                              type="checkbox" 
-                                                              checked={hasPerm} 
-                                                              onChange={e => handlePermissionChange(perm.key, e.target.checked)} 
-                                                              className="rounded text-purple-600 focus:ring-purple-500"
-                                                          />
-                                                          <span className="font-bold text-xs text-slate-700 dark:text-slate-300">{perm.label}</span>
-                                                      </label>
-                                                  );
-                                              })}
-                                          </div>
-                                      </div>
-                                  ))}
+                               <div className="pb-3 border-b dark:border-slate-800 space-y-2">
+                                   <div className="flex flex-wrap items-center justify-between gap-2">
+                                       <h4 className="font-bold text-base text-slate-900 dark:text-white flex items-center gap-2">
+                                           {editingTarget.kind === 'owner' ? (
+                                               <>
+                                                   <Crown size={17} className="text-emerald-600 shrink-0" />
+                                                   <span>صلاحيات المالك: <span className="text-emerald-600 dark:text-emerald-400 font-black">{user.fullName}</span></span>
+                                               </>
+                                           ) : (
+                                               <>
+                                                   <UserCog size={17} className="text-indigo-600 shrink-0" />
+                                                   <span>صلاحيات الموظف: <span className="text-indigo-600 dark:text-indigo-400 font-black">{editingTarget.employee.name}</span></span>
+                                               </>
+                                           )}
+                                       </h4>
+                                       {saveFeedback && (
+                                           <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-black">
+                                               {saveFeedback}
+                                           </span>
+                                       )}
+                                   </div>
+
+                                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                       <span className="text-slate-500 font-bold">المتجر: {editingTarget.store.name}</span>
+                                       <div className="flex items-center gap-1.5">
+                                           {editingTarget.kind === 'owner' && !isOwnerUnrestricted && (
+                                               <button
+                                                   type="button"
+                                                   onClick={() => handleApplyBulkPermissions(true)}
+                                                   className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black cursor-pointer"
+                                               >
+                                                   استعادة كامل الصلاحيات للمالك
+                                               </button>
+                                           )}
+                                           <button
+                                               type="button"
+                                               onClick={() => handleApplyBulkPermissions(true)}
+                                               className="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold cursor-pointer hover:border-indigo-400"
+                                           >
+                                               تحديد الكل
+                                           </button>
+                                           <button
+                                               type="button"
+                                               onClick={() => handleApplyBulkPermissions(false)}
+                                               className="px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-rose-600 font-bold cursor-pointer hover:border-rose-400"
+                                           >
+                                               إلغاء الكل
+                                           </button>
+                                       </div>
+                                   </div>
+
+                                   {editingTarget.kind === 'owner' && (
+                                       <div className={`p-2.5 rounded-xl text-[11px] font-bold flex items-center gap-2 ${
+                                           isOwnerUnrestricted
+                                               ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                               : 'bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                       }`}>
+                                           <ShieldCheck size={14} className="shrink-0" />
+                                           <span>
+                                               {isOwnerUnrestricted
+                                                   ? 'المالك يمتلك كافة الصلاحيات بشكل افتراضي. يمكنك إلغاء أي صلاحية لتقييدها على هذا المتجر.'
+                                                   : `تم تخصيص صلاحيات المالك (${activePermissionsList.length} من ${ALL_PERMISSION_KEYS.length} صلاحية مفعلة).`}
+                                           </span>
+                                       </div>
+                                   )}
                                </div>
+
+                               {isActiveStoreLoading ? (
+                                   <div className="py-12 text-center text-xs font-bold text-slate-400">
+                                       جاري جلب بيانات المتجر وصلاحياته من السيرفر...
+                                   </div>
+                               ) : (
+                                   <div className="grid grid-cols-1 gap-5">
+                                      {PERMISSION_GROUPS.map(group => (
+                                          <div key={group.title} className="space-y-2">
+                                              <h5 className="font-black text-xs text-indigo-700 dark:text-indigo-400 uppercase tracking-wide">{group.title}</h5>
+                                              <div className="space-y-1.5">
+                                                  {group.permissions.map(perm => {
+                                                      const hasPerm = activePermissionsList.includes(perm.key);
+                                                      return (
+                                                          <label key={perm.key} className={`flex items-center gap-3 p-2.5 bg-white dark:bg-slate-900 rounded-xl border cursor-pointer transition-all ${hasPerm ? 'border-purple-300 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/10' : 'border-slate-200 dark:border-slate-800'}`}>
+                                                              <input 
+                                                                  type="checkbox" 
+                                                                  checked={hasPerm} 
+                                                                  onChange={e => handlePermissionChange(perm.key, e.target.checked)} 
+                                                                  className="rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                                              />
+                                                              <span className="font-bold text-xs text-slate-700 dark:text-slate-300">{perm.label}</span>
+                                                          </label>
+                                                      );
+                                                  })}
+                                              </div>
+                                          </div>
+                                      ))}
+                                   </div>
+                               )}
                             </div>
                         ) : (
                             <div className="h-full flex flex-col items-center justify-center text-slate-400 py-16">
                                 <UserCog size={52} className="mb-3 text-slate-300 dark:text-slate-705" />
-                                <p className="font-bold text-center">اختر موظفاً من متاجر التاجر للتعديل أو إدارة صلاحياته هنا.</p>
+                                <p className="font-bold text-center">اختر مالك المتجر أو أحد الموظفين للتعديل أو إدارة صلاحياته هنا.</p>
                             </div>
                         )}
                     </div>
                 </div>
                 <div className="p-6 bg-slate-50 dark:bg-slate-800/50 border-t dark:border-slate-800 flex justify-end gap-3">
-                    <button type="button" onClick={onClose} className="px-8 py-3 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-2xl font-black">إغلاق</button>
+                    <button type="button" onClick={onClose} className="px-8 py-3 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-2xl font-black cursor-pointer">إغلاق</button>
                 </div>
             </div>
         </div>
     );
 };
 
-type AdminTab = 'dashboard' | 'exclusive_controls' | 'users' | 'user_migration' | 'stores' | 'financial' | 'fee_settings' | 'infrastructure' | 'support' | 'danger_zone';
-const VALID_ADMIN_TABS: AdminTab[] = ['dashboard', 'exclusive_controls', 'users', 'user_migration', 'stores', 'financial', 'fee_settings', 'infrastructure', 'support', 'danger_zone'];
+type AdminTab = 'dashboard' | 'commercial' | 'exclusive_controls' | 'users' | 'user_migration' | 'stores' | 'financial' | 'fee_settings' | 'infrastructure' | 'support' | 'danger_zone';
+const VALID_ADMIN_TABS: AdminTab[] = ['dashboard', 'commercial', 'exclusive_controls', 'users', 'user_migration', 'stores', 'financial', 'fee_settings', 'infrastructure', 'support', 'danger_zone'];
 
 const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, setAllStoresData, onImpersonate, currentUser, settings, setSettings }) => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -441,6 +743,8 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
   const [activeTab, setActiveTab] = useState<AdminTab>(initialTab);
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const storeIdParam = searchParams.get('storeId') || undefined;
+  const subtabParam = searchParams.get('subtab') as HubSubTab | null;
+  const verifyStoreIdParam = searchParams.get('verifyStoreId') || undefined;
 
   useEffect(() => {
     const nextTab = searchParams.get('tab') as AdminTab | null;
@@ -455,10 +759,20 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
     }
   }, [searchParams]);
 
-  const handleTabChange = (tab: AdminTab) => {
+  const handleTabChange = (tab: AdminTab, subtab?: HubSubTab, verifyStoreId?: string) => {
     setActiveTab(tab);
     const next = new URLSearchParams(searchParams);
     next.set('tab', tab);
+    if (subtab) {
+      next.set('subtab', subtab);
+    } else {
+      next.delete('subtab');
+    }
+    if (verifyStoreId) {
+      next.set('verifyStoreId', verifyStoreId);
+    } else {
+      next.delete('verifyStoreId');
+    }
     if (tab !== 'danger_zone' && tab !== 'support' && tab !== 'exclusive_controls') {
       next.delete('storeId');
     }
@@ -624,6 +938,28 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
           count++;
         }
       });
+    });
+    return count;
+  }, [allStoresData, validStoreIds]);
+
+  const pendingGovernanceCount = useMemo(() => {
+    let count = 0;
+    validStoreIds.forEach(storeId => {
+      const storeData = allStoresData[storeId];
+      (storeData?.settings?.governanceRequests || []).forEach(r => {
+        if (r?.status === 'pending') count++;
+      });
+    });
+    return count;
+  }, [allStoresData, validStoreIds]);
+
+  const pendingVerificationCount = useMemo(() => {
+    let count = 0;
+    validStoreIds.forEach(storeId => {
+      const storeData = allStoresData[storeId];
+      if (!storeData?.settings) return;
+      const commerce = ensureStoreCommerceState(storeData.settings, storeId);
+      if (commerce.verification?.status === 'pending') count++;
     });
     return count;
   }, [allStoresData, validStoreIds]);
@@ -1153,7 +1489,7 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
 
         <div className="flex items-center gap-2.5 flex-wrap">
             <Link
-                to="/admin/manage-stores"
+                to="/saeed/manage-stores"
                 className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black shadow-sm transition-all active:scale-95"
             >
                 <StoreIcon size={16} />
@@ -1165,7 +1501,9 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
       {/* Tabs list with horizontal scroll styling to handle overflowing elegantly */}
       <div className="flex gap-3 mb-8 overflow-x-auto pb-2 scrollbar-none antialiased">
         <TabButton label="نظرة عامة والتحليلات" icon={<LayoutDashboard size={18}/>} active={activeTab === 'dashboard'} onClick={() => handleTabChange('dashboard')} />
-        <TabButton label="🛡️ الصلاحيات الحصرية والرقابة المالية" icon={<Lock size={18}/>} active={activeTab === 'exclusive_controls'} onClick={() => handleTabChange('exclusive_controls')} badge={pendingRequestsCount} />
+        <TabButton label="✅ توثيق المتاجر والشارة الخضراء" icon={<BadgeCheck size={18}/>} active={activeTab === 'commercial' && subtabParam === 'verification'} onClick={() => handleTabChange('commercial', 'verification')} badge={pendingVerificationCount} />
+        <TabButton label="💎 الباقات ومحفظة الكوتا والحوكمة" icon={<Wallet size={18}/>} active={activeTab === 'commercial' && subtabParam !== 'verification'} onClick={() => handleTabChange('commercial', 'pricing')} badge={pendingGovernanceCount} />
+        <TabButton label="🛡️ الصلاحيات الحصرية والرقابة المالية" icon={<Lock size={18}/>} active={activeTab === 'exclusive_controls'} onClick={() => handleTabChange('exclusive_controls')} badge={pendingRequestsCount + pendingGovernanceCount} />
         <TabButton label="إدارة المستخدمين" icon={<Users size={18}/>} active={activeTab === 'users'} onClick={() => handleTabChange('users')} />
         <TabButton label="خطة ترحيل المستخدمين الآمنة" icon={<ShieldAlert size={18}/>} active={activeTab === 'user_migration'} onClick={() => handleTabChange('user_migration')} />
         <TabButton label="إدارة المتاجر المفتوحة" icon={<StoreIcon size={18}/>} active={activeTab === 'stores'} onClick={() => handleTabChange('stores')} badge={pendingAppealsCount} />
@@ -1180,6 +1518,22 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
       <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-200/60 dark:border-slate-850 min-h-[500px] p-6 lg:p-8">
         
         {/* Tab content router */}
+        {activeTab === 'commercial' && (
+          <AdminCommercialHub
+            users={users}
+            allStoresData={allStoresData}
+            setAllStoresData={setAllStoresData}
+            currentUser={currentUser}
+            initialSubTab={subtabParam || undefined}
+            initialVerifyStoreId={verifyStoreIdParam}
+            onClearVerifyStoreId={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('verifyStoreId');
+              setSearchParams(next, { replace: true });
+            }}
+          />
+        )}
+
         {activeTab === 'exclusive_controls' && (
           <div className="space-y-10 animate-in fade-in duration-300">
             {/* Hero Header explaining the 6 exclusive Platform Admin controls */}
@@ -1985,9 +2339,12 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-start">
                                         <div>
-                                            <h4 className="font-black text-base text-slate-850 dark:text-white flex items-center gap-1.5">
+                                            <h4 className="font-black text-base text-slate-850 dark:text-white flex items-center gap-1.5 flex-wrap">
                                                 <StoreIcon size={16} className="text-secondary" />
-                                                {store.name}
+                                                <span>{store.name}</span>
+                                                {isStoreVerified(storeDetails?.settings) && (
+                                                    <VerifiedStoreBadge tier={getStoreVerificationTier(storeDetails?.settings)} size="sm" showLabel />
+                                                )}
                                             </h4>
                                             <p className="text-[10px] text-slate-400 mt-0.5">المالك: <span className="font-bold text-slate-600 dark:text-slate-350">{owner.fullName}</span></p>
                                         </div>
@@ -2022,20 +2379,34 @@ const AdminPage: React.FC<AdminPageProps> = ({ users, setUsers, allStoresData, s
                                    </div>
                                 </div>
 
-                                <div className="flex gap-2 w-full">
+                                <div className="flex flex-wrap gap-2 w-full">
                                     <button 
                                         type="button"
                                         onClick={() => onImpersonate(owner, store.id)} 
-                                        className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl text-center shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1"
+                                        className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl text-center shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
                                     >
                                         <LogIn size={13} />
                                         <span>إدارة المتجر</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTabChange('commercial', 'verification', store.id)}
+                                        className={`px-2.5 py-1.5 text-xs font-black rounded-xl border transition-all flex items-center justify-center gap-1 shrink-0 cursor-pointer ${
+                                            isStoreVerified(storeDetails?.settings)
+                                                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800'
+                                                : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-300 dark:border-purple-800'
+                                        }`}
+                                        title="منح أو تعديل التوثيق والشارة الخضراء (مدى الحياة)"
+                                    >
+                                        <BadgeCheck size={13} />
+                                        <span>{isStoreVerified(storeDetails?.settings) ? 'توثيق المتجر' : 'توثيق / مدى الحياة'}</span>
                                     </button>
                                     
                                     <button 
                                         type="button"
                                         onClick={() => setAdjustingStoreWallet({ id: store.id, name: store.name })}
-                                        className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 border border-indigo-150 dark:border-indigo-900 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1 shrink-0"
+                                        className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 border border-indigo-150 dark:border-indigo-900 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-1 shrink-0 cursor-pointer"
                                         title="تعديل مباشر على رصيد المحفظة"
                                     >
                                         <ArrowLeftRight size={13} />
@@ -4218,8 +4589,18 @@ const SuspendedAppealsCenter: React.FC<{
                           }`}
                         >
                           <div className="flex items-center justify-between text-[10px] font-black mb-1 opacity-80">
-                            <span>
-                              {m.senderName} ({m.senderTitle || (m.senderRole === 'merchant' ? 'التاجر' : 'الدعم الفني')})
+                            <span className="inline-flex items-center gap-1">
+                              {m.senderRole !== 'merchant' && m.senderRole !== 'system' && (
+                                <VerifiedStoreBadge
+                                  verified
+                                  tier="platform_official"
+                                  size="xs"
+                                  customTitle="رد رسمي من إدارة منصة عبده ميديا بريميم"
+                                />
+                              )}
+                              <span>
+                                {m.senderName} ({m.senderTitle || (m.senderRole === 'merchant' ? 'التاجر' : 'الدعم الفني')})
+                              </span>
                             </span>
                             <span className="font-mono tabular-nums">
                               {new Date(m.createdAt).toLocaleString('ar-EG')}
@@ -4403,10 +4784,20 @@ const SuspendedAppealsCenter: React.FC<{
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-2 mb-1 pb-1 border-b border-current/10 text-[10px]">
-                                  <span className="font-black">
-                                    {msg.senderName}{' '}
-                                    <span className="opacity-75 font-bold">
-                                      ({msg.senderTitle || (isMerchant ? 'مالك المتجر' : 'الدعم الفني')})
+                                  <span className="font-black inline-flex items-center gap-1.5">
+                                    {!isMerchant && (
+                                      <VerifiedStoreBadge
+                                        verified
+                                        tier="platform_official"
+                                        size="xs"
+                                        customTitle="رد رسمي من إدارة منصة عبده ميديا بريميم"
+                                      />
+                                    )}
+                                    <span>
+                                      {msg.senderName}{' '}
+                                      <span className="opacity-75 font-bold">
+                                        ({msg.senderTitle || (isMerchant ? 'مالك المتجر' : 'الدعم الفني')})
+                                      </span>
                                     </span>
                                   </span>
                                   <span className="font-mono tabular-nums opacity-80">

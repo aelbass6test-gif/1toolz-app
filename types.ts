@@ -1332,6 +1332,9 @@ export interface Settings {
   storeApiKeys?: StoreApiKey[];
   defaultPayoutStrategy?: 'rolling_hold' | 'batch_weekly' | 'manual_request';
   merchantRequests?: any[];
+  commerceState?: StoreCommerceState;
+  governanceRequests?: GovernanceCorrectionRequest[];
+  ownerPermissions?: Permission[];
 }
 
 export type ApiKeyScope = 
@@ -2033,6 +2036,11 @@ export interface Order {
   quotaConsumedAt?: string;        // توقيت استهلاك الكوتة/الخصم لأول مرة (لمنع التكرار)
   returnFeeProcessed?: boolean;    // هل تم خصم رسوم المرتجع
   warehouseName?: string;          // اسم الفرع/المستودع
+  commerceQuotaConsumedAt?: string;
+  commerceQuotaSource?: 'plan_monthly' | 'rollover_pack' | 'wallet_fallback' | 'pay_per_delivered' | 'unlimited';
+  commerceQuotaRefundedAt?: string;
+  deliveredCommissionBilledAt?: string;
+  deliveredCommissionAmount?: number;
 }
 
 export interface MerchantSettlement {
@@ -2356,3 +2364,280 @@ export interface ChatMessage {
   is_read: boolean;
   is_file?: boolean;
 }
+
+// ============================================================================
+// Commerce Ecosystem, Unified Quota Wallet & Modular Add-ons Types
+// ============================================================================
+
+export type CommercePlanId =
+  | 'pay_as_you_sell'
+  | 'free'
+  | 'growth'
+  | 'pro_business'
+  | 'enterprise'
+  | 'agency_os'
+  | 'wholesale_hub'
+  | 'custom';
+
+export type CustomPlanBillingMode = 'fixed_cycle' | 'pay_per_delivered' | 'hybrid';
+
+export type CommerceModuleId =
+  | 'pos'
+  | 'agency_hub'
+  | 'advanced_finance'
+  | 'whatsapp_api'
+  | 'ai_assistant'
+  | 'api_webhooks'
+  | 'dropshipping'
+  | 'custom_domain';
+
+export type CommerceBillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
+
+export interface CommercePlanDefinition {
+  id: CommercePlanId;
+  nameAr: string;
+  audienceTagAr: string;
+  descriptionAr: string;
+  monthlyPrice: number;
+  monthlyOrdersLimit: number | null; // null = unlimited
+  perDeliveredOrderFee: number; // e.g., 5 EGP for pay_as_you_sell
+  maxEmployees: number | null;
+  maxWarehouses: number | null;
+  maxStoresInPool: number;
+  includedModules: CommerceModuleId[];
+  bonusWhatsappMessages?: number;
+  bonusAiCredits?: number;
+  isPopular?: boolean;
+  affiliateMultiplier?: number;
+}
+
+export interface CommerceModuleDefinition {
+  id: CommerceModuleId;
+  nameAr: string;
+  descriptionAr: string;
+  monthlyPrice: number;
+  includedWhatsappMessages?: number;
+  includedAiCredits?: number;
+  routePaths: string[];
+}
+
+export interface CommerceCapacityPricing {
+  extraEmployeeMonthly: number;
+  extraWarehouseMonthly: number;
+  extraStoreSlotMonthly: number;
+}
+
+export interface RolloverQuotaPack {
+  id: string;
+  nameAr: string;
+  ordersCount: number;
+  price: number;
+}
+
+export interface CreditsPack {
+  id: string;
+  kind: 'whatsapp' | 'ai';
+  nameAr: string;
+  units: number;
+  price: number;
+}
+
+export interface PlatformCommercialCatalog {
+  plans: CommercePlanDefinition[];
+  modules: CommerceModuleDefinition[];
+  capacityPricing: CommerceCapacityPricing;
+  rolloverOrderPacks: RolloverQuotaPack[];
+  creditsPacks: CreditsPack[];
+  cycleDiscounts: Record<CommerceBillingCycle, number>; // e.g. { monthly: 0, quarterly: 10, semi_annual: 20, annual: 30 }
+  internalTransferCashbackPercent: number; // default 10%
+  bundleDiscountThreshold: number; // default 3 modules
+  bundleDiscountPercent: number; // default 20%
+  affiliateCommissionPercent: number; // default 15%
+  fallbackPerOrderFee: number; // default 3 EGP
+  updatedAt?: string;
+}
+
+export type QuotaWalletTransactionType =
+  | 'topup'
+  | 'internal_transfer'
+  | 'cashback_bonus'
+  | 'plan_charge'
+  | 'module_charge'
+  | 'capacity_charge'
+  | 'pack_purchase'
+  | 'order_quota_fallback'
+  | 'pay_per_delivered_fee'
+  | 'order_quota_refund'
+  | 'affiliate_commission'
+  | 'admin_grant'
+  | 'verification_fee'
+  | 'shipping_charge_future';
+
+export interface QuotaWalletTransaction {
+  id: string;
+  date: string;
+  type: QuotaWalletTransactionType;
+  amount: number; // positive = credit, negative = debit (in EGP)
+  balanceAfter: number;
+  ordersDelta?: number; // +N rollover orders, -1 consumed, +1 refunded
+  whatsappDelta?: number;
+  aiDelta?: number;
+  titleAr: string;
+  notes?: string;
+  referenceId?: string;
+  status?: 'completed' | 'pending' | 'reversed';
+}
+
+export interface ActiveModuleLicense {
+  moduleId: CommerceModuleId;
+  activatedAt: string;
+  expiresAt: string;
+  monthlyPricePaid: number;
+  autoRenew: boolean;
+  grantedByAdmin?: boolean;
+}
+
+export interface CustomPlanOverride {
+  id: string;
+  nameAr: string;
+  descriptionAr?: string;
+  billingMode: CustomPlanBillingMode;
+  cycle: CommerceBillingCycle;
+  cyclePrice: number;
+  durationDays: number;
+  monthlyOrdersLimit: number | null;
+  perDeliveredOrderFee: number;
+  maxEmployees: number | null;
+  maxWarehouses: number | null;
+  maxStoresInPool: number;
+  includedModules: CommerceModuleId[];
+  bonusWhatsappMessages?: number;
+  bonusAiCredits?: number;
+  affiliateMultiplier?: number;
+  lockPlan?: boolean;
+  grantedBy?: string;
+  grantedAt: string;
+}
+
+export interface CustomPlanRequest {
+  id: string;
+  storeId: string;
+  storeName: string;
+  ownerName: string;
+  ownerPhone?: string;
+  requestedAt: string;
+  businessType: string;
+  expectedMonthlyOrders: number;
+  preferredBillingMode: CustomPlanBillingMode;
+  preferredCycle: CommerceBillingCycle;
+  targetMonthlyBudget?: number;
+  targetPerOrderFee?: number;
+  requestedEmployees?: number | null;
+  requestedWarehouses?: number | null;
+  requestedPoolStores?: number;
+  requestedModules: CommerceModuleId[];
+  notes: string;
+  status: 'pending' | 'quoted' | 'accepted_activated' | 'rejected';
+  offeredPlan?: CustomPlanOverride;
+  offerPaymentMode?: 'merchant_pays' | 'admin_free_grant';
+  adminNote?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+}
+
+export type StoreVerificationTrack = 'individual' | 'company';
+export type StoreVerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected' | 'revoked';
+export type StoreVerificationDocType =
+  | 'national_id_front'
+  | 'national_id_back'
+  | 'commercial_register'
+  | 'tax_card'
+  | 'bank_or_wallet_proof'
+  | 'store_activity_proof';
+
+export interface StoreVerificationDocument {
+  id: string;
+  docType: StoreVerificationDocType;
+  labelAr: string;
+  fileName: string;
+  dataUrl: string;
+  uploadedAt: string;
+}
+
+export type VerificationBadgeTier = 'standard' | 'vip_gold' | 'platform_official';
+
+export interface StoreVerificationProfile {
+  status: StoreVerificationStatus;
+  track: StoreVerificationTrack;
+  badgeTier?: VerificationBadgeTier;
+  verifiedStoreNameLocked?: string;
+  legalBusinessName?: string;
+  nationalIdNumber?: string;
+  commercialRegisterNumber?: string;
+  taxCardNumber?: string;
+  officialPhone?: string;
+  bankOrWalletAccount?: string;
+  documents: StoreVerificationDocument[];
+  submittedAt?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  verifiedAt?: string;
+  expiresAt?: string;
+  rejectionOrRevokeReason?: string;
+  verificationFeePaid?: number;
+  priorityReview?: boolean;
+  isLifetime?: boolean;
+  grantedByAdmin?: boolean;
+  grantReason?: string;
+  durationPreset?: 'lifetime' | '1_year' | '2_years' | '6_months';
+}
+
+export interface StoreCommerceState {
+  activePlanId: CommercePlanId;
+  billingCycle: CommerceBillingCycle;
+  planActivatedAt: string;
+  planExpiresAt: string;
+  planPaidAmount: number;
+  quotaWalletBalance: number; // EGP dedicated solely to subscriptions, modules, packs & usage
+  rolloverOrdersBalance: number; // never-expiring order quota
+  whatsappCredits: number;
+  aiCredits: number;
+  autoFallbackEnabled: boolean; // Zero-Lost-Order fallback from Quota Wallet
+  activeModules: Partial<Record<CommerceModuleId, ActiveModuleLicense>>;
+  extraEmployeesCount: number;
+  extraWarehousesCount: number;
+  extraStoreSlotsCount: number;
+  multiStorePoolIds: string[]; // shared umbrella store IDs
+  referralCode: string;
+  referredByCode?: string;
+  referredByStoreId?: string;
+  affiliateTotalEarned: number;
+  adminUnlockedModules?: CommerceModuleId[];
+  adminPlanLock?: boolean;
+  customPlanOverride?: CustomPlanOverride | null;
+  customPlanRequests?: CustomPlanRequest[];
+  verification?: StoreVerificationProfile;
+  quotaTransactions: QuotaWalletTransaction[];
+}
+
+export interface GovernanceCorrectionRequest {
+  id: string;
+  kind: 'wallet_correction' | 'treasury_correction' | 'period_closing';
+  storeId: string;
+  storeName: string;
+  requestedBy: string;
+  requestedByPhone?: string;
+  requestedAt: string;
+  targetTxId?: string;
+  targetTxSummary?: string;
+  targetAmount?: number;
+  correctionType?: 'reverse' | 'adjust_amount' | 'close_period';
+  proposedAmount?: number;
+  reason: string;
+  attachmentUrl?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  adminNote?: string;
+}
+

@@ -13,7 +13,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^0.15.0",
+    "@google/genai": "^3.3.0",
     "@hono/node-server": "^2.0.4",
     "@tailwindcss/vite": "^4.2.1",
     "@vis.gl/react-google-maps": "^1.9.0",

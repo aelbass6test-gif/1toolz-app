@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, useNavigate, useParams, Navigate, useLocation, Link } from 'react-router-dom';
-import { Loader2, ShieldAlert, Store as StoreIcon, LayoutDashboard, Users, TrendingUp, Settings as SettingsIcon, AlertTriangle, Wallet as WalletIcon, UserCog, Wrench, ArrowRight } from 'lucide-react';
+import { Loader2, ShieldAlert, Store as StoreIcon, LayoutDashboard, Users, TrendingUp, Settings as SettingsIcon, AlertTriangle, Wallet as WalletIcon, UserCog, Wrench, ArrowRight, BadgeCheck, Layers } from 'lucide-react';
 
 import { User, Store, StoreData, Order, Settings, Wallet, OrderItem, Employee, Product, PlaceOrderData, CustomerProfile, Warehouse, PurchaseReturn, OrderReturn, TreasuryAccount, TreasuryTransaction, Partner, PartnerTransaction, Permission } from './types';
 import * as db from './services/databaseService';
+import { processOrdersCommerceLifecycle, getCachedPlatformCommercialCatalog } from './utils/commerceEcosystem';
+import { getOwnerRouteRequiredPermission, hasEffectiveOwnerPermission } from './utils/ownerPermissions';
 import { cfFetch, cfAuthLogin, cfAuthEmployeeLogin, cfAuthLogout, subscribePolling } from './services/cloudflareClient';
 import { INITIAL_SETTINGS } from './constants';
 import { normalizePhone } from './utils/phoneUtils';
@@ -66,6 +68,7 @@ const ExpensesPage = lazyWithRetry(() => import('./components/ExpensesPage'));
 const MarketingPage = lazyWithRetry(() => import('./components/MarketingPage'));
 const AnalyticsPage = lazyWithRetry(() => import('./components/AnalyticsPage'));
 const AdminPage = lazyWithRetry(() => import('./components/AdminPage'));
+const AdminSecretLoginGate = lazyWithRetry(() => import('./components/AdminSecretLoginGate'));
 const MaintenancePage = lazyWithRetry(() => import('./src/pages/MaintenancePage'));
 const EmployeeLayout = lazyWithRetry(() => import('./components/EmployeeLayout'));
 const EmployeeDashboardPage = lazyWithRetry(() => import('./components/EmployeeDashboardPage'));
@@ -123,9 +126,12 @@ const FailedDeliveryCompensationPage = lazyWithRetry(() => import('./components/
 const DropshippingPage = lazyWithRetry(() => import('./components/DropshippingPage'), 'DropshippingPage');
 const SmartUpdatesWidget = lazyWithRetry(() => import('./components/SmartUpdatesWidget'), 'SmartUpdatesWidget');
 const WebhookMonitorPage = lazyWithRetry(() => import('./components/WebhookMonitorPage'));
+const CommerceSubscriptionPage = lazyWithRetry(() => import('./components/CommerceSubscriptionPage'));
 
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import { isStoreVerified, getStoreVerificationTier } from './utils/commerceEcosystem';
+import ModuleFeatureGate from './components/ModuleFeatureGate';
 import MobileNavigation from './components/MobileNavigation';
 import { ShippingCalculatorWidget } from './components/ShippingCalculatorWidget';
 import { InAppAlertSystem } from './components/InAppAlertSystem';
@@ -216,7 +222,7 @@ const MainLayout = ({
             path === '/projects' ||
             path === '/manage-stores' ||
             path === '/create-store' ||
-            path === '/admin/manage-stores' ||
+            path === '/saeed/manage-stores' ||
             path.endsWith('/select-store') ||
             path.endsWith('/projects') ||
             path.endsWith('/manage-stores') ||
@@ -544,7 +550,13 @@ const MainLayout = ({
         return alerts;
     }, [settings, orders, sharedAudits, chatMessages, currentUser]);
 
-
+    const mainLocation = useLocation();
+    const requiredOwnerPerm = getOwnerRouteRequiredPermission(mainLocation.pathname);
+    const isOwnerRestrictedOnRoute = !hasEffectiveOwnerPermission(
+        settings,
+        requiredOwnerPerm,
+        Boolean(currentUser?.isAdmin || impersonatingFromAdmin)
+    );
 
     return (
         <div className="flex flex-col h-screen bg-[#f6f7f5] dark:bg-[#0b1210] text-slate-900 dark:text-slate-50 transition-colors duration-300 overflow-hidden relative" dir="rtl">
@@ -573,7 +585,7 @@ const MainLayout = ({
                         <div className="flex items-center gap-2 shrink-0">
                             <button
                                 type="button"
-                                onClick={() => onExitImpersonation(`/admin?tab=support${activeStore?.id ? `&storeId=${encodeURIComponent(activeStore.id)}` : ''}`)}
+                                onClick={() => onExitImpersonation(`/saeed?tab=support${activeStore?.id ? `&storeId=${encodeURIComponent(activeStore.id)}` : ''}`)}
                                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-black transition-all cursor-pointer"
                             >
                                 <Wrench size={12} />
@@ -581,7 +593,7 @@ const MainLayout = ({
                             </button>
                             <button
                                 type="button"
-                                onClick={() => onExitImpersonation('/admin/manage-stores')}
+                                onClick={() => onExitImpersonation('/saeed/manage-stores')}
                                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black transition-all cursor-pointer"
                             >
                                 <ArrowRight size={12} />
@@ -605,6 +617,8 @@ const MainLayout = ({
                         saveMessage={saveMessage}
                         inventoryAlerts={isStoreManagementOrCreationPage ? [] : inventoryAlerts}
                         onOpenShippingCalculator={() => setIsShippingCalculatorOpen(true)}
+                        isStoreVerified={isStoreVerified(settings)}
+                        verificationTier={getStoreVerificationTier(settings)}
                     />
                 </div>
                 <div className="flex flex-1 min-h-0 overflow-hidden relative">
@@ -619,11 +633,40 @@ const MainLayout = ({
                                 onToggleDesktopCollapse={toggleDesktopSidebar}
                                 pendingRequestsCounts={pendingRequestsCounts}
                                 isAdmin={Boolean(currentUser?.isAdmin)}
+                                isImpersonating={Boolean(impersonatingFromAdmin)}
                             />
                         </div>
                     )}
                     <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6 pb-24 md:pb-6 no-scrollbar relative print:overflow-visible print:h-auto print:static">
-                        <Outlet />
+                        {isOwnerRestrictedOnRoute ? (
+                            <div className="max-w-lg mx-auto my-12 p-8 rounded-2xl bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/50 shadow-sm text-center space-y-4">
+                                <div className="w-14 h-14 mx-auto rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center">
+                                    <ShieldAlert size={28} />
+                                </div>
+                                <h2 className="text-lg font-black text-slate-900 dark:text-white">تم تقييد الوصول لهذا القسم من إدارة المنصة</h2>
+                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed">
+                                    صلاحية الوصول إلى هذه الشاشة غير مفعلة حالياً لحساب المالك على متجر «{activeStore?.name || ''}». تواصل مع إدارة المنصة لإعادة تفعيلها.
+                                </p>
+                                <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                                    <Link
+                                        to="/select-store"
+                                        className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-black"
+                                    >
+                                        قائمة المتاجر
+                                    </Link>
+                                    {activeStore?.id && (
+                                        <Link
+                                            to={`/store/${activeStore.id}/subscription`}
+                                            className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black"
+                                        >
+                                            الاشتراك والتوثيق
+                                        </Link>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <Outlet />
+                        )}
                     </main>
                     {!isStoreManagementOrCreationPage && (
                         <div className="no-print">
@@ -643,7 +686,7 @@ const MainLayout = ({
     );
 };
 
-const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad, allStoresData, users, impersonatingFromAdmin, activeStoreId }: any) => {
+const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad, allStoresData, users, impersonatingFromAdmin, activeStoreId, onAdminPasswordSuccess }: any) => {
     const location = useLocation();
     const searchParams = new URLSearchParams(location.search);
     const currentTab = searchParams.get('tab') || 'dashboard';
@@ -671,6 +714,17 @@ const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad
         return count;
     }, [allStoresData, validStoreIds]);
 
+    const pendingVerificationCount = useMemo(() => {
+        let count = 0;
+        Object.entries(allStoresData || {}).forEach(([storeId, storeData]: [string, any]) => {
+            if (validStoreIds.size > 0 && !validStoreIds.has(storeId)) return;
+            if (storeData?.settings?.commerceState?.verification?.status === 'pending') {
+                count++;
+            }
+        });
+        return count;
+    }, [allStoresData, validStoreIds]);
+
     if (isInitialLoad) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-100 dark:bg-[#030712] text-slate-900 dark:text-slate-100" dir="rtl">
@@ -682,32 +736,36 @@ const AdminLayout = ({ currentUser, handleLogout, theme, setTheme, isInitialLoad
         );
     }
     if (!currentUser) {
-        return <Navigate to="/owner-login" replace />;
+        return <AdminSecretLoginGate onPasswordSuccess={onAdminPasswordSuccess} />;
     }
     if (!currentUser.isAdmin) {
         if (impersonatingFromAdmin) {
             return <Navigate to={activeStoreId ? `/store/${activeStoreId}/dashboard` : '/manage-stores'} replace />;
         }
-        return <Navigate to="/owner-login" replace />;
+        return <AdminSecretLoginGate onPasswordSuccess={onAdminPasswordSuccess} currentMerchantUser={currentUser} />;
     }
 
-    const isStoresHub = location.pathname === '/admin/manage-stores' || location.pathname === '/admin/select-store' || location.pathname === '/admin/projects';
-    const isAdminRoot = location.pathname === '/admin';
-    const isAccountSettings = location.pathname === '/admin/account-settings';
+    const isStoresHub = location.pathname === '/saeed/manage-stores' || location.pathname === '/saeed/select-store' || location.pathname === '/saeed/projects';
+    const isAdminRoot = location.pathname === '/saeed';
+    const isAccountSettings = location.pathname === '/saeed/account-settings';
+
+    const currentSubTab = searchParams.get('subtab') || '';
 
     const navItems = [
-        { label: 'متاجر المنصة', to: '/admin/manage-stores', icon: <StoreIcon size={14} />, active: isStoresHub },
-        { label: 'نظرة عامة والتحليلات', to: '/admin?tab=dashboard', icon: <LayoutDashboard size={14} />, active: isAdminRoot && currentTab === 'dashboard' },
-        { label: 'الصلاحيات الحصرية والرقابة', to: '/admin?tab=exclusive_controls', icon: <ShieldAlert size={14} />, active: isAdminRoot && currentTab === 'exclusive_controls', badge: pendingFinancialCount },
-        { label: 'المستخدمين والتجار', to: '/admin?tab=users', icon: <Users size={14} />, active: isAdminRoot && currentTab === 'users' },
-        { label: 'المحافظ والأرصدة', to: '/admin?tab=stores', icon: <WalletIcon size={14} />, active: isAdminRoot && currentTab === 'stores' },
-        { label: 'الطلبات المالية', to: '/admin?tab=financial', icon: <TrendingUp size={14} />, active: isAdminRoot && currentTab === 'financial', badge: pendingFinancialCount },
-        { label: 'الرسوم والعمولات', to: '/admin?tab=fee_settings', icon: <SettingsIcon size={14} />, active: isAdminRoot && currentTab === 'fee_settings' },
-        { label: 'البريد والبنية السحابية', to: '/admin?tab=infrastructure', icon: <SettingsIcon size={14} />, active: isAdminRoot && currentTab === 'infrastructure' },
-        { label: 'الدعم الفني وحل المشاكل', to: '/admin?tab=support', icon: <Wrench size={14} />, active: isAdminRoot && currentTab === 'support' },
-        { label: 'ترحيل المستخدمين', to: '/admin?tab=user_migration', icon: <ShieldAlert size={14} />, active: isAdminRoot && currentTab === 'user_migration' },
-        { label: 'صيانة وإبادة البيانات', to: '/admin?tab=danger_zone', icon: <AlertTriangle size={14} />, active: isAdminRoot && currentTab === 'danger_zone', danger: true },
-        { label: 'إعدادات الحساب', to: '/admin/account-settings', icon: <UserCog size={14} />, active: isAccountSettings },
+        { label: 'متاجر المنصة', to: '/saeed/manage-stores', icon: <StoreIcon size={14} />, active: isStoresHub },
+        { label: 'نظرة عامة والتحليلات', to: '/saeed?tab=dashboard', icon: <LayoutDashboard size={14} />, active: isAdminRoot && currentTab === 'dashboard' },
+        { label: 'توثيق المتاجر (مدى الحياة)', to: '/saeed?tab=commercial&subtab=verification', icon: <BadgeCheck size={14} />, active: isAdminRoot && currentTab === 'commercial' && currentSubTab === 'verification', badge: pendingVerificationCount },
+        { label: 'الباقات والكوتا والباقات الخاصة', to: '/saeed?tab=commercial&subtab=pricing', icon: <Layers size={14} />, active: isAdminRoot && currentTab === 'commercial' && currentSubTab !== 'verification' },
+        { label: 'الصلاحيات الحصرية والرقابة', to: '/saeed?tab=exclusive_controls', icon: <ShieldAlert size={14} />, active: isAdminRoot && currentTab === 'exclusive_controls', badge: pendingFinancialCount },
+        { label: 'المستخدمين والتجار', to: '/saeed?tab=users', icon: <Users size={14} />, active: isAdminRoot && currentTab === 'users' },
+        { label: 'المحافظ والأرصدة', to: '/saeed?tab=stores', icon: <WalletIcon size={14} />, active: isAdminRoot && currentTab === 'stores' },
+        { label: 'الطلبات المالية', to: '/saeed?tab=financial', icon: <TrendingUp size={14} />, active: isAdminRoot && currentTab === 'financial', badge: pendingFinancialCount },
+        { label: 'الرسوم والعمولات', to: '/saeed?tab=fee_settings', icon: <SettingsIcon size={14} />, active: isAdminRoot && currentTab === 'fee_settings' },
+        { label: 'البريد والبنية السحابية', to: '/saeed?tab=infrastructure', icon: <SettingsIcon size={14} />, active: isAdminRoot && currentTab === 'infrastructure' },
+        { label: 'الدعم الفني وحل المشاكل', to: '/saeed?tab=support', icon: <Wrench size={14} />, active: isAdminRoot && currentTab === 'support' },
+        { label: 'ترحيل المستخدمين', to: '/saeed?tab=user_migration', icon: <ShieldAlert size={14} />, active: isAdminRoot && currentTab === 'user_migration' },
+        { label: 'صيانة وإبادة البيانات', to: '/saeed?tab=danger_zone', icon: <AlertTriangle size={14} />, active: isAdminRoot && currentTab === 'danger_zone', danger: true },
+        { label: 'إعدادات الحساب', to: '/saeed/account-settings', icon: <UserCog size={14} />, active: isAccountSettings },
     ];
 
     return (
@@ -1216,7 +1274,7 @@ const OwnerLayoutWrapper = ({
 const CatchAllRedirect = ({ currentUser, isEmployeeSession, activeStoreId }: any) => {
     if (!currentUser) return <Navigate to="/owner-login" replace />;
     if (isEmployeeSession) return <Navigate to="/employee/dashboard" replace />;
-    if (currentUser.isAdmin) return <Navigate to="/admin" replace />;
+    if (currentUser.isAdmin) return <Navigate to="/saeed" replace />;
     
     if (activeStoreId) {
         return <Navigate to={`/store/${activeStoreId}/dashboard`} replace />;
@@ -2401,7 +2459,7 @@ export const AppComponent = () => {
                 localStorage.setItem('sessionType', 'admin');
                 setActiveStoreId(null);
                 localStorage.removeItem('lastActiveStoreId');
-                navigate('/admin/manage-stores?welcome=true');
+                navigate('/saeed/manage-stores?welcome=true');
             } else {
                 localStorage.setItem('sessionType', 'owner');
                 const targetStoreId = user.defaultStoreId || localStorage.getItem('defaultStoreId');
@@ -2759,7 +2817,7 @@ export const AppComponent = () => {
             } catch {}
         }
         if (!adminOrigin) {
-            navigate('/admin/manage-stores');
+            navigate('/saeed/manage-stores');
             return;
         }
 
@@ -2775,7 +2833,7 @@ export const AppComponent = () => {
         setActiveStoreId(null);
         setCurrentUser(adminOrigin);
         setWelcomeScreenShown(true);
-        navigate(redirectPath || '/admin/manage-stores');
+        navigate(redirectPath || '/saeed/manage-stores');
     };
 
     const refreshStoreData = (storeId: string): Promise<void> => {
@@ -3484,12 +3542,21 @@ export const AppComponent = () => {
                         };
                     }
 
+                    // Commerce Ecosystem: Fair-Quota consumption, Cancellation refunds & Pay-Per-Delivered billing
+                    const commerceResult = processOrdersCommerceLifecycle(
+                        currentOrders,
+                        processedOrders,
+                        currentSettings,
+                        getCachedPlatformCommercialCatalog(),
+                        activeStoreId
+                    );
+
                     return {
                         ...p, 
                         [activeStoreId]: {
                             ...currentStore,
-                            orders: processedOrders,
-                            settings: currentSettings
+                            orders: commerceResult.orders,
+                            settings: commerceResult.settings
                         }
                     };
                 });
@@ -3790,7 +3857,7 @@ export const AppComponent = () => {
                 <Route path="/welcome" element={<WelcomeLandingPage />} />
                 <Route path="/landing" element={<WelcomeLandingPage />} />
                 
-                <Route path="/admin" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} allStoresData={allStoresData} users={users} impersonatingFromAdmin={impersonatingFromAdmin} activeStoreId={activeStoreId} />}>
+                <Route path="/saeed" element={<AdminLayout currentUser={currentUser} handleLogout={handleLogout} theme={theme} setTheme={setTheme} isInitialLoad={isInitialLoad} allStoresData={allStoresData} users={users} impersonatingFromAdmin={impersonatingFromAdmin} activeStoreId={activeStoreId} onAdminPasswordSuccess={(user: User, password?: string) => startOtpFlow(user, null, password)} />}>
                     <Route index element={<AdminPage {...pageProps} onImpersonate={handleImpersonate} currentUser={currentUser as User} />} />
                     <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} onImpersonate={handleImpersonate} {...pageProps} />} />
                     <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} onImpersonate={handleImpersonate} {...pageProps} />} />
@@ -3937,14 +4004,14 @@ export const AppComponent = () => {
                     <Route path="confirmation-queue" element={<ConfirmationQueuePage currentUser={currentUser} orders={pageProps.orders} setOrders={pageProps.setOrders} settings={pageProps.settings} setSettings={pageProps.setSettings} activeStore={pageProps.activeStore} onRefresh={() => pageProps.activeStore?.id && refreshStoreData(pageProps.activeStore.id)} forceSync={pageProps.forceSync} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="orders" element={<OrdersList {...pageProps} currentUser={currentUser} addLoyaltyPointsForOrder={() => {}} />} />
                     <Route path="quotations" element={<QuotationsPage {...pageProps} />} />
-                    <Route path="agency-hub" element={<AgencyHubPage storeId={activeStoreId} settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} wallet={pageProps.wallet} setWallet={pageProps.setWallet} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} allStoresData={allStoresData} />} />
+                    <Route path="agency-hub" element={<ModuleFeatureGate moduleId="agency_hub" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><AgencyHubPage storeId={activeStoreId} settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} wallet={pageProps.wallet} setWallet={pageProps.setWallet} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} allStoresData={allStoresData} /></ModuleFeatureGate>} />
                     <Route path="agency" element={<Navigate to="../agency-hub" replace />} />
                     <Route path="merchant-settlement" element={<Navigate to="../agency-hub?tab=settlements" replace />} />
-                    <Route path="dropshipping/new" element={<CreateDropshippingOrderPage {...pageProps} />} />
+                    <Route path="dropshipping/new" element={<ModuleFeatureGate moduleId="dropshipping" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><CreateDropshippingOrderPage {...pageProps} /></ModuleFeatureGate>} />
                     <Route path="returns" element={<OrderReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} />} />
-                    <Route path="pos" element={<POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} />} />
-                    <Route path="cash-management" element={<CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} />} />
-                    <Route path="purchase-returns" element={<PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} />} />
+                    <Route path="pos" element={<ModuleFeatureGate moduleId="pos" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><POSPage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} wallet={pageProps.wallet} treasury={pageProps.treasury} updateStoreData={(data) => setAllStoresData(p => ({ ...p, [activeStoreId!]: { ...p[activeStoreId!], ...data } }))} currentUser={currentUser} activeStore={pageProps.activeStore} customers={pageProps.customers} /></ModuleFeatureGate>} />
+                    <Route path="cash-management" element={<ModuleFeatureGate moduleId="advanced_finance" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><CashManagement settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} /></ModuleFeatureGate>} />
+                    <Route path="purchase-returns" element={<ModuleFeatureGate moduleId="dropshipping" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><PurchaseReturnsPage settings={pageProps.settings} updateSettings={pageProps.setSettings} currentUser={currentUser} /></ModuleFeatureGate>} />
                     <Route path="orders/new" element={<CreateOrderPage {...pageProps} />} />
                     <Route path="orders/edit/:id" element={<EditOrderPage {...pageProps} />} />
                     <Route path="create-order" element={<Navigate to="../orders/new" replace />} />
@@ -3960,6 +4027,7 @@ export const AppComponent = () => {
                       />
                     } />
                     <Route path="wallet" element={<WalletPage {...pageProps} />} />
+                    <Route path="subscription" element={<CommerceSubscriptionPage storeId={activeStoreId!} orders={pageProps.orders} settings={pageProps.settings} setSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData} />} />
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
                     <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
                     <Route path="shipping" element={<ShippingPage {...pageProps} />} />
@@ -3971,34 +4039,35 @@ export const AppComponent = () => {
                     <Route path="product-options" element={<ProductOptionsPage {...pageProps} />} />
                     <Route path="expenses" element={<ExpensesPage {...pageProps} settings={pageProps.settings} updateSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
                     <Route path="marketing" element={<MarketingPage {...pageProps} />} />
-                    <Route path="ai-assistant" element={<ChatBot {...pageProps} />} />
+                    <Route path="ai-assistant" element={<ModuleFeatureGate moduleId="ai_assistant" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><ChatBot {...pageProps} /></ModuleFeatureGate>} />
                     <Route path="reports" element={<AnalyticsPage {...pageProps} />} />
                     <Route path="standard-reports" element={<ReportsPage {...pageProps} />} />
                     <Route path="collections-report" element={<CollectionsReportPage {...pageProps} />} />
                     <Route path="activity-logs" element={<ActivityLogsPage logs={pageProps.settings?.activityLogs || []} />} />
-                    <Route path="suppliers" element={<SuppliersPage {...pageProps} orders={pageProps.orders} />} />
+                    <Route path="suppliers" element={<ModuleFeatureGate moduleId="dropshipping" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><SuppliersPage {...pageProps} orders={pageProps.orders} /></ModuleFeatureGate>} />
                     <Route path="merchants" element={<Navigate to="../agency-hub?tab=merchants" replace />} />
-                    <Route path="partners" element={<PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
-                    <Route path="partners/:partnerId" element={<PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} />} />
-                    <Route path="suppliers/:supplierId" element={<MerchantProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} />} />
-                    <Route path="reconciliation" element={<ExcelReconciliationPage allStoresData={allStoresData} updateStoreData={(id, updater) => { setAllStoresData(p => { const draft = { ...p }; if(draft[id]) { const cloned = JSON.parse(JSON.stringify(draft[id])); updater(cloned); draft[id] = cloned; } return draft; }); }} showToast={(msg, type) => {}} />} />
+                    <Route path="partners" element={<ModuleFeatureGate moduleId="agency_hub" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} /></ModuleFeatureGate>} />
+                    <Route path="partners/:partnerId" element={<ModuleFeatureGate moduleId="agency_hub" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} /></ModuleFeatureGate>} />
+                    <Route path="suppliers/:supplierId" element={<ModuleFeatureGate moduleId="dropshipping" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><MerchantProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} /></ModuleFeatureGate>} />
+                    <Route path="reconciliation" element={<ModuleFeatureGate moduleId="advanced_finance" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><ExcelReconciliationPage allStoresData={allStoresData} updateStoreData={(id, updater) => { setAllStoresData(p => { const draft = { ...p }; if(draft[id]) { const cloned = JSON.parse(JSON.stringify(draft[id])); updater(cloned); draft[id] = cloned; } return draft; }); }} showToast={(msg, type) => {}} /></ModuleFeatureGate>} />
                     <Route path="pages" element={<PagesManager {...pageProps} />} />
                     <Route path="settings/payment" element={<PaymentSettingsPage {...pageProps} />} />
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />
-                    <Route path="employees-payroll" element={<EmployeesPayrollPage {...pageProps} />} />
+                    <Route path="employees-payroll" element={<ModuleFeatureGate moduleId="advanced_finance" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><EmployeesPayrollPage {...pageProps} /></ModuleFeatureGate>} />
                     <Route path="team-chat" element={<TeamChatPage {...pageProps} activeStoreId={activeStoreId} />} />
-                    <Route path="whatsapp" element={<WhatsAppPage {...pageProps} onRefresh={() => activeStoreId ? refreshStoreData(activeStoreId) : Promise.resolve()} />} />
-                    <Route path="treasury" element={<TreasuryPage settings={pageProps.settings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} currentUser={currentUser} />} />
+                    <Route path="whatsapp" element={<ModuleFeatureGate moduleId="whatsapp_api" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><WhatsAppPage {...pageProps} onRefresh={() => activeStoreId ? refreshStoreData(activeStoreId) : Promise.resolve()} /></ModuleFeatureGate>} />
+                    <Route path="treasury" element={<ModuleFeatureGate moduleId="advanced_finance" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><TreasuryPage settings={pageProps.settings} setSettings={pageProps.setSettings} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} currentUser={currentUser} /></ModuleFeatureGate>} />
                     
                     {/* Coming Soon Routes */}
                     <Route path="product-attributes" element={<ComingSoonPage />} />
                     <Route path="withdrawals" element={<ComingSoonPage />} />
                     <Route path="design-templates" element={<StoreCustomizationPage {...pageProps} initialSection="templates" />} />
-                    <Route path="domain" element={<DomainSettingsPage activeStoreId={activeStoreId} storeData={allStoresData[activeStoreId] || null} settings={pageProps.settings} setSettings={pageProps.setSettings} users={users} />} />
+                    <Route path="domain" element={<ModuleFeatureGate moduleId="custom_domain" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><DomainSettingsPage activeStoreId={activeStoreId} storeData={allStoresData[activeStoreId] || null} settings={pageProps.settings} setSettings={pageProps.setSettings} users={users} /></ModuleFeatureGate>} />
                     <Route path="legal-pages" element={<ComingSoonPage />} />
-                    <Route path="apps" element={<AppsPage storeId={activeStoreId} storeData={allStoresData[activeStoreId] || null} onUpdateSettings={pageProps.setSettings} onUpdateOrders={pageProps.setOrders} onRefresh={pageProps.onRefresh} hostUrl={pageProps.settings.customAppDomain || window.location.origin} />} />
+                    <Route path="apps" element={<ModuleFeatureGate moduleId="api_webhooks" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><AppsPage storeId={activeStoreId} storeData={allStoresData[activeStoreId] || null} onUpdateSettings={pageProps.setSettings} onUpdateOrders={pageProps.setOrders} onRefresh={pageProps.onRefresh} hostUrl={pageProps.settings.customAppDomain || window.location.origin} /></ModuleFeatureGate>} />
                     <Route path="settings/tax" element={<ComingSoonPage />} />
                     <Route path="settings/developer" element={
+                        <ModuleFeatureGate moduleId="api_webhooks" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}>
                         <DeveloperSettingsPage 
                             settings={pageProps.settings} 
                             setSettings={pageProps.setSettings} 
@@ -4014,17 +4083,18 @@ export const AppComponent = () => {
                             allStoresData={allStoresData}
                             setAllStoresData={setAllStoresData}
                         />
+                        </ModuleFeatureGate>
                     } />
-                    <Route path="webhook-monitor" element={<WebhookMonitorPage settings={pageProps.settings} setSettings={pageProps.setSettings} orders={pageProps.orders} activeStoreId={activeStoreId} currentUser={currentUser} />} />
-                    <Route path="docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
-                    <Route path="api-docs" element={<ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} />} />
+                    <Route path="webhook-monitor" element={<ModuleFeatureGate moduleId="api_webhooks" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><WebhookMonitorPage settings={pageProps.settings} setSettings={pageProps.setSettings} orders={pageProps.orders} activeStoreId={activeStoreId} currentUser={currentUser} /></ModuleFeatureGate>} />
+                    <Route path="docs" element={<ModuleFeatureGate moduleId="api_webhooks" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} /></ModuleFeatureGate>} />
+                    <Route path="api-docs" element={<ModuleFeatureGate moduleId="api_webhooks" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><ApiDocsPage activeStore={activeStore} settings={pageProps.settings} currentUser={currentUser} /></ModuleFeatureGate>} />
                     <Route path="tracking" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
                     <Route path="track-order" element={<OrderTrackingPage orders={pageProps.orders} settings={pageProps.settings} />} />
                     <Route path="select-store" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
                     <Route path="manage-stores" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
                     <Route path="projects" element={<ManageSitesPage ownedStores={currentUser?.stores || []} collaboratingStores={[]} setActiveStoreId={handleSetActiveStore} currentUser={currentUser} setCurrentUser={setCurrentUser} {...pageProps} />} />
                     <Route path="account-settings" element={<AccountSettingsPage currentUser={currentUser} setCurrentUser={setCurrentUser} users={users} setUsers={setUsers} />} />
-                    <Route path="admin" element={<Navigate to="/admin" replace />} />
+                    <Route path="saeed" element={<Navigate to="/saeed" replace />} />
                 </Route>
 
                 {/* Standalone Public Docs Route */}

@@ -8,13 +8,15 @@ import {
   CheckCircle, Clock, ShieldCheck, Sparkles, Building2, Landmark, ArrowRightLeft, RefreshCw,
   FileSpreadsheet, Download, HelpCircle, PhoneCall, CheckCircle2, XCircle, ArrowRight, ExternalLink, ShieldAlert
 } from 'lucide-react';
-import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury } from '../types';
+import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury, GovernanceCorrectionRequest, QuotaWalletTransaction } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConfirmationModal } from './ConfirmationModal';
 import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getAdvancePaymentCustodyName } from '../utils/financials';
 import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { CustodyLedger } from './AccountingReports';
 import { triggerCelebration } from '../utils/celebration';
+import { ensureStoreCommerceState, getCachedPlatformCommercialCatalog } from '../utils/commerceEcosystem';
+import { inAppToast } from '../utils/inAppAlert';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -62,6 +64,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const [currentPage, setCurrentPage] = useState(1);
   const [settingsScreen, setSettingsScreen] = useState<'main' | 'payment_methods' | 'withdraw_settings'>('main');
   const [txToDelete, setTxToDelete] = useState<string | null>(null);
+  const [showQuotaTransferModal, setShowQuotaTransferModal] = useState(false);
+  const [quotaTransferAmount, setQuotaTransferAmount] = useState('500');
+  const [correctionModalTx, setCorrectionModalTx] = useState<any | null>(null);
+  const [correctionReason, setCorrectionReason] = useState('');
   
   // Local state for bank account editing
   const [localBankDetails, setLocalBankDetails] = useState<BankAccount>(
@@ -1266,6 +1272,57 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
               </div>
             </motion.div>
 
+            {/* Unified Quota Wallet Bridge Strip */}
+            {(() => {
+              const cState = ensureStoreCommerceState(settings, activeStoreId);
+              const catalog = getCachedPlatformCommercialCatalog();
+              const cashbackPct = catalog.internalTransferCashbackPercent || 10;
+              return (
+                <div className="bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-emerald-900/50 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-[#008060] dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <Sparkles size={18} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-slate-900 dark:text-white flex flex-wrap items-center gap-2">
+                        <span>محفظة الكوتا التشغيلية الموحدة (للباقات والموديولات)</span>
+                        <span className="font-mono text-[#008060] dark:text-emerald-400 tabular-nums">
+                          {cState.quotaWalletBalance.toLocaleString()} ج.م
+                        </span>
+                        <span className="text-slate-400">·</span>
+                        <span className="font-mono text-slate-600 dark:text-slate-300 tabular-nums">
+                          {cState.rolloverOrdersBalance.toLocaleString()} أوردر دائم
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        معزولة محاسبياً عن أرباح مبيعاتك — التحويل من أرباحك المتاحة يمنحك كاش باك +{cashbackPct}% رصيداً إضافياً فورياً.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowQuotaTransferModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black transition-all cursor-pointer"
+                    >
+                      <ArrowRightLeft size={14} />
+                      <span>تحويل أرباح لمحفظة الكوتا (+{cashbackPct}%)</span>
+                    </button>
+                    {activeStoreId && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/store/${activeStoreId}/subscription`)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black transition-all cursor-pointer"
+                      >
+                        <span>إدارة الباقة والموديولات</span>
+                        <ChevronLeft size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Central Liquidity Accounts Grid */}
             <motion.div variants={itemVariants} className="mb-10">
               <div className="flex items-center justify-between mb-4">
@@ -2106,10 +2163,18 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                             <span>حذف العملية نهائياً وتصحيح الرصيد (مدير المنصة)</span>
                                         </button>
                                     ) : (
-                                        <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 rounded-xl text-[10px] font-bold border border-slate-200/70 dark:border-slate-700">
-                                            <ShieldCheck size={14} className="text-emerald-500 shrink-0" />
-                                            <span>قيد مالي موثق — تتم التسويات أو العكس المحاسبي عبر إدارة المنصة فقط</span>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setCorrectionReason('');
+                                                setCorrectionModalTx(item);
+                                            }}
+                                            className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/30 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-xl text-xs font-black transition-all border border-amber-200/80 dark:border-amber-800 cursor-pointer"
+                                        >
+                                            <ShieldCheck size={14} className="shrink-0" />
+                                            <span>طلب تصحيح / عكس حركة</span>
+                                        </button>
                                     )}
                                 </div>
                             </div>
@@ -3346,6 +3411,195 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal: Internal Transfer from Available Profits to Quota Wallet (+10% Cashback) */}
+      {showQuotaTransferModal && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" onClick={() => setShowQuotaTransferModal(false)}>
+          <form
+            onClick={e => e.stopPropagation()}
+            onSubmit={e => {
+              e.preventDefault();
+              const amt = Math.round(Number(quotaTransferAmount) * 100) / 100;
+              if (!Number.isFinite(amt) || amt <= 0) {
+                inAppToast('أدخل مبلغاً صحيحاً أكبر من الصفر.', 'warning');
+                return;
+              }
+              if (amt > walletStats.availableToWithdraw) {
+                inAppToast(`الرصيد المتاح للسحب (${walletStats.availableToWithdraw.toLocaleString()} ج.م) غير كافٍ.`, 'error');
+                return;
+              }
+              const catalog = getCachedPlatformCommercialCatalog();
+              const cashbackPct = Number(catalog.internalTransferCashbackPercent ?? 10);
+              const bonus = Number(((amt * cashbackPct) / 100).toFixed(2));
+              const nowIso = new Date().toISOString();
+              const txId = `INT-Q-${Date.now()}`;
+
+              setWallet(prev => ({
+                ...prev,
+                balance: Number(((prev.balance || 0) - amt).toFixed(2)),
+                transactions: [
+                  {
+                    id: txId,
+                    type: 'سحب',
+                    amount: amt,
+                    date: nowIso,
+                    status: 'completed',
+                    category: 'profit_withdrawal',
+                    note: `تحويل أرباح داخلي لمحفظة الكوتا (+${cashbackPct}% كاش باك = ${bonus.toLocaleString()} ج.م)`,
+                    details: { destinationType: 'quota_wallet' }
+                  },
+                  ...(prev.transactions || [])
+                ]
+              }));
+
+              setSettings(prev => {
+                const prevState = ensureStoreCommerceState(prev, activeStoreId);
+                const afterTransfer = Number((prevState.quotaWalletBalance + amt).toFixed(2));
+                const afterBonus = Number((afterTransfer + bonus).toFixed(2));
+                const txs: QuotaWalletTransaction[] = [
+                  ...(bonus > 0
+                    ? [{
+                        id: `${txId}-CB`,
+                        date: nowIso,
+                        type: 'cashback_bonus' as const,
+                        amount: bonus,
+                        balanceAfter: afterBonus,
+                        referenceId: txId,
+                        titleAr: `كاش باك تحويل أرباح (+${cashbackPct}%)`,
+                        notes: 'تحويل فوري من المحفظة المالية المركزية',
+                        status: 'completed' as const
+                      }]
+                    : []),
+                  {
+                    id: `${txId}-IN`,
+                    date: nowIso,
+                    type: 'internal_transfer',
+                    amount: amt,
+                    balanceAfter: afterTransfer,
+                    referenceId: txId,
+                    titleAr: 'تحويل أرباح من المحفظة المركزية',
+                    notes: 'رصيد تشغيلي للباقات والموديولات',
+                    status: 'completed'
+                  }
+                ];
+                return {
+                  ...prev,
+                  commerceState: {
+                    ...prevState,
+                    quotaWalletBalance: afterBonus,
+                    quotaTransactions: [...txs, ...prevState.quotaTransactions].slice(0, 200)
+                  }
+                };
+              });
+
+              setShowQuotaTransferModal(false);
+              inAppToast(`تم تحويل ${amt.toLocaleString()} ج.م + ${bonus.toLocaleString()} ج.م كاش باك إلى محفظة الكوتا!`, 'success');
+            }}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 text-right"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">تحويل لمحفظة الكوتا (+10% كاش باك)</h3>
+              <button type="button" onClick={() => setShowQuotaTransferModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex justify-between">
+              <span>المتاح للتحويل من أرباحك:</span>
+              <span className="font-mono font-black text-[#008060] tabular-nums">{walletStats.availableToWithdraw.toLocaleString()} ج.م</span>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">المبلغ المطلوب تحويله (ج.م)</label>
+              <input
+                type="number"
+                min={1}
+                step="any"
+                value={quotaTransferAmount}
+                onChange={e => setQuotaTransferAmount(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-mono font-black text-slate-900 dark:text-white"
+                required
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button type="submit" className="flex-1 py-2.5 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black cursor-pointer">
+                تحويل فوري واستلام المكافأة
+              </button>
+              <button type="button" onClick={() => setShowQuotaTransferModal(false)} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer">
+                إلغاء
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal: Maker-Checker Wallet Correction / Reversal Request */}
+      {correctionModalTx && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm" onClick={() => setCorrectionModalTx(null)}>
+          <form
+            onClick={e => e.stopPropagation()}
+            onSubmit={e => {
+              e.preventDefault();
+              if (!correctionReason.trim()) {
+                inAppToast('يرجى كتابة سبب طلب التصحيح أو العكس.', 'warning');
+                return;
+              }
+              const newReq: GovernanceCorrectionRequest = {
+                id: `REQ-W-${Date.now()}`,
+                kind: 'wallet_correction',
+                storeId: activeStoreId || 'unknown',
+                storeName: settings?.storeName || activeStoreId || 'المتجر',
+                requestedBy: currentUser?.fullName || currentUser?.name || 'صاحب المتجر',
+                requestedByPhone: currentUser?.phone,
+                requestedAt: new Date().toISOString(),
+                targetTxId: String(correctionModalTx.id),
+                targetTxSummary: getTransactionTitle(correctionModalTx),
+                targetAmount: Number(correctionModalTx.amount || 0),
+                correctionType: 'reverse',
+                reason: correctionReason.trim(),
+                status: 'pending'
+              };
+              setSettings(prev => ({
+                ...prev,
+                governanceRequests: [newReq, ...(prev.governanceRequests || [])].slice(0, 100)
+              }));
+              setCorrectionModalTx(null);
+              inAppToast('تم إرسال طلب التصحيح المالي لمراجعة واعتماد إدارة المنصة.', 'success');
+            }}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 text-right"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">طلب تصحيح / عكس حركة مالية</h3>
+              <button type="button" onClick={() => setCorrectionModalTx(null)} className="text-slate-400 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 text-xs space-y-1">
+              <div className="font-black text-slate-900 dark:text-white">{getTransactionTitle(correctionModalTx)}</div>
+              <div className="font-mono text-slate-500 tabular-nums">
+                #{correctionModalTx.id} · {Number(correctionModalTx.amount || 0).toLocaleString()} ج.م
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">سبب التصحيح / العكس المحاسبي</label>
+              <textarea
+                rows={3}
+                value={correctionReason}
+                onChange={e => setCorrectionReason(e.target.value)}
+                placeholder="اشرح الخطأ أو سبب طلب القيد العكسي ليتم مراجعته وتنفيذه..."
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-xs font-bold text-slate-900 dark:text-white"
+                required
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button type="submit" className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-black cursor-pointer">
+                إرسال طلب التصحيح للإدارة
+              </button>
+              <button type="button" onClick={() => setCorrectionModalTx(null)} className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer">
+                إلغاء
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <ConfirmationModal 
         isOpen={!!txToDelete}

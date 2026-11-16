@@ -87,6 +87,9 @@ export async function handleOtpRequest(
   }
 
   if (pathname === "/api/send-otp") {
+    if (body.type === "password_reset" && typeof body.resetLink === "string" && /^https?:\/\//i.test(body.resetLink.trim())) {
+      return sendPasswordResetLink(request, env, json, email, body.userName, body.resetLink.trim(), body.resetCode);
+    }
     return sendOtp(request, env, json, email, body.userName);
   }
   if (pathname === "/api/verify-otp") {
@@ -211,6 +214,93 @@ async function sendOtp(
     emailSent: true,
     cooldown: SEND_COOLDOWN_MS / 1000,
     expiresInSeconds: OTP_TTL_MS / 1000
+  });
+}
+
+async function sendPasswordResetLink(
+  request: Request,
+  env: OtpEnv,
+  json: JsonResponse,
+  email: string,
+  requestedName: unknown,
+  resetLink: string,
+  requestedCode: unknown
+): Promise<Response> {
+  if (!env.RESEND_API_KEY && !env.BREVO_API_KEY) {
+    return json(request, env, {
+      success: false,
+      error: "لم يتم تهيئة خدمة إرسال البريد بعد.",
+      code: "OTP_EMAIL_NOT_CONFIGURED"
+    }, 503);
+  }
+
+  const fromName = safeText(env.OTP_FROM_NAME, "AbdoMedia Prime", 80);
+  const userName = safeText(requestedName, "المستخدم العزيز", 80);
+  const resetCode = safeText(requestedCode, "", 12);
+  const safeHref = resetLink.replace(/["<>]/g, "");
+  const subject = "🔑 رابط إعادة تعيين كلمة المرور - AbdoMedia Prime";
+  const html = `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#172033;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px"><h2>مرحباً ${escapeHtml(userName)}</h2><p>تلقينا طلباً لإعادة تعيين كلمة المرور لحسابك.</p><div style="text-align:center;margin:24px 0"><a href="${safeHref}" style="display:inline-block;padding:14px 28px;background:#0f9f83;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;border-radius:12px">تعيين كلمة مرور جديدة</a></div>${resetCode ? `<p style="font-size:13px;color:#475569">أو استخدم رمز الاستعادة: <strong dir="ltr">${escapeHtml(resetCode)}</strong></p>` : ""}<p style="font-size:12px;color:#64748b;word-break:break-all">رابط مباشر: ${escapeHtml(safeHref)}</p></div>`;
+  const text = `لإعادة تعيين كلمة المرور، افتح الرابط التالي:\n${safeHref}${resetCode ? `\n\nأو استخدم الرمز: ${resetCode}` : ""}`;
+
+  let delivered = false;
+  if (env.BREVO_API_KEY) {
+    try {
+      const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": env.BREVO_API_KEY,
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({
+          sender: { name: fromName, email: normalizeSenderEmail(env.OTP_BREVO_FROM || "") },
+          to: [{ email, name: userName }],
+          subject,
+          htmlContent: html,
+          textContent: text
+        }),
+        signal: AbortSignal.timeout(8000)
+      });
+      delivered = r.ok;
+    } catch {}
+  }
+
+  if (!delivered && env.RESEND_API_KEY) {
+    try {
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.RESEND_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: formatResendFrom(env.OTP_RESEND_FROM, fromName),
+          to: [email],
+          subject,
+          html,
+          text
+        }),
+        signal: AbortSignal.timeout(8000)
+      });
+      delivered = r.ok;
+    } catch {}
+  }
+
+  if (!delivered) {
+    return json(request, env, {
+      success: false,
+      error: "تعذر إرسال رابط إعادة تعيين كلمة المرور حالياً."
+    }, 503);
+  }
+
+  const target = maskEmail(email);
+  return json(request, env, {
+    success: true,
+    deliveryMode: "link",
+    target,
+    email,
+    emailSent: true,
+    message: `تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني (${target}).`
   });
 }
 

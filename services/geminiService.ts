@@ -1,6 +1,8 @@
 import { Order, Settings, Product, OrderItem } from "../types";
 
-const callGeminiAPI = async (prompt: string, model: string = "gemini-2.5-flash", config: any = {}) => {
+const DEFAULT_GEMINI_MODEL = "gemini-4-hydrogen";
+
+const callGeminiAPI = async (prompt: string, model: string = DEFAULT_GEMINI_MODEL, config: any = {}) => {
   try {
     const response = await fetch('/api/gemini', {
       method: 'POST',
@@ -12,7 +14,7 @@ const callGeminiAPI = async (prompt: string, model: string = "gemini-2.5-flash",
       })
     });
     const data = await response.json();
-    if (data.error) throw new Error(data.error);
+    if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
     return data.text;
   } catch (error) {
     console.error("Gemini API Error:", error);
@@ -38,12 +40,11 @@ export const chatWithAI = async (message: string, settings: Settings, orders: Or
 
   const config = {
     systemInstruction,
-    temperature: 0.7,
-    ...(useThinkingMode && { thinkingConfig: { thinkingBudget: 32768 } })
+    ...(useThinkingMode ? { thinkingConfig: { thinkingLevel: 'HIGH' } } : {})
   };
 
   try {
-    return await callGeminiAPI(message, "gemini-2.5-flash", config);
+    return await callGeminiAPI(message, DEFAULT_GEMINI_MODEL, config);
   } catch (error) {
     return "يا باشا معلش حصل مشكلة في التواصل مع المساعد، جرب كمان شوية كدة.";
   }
@@ -56,18 +57,18 @@ export const generateDashboardSuggestions = async (orders: Order[], products: Pr
     - الطلبات: ${JSON.stringify(orders.map(o => ({status: o.status, items: o.items.map(i => i.productId)})))}`;
     
     try {
-        return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.5 });
+        return await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL);
     } catch (error) {
         return "لا يمكن توليد اقتراحات حالياً.";
     }
 };
 
 export const searchProductsWithAI = async (query: string, products: Product[]) => {
-    const prompt = `أنت مساعد تسوق ذكي. من طلب البحث: "${query}", وأرجع JSON مصفوفة من IDs المنتجات المناسبة. ق قائمة المنتجات: ${JSON.stringify(products.map(p => ({id: p.id, name: p.name, description: p.description})))}. رد فقط بـ JSON.`;
+    const prompt = `أنت مساعد تسوق ذكي. من طلب البحث: "${query}", وأرجع JSON مصفوفة من IDs المنتجات المناسبة. قائمة المنتجات: ${JSON.stringify(products.map(p => ({id: p.id, name: p.name, description: p.description})))}. رد فقط بـ JSON.`;
     
     try {
-        const text = await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.2 });
-        const jsonStr = text.trim();
+        const text = await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL, { responseMimeType: "application/json" });
+        const jsonStr = String(text || "[]").replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
         const parsed = JSON.parse(jsonStr);
         return Array.isArray(parsed) ? parsed : [];
     } catch (error) {
@@ -77,7 +78,7 @@ export const searchProductsWithAI = async (query: string, products: Product[]) =
 
 export const generateProductDescription = async (productName: string, productPrice: number) => {
     const prompt = `اكتب وصف تسويقي جذاب باللهجة المصرية لمنتج اسمه "${productName}" وسعره ${productPrice} جنيه.`;
-    return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.8 });
+    return await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL);
 };
 
 export const generateSocialMediaPost = async (productName: string, productDescriptionOrPrice: any, productPrice?: number) => {
@@ -90,12 +91,12 @@ export const generateSocialMediaPost = async (productName: string, productDescri
         price = productPrice || 0;
     }
     const prompt = `اكتب بوست فيسبوك جذاب لمنتج "${productName}" ${desc ? `وصفه: "${desc}"` : ''} ${price ? `بسعر ${price} جنيه` : ''} باللهجة المصرية مع إيموجي وهاشتاجات مناسبة وطريقة تواصل جذابة.`;
-    return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.8 });
+    return await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL);
 };
 
 export const generateShippingNote = async (items: OrderItem[]) => {
     const prompt = `اكتب ملاحظة شحن ظريفة لطلبية تحتوي على: ${items.map(i => i.name).join(', ')}. باللهجة المصرية.`;
-    return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.7 });
+    return await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL);
 };
 
 export const getAnalyticsFromAI = async (query: any, orders?: any, settings?: any, wallet?: any) => {
@@ -115,7 +116,7 @@ export const getAnalyticsFromAI = async (query: any, orders?: any, settings?: an
 الإعدادات: ${settings ? JSON.stringify(settings) : 'لا توجد'}
 
 قدم إجابة باللغة العربية واضحة وتفصيلية وملهمة بناءً على هذه البيانات والتحليل المالي والطلبات.`;
-    const result = await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.5 });
+    const result = await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL);
     return {
         analysisText: result || "عذراً، لم أتمكن من إتمام التحليل.",
         chart: {
@@ -134,5 +135,5 @@ export const generateAdCopy = async (productName: string, targetAudienceOrPrice:
         audText = targetAudienceOrPrice ? `الموجه إلى الجمهور المستهدف: "${targetAudienceOrPrice}"` : "";
     }
     const prompt = `اكتب نص إعلاني (Ads Copy) قوي لمنتج "${productName}" ${audText}. باللهجة المصرية مع هاشتاجات وإيموجي وحث قوي على اتخاذ إجراء (CTA) للشراء بروح وفكاهة مصرية.`;
-    return await callGeminiAPI(prompt, "gemini-2.5-flash", { temperature: 0.9 });
+    return await callGeminiAPI(prompt, DEFAULT_GEMINI_MODEL);
 };

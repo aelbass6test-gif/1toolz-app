@@ -67,6 +67,13 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
   const [resetPhone, setResetPhone] = useState('');
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetStep, setResetStep] = useState<'request' | 'link_sent' | 'otp_verify' | 'done'>('request');
+  const [resetToken, setResetToken] = useState('');
+  const [resetOtpCode, setResetOtpCode] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetMaskedTarget, setResetMaskedTarget] = useState('');
+  const [resetTargetPhone, setResetTargetPhone] = useState('');
   const [userError, setUserError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -89,6 +96,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
   // Use the professional auth actions hook
   const { 
     handleCustomPasswordReset, 
+    confirmOtpPasswordReset,
     loading: authActionsLoading, 
     error: authActionsError, 
     success: authActionsSuccess,
@@ -151,30 +159,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     }
   };
 
-  const handleDirectAdminLogin = async () => {
-    setIsLoading(true);
-    setUserError('');
-    try {
-      let adminUser = await getUserByPhone('010010010');
-      if (!adminUser || !adminUser.isAdmin) {
-        adminUser = await getUserByPhone('admin');
-      }
-      if (!adminUser) {
-        adminUser = {
-          fullName: 'abdoooo (المدير العام)',
-          phone: '010010010',
-          email: 'aelbass6test@gmail.com',
-          isAdmin: true,
-          stores: []
-        };
-      }
-      adminUser.isAdmin = true;
-      onPasswordSuccess(adminUser);
-    } catch (e: any) {
-      setUserError('حدث خطأ أثناء الدخول كمسؤول: ' + (e?.message || ''));
-      setIsLoading(false);
-    }
-  };
 
   const handleUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,19 +166,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
     setIsLoading(true);
 
     const trimmedPhone = userPhone.trim();
-
-    // Direct access for authorized admin usernames/phones
-    if (isLoginView && (trimmedPhone === 'admin' || trimmedPhone === '010010010' || trimmedPhone === '01000000000')) {
-      try {
-        let adminUser = await getUserByPhone(trimmedPhone);
-        if (adminUser && adminUser.isAdmin) {
-          onPasswordSuccess(adminUser, userPassword);
-          return;
-        }
-      } catch (err) {
-        console.warn('Admin fast-track lookup failed:', err);
-      }
-    }
 
     if (isLoginView) {
       try {
@@ -323,9 +294,25 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
 
   const [sentToEmail, setSentToEmail] = useState('');
 
+  const closeResetModal = () => {
+    setShowResetModal(false);
+    setResetSuccess(false);
+    setResetStep('request');
+    setResetToken('');
+    setResetOtpCode('');
+    setResetNewPassword('');
+    setResetConfirmPassword('');
+    setResetMaskedTarget('');
+    setResetTargetPhone('');
+    setSentToEmail('');
+    setAuthActionsError(null);
+    setAuthActionsSuccess(null);
+  };
+
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setUserError('');
+    setAuthActionsError(null);
     setIsLoading(true);
     setSentToEmail('');
 
@@ -338,10 +325,12 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
 
     try {
       let userEmailToUse = inputVal.includes('@') ? inputVal : '';
+      let resolvedPhone = inputVal.includes('@') ? '' : inputVal;
       if (!userEmailToUse) {
         const d1User = await getUserByPhone(inputVal);
         if (d1User && d1User.email) {
           userEmailToUse = d1User.email;
+          resolvedPhone = d1User.phone || resolvedPhone;
         }
       }
 
@@ -351,21 +340,52 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
         return;
       }
 
-      await handleCustomPasswordReset(userEmailToUse);
+      const result = await handleCustomPasswordReset(userEmailToUse);
 
-      if (!authActionsError) {
-        setSentToEmail(userEmailToUse);
+      if (result.ok) {
+        setSentToEmail(result.targetEmail || userEmailToUse);
+        setResetMaskedTarget(result.maskedEmail || result.targetEmail || userEmailToUse);
+        setResetTargetPhone(result.phone || resolvedPhone);
+        setResetToken(result.resetToken || '');
         setResetSuccess(true);
-
-        setTimeout(() => {
-          setShowResetModal(false);
-          setResetSuccess(false);
-          setSentToEmail('');
-          setAuthActionsSuccess(null);
-        }, 8000);
+        setResetStep(result.deliveryMode === 'link' ? 'link_sent' : 'otp_verify');
       }
     } catch (err: any) {
       setAuthActionsError('حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmResetWithOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthActionsError(null);
+
+    if (!resetOtpCode.trim() || resetOtpCode.trim().length !== 6) {
+      setAuthActionsError('يرجى إدخال رمز التحقق المكون من 6 أرقام.');
+      return;
+    }
+    if (resetNewPassword.length < 6) {
+      setAuthActionsError('يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل.');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setAuthActionsError('كلمة المرور وتأكيدها غير متطابقين.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await confirmOtpPasswordReset({
+        email: sentToEmail,
+        phone: resetTargetPhone,
+        otp: resetOtpCode.trim(),
+        resetToken,
+        newPassword: resetNewPassword
+      });
+      if (res.ok) {
+        setResetStep('done');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -389,15 +409,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
             <span><strong className="block text-lg font-black tracking-tight">عبده ميديا برايم</strong><span className="block text-[11px] font-semibold text-slate-500">AbdoMedia Prime • منظومة التجارة والتسويق</span></span>
           </Link>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleDirectAdminLogin}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 text-xs font-black shadow-md shadow-purple-600/20 transition active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              <ShieldCheck size={16} />
-              دخول لوحة الإدارة (Admin)
-            </button>
             <Link to="/employee-login" className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-white hover:text-emerald-700">دخول الموظفين</Link>
           </div>
         </header>
@@ -703,7 +714,7 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                       <div className="text-left">
                         <button 
                           type="button" 
-                          onClick={() => { setResetPhone(userPhone); setAuthActionsError(null); setShowResetModal(true); }} 
+                          onClick={() => { setResetPhone(userPhone); setResetStep('request'); setAuthActionsError(null); setAuthActionsSuccess(null); setShowResetModal(true); }} 
                           className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline cursor-pointer"
                         >
                           نسيت كلمة المرور؟
@@ -736,18 +747,6 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                         </>
                       )}
                     </button>
-
-                    {isLoginView && (
-                      <button
-                        type="button"
-                        onClick={handleDirectAdminLogin}
-                        disabled={isLoading}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 py-3 font-black text-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
-                      >
-                        <ShieldCheck size={16} className="text-purple-600" />
-                        الدخول المباشر كمسؤول النظام (Admin Portal)
-                      </button>
-                    )}
                   </form>
 
                   <p className="mt-6 text-center text-xs sm:text-sm text-slate-500">
@@ -772,23 +771,115 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
       </div>
 
       {showResetModal && (
-        <AuthModal onClose={() => { setShowResetModal(false); setAuthActionsError(null); setAuthActionsSuccess(null); }}>
+        <AuthModal onClose={closeResetModal}>
           <div className="rounded-[2rem] border border-slate-200 bg-white p-7 text-slate-900 shadow-2xl">
-            <div className="mb-7 text-center">
+            <div className="mb-6 text-center">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
                 <KeyRound size={26} />
               </div>
               <h2 className="text-2xl font-black">استعادة كلمة المرور</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">سنرسل رابطاً لإعادة التعيين إلى البريد المرتبط بحسابك.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                {resetStep === 'request' && 'أدخل رقم الموبايل أو البريد الإلكتروني لإرسال رابط التعيين أو رمز التأكيد.'}
+                {resetStep === 'link_sent' && 'تم إرسال رابط إعادة التعيين إلى بريدك الإلكتروني.'}
+                {resetStep === 'otp_verify' && `أدخل الرمز المرسل إلى (${resetMaskedTarget}) وكلمة المرور الجديدة.`}
+                {resetStep === 'done' && 'تم تحديث كلمة المرور بنجاح!'}
+              </p>
             </div>
-            {authActionsSuccess ? (
-              <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
-                تم إرسال رابط إعادة التعيين. افحص بريدك الإلكتروني والرسائل غير المرغوبة.
+
+            {resetStep === 'done' ? (
+              <div className="space-y-4 text-center">
+                <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
+                  تم تحديث كلمة المرور الخاصة بحسابك بنجاح. يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.
+                </div>
+                <button
+                  type="button"
+                  onClick={closeResetModal}
+                  className="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-700 py-3 font-black text-white cursor-pointer"
+                >
+                  تسجيل الدخول الآن
+                </button>
               </div>
+            ) : resetStep === 'link_sent' ? (
+              <div className="space-y-4">
+                <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700 leading-6">
+                  تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني ({resetMaskedTarget}). افتح الرابط في الرسالة لتعيين كلمة مرور جديدة.
+                </div>
+                <button
+                  type="button"
+                  onClick={closeResetModal}
+                  className="w-full rounded-2xl bg-slate-900 py-3 font-black text-white cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            ) : resetStep === 'otp_verify' ? (
+              <form onSubmit={handleConfirmResetWithOtp} className="space-y-3.5">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold text-emerald-800 leading-5">
+                  تم إرسال رمز تحقق مكون من 6 أرقام إلى بريدك الإلكتروني (<span dir="ltr">{resetMaskedTarget}</span>). أدخل الرمز أدناه لتعيين كلمة مرور جديدة مباشرة:
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1" htmlFor="reset-otp-code">
+                    رمز التحقق (6 أرقام)
+                  </label>
+                  <input
+                    id="reset-otp-code"
+                    type="text"
+                    maxLength={6}
+                    value={resetOtpCode}
+                    onChange={e => setResetOtpCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="123456"
+                    className={`${inputClass} text-center font-mono tracking-[0.35em] text-base font-black`}
+                    dir="ltr"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1" htmlFor="reset-new-password">
+                    كلمة المرور الجديدة
+                  </label>
+                  <input
+                    id="reset-new-password"
+                    type="password"
+                    value={resetNewPassword}
+                    onChange={e => setResetNewPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className={inputClass}
+                    dir="ltr"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1" htmlFor="reset-confirm-password">
+                    تأكيد كلمة المرور الجديدة
+                  </label>
+                  <input
+                    id="reset-confirm-password"
+                    type="password"
+                    value={resetConfirmPassword}
+                    onChange={e => setResetConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className={inputClass}
+                    dir="ltr"
+                    required
+                  />
+                </div>
+                {authActionsError && (
+                  <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-center text-xs font-bold text-rose-700">
+                    {authActionsError}
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={isLoading || authActionsLoading}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 py-3 font-black text-white disabled:opacity-60 cursor-pointer"
+                >
+                  {(isLoading || authActionsLoading) ? <Loader2 className="animate-spin" size={18} /> : 'تأكيد الرمز وتحديث كلمة المرور'}
+                </button>
+              </form>
             ) : (
               <form onSubmit={handleForgotPassword} className="space-y-4">
                 <label className="block text-sm font-bold text-slate-700" htmlFor="reset-phone">
-                  رقم الموبايل أو اسم المستخدم
+                  رقم الموبايل أو البريد الإلكتروني
                 </label>
                 <input 
                   id="reset-phone" 
@@ -819,20 +910,22 @@ const SignUpPage: React.FC<SignUpPageProps> = ({ onPasswordSuccess, users, setUs
                 )}
                 <button 
                   type="submit" 
-                  disabled={isLoading} 
+                  disabled={isLoading || authActionsLoading} 
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-3 font-black text-white disabled:opacity-60 cursor-pointer"
                 >
-                  {isLoading ? <Loader2 className="animate-spin" size={18} /> : 'إرسال رابط الاستعادة'}
+                  {(isLoading || authActionsLoading) ? <Loader2 className="animate-spin" size={18} /> : 'إرسال رابط / رمز الاستعادة'}
                 </button>
               </form>
             )}
-            <button 
-              type="button" 
-              onClick={() => setShowResetModal(false)} 
-              className="mt-4 w-full py-2 text-sm font-bold text-slate-500 hover:text-slate-900 cursor-pointer"
-            >
-              إلغاء
-            </button>
+            {resetStep !== 'done' && (
+              <button 
+                type="button" 
+                onClick={closeResetModal} 
+                className="mt-4 w-full py-2 text-sm font-bold text-slate-500 hover:text-slate-900 cursor-pointer"
+              >
+                إلغاء
+              </button>
+            )}
           </div>
         </AuthModal>
       )}

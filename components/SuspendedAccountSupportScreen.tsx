@@ -31,6 +31,7 @@ import {
   getCachedPlatformSupportPhone,
   buildSupportWhatsAppUrl
 } from '../utils/platformSupport';
+import { VerifiedStoreBadge } from './VerifiedStoreBadge';
 
 interface SuspendedAccountSupportScreenProps {
   mode: 'store' | 'account' | 'employee';
@@ -742,11 +743,19 @@ const SuspendedAccountSupportScreen: React.FC<SuspendedAccountSupportScreenProps
                                   </span>
                                 )}
                                 <span
-                                  className={`text-[11px] font-black ${
+                                  className={`text-[11px] font-black inline-flex items-center gap-1 ${
                                     isMerchant ? 'text-slate-900' : 'text-white'
                                   }`}
                                 >
-                                  {msg.senderName}
+                                  <span>{msg.senderName}</span>
+                                  {!isMerchant && (
+                                    <VerifiedStoreBadge
+                                      verified
+                                      tier="platform_official"
+                                      size="xs"
+                                      customTitle="رد رسمي مُعتمد من إدارة منصة عبده ميديا بريميم"
+                                    />
+                                  )}
                                 </span>
                                 <span
                                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -755,7 +764,7 @@ const SuspendedAccountSupportScreen: React.FC<SuspendedAccountSupportScreenProps
                                       : 'bg-white/20 text-emerald-50'
                                   }`}
                                 >
-                                  {msg.senderTitle || (isMerchant ? 'مالك المتجر' : 'فريق الدعم الفني')}
+                                  {msg.senderTitle || (isMerchant ? 'مالك المتجر' : 'إدارة منصة عبده ميديا بريميم')}
                                 </span>
                               </div>
 
@@ -952,8 +961,18 @@ const SuspendedAccountSupportScreen: React.FC<SuspendedAccountSupportScreenProps
                                 }`}
                               >
                                 <div className="flex items-center justify-between text-[10px] font-black mb-1 opacity-75">
-                                  <span>
-                                    {m.senderName} ({m.senderTitle || (m.senderRole === 'merchant' ? 'التاجر' : 'الدعم الفني')})
+                                  <span className="inline-flex items-center gap-1">
+                                    {m.senderRole !== 'merchant' && m.senderRole !== 'system' && (
+                                      <VerifiedStoreBadge
+                                        verified
+                                        tier="platform_official"
+                                        size="xs"
+                                        customTitle="رد رسمي مُعتمد من إدارة منصة عبده ميديا بريميم"
+                                      />
+                                    )}
+                                    <span>
+                                      {m.senderName} ({m.senderTitle || (m.senderRole === 'merchant' ? 'التاجر' : 'إدارة منصة عبده ميديا بريميم')})
+                                    </span>
                                   </span>
                                   <span className="font-mono tabular-nums">
                                     {new Date(m.createdAt).toLocaleTimeString('ar-EG', {

@@ -480,13 +480,6 @@ export const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({
 
           {/* Left Action Buttons */}
           <div className="flex items-center gap-2">
-            <Link
-              to="/owner-login"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-3.5 py-2 text-xs font-black shadow-md shadow-purple-600/20 transition active:scale-95 cursor-pointer"
-            >
-              <ShieldCheck size={16} />
-              <span>دخول لوحة الإدارة (Admin)</span>
-            </Link>
             <Link 
               to="/owner-login" 
               className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-white hover:text-emerald-700"
@@ -904,17 +897,6 @@ export const EmployeeLoginPage: React.FC<EmployeeLoginPageProps> = ({
                                 <span>دخول آمن للوردية</span>
                               </>
                             )}
-                          </button>
-
-                          {/* Secondary Purple Admin Button */}
-                          <button 
-                            type="button" 
-                            onClick={() => window.location.href = '/owner-login'} 
-                            disabled={isLoading} 
-                            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 py-3 font-black text-xs transition active:scale-95 cursor-pointer disabled:opacity-50"
-                          >
-                            <ShieldCheck size={16} className="text-purple-600" />
-                            <span>الدخول المباشر كمسؤول النظام (Admin Portal)</span>
                           </button>
                         </form>
                       )}
