@@ -9,7 +9,7 @@ import {
   Home, Bell, Users, Inbox, Ticket, Menu, Sun, Moon, Monitor, HelpCircle, Settings,
   ShoppingBag, Radio, LayoutGrid, HeartHandshake, ChevronLeft, ChevronRight, Fingerprint, Search,
   ArrowUpRight, ArrowDownLeft, Sparkles, MessageCircle, Check, Calendar, PlusCircle, Banknote, Code2, Layers, Cpu, Megaphone, Receipt,
-  QrCode, Share2, Phone, Crown
+  QrCode, Share2, Phone, Crown, FileSpreadsheet
 } from 'lucide-react';
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
 import { MerchantChangePlanModal } from './MerchantChangePlanModal';
+import CodHunterWorkspace from './CodHunterWorkspace';
 import WelcomeLoader from './WelcomeLoader';
 import { computeMerchantPlanUsage, buildOrderPlanSnapshot, getOrderEffectivePlanSnapshot, SELF_SERVICE_PLANS, DEDICATED_MANAGER_PLANS } from '../utils/merchantSubscriptions';
 import { calculateMerchantTransparencyAnalytics, TRANSPARENCY_RETURN_STATUSES, computeOrderCarrierBreakdown } from '../utils/merchantAnalytics';
@@ -97,7 +98,7 @@ export interface MerchantPortalProps {
   showToast: (msg: string, type?: 'success' | 'error') => void;
 }
 
-type TabKey = 'overview' | 'wallet' | 'orders' | 'create_order' | 'inventory' | 'analytics' | 'customers' | 'apps' | 'transparency' | 'statement' | 'account';
+type TabKey = 'overview' | 'wallet' | 'orders' | 'create_order' | 'inventory' | 'analytics' | 'customers' | 'apps' | 'transparency' | 'statement' | 'bosta_reconciliation' | 'account';
 type ThemeMode = 'light' | 'system' | 'dark';
 
 export default function MerchantPortal({ allStoresData, updateSettings, showToast: externalShowToast }: MerchantPortalProps) {
@@ -107,7 +108,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   const urlPartnerId = searchParams.get('p') || searchParams.get('merchantId') || searchParams.get('m') || '';
   const urlTab = searchParams.get('tab') || routeTab;
 
-  const validTabs: TabKey[] = ['overview', 'wallet', 'orders', 'create_order', 'inventory', 'analytics', 'customers', 'apps', 'transparency', 'statement', 'account'];
+  const validTabs: TabKey[] = ['overview', 'wallet', 'orders', 'create_order', 'inventory', 'analytics', 'customers', 'apps', 'transparency', 'statement', 'bosta_reconciliation', 'account'];
 
   const savedTab = (() => {
     try {
@@ -762,7 +763,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
   useEffect(() => {
     if (['orders', 'create_order', 'inventory', 'analytics'].includes(currentTab)) {
       setExpandedMenuSection('products_orders');
-    } else if (['transparency', 'statement', 'account'].includes(currentTab)) {
+    } else if (['transparency', 'statement', 'bosta_reconciliation', 'account'].includes(currentTab)) {
       setExpandedMenuSection('financial_tools');
     }
   }, [currentTab]);
@@ -4396,6 +4397,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
     apps: { title: 'التطبيقات والربط الآلي', subtitle: 'ربط شركات الشحن (بوسطة)، إشعارات الواتساب، وتكامل المخزون والـ Webhooks' },
     transparency: { title: 'حركة البضاعة والشفافية', subtitle: 'البيان المحاسبي المفصل للأصناف والتكاليف' },
     statement: { title: 'كشف الحساب والـ P&L', subtitle: 'كشف الأستاذ وقائمة الأرباح والخسائر ومخصص المرتجعات' },
+    bosta_reconciliation: { title: 'مطابقة تحصيلات بوسطة (COD)', subtitle: 'كشف الأوردرات المتحصلة التي لم تُحوّل ومطابقة شيتات Cash Cycles و Transactions' },
     account: { title: 'حسابي والأمان', subtitle: 'حسابات الدفع المحفوظة ورمز PIN والبصمة' }
   };
 
@@ -4743,6 +4745,29 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   <span>كشف الحساب والـ P&L</span>
                 </div>
                 <ChevronLeft size={13} className="text-zinc-400" />
+              </button>
+
+              {/* 7B. مطابقة تحصيلات بوسطة (COD) */}
+              <button
+                type="button"
+                onClick={() => navigateToTab('bosta_reconciliation')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-black transition-colors duration-150 cursor-pointer ${
+                  currentTab === 'bosta_reconciliation'
+                    ? 'bg-[#00ab84] text-white shadow-md shadow-emerald-700/20'
+                    : isDark
+                    ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <FileSpreadsheet size={16} />
+                  <span>مطابقة تحصيلات بوسطة</span>
+                </div>
+                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
+                  currentTab === 'bosta_reconciliation' ? 'bg-white/20 text-white' : 'bg-emerald-500/15 text-[#00ab84]'
+                }`}>
+                  COD
+                </span>
               </button>
 
               {/* 8. التطبيقات */}
@@ -5186,6 +5211,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             { id: 'analytics', label: 'الأصناف والمحافظات', icon: TrendingUp },
             { id: 'transparency', label: 'حركة البضاعة', icon: Sparkles },
             { id: 'statement', label: 'كشف الحساب والـ P&L', icon: FileText },
+            { id: 'bosta_reconciliation', label: 'مطابقة تحصيلات بوسطة', icon: FileSpreadsheet },
             { id: 'account', label: 'حسابي والأمان', icon: ShieldCheck }
           ].map(t => {
             const Icon = t.icon;
@@ -9977,6 +10003,30 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
         )}
 
         {/* =========================================================
+            TAB 6B: BOSTA COD RECONCILIATION HUNTER (مطابقة تحصيلات بوسطة)
+           ========================================================= */}
+        {currentTab === 'bosta_reconciliation' && (
+          <div className="space-y-4">
+            <CodHunterWorkspace
+              storeId={effectiveStoreId || storeId || 'store'}
+              storeName={liveMerchant?.name ? `${activeStoreData?.settings?.storeName || activeStoreData?.name || 'المتجر'} — التاجر: ${liveMerchant.name}` : (activeStoreData?.settings?.storeName || activeStoreData?.name || 'المتجر')}
+              orders={merchantOrders}
+              settings={settings}
+              allowBatchSettlement={false}
+              isDark={isDark}
+              showBackToDashboard={false}
+              orderDetailBasePath={`/store/${effectiveStoreId || storeId || 'default'}/orders`}
+              onOpenOrder={order => {
+                setOrdersSearchQuery(order.orderNumber);
+                setExpandedOrderId(order.id);
+                navigateToTab('orders');
+              }}
+              onNotify={(msg, type) => showToast(msg, type)}
+            />
+          </div>
+        )}
+
+        {/* =========================================================
             TAB 7: ACCOUNT, SAVED PAYOUT ACCOUNTS & SECURITY (حسابي والأمان)
            ========================================================= */}
         {currentTab === 'account' && (
@@ -10752,6 +10802,17 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                         className="w-full py-2 text-right hover:text-[#00ab84] block cursor-pointer"
                       >
                         كشف الحساب الرسمي (PDF / Excel)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowFullMenuDrawer(false);
+                          navigateToTab('bosta_reconciliation');
+                        }}
+                        className="w-full py-2 text-right hover:text-[#00ab84] flex items-center justify-between cursor-pointer"
+                      >
+                        <span>مطابقة تحصيلات بوسطة (COD)</span>
+                        <span className="font-mono text-[10px] text-[#00ab84] font-black">شيتات الإكسيل</span>
                       </button>
                     </div>
                   )}

@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { parseSafeDate } from "../utils/dateUtils";
+import { isOrderDeliveredStatus, isOrderPosOrPrepaid } from "../utils/codReconciliation";
 import { useNavigate, useLocation, useParams } from "react-router-dom";
 import {
   Plus,
   Loader2,
+  FileSpreadsheet,
   Search,
   Trash2,
   Edit3,
@@ -691,7 +693,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [displayDensity, setDisplayDensity] = useState<'comfortable' | 'compact'>(() => {
     return (localStorage.getItem('orders_display_density') as 'comfortable' | 'compact') || 'comfortable';
   });
-  const [smartActionFilter, setSmartActionFilter] = useState<'all' | 'high_risk' | 'pending_bosta' | 'pending_compensation' | 'pending_confirmation'>('all');
+  const [smartActionFilter, setSmartActionFilter] = useState<'all' | 'high_risk' | 'pending_bosta' | 'pending_compensation' | 'pending_confirmation' | 'uncollected_cod'>('all');
   
   // Real Bosta Shipping Integration States
   const [bostaTrackingOrder, setBostaTrackingOrder] = useState<Order | null>(null);
@@ -1534,6 +1536,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     let pendingBosta = 0;
     let pendingComp = 0;
     let pendingConfirmation = 0;
+    let uncollectedCod = 0;
 
     orders.forEach(o => {
       if (o.status === 'مؤرشف') return;
@@ -1564,9 +1567,20 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       if (o.compensationStatus === 'pending' || (['مرتجع', 'فشل_التوصيل'].includes(o.status) && o.compensationStatus !== 'compensated')) {
         pendingComp++;
       }
+
+      // 4. Delivered COD not yet settled/collected in any batch
+      if (
+        !isOrderPosOrPrepaid(o) &&
+        o.status !== 'تم_التحصيل' &&
+        !o.collectionProcessed &&
+        !o.codPayoutBatchId &&
+        (isOrderDeliveredStatus(o) || o.paymentStatus === 'مدفوع')
+      ) {
+        uncollectedCod++;
+      }
     });
 
-    return { highRisk, pendingBosta, pendingComp, pendingConfirmation };
+    return { highRisk, pendingBosta, pendingComp, pendingConfirmation, uncollectedCod };
   }, [orders]);
 
   const filteredOrders = useMemo(() => {
@@ -1665,6 +1679,14 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       tabFiltered = tabFiltered.filter(o => o.status === 'قيد_التنفيذ' && !o.bostaTrackingNumber);
     } else if (smartActionFilter === 'pending_compensation') {
       tabFiltered = tabFiltered.filter(o => o.compensationStatus === 'pending' || (['مرتجع', 'فشل_التوصيل'].includes(o.status) && o.compensationStatus !== 'compensated'));
+    } else if (smartActionFilter === 'uncollected_cod') {
+      tabFiltered = tabFiltered.filter(o =>
+        !isOrderPosOrPrepaid(o) &&
+        o.status !== 'تم_التحصيل' &&
+        !o.collectionProcessed &&
+        !o.codPayoutBatchId &&
+        (isOrderDeliveredStatus(o) || o.paymentStatus === 'مدفوع')
+      );
     }
 
     return tabFiltered.sort(
@@ -4632,21 +4654,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       {mainSection === 'orders' && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
           {/* Smart Action Center Banner */}
-          {(smartActionCounts.pendingConfirmation > 0 || smartActionCounts.highRisk > 0 || smartActionCounts.pendingBosta > 0 || smartActionCounts.pendingComp > 0) && (
+          {(smartActionCounts.pendingConfirmation > 0 || smartActionCounts.highRisk > 0 || smartActionCounts.pendingBosta > 0 || smartActionCounts.pendingComp > 0 || smartActionCounts.uncollectedCod > 0) && (
             <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 rounded-[2rem] p-5 space-y-3.5 shadow-xs">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
                   <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 tracking-wider">🛠️ مركز التنبيهات والأعمال العاجلة (مهمة اليوم)</h4>
                 </div>
-                {smartActionFilter !== 'all' && (
-                  <button 
-                    onClick={() => setSmartActionFilter('all')}
-                    className="text-[11px] font-black text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => navigate(activeStore?.id ? `/store/${activeStore.id}/reconciliation` : '/reconciliation')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black transition-all shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    إلغاء التصفية الذكية ×
+                    <FileSpreadsheet size={13} />
+                    <span>فحص ومطابقة شيتات بوسطة (COD)</span>
                   </button>
-                )}
+                  {smartActionFilter !== 'all' && (
+                    <button 
+                      onClick={() => setSmartActionFilter('all')}
+                      className="text-[11px] font-black text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
+                    >
+                      إلغاء التصفية الذكية ×
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* 0. Pending Confirmation Card (New Orders) */}
@@ -4748,6 +4780,31 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                         </span>
                       </div>
                       <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">أوردرات مرتجعة أو ملغاة بانتظار استحقاق التعويض المالي</p>
+                    </div>
+                  </button>
+                )}
+
+                {/* 4. Delivered Uncollected COD Card */}
+                {smartActionCounts.uncollectedCod > 0 && (
+                  <button
+                    onClick={() => setSmartActionFilter(smartActionFilter === 'uncollected_cod' ? 'all' : 'uncollected_cod')}
+                    className={`flex items-start gap-3 p-3.5 rounded-2xl text-right transition-all border ${
+                      smartActionFilter === 'uncollected_cod'
+                        ? 'bg-rose-500/15 border-rose-500 text-rose-700 dark:text-rose-300 shadow-sm ring-2 ring-rose-500/25'
+                        : 'bg-white dark:bg-slate-950/40 border-slate-200 dark:border-slate-800 hover:border-rose-300 dark:hover:border-rose-900/30'
+                    }`}
+                  >
+                    <div className="p-2 bg-rose-500/10 text-rose-600 rounded-xl mt-0.5 shrink-0">
+                      <ShieldAlert size={16} />
+                    </div>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-900 dark:text-white">مسلّمة لم يُثبت تحويلها</span>
+                        <span className="px-2 py-0.5 text-[10px] font-black bg-rose-600 text-white rounded-full tabular-nums">
+                          {smartActionCounts.uncollectedCod}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 line-clamp-1">أوردرات COD مسلّمة بدون دفعة تسوية (اضغط لتصفيتها)</p>
                     </div>
                   </button>
                 )}

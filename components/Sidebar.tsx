@@ -174,7 +174,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
                 { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
                 { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={18} /> },
-                { to: `${storePrefix}/reconciliation`, label: 'مطابقة الحسابات (إكسيل)', icon: <FileSpreadsheet size={18} /> },
+                { to: `${storePrefix}/reconciliation`, label: 'كاشف التحصيلات ومطابقة الإكسيل', icon: <FileSpreadsheet size={18} /> },
                 { to: `${storePrefix}/cash-management`, label: 'إدارة العهد النقدية', icon: <Landmark size={18} /> },
             ]
         },

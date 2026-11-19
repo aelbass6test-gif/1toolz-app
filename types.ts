@@ -1335,6 +1335,9 @@ export interface Settings {
   commerceState?: StoreCommerceState;
   governanceRequests?: GovernanceCorrectionRequest[];
   ownerPermissions?: Permission[];
+  codReconciliationBatches?: CodSettlementBatch[];
+  codCarrierColumnProfiles?: Record<string, CodSheetColumnProfile>;
+  codExpectedPayoutGraceDays?: number;
 }
 
 export type ApiKeyScope = 
@@ -2041,6 +2044,12 @@ export interface Order {
   commerceQuotaRefundedAt?: string;
   deliveredCommissionBilledAt?: string;
   deliveredCommissionAmount?: number;
+  codPayoutBatchId?: string;
+  codPayoutSettledAt?: string;
+  codPayoutNetReceived?: number;
+  codPayoutExpectedNet?: number;
+  codPayoutDiff?: number;
+  codPayoutSheetRef?: string;
 }
 
 export interface MerchantSettlement {
@@ -2640,4 +2649,40 @@ export interface GovernanceCorrectionRequest {
   reviewedAt?: string;
   adminNote?: string;
 }
+
+export type CodSheetAmountMode = 'net_payout' | 'gross_and_fees' | 'gross_only';
+
+export interface CodSheetColumnProfile {
+  profileKey: string;
+  carrierName: string;
+  amountMode: CodSheetAmountMode;
+  trackingCol: string;
+  netAmountCol?: string;
+  grossAmountCol?: string;
+  feesAmountCol?: string;
+  codFeeCol?: string;
+  statusCol?: string;
+  phoneCol?: string;
+  dateCol?: string;
+  updatedAt: string;
+}
+
+export interface CodSettlementBatch {
+  id: string;
+  batchNumber: string;
+  carrierName: string;
+  fileNames: string[];
+  amountMode: CodSheetAmountMode;
+  createdAt: string;
+  createdBy: string;
+  totalRowsInSheets: number;
+  settledOrderIds: string[];
+  totalSheetNetAmount: number;
+  totalExpectedNetAmount: number;
+  totalDiscrepancyAmount: number;
+  treasuryAccountId?: string;
+  treasuryTxId?: string;
+  notes?: string;
+}
+
 
