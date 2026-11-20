@@ -13,7 +13,10 @@ import { ORDER_STATUS_METADATA } from '../constants';
 import { 
   calculateCodFee, calculateInsuranceFee, calculateBostaVat, 
   isBosta, calculateOrderProfitLoss, getAdvancePaymentCustodyName,
-  resolveCashHolderName
+  resolveCashHolderName, getCompanySpecificFees,
+  getEffectiveInsuranceRate, getEffectiveInspectionFee,
+  getEffectiveReturnShippingFee, getEffectiveFlexShipConfig,
+  isAllInclusiveSheetOrder, getBostaSheetActualCarrierFee
 } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -134,16 +137,18 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
   const safeAdvance = Number(order.advancePayment) || 0;
   const safeAdminFee = Number(order.adminFee) || 0;
   
-  const compFees = settings.companySpecificFees?.[order.shippingCompany];
+  const compFees = getCompanySpecificFees(settings, order.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
+  const isAllInclusiveSheet = isAllInclusiveSheetOrder(order);
+  const actualSheetCarrierFee = isAllInclusiveSheet ? getBostaSheetActualCarrierFee(order) : 0;
   
-  const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-  const insuranceFee = (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
+  const insuranceRate = isAllInclusiveSheet ? 0 : getEffectiveInsuranceRate(order, settings);
+  const insuranceFee = !isAllInclusiveSheet && (order.isInsured ?? true) ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
   const isPosOrder = order.channel === 'pos' || order.shippingCompany?.startsWith('كاشير -') || order.shippingArea === 'نقطة البيع' || (order.id && order.id.startsWith('POS-'));
-  const inspectionAdjustment = !isPosOrder && (order.includeInspectionFee ?? true) ? (order.inspectionFeePaidByCustomer ? 0 : (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0))) : 0;
-  const bostaVatFee = calculateBostaVat(order, insuranceFee, settings);
-  const codFee = calculateCodFee(order, settings);
-  const currentVatRate = useCustom ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) : (settings?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0));
+  const inspectionAdjustment = !isPosOrder && !isAllInclusiveSheet && (order.includeInspectionFee ?? true) ? (order.inspectionFeePaidByCustomer ? 0 : getEffectiveInspectionFee(order, settings)) : 0;
+  const bostaVatFee = isAllInclusiveSheet ? 0 : calculateBostaVat(order, insuranceFee, settings);
+  const codFee = isAllInclusiveSheet ? 0 : calculateCodFee(order, settings);
+  const currentVatRate = useCustom ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) : (settings?.enableGlobalFinancials ? (settings?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) : 0);
   
   const totalCarrierFees = carrierFees;
   
@@ -161,20 +166,16 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     ? (totalAmountToCollect > 0 ? Math.max(0, totalAmountToCollect - safeShippingFee) : safeProductPrice)
     : safeProductPrice;
   
-  const flexFeeValue = order.flexShipFee !== undefined 
-    ? order.flexShipFee 
-    : (useCustom ? (compFees?.flexShipFee ?? 0) : (settings.flexShipFee ?? 0));
-  const flexCompanyFeeValue = order.flexShipCompanyFee !== undefined
-    ? order.flexShipCompanyFee
-    : (useCustom ? (compFees?.flexShipCompanyFee ?? 0) : (settings.flexShipCompanyFee ?? 0));
-  const isFlexShipEnabled = order.enableFlexShip !== undefined ? order.enableFlexShip : (useCustom ? (compFees?.enableFlexShip ?? false) : (settings.enableFlexShip ?? false));
+  const flexConfig = getEffectiveFlexShipConfig(order, settings);
+  const flexFeeValue = flexConfig.flexShipFee;
+  const flexCompanyFeeValue = flexConfig.flexShipCompanyFee;
+  const isFlexShipEnabled = flexConfig.enabled;
   const flexPaidAmount = isFlexShipEnabled && order.flexShipFeePaidByCustomer ? (order.flexShipFee || flexFeeValue) : 0;
   const flexCompanyFeePaid = isFlexShipEnabled && order.flexShipFeePaidByCustomer ? (order.flexShipCompanyFee ?? flexCompanyFeeValue) : 0;
 
   const isReturnedOrFailed = ['مرتجع', 'فشل_التوصيل', 'تمت_الاعادة_لشركة_الشحن'].includes(order.status);
-  const applyReturnFee = isPosOrder ? false : (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
-  const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
-  const standardShippingFee = safeShippingFee;
+  const { applyReturnFee, returnFeeAmount } = getEffectiveReturnShippingFee(order, settings);
+  const standardShippingFee = isAllInclusiveSheet ? actualSheetCarrierFee : safeShippingFee;
 
   // Success rate calculations
   let customerSuccessRate = -1;
@@ -1095,7 +1096,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     </div>
 
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
-                      <span className="text-slate-600 dark:text-slate-300">تكلفة بوليصة الشحن (مستحقات شركة الشحن)</span>
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {isAllInclusiveSheet ? 'تكلفة بوسطة الفعلية الشاملة (بالشيت)' : 'تكلفة بوليصة الشحن (مستحقات شركة الشحن)'}
+                      </span>
                       <span className="font-black text-rose-500 tabular-nums">
                         -{(standardShippingFee ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>
                       </span>

@@ -3624,12 +3624,17 @@ export const AppComponent = () => {
                         }, 0);
                     }
 
+                    const updatedStoreData = {
+                        ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
+                        wallet: newWallet
+                    };
+
+                    // Immediate local persistence ensures quick reloads never restore deleted/edited wallet transactions
+                    db.saveLocal(activeStoreId, updatedStoreData);
+
                     return {
                         ...p, 
-                        [activeStoreId]: {
-                            ...(p[activeStoreId] || { orders: [], settings: INITIAL_SETTINGS, wallet: { balance: 0, transactions: [] }, cart: [], customers: [] }),
-                            wallet: newWallet
-                        }
+                        [activeStoreId]: updatedStoreData
                     };
                 });
             }
@@ -4026,7 +4031,7 @@ export const AppComponent = () => {
                         onUpdateCustomer={pageProps.onUpdateCustomer}
                       />
                     } />
-                    <Route path="wallet" element={<WalletPage {...pageProps} />} />
+                    <Route path="wallet" element={<WalletPage {...pageProps} activeStoreId={activeStoreId || undefined} />} />
                     <Route path="subscription" element={<CommerceSubscriptionPage storeId={activeStoreId!} orders={pageProps.orders} settings={pageProps.settings} setSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData} />} />
                     <Route path="settings" element={<SettingsPage {...pageProps} onManualSave={currentUser?.isAdmin ? handleManualMigration : undefined} />} />
                     <Route path="customize-store" element={<StoreCustomizationPage {...pageProps} initialSection="colors" />} />
@@ -4049,7 +4054,7 @@ export const AppComponent = () => {
                     <Route path="partners" element={<ModuleFeatureGate moduleId="agency_hub" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><PartnersPage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} /></ModuleFeatureGate>} />
                     <Route path="partners/:partnerId" element={<ModuleFeatureGate moduleId="agency_hub" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><PartnerProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} wallet={pageProps.wallet} setWallet={pageProps.setWallet} orders={pageProps.orders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} /></ModuleFeatureGate>} />
                     <Route path="suppliers/:supplierId" element={<ModuleFeatureGate moduleId="dropshipping" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><MerchantProfilePage settings={pageProps.settings} updateSettings={pageProps.setSettings} orders={pageProps.orders} setOrders={pageProps.setOrders} treasury={pageProps.treasury} setTreasury={pageProps.setTreasury} customers={pageProps.customers} currentUser={currentUser} /></ModuleFeatureGate>} />
-                    <Route path="reconciliation" element={<ModuleFeatureGate moduleId="advanced_finance" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><ExcelReconciliationPage allStoresData={allStoresData} updateStoreData={(id, updater) => { setAllStoresData(p => { const draft = { ...p }; if(draft[id]) { const cloned = JSON.parse(JSON.stringify(draft[id])); updater(cloned); draft[id] = cloned; } return draft; }); }} currentUserName={currentUser?.name} /></ModuleFeatureGate>} />
+                    <Route path="reconciliation" element={<ModuleFeatureGate moduleId="advanced_finance" settings={pageProps.settings} setSettings={pageProps.setSettings} currentUser={currentUser} users={users} allStoresData={allStoresData} setAllStoresData={setAllStoresData}><ExcelReconciliationPage allStoresData={allStoresData} updateStoreData={(id, updater) => { setAllStoresData(p => { const draft = { ...p }; if(draft[id]) { const cloned = JSON.parse(JSON.stringify(draft[id])); updater(cloned); draft[id] = cloned; db.saveLocal(id, cloned); } return draft; }); }} currentUserName={currentUser?.name} /></ModuleFeatureGate>} />
                     <Route path="pages" element={<PagesManager {...pageProps} />} />
                     <Route path="settings/payment" element={<PaymentSettingsPage {...pageProps} />} />
                     <Route path="settings/employees" element={<EmployeesPage {...pageProps} activeStoreId={activeStoreId} />} />

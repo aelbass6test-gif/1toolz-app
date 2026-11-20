@@ -6,7 +6,7 @@ import { FinancialPnLDashboard } from './FinancialPnLDashboard';
 import { AccountingReports, CustodyLedger } from './AccountingReports';
 import { PeriodClosingModal } from './PeriodClosingModal';
 import { PartnerExitModal } from './PartnerExitModal';
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getOrderProductCost, getStandardShippingFee, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings, getCompanySpecificFees, getEffectiveInsuranceRate, getEffectiveInspectionFee, getEffectiveReturnShippingFee } from '../utils/financials';
 import { generateLossesReportHTML, generateComprehensiveFinancialReportHTML, generatePartnersFinancialReportHTML, generatePurchasesAndInventoryReportHTML, generatePosReportHTML, generateAbdoMediaPolicyHTML, ComprehensiveReportSections } from '../utils/reportGenerator';
 import { useInventoryVisibility } from '../utils/useInventoryVisibility';
 import * as htmlToImage from 'html-to-image';
@@ -1415,18 +1415,17 @@ const ComprehensiveReport: React.FC<ReportsPageProps> = ({ orders, settings, wal
         failedOrders.forEach(order => {
             const { loss, net } = calculateOrderProfitLoss(order, settings);
             const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
-            const compFees = settings.companySpecificFees?.[order.shippingCompany];
+            const compFees = getCompanySpecificFees(settings, order.shippingCompany);
             const useCustom = compFees?.useCustomFees ?? false;
             
-            const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
+            const insuranceRate = getEffectiveInsuranceRate(order, settings);
             const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
-            const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+            const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? getEffectiveInspectionFee(order, settings) : 0;
             const isInsured = order.isInsured ?? true;
             const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
             const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
             
-            const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
-            const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+            const { returnFeeAmount } = getEffectiveReturnShippingFee(order, settings);
             const inspectionFeeCollected = (!isPosOrder && order.inspectionFeePaidByCustomer) ? inspectionCost : 0;
 
             totalFailedShipping += order.shippingFee;

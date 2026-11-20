@@ -138,21 +138,39 @@ try {
 const persistExplicitDeletions = () => {
     try {
         if (typeof window !== 'undefined' && window.localStorage) {
-            const arr = Array.from(EXPLICIT_DELETED_IDS).slice(-500);
+            const arr = Array.from(EXPLICIT_DELETED_IDS).slice(-2000);
             localStorage.setItem(EXPLICIT_DELETED_STORAGE_KEY, JSON.stringify(arr));
         }
     } catch (_) {}
 };
 
-export const isExplicitlyDeleted = (id: string, storeId?: string): boolean => {
+export const isExplicitlyDeleted = (id: string, storeId?: string, collectionName: string = 'orders'): boolean => {
     if (!id) return false;
     const raw = String(id).trim();
     if (EXPLICIT_DELETED_IDS.has(raw)) return true;
     if (storeId) {
+        const stripped = raw.startsWith(`${storeId}_`) ? raw.slice(storeId.length + 1) : raw;
+        if (EXPLICIT_DELETED_IDS.has(stripped)) return true;
         if (EXPLICIT_DELETED_IDS.has(`${storeId}_${raw}`)) return true;
-        if (EXPLICIT_DELETED_IDS.has(`${storeId}_orders_${raw}`)) return true;
+        if (EXPLICIT_DELETED_IDS.has(`${storeId}_${collectionName}_${raw}`)) return true;
+        if (EXPLICIT_DELETED_IDS.has(`${storeId}_${collectionName}_${stripped}`)) return true;
+        if (collectionName === 'orders' && EXPLICIT_DELETED_IDS.has(`${storeId}_orders_${raw}`)) return true;
     }
     return false;
+};
+
+const adjustBalanceForRemovedTransactions = (currentBalance: number, removedTxs: any[]): number => {
+    let delta = 0;
+    for (const tx of removedTxs) {
+        if (!tx) continue;
+        const amt = Number(tx.amount) || 0;
+        if (tx.type === 'إيداع' && tx.status === 'completed') {
+            delta -= amt;
+        } else if (tx.type === 'سحب' && tx.status !== 'cancelled') {
+            delta += amt;
+        }
+    }
+    return Math.round(((Number(currentBalance) || 0) + delta) * 100) / 100;
 };
 
 const recordExplicitDeletion = (key: string) => {
@@ -252,8 +270,17 @@ export const getLocal = async (key: string): Promise<any> => {
                         whatsappTemplates: whatsappTemplates.length > 0 ? whatsappTemplates : (sData.whatsappTemplates || []),
                         callScripts: callScripts.length > 0 ? callScripts : (sData.callScripts || [])
                     },
-                    orders: (orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, key) && !isExplicitlyDeleted(o?.orderNumber, key)),
-                    wallet: { balance: Number(sData.walletBalance || 0), transactions: transactions || [] },
+                    orders: (orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, key, 'orders') && !isExplicitlyDeleted(o?.orderNumber, key, 'orders')),
+                    wallet: (() => {
+                        const rawTxs = Array.isArray(transactions) ? transactions : [];
+                        const removedTxs = rawTxs.filter((t: any) => !t || isExplicitlyDeleted(t?.id, key, 'transactions'));
+                        const filteredTxs = rawTxs.filter((t: any) => t && !isExplicitlyDeleted(t?.id, key, 'transactions'));
+                        const baseBal = Number(sData.walletBalance || 0);
+                        return {
+                            balance: removedTxs.length > 0 ? adjustBalanceForRemovedTransactions(baseBal, removedTxs) : baseBal,
+                            transactions: filteredTxs
+                        };
+                    })(),
                     treasury: { accounts: treasuryAccounts || [], transactions: treasuryTransactions || [] },
                     customers: customers || [],
                     quotations: quotations || []
@@ -368,35 +395,79 @@ export const saveLocal = async (key: string, data: any) => {
     }
 };
 
-export const deleteStoreItem = async (storeId: string, collectionName: string, itemId: string): Promise<boolean> => {
-    try {
-        const rawId = itemId.startsWith(`${storeId}_`) ? itemId.substring(storeId.length + 1) : itemId;
-        recordExplicitDeletion(`${storeId}_${collectionName}_${rawId}`);
-        recordExplicitDeletion(rawId);
+export const deleteStoreItems = async (storeId: string, collectionName: string, itemIds: string[]): Promise<boolean> => {
+    const cleanIds = Array.from(
+        new Set(
+            (itemIds || [])
+                .map(id => String(id || '').trim())
+                .filter(Boolean)
+                .map(id => (id.startsWith(`${storeId}_`) ? id.substring(storeId.length + 1) : id))
+        )
+    );
+    if (!storeId || !collectionName || cleanIds.length === 0) return true;
 
-        await cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item`, {
+    try {
+        for (const rawId of cleanIds) {
+            recordExplicitDeletion(`${storeId}_${collectionName}_${rawId}`);
+            recordExplicitDeletion(rawId);
+        }
+
+        // Send batch delete (supported by updated D1 API) and fall back cleanly if needed
+        const batchRes = await cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item`, {
             method: 'DELETE',
-            body: JSON.stringify({ collectionName, itemId: rawId })
-        }).catch(() => {});
+            body: JSON.stringify({ collectionName, itemIds: cleanIds, itemId: cleanIds[0] })
+        }).catch(() => null);
+
+        // If remote worker is on older single-item contract and batch had >1 item, also send per-item deletes
+        if (cleanIds.length > 1 && (!batchRes || typeof (batchRes as any)?.deletedCount !== 'number')) {
+            await Promise.all(
+                cleanIds.slice(1).map(rawId =>
+                    cfFetch(`/api/db/stores/${encodeURIComponent(storeId)}/item`, {
+                        method: 'DELETE',
+                        body: JSON.stringify({ collectionName, itemId: rawId })
+                    }).catch(() => {})
+                )
+            );
+        }
+
+        const idSet = new Set(cleanIds);
+        const matchesId = (val: any) => {
+            if (!val) return false;
+            const s = String(val).trim();
+            const stripped = s.startsWith(`${storeId}_`) ? s.substring(storeId.length + 1) : s;
+            return idSet.has(s) || idSet.has(stripped);
+        };
 
         const local = await getLocal(storeId);
         if (local) {
             if (collectionName === 'orders' && Array.isArray(local.orders)) {
-                local.orders = local.orders.filter((o: any) => String(o?.id) !== rawId && String(o?.orderNumber) !== rawId);
+                local.orders = local.orders.filter((o: any) => !matchesId(o?.id) && !matchesId(o?.orderNumber));
+            } else if (collectionName === 'transactions' && Array.isArray(local.wallet?.transactions)) {
+                const removed = local.wallet.transactions.filter((t: any) => matchesId(t?.id));
+                local.wallet.transactions = local.wallet.transactions.filter((t: any) => !matchesId(t?.id));
+                if (removed.length > 0) {
+                    local.wallet.balance = adjustBalanceForRemovedTransactions(Number(local.wallet.balance || 0), removed);
+                }
+            } else if (collectionName === 'treasury_transactions' && Array.isArray(local.treasury?.transactions)) {
+                local.treasury.transactions = local.treasury.transactions.filter((t: any) => !matchesId(t?.id));
             } else if (collectionName === 'products' && Array.isArray(local.settings?.products)) {
-                local.settings.products = local.settings.products.filter((p: any) => String(p?.id) !== rawId);
+                local.settings.products = local.settings.products.filter((p: any) => !matchesId(p?.id));
             } else if (collectionName === 'suppliers' && Array.isArray(local.settings?.suppliers)) {
-                local.settings.suppliers = local.settings.suppliers.filter((s: any) => String(s?.id) !== rawId);
+                local.settings.suppliers = local.settings.suppliers.filter((s: any) => !matchesId(s?.id));
             } else if (collectionName === 'partners' && Array.isArray(local.settings?.partners)) {
-                local.settings.partners = local.settings.partners.filter((p: any) => String(p?.id) !== rawId);
+                local.settings.partners = local.settings.partners.filter((p: any) => !matchesId(p?.id));
             }
             await saveLocal(storeId, local).catch(() => {});
         }
         return true;
     } catch (e) {
-        console.error(`[deleteStoreItem] Error deleting ${itemId} from ${collectionName}:`, e);
+        console.error(`[deleteStoreItems] Error deleting ${cleanIds.length} items from ${collectionName}:`, e);
         return false;
     }
+};
+
+export const deleteStoreItem = async (storeId: string, collectionName: string, itemId: string): Promise<boolean> => {
+    return deleteStoreItems(storeId, collectionName, [itemId]);
 };
 
 export const ensureStoreRecordExists = async (storeId: string, storeName: string): Promise<{ success: boolean; error?: string }> => {
@@ -451,8 +522,17 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                 const storeSettings = storeRow.settings || {};
                 const fullData: StoreData = {
                     settings: { ...INITIAL_SETTINGS, ...storeSettings, products, suppliers: sanitizeSuppliersList(suppliers), partners, partnerTransactions, supplyOrders },
-                    orders: (orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId)),
-                    wallet: { balance: storeSettings.wallet_balance || 0, transactions },
+                    orders: (orders || []).filter((o: any) => !isExplicitlyDeleted(o?.id, storeId, 'orders')),
+                    wallet: (() => {
+                        const rawTxs = Array.isArray(transactions) ? transactions : [];
+                        const removedTxs = rawTxs.filter((t: any) => !t || isExplicitlyDeleted(t?.id, storeId, 'transactions'));
+                        const filteredTxs = rawTxs.filter((t: any) => t && !isExplicitlyDeleted(t?.id, storeId, 'transactions'));
+                        const baseBal = Number(storeSettings.wallet_balance || 0);
+                        return {
+                            balance: removedTxs.length > 0 ? adjustBalanceForRemovedTransactions(baseBal, removedTxs) : baseBal,
+                            transactions: filteredTxs
+                        };
+                    })(),
                     treasury: { accounts: treasuryAccounts, transactions: treasuryTransactions },
                     customers: [],
                     merchantRequests: merchantRequests || []
@@ -510,7 +590,18 @@ export const getStoreData = async (storeId: string, forceRemote: boolean = false
                     employees: cloudSettings.employees || []
                 },
                 orders: reconciledOrders,
-                wallet: cloud.wallet || { balance: 0, transactions: [] },
+                wallet: (() => {
+                    const rawWallet = cloud.wallet || { balance: 0, transactions: [] };
+                    const rawTxs = Array.isArray(rawWallet.transactions) ? rawWallet.transactions : [];
+                    const removedTxs = rawTxs.filter((t: any) => !t || isExplicitlyDeleted(t?.id, storeId, 'transactions'));
+                    const filteredTxs = rawTxs.filter((t: any) => t && !isExplicitlyDeleted(t?.id, storeId, 'transactions'));
+                    const baseBal = Number(rawWallet.balance || 0);
+                    return {
+                        ...rawWallet,
+                        balance: removedTxs.length > 0 ? adjustBalanceForRemovedTransactions(baseBal, removedTxs) : baseBal,
+                        transactions: filteredTxs
+                    };
+                })(),
                 treasury: cloud.treasury || { accounts: [], transactions: [] },
                 cart: [],
                 customers: cloud.customers || [],
@@ -542,8 +633,16 @@ export const saveStoreData = async (store: Store, data: StoreData): Promise<{ su
     const cleanData = cleanUndefined({
         ...data,
         orders: (data.orders || []).filter(
-            (o: any) => o && !isExplicitlyDeleted(o.id, store.id) && !isExplicitlyDeleted(o.orderNumber, store.id)
-        )
+            (o: any) => o && !isExplicitlyDeleted(o.id, store.id, 'orders') && !isExplicitlyDeleted(o.orderNumber, store.id, 'orders')
+        ),
+        wallet: data.wallet
+            ? {
+                  ...data.wallet,
+                  transactions: (data.wallet.transactions || []).filter(
+                      (t: any) => t && !isExplicitlyDeleted(t.id, store.id, 'transactions')
+                  )
+              }
+            : data.wallet
     });
 
     await saveLocal(store.id, cleanData);

@@ -143,6 +143,12 @@ export async function getStoreDataFromD1(db: D1LikeDatabase, storeId: string): P
   const txRows = byCol.get("transactions");
   if (txRows && txRows.length > 0) {
     wallet.transactions = txRows;
+  } else if (Array.isArray(wallet.transactions)) {
+    wallet.transactions = wallet.transactions.filter((t: any) => {
+      if (!t) return false;
+      const tid = getItemId(t, storeId);
+      return !deletedSet.has(`transactions:${tid}`) && !deletedSet.has(`transactions:${t.id}`);
+    });
   }
   const treAccRows = byCol.get("treasury_accounts");
   if (treAccRows && treAccRows.length > 0) {
@@ -151,6 +157,12 @@ export async function getStoreDataFromD1(db: D1LikeDatabase, storeId: string): P
   const treTxRows = byCol.get("treasury_transactions");
   if (treTxRows && treTxRows.length > 0) {
     treasury.transactions = treTxRows;
+  } else if (Array.isArray(treasury.transactions)) {
+    treasury.transactions = treasury.transactions.filter((t: any) => {
+      if (!t) return false;
+      const tid = getItemId(t, storeId);
+      return !deletedSet.has(`treasury_transactions:${tid}`) && !deletedSet.has(`treasury_transactions:${t.id}`);
+    });
   }
   const quoRows = byCol.get("quotations");
   const finalQuotations = quoRows && quoRows.length > 0 ? quoRows : quotations;
@@ -391,9 +403,33 @@ export async function saveStoreDataToD1(
       upsertCollection(mapping.tableCollection, boundedArr);
     }
   }
-  if (Array.isArray(wallet.transactions)) upsertCollection("transactions", wallet.transactions);
+  const reconcileRemovedCollectionRows = async (colName: string, items: any[]) => {
+    const keepIds = new Set(items.filter(Boolean).map((item: any) => getItemId(item, storeId)));
+    const existingRows = await db
+      .prepare("SELECT id FROM store_collections WHERE store_id = ? AND collection_name = ?")
+      .bind(storeId, colName)
+      .all<any>();
+    for (const row of existingRows.results || []) {
+      const rid = String(row?.id || "");
+      if (rid && !keepIds.has(rid)) {
+        stmts.push(
+          db
+            .prepare("DELETE FROM store_collections WHERE store_id = ? AND collection_name = ? AND id = ?")
+            .bind(storeId, colName, rid)
+        );
+      }
+    }
+  };
+
+  if (Array.isArray(wallet.transactions)) {
+    await reconcileRemovedCollectionRows("transactions", wallet.transactions);
+    upsertCollection("transactions", wallet.transactions);
+  }
   if (Array.isArray(treasury.accounts)) upsertCollection("treasury_accounts", treasury.accounts);
-  if (Array.isArray(treasury.transactions)) upsertCollection("treasury_transactions", treasury.transactions);
+  if (Array.isArray(treasury.transactions)) {
+    await reconcileRemovedCollectionRows("treasury_transactions", treasury.transactions);
+    upsertCollection("treasury_transactions", treasury.transactions);
+  }
   if (Array.isArray(quotations)) upsertCollection("quotations", quotations);
 
   // Execute in chunks of 50 statements for D1 batch efficiency
@@ -1046,33 +1082,61 @@ async function dispatchDbRequest(
 
     if (subAction === "item") {
       const collectionName = String(body.collectionName || url.searchParams.get("collectionName") || "").trim();
+      const rawBatchIds = Array.isArray(body.itemIds)
+        ? body.itemIds.map((id: any) => String(id || "").trim()).filter(Boolean)
+        : [];
       const itemIdRaw = String(body.itemId || body.item?.id || url.searchParams.get("itemId") || "").trim();
       const now = new Date().toISOString();
+
+      if (request.method === "DELETE") {
+        const targetRawIds = rawBatchIds.length > 0 ? rawBatchIds : itemIdRaw ? [itemIdRaw] : [];
+        if (!collectionName || targetRawIds.length === 0) {
+          return json(request, env, { success: false, error: "collectionName و itemId مطلوبان" }, 400);
+        }
+
+        const delStmts: D1LikePreparedStatement[] = [];
+        for (const rawId of targetRawIds) {
+          const cleanId = rawId.startsWith(`${storeId}_`) ? rawId.slice(storeId.length + 1) : rawId;
+          delStmts.push(
+            db
+              .prepare("INSERT OR REPLACE INTO deleted_records (store_id, collection_name, record_id, deleted_at) VALUES (?, ?, ?, ?)")
+              .bind(storeId, collectionName, cleanId, now)
+          );
+          if (collectionName === "orders") {
+            delStmts.push(
+              db.prepare("DELETE FROM orders WHERE store_id = ? AND (id = ? OR order_number = ?)").bind(storeId, cleanId, cleanId)
+            );
+          } else if (collectionName === "products") {
+            delStmts.push(
+              db.prepare("DELETE FROM products WHERE store_id = ? AND id = ?").bind(storeId, cleanId)
+            );
+          } else if (collectionName === "employees") {
+            delStmts.push(
+              db.prepare("DELETE FROM employees WHERE store_id = ? AND (id = ? OR phone = ?)").bind(storeId, cleanId, cleanId)
+            );
+          } else {
+            delStmts.push(
+              db
+                .prepare("DELETE FROM store_collections WHERE store_id = ? AND collection_name = ? AND (id = ? OR id = ?)")
+                .bind(storeId, collectionName, cleanId, rawId)
+            );
+          }
+        }
+        delStmts.push(
+          db.prepare("UPDATE stores_data SET version = version + 1, updated_at = ? WHERE id = ?").bind(now, storeId)
+        );
+
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < delStmts.length; i += CHUNK_SIZE) {
+          await db.batch(delStmts.slice(i, i + CHUNK_SIZE));
+        }
+        return json(request, env, { success: true, deletedCount: targetRawIds.length });
+      }
+
       if (!collectionName || !itemIdRaw) {
         return json(request, env, { success: false, error: "collectionName و itemId مطلوبان" }, 400);
       }
       const itemId = itemIdRaw.startsWith(`${storeId}_`) ? itemIdRaw.slice(storeId.length + 1) : itemIdRaw;
-
-      if (request.method === "DELETE") {
-        await db
-          .prepare("INSERT OR REPLACE INTO deleted_records (store_id, collection_name, record_id, deleted_at) VALUES (?, ?, ?, ?)")
-          .bind(storeId, collectionName, itemId, now)
-          .run();
-        if (collectionName === "orders") {
-          await db.prepare("DELETE FROM orders WHERE store_id = ? AND (id = ? OR order_number = ?)").bind(storeId, itemId, itemId).run();
-        } else if (collectionName === "products") {
-          await db.prepare("DELETE FROM products WHERE store_id = ? AND id = ?").bind(storeId, itemId).run();
-        } else if (collectionName === "employees") {
-          await db.prepare("DELETE FROM employees WHERE store_id = ? AND (id = ? OR phone = ?)").bind(storeId, itemId, itemId).run();
-        } else {
-          await db
-            .prepare("DELETE FROM store_collections WHERE store_id = ? AND collection_name = ? AND id = ?")
-            .bind(storeId, collectionName, itemId)
-            .run();
-        }
-        await db.prepare("UPDATE stores_data SET version = version + 1, updated_at = ? WHERE id = ?").bind(now, storeId).run();
-        return json(request, env, { success: true });
-      }
 
       if (request.method === "PUT" || request.method === "POST") {
         const item = { ...(body.item || body), id: itemId, storeId, updatedAt: now };

@@ -4,7 +4,7 @@ import { Order, User, ConfirmationLog, AuditLog, OrderStatus, Settings, OrderIte
 import { PhoneForwarded, Check, CheckCircle, X, User as UserIcon, MapPin, Package, CalendarDays, Phone, PhoneCall, MessageSquare, Edit3, Save, Plus, Clock, ChevronsUpDown, ArrowRight, Truck, Tag, XCircle, Eye, Search, RefreshCw, History as HistoryIcon, TrendingUp, AlertTriangle, Bell, Send, FileText, Filter, Lock, Unlock, Trophy, Medal, MessageCircle, ListChecks, Users, ArrowRightLeft, Wallet, Shield, Banknote, Coins } from 'lucide-react';
 import EditableField from './EditableField';
 import { CustomerDeliveryRateBadge } from './CustomerDeliveryRateBadge';
-import { getAdvancePaymentCustodyName } from '../utils/financials';
+import { getAdvancePaymentCustodyName, isSheetReconciledOrder } from '../utils/financials';
 import { whatsappService } from '../utils/whatsappService';
 import { inAppConfirm } from '../utils/inAppAlert';
 
@@ -980,7 +980,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
         else if (action === 'تم الإلغاء' || action === 'رقم خاطئ') newStatus = 'ملغي';
         else if (['العميل لم يرد', 'مؤجل', 'يحتاج متابعة'].includes(action)) newStatus = 'جاري_المراجعة';
         
-        if (newStatus && activeOrder) {
+        if (newStatus && activeOrder && !isSheetReconciledOrder(activeOrder)) {
             logAudit(activeOrder.id, 'status', activeOrder.status, newStatus);
         }
 
@@ -996,7 +996,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
             order.id === activeOrderId 
             ? { 
                 ...order, 
-                status: newStatus || order.status, 
+                status: isSheetReconciledOrder(order) ? order.status : (newStatus || order.status), 
                 sentiment: sentiment,
                 callAttempts: [...(Array.isArray(order.callAttempts) ? order.callAttempts : []), { 
                     id: `call-${Date.now()}`, 
@@ -1629,7 +1629,7 @@ const ConfirmationQueuePage: React.FC<ConfirmationQueuePageProps> = ({ orders, s
                                                 if (ok) {
                                                     const now = new Date().toISOString();
                                                     setOrders(current => current.map(o => {
-                                                        if (selectedOrderIds.includes(o.id)) {
+                                                        if (selectedOrderIds.includes(o.id) && !isSheetReconciledOrder(o)) {
                                                             const newLog: AuditLog = {
                                                                 id: Math.random().toString(36).substr(2, 9),
                                                                 timestamp: now,

@@ -327,7 +327,7 @@ export const generatePurchasesAndInventoryReportHTML = (stats: any, storeName: s
     `;
 };
 
-import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getAdvancePaymentCustodyName, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings } from './financials';
+import { calculateOrderProfitLoss, calculateCodFee, getLatestProductCost, isBosta, calculateInsuranceFee, calculateBostaVat, getStandardShippingFee, getAdvancePaymentCustodyName, resolveCashHolderName, resolveItemCatalogPrice, findProductInSettings, getCompanySpecificFees, getEffectiveInsuranceRate, getEffectiveInspectionFee, getEffectiveReturnShippingFee } from './financials';
 
 export const renderFlexShipAndCompensationBadges = (
   order: Order, 
@@ -3173,18 +3173,17 @@ export const generateComprehensiveFinancialReportHTML = (orders: Order[], settin
         const { loss, net } = calculateOrderProfitLoss(order, settings);
         const actualLoss = loss > 0 ? loss : (net < 0 ? Math.abs(net) : 0);
         
-        const compFees = settings.companySpecificFees?.[order.shippingCompany];
+        const compFees = getCompanySpecificFees(settings, order.shippingCompany);
         const useCustom = compFees?.useCustomFees ?? false;
         const isPosOrder = order.channel === 'pos' || order.shippingCompany === 'كاشير - بيع مباشر';
-        const insuranceRate = useCustom ? (compFees?.insuranceFeePercent ?? 0) : (settings.enableInsurance ? settings.insuranceFeePercent : 0);
-        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+        const insuranceRate = getEffectiveInsuranceRate(order, settings);
+        const inspectionCost = !isPosOrder && (order.includeInspectionFee ?? true) ? getEffectiveInspectionFee(order, settings) : 0;
         const isInsured = order.isInsured ?? true;
         const insuranceFee = !isPosOrder && isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
         const bostaVat = !isPosOrder && isBosta(order.shippingCompany) ? calculateBostaVat(order, insuranceFee, settings) : 0;
         const displayInsuranceFee = insuranceFee + bostaVat;
         
-        const applyReturnFee = !isPosOrder && (useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping);
-        const returnFeeAmount = applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+        const { returnFeeAmount } = getEffectiveReturnShippingFee(order, settings);
         const inspectionFeeCollected = 0;
 
         totalFailedShipping += order.shippingFee;

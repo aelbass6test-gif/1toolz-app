@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import {
+  AlertTriangle,
   ArrowUpDown,
   Building2,
   CheckCircle2,
@@ -13,10 +14,14 @@ import {
   ExternalLink,
   Eye,
   Landmark,
+  Link2,
   Package,
+  Pencil,
   RotateCcw,
   Search,
+  Trash2,
   Truck,
+  Unlink,
   Upload,
   Wallet
 } from 'lucide-react';
@@ -24,7 +29,8 @@ import { Order } from '../types';
 import {
   TwoWayCodAuditResult,
   SheetAuditRow,
-  TransactionCashoutEntry
+  TransactionCashoutEntry,
+  normalizeTrackingCode
 } from '../utils/codReconciliation';
 import { BankConfirmationRecord } from '../utils/codStorage';
 
@@ -38,9 +44,15 @@ export interface OrdersLifecycleHubProps {
   orderBasePath: string;
   onInspectWaybill: (trackingCode: string, cashoutId?: string) => void;
   onInspectCashout: (tx: TransactionCashoutEntry) => void;
+  onOpenLinkOrImportModal: (row: SheetAuditRow) => void;
+  onOpenEditOrderModal?: (row: SheetAuditRow) => void;
+  onDeleteOrderFromStore?: (orderId: string) => void;
+  manualMatches?: Record<string, string>;
   onUploadSheets: () => void;
   onOpenAuditWorkspace: () => void;
   onOpenWallet: () => void;
+  onOpenErrorsCenter: () => void;
+  errorsCount: number;
   onNotify?: (msg: string, type?: 'success' | 'error') => void;
 }
 
@@ -174,17 +186,25 @@ export default function OrdersLifecycleHub({
   orderBasePath,
   onInspectWaybill,
   onInspectCashout,
+  onOpenLinkOrImportModal,
+  onOpenEditOrderModal,
+  onDeleteOrderFromStore,
+  manualMatches,
   onUploadSheets,
   onOpenAuditWorkspace,
   onOpenWallet,
+  onOpenErrorsCenter,
+  errorsCount,
   onNotify
 }: OrdersLifecycleHubProps) {
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
   const [deliveryFilter, setDeliveryFilter] = useState<'all' | DeliveryStage>('all');
   const [cashoutFilter, setCashoutFilter] = useState<'all' | CashoutStage>('all');
+  const [storeSyncFilter, setStoreSyncFilter] = useState<'all' | 'synced' | 'unsynced'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'highest_cod' | 'highest_net' | 'brand'>('newest');
   const [page, setPage] = useState(1);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState<UnifiedOrderRecord | null>(null);
 
   // Build lookup map for cashouts by normalized ID
   const cashoutById = useMemo(() => {
@@ -204,11 +224,47 @@ export default function OrdersLifecycleHub({
     const seenOrderIds = new Set<string>();
     const seenTrackings = new Set<string>();
 
+    // Always index live store orders by tracking/orderNumber/id so downloaded/linked orders
+    // show their Store Sync state, Edit, and Cancel Download controls even when matchWithStoreOrders is OFF.
+    const ordersByTracking = new Map<string, Order>();
+    const ordersByNumber = new Map<string, Order>();
+    const ordersById = new Map<string, Order>();
+    for (const o of orders) {
+      ordersById.set(o.id, o);
+      for (const wb of [
+        o.waybillNumber,
+        o.bostaTrackingNumber,
+        o.turboTrackingNumber,
+        o.returnTrackingNumber
+      ]) {
+        const norm = normalizeTrackingCode(wb);
+        if (norm && !ordersByTracking.has(norm)) ordersByTracking.set(norm, o);
+      }
+      for (const idKey of [o.orderNumber, o.referenceNumber, o.platformOrderId, o.id]) {
+        const norm = normalizeTrackingCode(idKey);
+        if (norm && !ordersByNumber.has(norm)) ordersByNumber.set(norm, o);
+      }
+    }
+
     // 1. Add all non-duplicate rows from uploaded sheets
     for (const row of auditResult.sheetRows) {
       if (row.category === 'duplicate') continue;
-      if (row.matchedOrder) {
-        seenOrderIds.add(row.matchedOrder.id);
+      const normRowTracking = normalizeTrackingCode(row.trackingKey);
+      const normRowRef = normalizeTrackingCode(row.businessRefKey);
+      const manualOrderId =
+        (row.trackingKey && manualMatches?.[row.trackingKey]) ||
+        (normRowTracking && manualMatches?.[normRowTracking]) ||
+        '';
+      const resolvedOrder =
+        row.matchedOrder ||
+        (manualOrderId ? ordersById.get(manualOrderId) : undefined) ||
+        (normRowTracking ? ordersByTracking.get(normRowTracking) : undefined) ||
+        (normRowRef ? ordersByNumber.get(normRowRef) : undefined) ||
+        (normRowTracking ? ordersByNumber.get(normRowTracking) : undefined) ||
+        null;
+
+      if (resolvedOrder) {
+        seenOrderIds.add(resolvedOrder.id);
       }
       const trkClean = (row.trackingKey || '').trim().toUpperCase();
       if (trkClean) seenTrackings.add(trkClean);
@@ -216,9 +272,9 @@ export default function OrdersLifecycleHub({
       const { stage: deliveryStage, label: deliveryLabel } = inferSheetDeliveryStage(row);
       const isOnlineOrFlex = Boolean(
         row.hasFlexShip ||
-          (row.matchedOrder?.paymentMethod || '').toLowerCase().includes('online') ||
-          (row.matchedOrder?.paymentMethod || '').toLowerCase().includes('card') ||
-          (row.matchedOrder?.paymentMethod || '').toLowerCase().includes('instapay')
+          (resolvedOrder?.paymentMethod || '').toLowerCase().includes('online') ||
+          (resolvedOrder?.paymentMethod || '').toLowerCase().includes('card') ||
+          (resolvedOrder?.paymentMethod || '').toLowerCase().includes('instapay')
       );
 
       let paymentStage: PaymentStage = 'pending_collection';
@@ -242,7 +298,7 @@ export default function OrdersLifecycleHub({
       const isBankConfirmed = Boolean(
         (cashoutKey && bankConfirmedCashouts[cashoutKey]) ||
           (cashoutEntry?.id && bankConfirmedCashouts[cashoutEntry.id]) ||
-          row.matchedOrder?.collectionProcessed
+          resolvedOrder?.collectionProcessed
       );
 
       let cashoutStage: CashoutStage = 'awaiting_delivery';
@@ -273,9 +329,9 @@ export default function OrdersLifecycleHub({
 
       const brandName = normalizeBrandLabel(
         row.brandName ||
-          row.matchedOrder?.merchantBrandName ||
-          row.matchedOrder?.subSenderName ||
-          row.matchedOrder?.storeName,
+          resolvedOrder?.merchantBrandName ||
+          resolvedOrder?.subSenderName ||
+          resolvedOrder?.storeName,
         storeName
       );
 
@@ -283,8 +339,8 @@ export default function OrdersLifecycleHub({
         row.sheetDeliveredAt ||
         row.sheetPaidAt ||
         row.sheetDate ||
-        row.matchedOrder?.date ||
-        row.matchedOrder?.createdAt ||
+        resolvedOrder?.date ||
+        resolvedOrder?.createdAt ||
         '';
 
       const deliverySubtext =
@@ -294,16 +350,19 @@ export default function OrdersLifecycleHub({
           ? row.exceptionReason || row.warehouseReturnNote || row.sheetStatus || 'مرتجع'
           : row.currentHub || row.dropoffCity || row.sheetStatus || 'مع شركة الشحن';
 
+      const rowForModal =
+        resolvedOrder && !row.matchedOrder ? { ...row, matchedOrder: resolvedOrder } : row;
+
       list.push({
         id: `sheet_${row.id}`,
-        source: row.matchedOrder ? 'sheet_and_store' : 'sheet_only',
-        orderNumber: row.matchedOrder?.orderNumber || row.businessRefKey || '-',
-        orderId: row.matchedOrder?.id,
+        source: resolvedOrder ? 'sheet_and_store' : 'sheet_only',
+        orderNumber: resolvedOrder?.orderNumber || row.businessRefKey || '-',
+        orderId: resolvedOrder?.id,
         trackingNumber: row.trackingKey,
         brandName,
-        customerName: row.matchedOrder?.customerName || row.customerName || 'عميل غير مسمّى',
-        customerPhone: row.matchedOrder?.customerPhone || row.phoneRaw || '',
-        city: row.dropoffCity || row.matchedOrder?.governorate || row.matchedOrder?.city || '',
+        customerName: resolvedOrder?.customerName || row.customerName || 'عميل غير مسمّى',
+        customerPhone: resolvedOrder?.customerPhone || row.phoneRaw || '',
+        city: row.dropoffCity || resolvedOrder?.governorate || resolvedOrder?.city || '',
         dateStr,
         sortTime: parseSortTimestamp(dateStr),
         deliveryStage,
@@ -319,8 +378,8 @@ export default function OrdersLifecycleHub({
         cashoutId: row.sheetCashoutId || undefined,
         cashoutEntry,
         cashoutDate: cashoutEntry?.date || row.sheetPaidAt,
-        sheetRow: row,
-        matchedOrder: row.matchedOrder
+        sheetRow: rowForModal,
+        matchedOrder: resolvedOrder
       });
     }
 
@@ -418,6 +477,7 @@ export default function OrdersLifecycleHub({
   }, [
     auditResult.sheetRows,
     orders,
+    manualMatches,
     matchWithStoreOrders,
     uploadedFilesCount,
     cashoutById,
@@ -521,12 +581,24 @@ export default function OrdersLifecycleHub({
     };
   }, [brandOrders]);
 
-  // Apply delivery filter, cashout filter, search & sort
+  const storeSyncCounts = useMemo(() => {
+    let synced = 0;
+    let unsynced = 0;
+    for (const o of brandOrders) {
+      if (o.orderId) synced += 1;
+      else if (o.sheetRow) unsynced += 1;
+    }
+    return { synced, unsynced };
+  }, [brandOrders]);
+
+  // Apply delivery filter, cashout filter, store sync filter, search & sort
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const rows = brandOrders.filter(o => {
       if (deliveryFilter !== 'all' && o.deliveryStage !== deliveryFilter) return false;
       if (cashoutFilter !== 'all' && o.cashoutStage !== cashoutFilter) return false;
+      if (storeSyncFilter === 'synced' && !o.orderId) return false;
+      if (storeSyncFilter === 'unsynced' && Boolean(o.orderId)) return false;
       if (!q) return true;
       return (
         o.orderNumber.toLowerCase().includes(q) ||
@@ -550,7 +622,7 @@ export default function OrdersLifecycleHub({
       sorted.sort((a, b) => b.sortTime - a.sortTime);
     }
     return sorted;
-  }, [brandOrders, deliveryFilter, cashoutFilter, searchQuery, sortBy]);
+  }, [brandOrders, deliveryFilter, cashoutFilter, storeSyncFilter, searchQuery, sortBy]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -823,12 +895,13 @@ export default function OrdersLifecycleHub({
                 </select>
               </div>
 
-              {(deliveryFilter !== 'all' || cashoutFilter !== 'all' || searchQuery.trim() !== '') && (
+              {(deliveryFilter !== 'all' || cashoutFilter !== 'all' || storeSyncFilter !== 'all' || searchQuery.trim() !== '') && (
                 <button
                   type="button"
                   onClick={() => {
                     setDeliveryFilter('all');
                     setCashoutFilter('all');
+                    setStoreSyncFilter('all');
                     setSearchQuery('');
                     setPage(1);
                   }}
@@ -899,6 +972,34 @@ export default function OrdersLifecycleHub({
                 </button>
               ))}
             </div>
+
+            <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-800/70">
+              {(
+                [
+                  { id: 'all', label: 'كل حالة المتجر' },
+                  { id: 'synced', label: `نزل/مربوط بالمتجر (${storeSyncCounts.synced})` },
+                  { id: 'unsynced', label: `لم ينزل بعد (${storeSyncCounts.unsynced})` }
+                ] as const
+              ).map(btn => (
+                <button
+                  key={btn.id}
+                  type="button"
+                  onClick={() => {
+                    setStoreSyncFilter(btn.id);
+                    setPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    storeSyncFilter === btn.id
+                      ? btn.id === 'synced'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -957,14 +1058,24 @@ export default function OrdersLifecycleHub({
                   const step3Done = item.cashoutStage === 'bank_confirmed';
                   const step3Pending = item.cashoutStage === 'transferred_pending_bank';
 
+                  const isLandedFromSheet = Boolean(
+                    item.orderId && item.matchedOrder?.platform === 'bosta_sheet_import'
+                  );
+                  const isLinkedToStore = Boolean(item.orderId && item.sheetRow);
+                  const isNotYetInStore = Boolean(item.sheetRow && !item.orderId);
+
                   return (
                     <tr
                       key={item.id}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/35 transition-colors"
+                      className={`transition-colors ${
+                        isLinkedToStore
+                          ? 'bg-emerald-50/20 dark:bg-emerald-950/10 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 border-r-[3px] border-r-emerald-500'
+                          : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/35'
+                      }`}
                     >
                       {/* 1. Order, Waybill, Brand, Customer */}
                       <td className="py-3 px-4 align-top">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           {item.orderId ? (
                             <Link
                               to={`${orderBasePath}/${item.orderId}`}
@@ -993,6 +1104,31 @@ export default function OrdersLifecycleHub({
                               </button>
                             </>
                           )}
+
+                          {isLandedFromSheet ? (
+                            <span
+                              title="تم تنزيل هذا الأوردر في أوردرات المتجر بنجاح"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/70 text-[10px] font-black"
+                            >
+                              <CheckCircle2 className="w-3 h-3 shrink-0" />
+                              <span>نزل بالمتجر</span>
+                              {item.matchedOrder?.stockDeducted && (
+                                <span className="text-emerald-700/80 dark:text-emerald-300/80 font-bold">· مخزون</span>
+                              )}
+                            </span>
+                          ) : isLinkedToStore ? (
+                            <span
+                              title="هذا الصف مربوط بأوردر موجود في المتجر"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-[10px] font-black"
+                            >
+                              <CheckCircle2 className="w-3 h-3 shrink-0" />
+                              <span>مربوط بالمتجر</span>
+                            </span>
+                          ) : isNotYetInStore ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold">
+                              <span>لم ينزل بالمتجر</span>
+                            </span>
+                          ) : null}
                         </div>
 
                         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
@@ -1081,6 +1217,25 @@ export default function OrdersLifecycleHub({
                             {item.feesAmount > 0 ? ` · شحن -${formatEgp(item.feesAmount)}` : ''})
                           </span>
                         </div>
+                        {item.matchedOrder && item.sheetRow && item.feesAmount > 0 && (() => {
+                          const spread =
+                            Math.round(
+                              ((item.matchedOrder.shippingFee || 0) - item.feesAmount) * 100
+                            ) / 100;
+                          if (Math.abs(spread) < 0.5) return null;
+                          return (
+                            <div
+                              className={`mt-0.5 text-[10px] font-mono tabular-nums font-bold ${
+                                spread > 0
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }`}
+                            >
+                              فرق شحن العميل ({formatEgp(item.matchedOrder.shippingFee || 0)}):{' '}
+                              {spread > 0 ? `+${formatEgp(spread)}` : formatEgp(spread)}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       {/* 4. Cashout / Bank Withdrawal Status */}
@@ -1188,12 +1343,71 @@ export default function OrdersLifecycleHub({
 
                       {/* 6. Actions */}
                       <td className="py-3 px-4 align-middle text-center whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1.5">
+                        <div className="inline-flex flex-wrap items-center justify-center gap-1.5">
+                          {item.sheetRow && !item.orderId && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenLinkOrImportModal(item.sheetRow!)}
+                              title="ربط بأوردر متجر أو تنزيل كأوردر جديد مع خصم المخزون الموحّد"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer bg-[#008060] hover:bg-[#006b50] text-white"
+                            >
+                              <Link2 className="w-3 h-3" />
+                              <span>ربط / تنزيل</span>
+                            </button>
+                          )}
+                          {item.orderId && (
+                            item.sheetRow && onOpenEditOrderModal ? (
+                              <button
+                                type="button"
+                                onClick={() => onOpenEditOrderModal(item.sheetRow!)}
+                                title="تعديل بيانات الأوردر وحالته ومبلغ التحصيل والشحن"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100/80 text-[11px] font-bold transition-colors cursor-pointer"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>تعديل</span>
+                              </button>
+                            ) : (
+                              <Link
+                                to={`${orderBasePath}/edit/${item.orderId}`}
+                                title="تعديل بيانات الأوردر"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100/80 text-[11px] font-bold transition-colors"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>تعديل</span>
+                              </Link>
+                            )
+                          )}
+                          {item.orderId && onDeleteOrderFromStore && (
+                            <button
+                              type="button"
+                              onClick={() => setPendingDeleteItem(item)}
+                              title={
+                                isLandedFromSheet
+                                  ? 'إلغاء تنزيل الأوردر وحذفه من المتجر ومسح حركات المحفظة ورد المخزون'
+                                  : 'فك الربط وحذف الأوردر من أوردرات المتجر مع مسح حركات المحفظة ورد المخزون'
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-200 dark:border-rose-800/80 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Unlink className="w-3 h-3" />
+                              <span>{isLandedFromSheet ? 'إلغاء النزول' : 'فك ربط / حذف'}</span>
+                            </button>
+                          )}
+                          {item.sheetRow && item.orderId && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenLinkOrImportModal(item.sheetRow!)}
+                              title="تسوية فرق سعر الشحن أو تغيير الربط"
+                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/60 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100/80 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Link2 className="w-3 h-3" />
+                              <span>تسوية شحن</span>
+                            </button>
+                          )}
                           {item.trackingNumber !== '-' && (
                             <button
                               type="button"
                               onClick={() => onInspectWaybill(item.trackingNumber, item.cashoutId)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold transition-colors cursor-pointer"
                             >
                               <Eye className="w-3 h-3" />
                               <span>فحص</span>
@@ -1202,7 +1416,7 @@ export default function OrdersLifecycleHub({
                           {item.orderId && (
                             <Link
                               to={`${orderBasePath}/${item.orderId}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 text-[11px] font-bold transition-opacity"
+                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 text-[11px] font-bold transition-opacity"
                             >
                               <span>الأوردر</span>
                               <ExternalLink className="w-3 h-3" />
@@ -1231,6 +1445,15 @@ export default function OrdersLifecycleHub({
             </div>
 
             <div className="flex items-center gap-2">
+              {errorsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={onOpenErrorsCenter}
+                  className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline ml-2 cursor-pointer"
+                >
+                  مركز الأخطاء ({errorsCount})
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onOpenWallet}
@@ -1275,6 +1498,77 @@ export default function OrdersLifecycleHub({
           </div>
         )}
       </section>
+
+      {/* Confirm Unlink & Delete Order From Store Modal */}
+      {pendingDeleteItem && pendingDeleteItem.orderId && onDeleteOrderFromStore && (() => {
+        const linkedStoreOrder = orders.find(o => o.id === pendingDeleteItem.orderId);
+        const stockUnits = linkedStoreOrder?.stockDeducted
+          ? (linkedStoreOrder.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)
+          : 0;
+        return (
+          <div
+            className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm"
+            onClick={() => setPendingDeleteItem(null)}
+          >
+            <div
+              className="bg-white dark:bg-[#0b1120] w-full max-w-md rounded-2xl border border-rose-200 dark:border-rose-900/60 shadow-2xl p-5 text-right space-y-4"
+              dir="rtl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0 border border-rose-200/70 dark:border-rose-800/60">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                    فك ربط وحذف الأوردر #{pendingDeleteItem.orderNumber} من المتجر
+                  </h3>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mt-1">
+                    {pendingDeleteItem.customerName !== '-' ? `العميل: ${pendingDeleteItem.customerName}` : ''}
+                    {pendingDeleteItem.trackingNumber !== '-' ? ` · بوليصة #${pendingDeleteItem.trackingNumber}` : ''}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-rose-50/70 dark:bg-rose-950/25 border border-rose-200/70 dark:border-rose-900/50 p-3.5 text-xs text-rose-900 dark:text-rose-200 space-y-1.5 font-medium">
+                <p className="font-black text-rose-700 dark:text-rose-300">سيتم تنفيذ الآتي تلقائياً:</p>
+                <ul className="list-disc pr-4 space-y-1">
+                  <li>حذف الأوردر من صفحة أوردرات المتجر وإلغاء علامة &quot;نزل بالمتجر&quot;.</li>
+                  <li>مسح جميع حركات الأوردر من محفظة المتجر وعكس أثرها على الرصيد.</li>
+                  <li>
+                    {stockUnits > 0
+                      ? `ردّ ${stockUnits} قطعة إلى المخزون الموحّد.`
+                      : 'هذا الأوردر لم يخصم من المخزون الموحّد (لن يتأثر رصيد المخزون).'}
+                  </li>
+                  <li>سيظل صف البوليصة موجوداً في الشيت وتقدر تنزّله أو تربطه تاني في أي وقت.</li>
+                </ul>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPendingDeleteItem(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = pendingDeleteItem.orderId!;
+                    setPendingDeleteItem(null);
+                    onDeleteOrderFromStore(targetId);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition-colors cursor-pointer"
+                >
+                  <Unlink className="w-3.5 h-3.5" />
+                  <span>تأكيد فك الربط والحذف</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

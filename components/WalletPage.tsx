@@ -6,7 +6,7 @@ import {
   Truck, TrendingUp, Info, AlertTriangle, AlertCircle, Coins, Receipt, X, Layers, CreditCard, Smartphone, 
   Banknote, Settings as SettingsIcon, ChevronRight, ChevronLeft, Check, History, Search, Filter, 
   CheckCircle, Clock, ShieldCheck, Sparkles, Building2, Landmark, ArrowRightLeft, RefreshCw,
-  FileSpreadsheet, Download, HelpCircle, PhoneCall, CheckCircle2, XCircle, ArrowRight, ExternalLink, ShieldAlert
+  FileSpreadsheet, Download, HelpCircle, PhoneCall, CheckCircle2, XCircle, ArrowRight, ExternalLink, ShieldAlert, Package, MapPin, User
 } from 'lucide-react';
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury, GovernanceCorrectionRequest, QuotaWalletTransaction } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -17,6 +17,7 @@ import { CustodyLedger } from './AccountingReports';
 import { triggerCelebration } from '../utils/celebration';
 import { ensureStoreCommerceState, getCachedPlatformCommercialCatalog } from '../utils/commerceEcosystem';
 import { inAppToast } from '../utils/inAppAlert';
+import { deleteStoreItems, isExplicitlyDeleted } from '../services/databaseService';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -44,13 +45,16 @@ interface WalletPageProps {
   treasury?: Treasury;
   setTreasury?: (updater: any) => void;
   currentUser?: any;
+  activeStore?: { id?: string };
+  activeStoreId?: string;
 }
 
-const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders: allOrders, settings, treasury, setTreasury, currentUser }) => {
+const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings, orders: allOrders, settings, treasury, setTreasury, currentUser, activeStore, activeStoreId: propStoreId }) => {
   const navigate = useNavigate();
   // Merchant orders settle in the merchant account, never in the store wallet.
   const orders = useMemo(() => getStoreOwnedOrders(allOrders), [allOrders]);
-  const { storeId: activeStoreId } = useParams();
+  const { storeId: paramStoreId } = useParams();
+  const activeStoreId = paramStoreId || propStoreId || activeStore?.id || '';
   const [modalMode, setModalMode] = useState<'none' | 'charge' | 'withdraw' | 'settings' | 'history' | 'bank' | 'cod_history' | 'withdraw_confirm' | 'error' | 'transfer_supply'>('none');
   const [selectedTreasuryId, setSelectedTreasuryId] = useState<string>('');
   const [errorConfig, setErrorConfig] = useState({ title: '', message: '' });
@@ -63,7 +67,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
   const [activeTab, setActiveTab] = useState<'all' | 'orders' | 'withdrawals' | 'manual' | 'supply_wallet' | 'merchants'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [settingsScreen, setSettingsScreen] = useState<'main' | 'payment_methods' | 'withdraw_settings'>('main');
-  const [txToDelete, setTxToDelete] = useState<string | null>(null);
+  const [txToDelete, setTxToDelete] = useState<{ ids: string[]; label: string; isOrphaned?: boolean } | null>(null);
+  const [inspectedOrder, setInspectedOrder] = useState<Order | null>(null);
   const [showQuotaTransferModal, setShowQuotaTransferModal] = useState(false);
   const [quotaTransferAmount, setQuotaTransferAmount] = useState('500');
   const [correctionModalTx, setCorrectionModalTx] = useState<any | null>(null);
@@ -335,12 +340,14 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         : (settings.hiddenWalletAmount || 0);
     const hidden = settings.enableHiddenWalletAmount ? autoClosingDiff : 0;
 
+    const netLiveBalance = Math.round((liveBalance - hidden) * 100) / 100;
+
     return { 
-        liveBalance: Math.max(0, liveBalance - hidden), 
-        rawLiveBalance: liveBalance,
+        liveBalance: netLiveBalance, 
+        rawLiveBalance: Math.round(liveBalance * 100) / 100,
         supplyBalance: wallet.supplyBalance || 0,
         pendingWithdrawals: pendingWithdrawalsSum,
-        availableToWithdraw: Math.max(0, liveBalance - hidden),
+        availableToWithdraw: Math.max(0, netLiveBalance),
         inRouteTotal
     };
   }, [wallet.transactions, wallet.supplyBalance, orders, settings.hiddenWalletAmount, settings.enableHiddenWalletAmount, settings.enableAutoClosingDifference]);
@@ -355,36 +362,260 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
     return (walletStats.liveBalance || 0) + totalTreasuryLiquidity;
   }, [walletStats.liveBalance, totalTreasuryLiquidity]);
 
-  // Auto-heal missing order collection transactions in Wallet
+  // Auto-heal missing order collection transactions & repair corrupted 0-COD sheet imports in Wallet
   useEffect(() => {
     if (!orders || orders.length === 0 || !setWallet) return;
-    
+
+    const getEffectiveOrderCod = (o: Order): number => {
+      if (o.totalAmountOverride !== undefined && o.totalAmountOverride !== null) {
+        return Math.max(0, Number(o.totalAmountOverride) || 0);
+      }
+      if (o.platform === 'bosta_sheet_import' && o.totalPrice !== undefined && o.totalPrice !== null) {
+        return Math.max(0, Number(o.totalPrice) || 0);
+      }
+      const advancePayment = Number(o.advancePayment) || 0;
+      const orderPrice = Number(o.productPrice) || 0;
+      const orderShip = Number(o.shippingFee) || 0;
+      const orderDisc = Number(o.discount) || 0;
+      const orderTax = Number((o as any).tax) || 0;
+      const isBostaImport = o.platform === 'bosta_sheet_import';
+      const orderInsp =
+        (o.includeInspectionFee ?? !isBostaImport) && o.inspectionFeePaidByCustomer !== false
+          ? (settings?.enableInspection ? settings.inspectionFee : 0)
+          : 0;
+      return Math.max(0, orderPrice + orderShip + orderTax + orderInsp - orderDisc - advancePayment);
+    };
+
     const currentTxs = wallet?.transactions || [];
-    const missingTxOrders = orders.filter(o => {
-      const isCollected = (o.status === 'تم_التحصيل' || o.status === 'تم_الاستبدال' || o.collectionProcessed);
+
+    // 1. Detect duplicate transaction IDs (e.g., from previous StrictMode double-push)
+    const seenCheck = new Set<string>();
+    let hasDuplicates = false;
+    for (const tx of currentTxs) {
+      if (seenCheck.has(tx.id)) {
+        hasDuplicates = true;
+        break;
+      }
+      seenCheck.add(tx.id);
+    }
+
+    const getSheetActualCarrierFee = (o: Order): number => {
+      // 1. On 0-COD orders, Bosta's Net Payout = -TotalFees (includes shipping + 14% VAT + insurance/fees)
+      if (o.codPayoutNetReceived != null && Number(o.codPayoutNetReceived) < 0) {
+        return Math.round(Math.abs(Number(o.codPayoutNetReceived)) * 100) / 100;
+      }
+      // 2. Parse actual carrier fee stored in internalNotes / notes
+      const noteText = `${o.internalNotes || ''} ${o.notes || ''}`;
+      const matchActual =
+        noteText.match(/شحن بوسطة الفعلي:\s*([\d.,]+)/) ||
+        noteText.match(/تكلفة بوسطة\s*([\d.,]+)/);
+      if (matchActual && matchActual[1]) {
+        const parsed = parseFloat(matchActual[1].replace(/,/g, ''));
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return Math.round(parsed * 100) / 100;
+        }
+      }
+      // 3. Reconstruct from shippingFee - codPayoutDiff (since codPayoutDiff = customerShippingFee - actualCarrierFee)
+      if (o.codPayoutDiff != null && Number(o.shippingFee) > 0) {
+        const reconstructed = Math.round((Number(o.shippingFee) - Number(o.codPayoutDiff)) * 100) / 100;
+        if (reconstructed > 0) return reconstructed;
+      }
+      // 4. Fallback to customer shippingFee
+      return Math.round(Math.max(0, Number(o.shippingFee) || 0) * 100) / 100;
+    };
+
+    // 2. Detect 0-COD all-inclusive bosta_sheet_import orders that got bogus deposits, missed shipping, or got under-deducted (base shippingFee instead of actual Bosta total fees)
+    const zeroCodSheetOrders = orders.filter(
+      o =>
+        o.platform === 'bosta_sheet_import' &&
+        o.sheetFeeBillingMode !== 'store_company_fees' &&
+        getEffectiveOrderCod(o) === 0
+    );
+    const zeroCodOrderIds = new Set(zeroCodSheetOrders.map(o => o.id));
+    const zeroCodOrderNumbers = new Set(
+      zeroCodSheetOrders.map(o => String(o.orderNumber || '').trim()).filter(Boolean)
+    );
+    const zeroCodById = new Map<string, Order>(zeroCodSheetOrders.map(o => [o.id, o]));
+
+    const isBogusZeroDepositTx = (t: Transaction): boolean => {
+      const matchesZeroOrder = Boolean(
+        (t.orderId && zeroCodOrderIds.has(t.orderId)) ||
+          (t.orderNumber && zeroCodOrderNumbers.has(String(t.orderNumber).trim()))
+      );
+      return (
+        matchesZeroOrder &&
+        t.type === 'إيداع' &&
+        (t.category === 'collection' || t.id.startsWith('collect_'))
+      );
+    };
+    const hasBogusZeroCodDeposit = currentTxs.some(isBogusZeroDepositTx);
+
+    const hasUnderDeductedZeroCodShip = currentTxs.some(t => {
+      if (t.type !== 'سحب' || t.category !== 'shipping' || !t.orderId) return false;
+      const ord = zeroCodById.get(t.orderId);
+      if (!ord) return false;
+      const expectedActualFee = getSheetActualCarrierFee(ord);
+      const baseShip = Math.round((Number(ord.shippingFee) || 0) * 100) / 100;
+      return (
+        expectedActualFee > 0 &&
+        Math.abs(Number(t.amount) - expectedActualFee) > 0.01 &&
+        (Math.abs(Number(t.amount) - baseShip) <= 0.01 || (t.note || '').includes('(تحصيل 0 - بوسطة)'))
+      );
+    });
+
+    const zeroCodMissingShipping = zeroCodSheetOrders.filter(o => {
+      if (o.status === 'قيد_التنفيذ') return false;
+      if (isExplicitlyDeleted(`ship_${o.id}`, activeStoreId, 'transactions')) return false;
+      const hasShipTx = currentTxs.some(
+        t =>
+          t.id === `ship_${o.id}` ||
+          (t.orderId === o.id && t.type === 'سحب' && t.category === 'shipping') ||
+          (t.orderNumber &&
+            String(t.orderNumber).trim() === String(o.orderNumber || '').trim() &&
+            t.type === 'سحب' &&
+            t.category === 'shipping')
+      );
+      if (hasShipTx) return false;
+      return getSheetActualCarrierFee(o) > 0;
+    });
+
+    // 3. Detect genuine collected orders (>0 COD) missing their collection deposit
+    const missingCollectOrders = orders.filter(o => {
+      const isCollected =
+        o.status === 'تم_التحصيل' || o.status === 'تم_الاستبدال' || o.collectionProcessed;
       if (!isCollected) return false;
-      const hasCollectTx = currentTxs.some(t => 
-        t.id === `collect_${o.id}` || 
-        t.orderId === o.id || 
-        (t.orderNumber && String(t.orderNumber) === String(o.orderNumber) && t.type === 'إيداع')
+      if (
+        isExplicitlyDeleted(`collect_${o.id}`, activeStoreId, 'transactions') ||
+        isExplicitlyDeleted(`collect_heal_${o.id}`, activeStoreId, 'transactions')
+      ) {
+        return false;
+      }
+      const codAmount = getEffectiveOrderCod(o);
+      if (codAmount <= 0) return false;
+      const hasCollectTx = currentTxs.some(
+        t =>
+          t.id === `collect_${o.id}` ||
+          t.id === `collect_heal_${o.id}` ||
+          (t.orderId === o.id && t.type === 'إيداع' && (t.category === 'collection' || !t.category)) ||
+          (t.orderNumber &&
+            String(t.orderNumber) === String(o.orderNumber) &&
+            t.type === 'إيداع' &&
+            (t.category === 'collection' || !t.category))
       );
       return !hasCollectTx;
     });
 
-    if (missingTxOrders.length > 0) {
-      const newTxsToPush: any[] = [];
-      missingTxOrders.forEach(o => {
-        const advancePayment = Number(o.advancePayment) || 0;
-        const orderPrice = Number(o.productPrice) || 0;
-        const orderShip = Number(o.shippingFee) || 0;
-        const orderDisc = Number(o.discount) || 0;
-        const orderTax = Number((o as any).tax) || 0;
-        const orderInsp = (o.includeInspectionFee && (o.inspectionFeePaidByCustomer !== false)) ? (settings?.enableInspection ? settings.inspectionFee : 0) : 0;
-        const baseAmountToCollect = o.totalAmountOverride ?? (orderPrice + orderShip + orderTax + orderInsp - orderDisc - advancePayment);
+    if (
+      !hasDuplicates &&
+      !hasBogusZeroCodDeposit &&
+      !hasUnderDeductedZeroCodShip &&
+      zeroCodMissingShipping.length === 0 &&
+      missingCollectOrders.length === 0
+    ) {
+      return;
+    }
 
+    setWallet(prev => {
+      const prevTxs = prev.transactions || [];
+      let changed = false;
+      let balanceDelta = 0;
+
+      // Step A: Deduplicate by tx.id, strip bogus 0-COD deposits, & upgrade under-deducted 0-COD shipping txs to actual Bosta fees
+      const seenIds = new Set<string>();
+      const cleanedTxs: Transaction[] = [];
+
+      for (const tx of prevTxs) {
+        const isDuplicate = seenIds.has(tx.id);
+        const isBogusZeroDeposit = isBogusZeroDepositTx(tx);
+
+        if (isDuplicate || isBogusZeroDeposit) {
+          changed = true;
+          if (tx.type === 'إيداع' && tx.status === 'completed') {
+            balanceDelta -= Number(tx.amount) || 0;
+          } else if (tx.type === 'سحب' && tx.status !== 'cancelled') {
+            balanceDelta += Number(tx.amount) || 0;
+          }
+          continue;
+        }
+        seenIds.add(tx.id);
+
+        if (tx.type === 'سحب' && tx.category === 'shipping' && tx.orderId && zeroCodById.has(tx.orderId)) {
+          const ord = zeroCodById.get(tx.orderId)!;
+          const expectedActualFee = getSheetActualCarrierFee(ord);
+          const baseShip = Math.round((Number(ord.shippingFee) || 0) * 100) / 100;
+          if (
+            expectedActualFee > 0 &&
+            Math.abs(Number(tx.amount) - expectedActualFee) > 0.01 &&
+            (Math.abs(Number(tx.amount) - baseShip) <= 0.01 || (tx.note || '').includes('(تحصيل 0 - بوسطة)'))
+          ) {
+            const diff = Math.round((expectedActualFee - Number(tx.amount)) * 100) / 100;
+            balanceDelta -= diff;
+            changed = true;
+            cleanedTxs.push({
+              ...tx,
+              amount: expectedActualFee,
+              note: `مصاريف شحن بوسطة الفعلية أوردر #${ord.orderNumber} (تحصيل 0 - شامل الضريبة والرسوم)`
+            });
+            continue;
+          }
+        }
+
+        cleanedTxs.push(tx);
+      }
+
+      const txsToAdd: Transaction[] = [];
+
+      // Step B: Insert missing shipping withdrawal for 0-COD bosta_sheet_import orders using full actual Bosta fees
+      for (const o of zeroCodMissingShipping) {
+        const shipId = `ship_${o.id}`;
+        const alreadyHasShip =
+          seenIds.has(shipId) ||
+          cleanedTxs.some(
+            t => t.orderId === o.id && t.type === 'سحب' && t.category === 'shipping'
+          );
+        if (alreadyHasShip) continue;
+
+        const actualFee = getSheetActualCarrierFee(o);
+
+        if (actualFee > 0) {
+          seenIds.add(shipId);
+          txsToAdd.push({
+            id: shipId,
+            type: 'سحب',
+            amount: actualFee,
+            date: o.updatedAt || o.createdAt || new Date().toISOString(),
+            note: `مصاريف شحن بوسطة الفعلية أوردر #${o.orderNumber} (تحصيل 0 - شامل الضريبة والرسوم)`,
+            category: 'shipping',
+            status: 'completed',
+            orderId: o.id,
+            orderNumber: o.orderNumber
+          });
+          balanceDelta -= actualFee;
+          changed = true;
+        }
+      }
+
+      // Step C: Insert missing collection deposits (strictly when baseAmountToCollect > 0)
+      for (const o of missingCollectOrders) {
+        const healId = `collect_heal_${o.id}`;
+        const alreadyHasCollect =
+          seenIds.has(healId) ||
+          seenIds.has(`collect_${o.id}`) ||
+          cleanedTxs.some(
+            t =>
+              (t.orderId === o.id && t.type === 'إيداع' && (t.category === 'collection' || !t.category)) ||
+              (t.orderNumber &&
+                String(t.orderNumber) === String(o.orderNumber) &&
+                t.type === 'إيداع' &&
+                (t.category === 'collection' || !t.category))
+          );
+        if (alreadyHasCollect) continue;
+
+        const baseAmountToCollect = getEffectiveOrderCod(o);
         if (baseAmountToCollect > 0) {
-          newTxsToPush.push({
-            id: `collect_heal_${o.id}`,
+          seenIds.add(healId);
+          txsToAdd.push({
+            id: healId,
             type: 'إيداع',
             amount: baseAmountToCollect,
             date: o.updatedAt || o.createdAt || new Date().toISOString(),
@@ -392,50 +623,136 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
             category: 'collection',
             status: 'completed',
             orderId: o.id,
-            orderNumber: o.orderNumber,
+            orderNumber: o.orderNumber
           });
+          balanceDelta += baseAmountToCollect;
+          changed = true;
         }
-      });
-
-      if (newTxsToPush.length > 0) {
-        setWallet(prev => ({
-          ...prev,
-          transactions: [...newTxsToPush, ...(prev.transactions || [])]
-        }));
       }
-    }
+
+      if (!changed) return prev;
+
+      return {
+        ...prev,
+        balance: Math.round(((Number(prev.balance) || 0) + balanceDelta) * 100) / 100,
+        transactions: [...txsToAdd, ...cleanedTxs]
+      };
+    });
   }, [orders, wallet?.transactions, setWallet, settings]);
 
 
+  const findRelatedOrderForItem = (item: any): Order | null => {
+    if (!item) return null;
+    if (typeof item.id === 'string' && item.id.startsWith('group-supply_')) return null;
+
+    const candidateIds = new Set<string>();
+    const candidateNumbers = new Set<string>();
+
+    const collect = (tx: any) => {
+      if (!tx) return;
+      if (tx.orderId) candidateIds.add(String(tx.orderId).trim());
+      if (tx.orderNumber) candidateNumbers.add(String(tx.orderNumber).replace(/^#/, '').trim());
+      const note = String(tx.note || '');
+      const m =
+        note.match(/أوردر #([^ \(\)\[\]]+)/) ||
+        note.match(/الطلب #([^ \(\)\[\]]+)/) ||
+        note.match(/بطلب #([^ \(\)\[\]]+)/) ||
+        note.match(/#([A-Za-z0-9_-]+)/);
+      if (m?.[1]) candidateNumbers.add(m[1].trim());
+    };
+
+    collect(item);
+    if (Array.isArray(item.items)) {
+      item.items.forEach(collect);
+    }
+    if (item.isGroup && typeof item.id === 'string' && item.id.startsWith('group-')) {
+      const key = item.id.replace('group-', '').trim();
+      if (key && !key.startsWith('supply_')) {
+        candidateIds.add(key);
+        candidateNumbers.add(key);
+      }
+    }
+
+    if (candidateIds.size === 0 && candidateNumbers.size === 0) return null;
+
+    const sourceList = allOrders || orders || [];
+    for (const o of sourceList) {
+      if (candidateIds.has(String(o.id).trim())) return o;
+      const oNum = String(o.orderNumber || '').replace(/^#/, '').trim();
+      if (oNum && candidateNumbers.has(oNum)) return o;
+    }
+    return null;
+  };
+
+  const isOrderLinkedItem = (item: any): boolean => {
+    if (!item) return false;
+    if (typeof item.id === 'string' && item.id.startsWith('group-supply_')) return false;
+    if (item.category === 'wallet_withdrawal' || item.category === 'wallet_charge') return false;
+    if (item.category?.startsWith('supply_') || item.category === 'inventory_purchase' || item.category === 'supplier_payment') return false;
+    if (item.isGroup) return true;
+    if (item.orderId || item.orderNumber) return true;
+    const note = String(item.note || '');
+    return /أوردر #|الطلب #|بطلب #/.test(note);
+  };
+
+  const getItemTxIds = (item: any): string[] => {
+    if (item?.isGroup && Array.isArray(item.items)) {
+      return item.items.map((sub: any) => sub.id).filter(Boolean);
+    }
+    return item?.id ? [item.id] : [];
+  };
+
   const handleDeleteTransaction = (transactionId: string) => {
-    setTxToDelete(transactionId);
+    setTxToDelete({ ids: [transactionId], label: `العملية #${transactionId.slice(-6)}` });
   };
 
   const confirmDeleteTransaction = () => {
-    if (!txToDelete) return;
-    const transactionId = txToDelete;
-    
+    if (!txToDelete || txToDelete.ids.length === 0) return;
+    const idsToDelete = [...txToDelete.ids];
+    const idSet = new Set(idsToDelete);
+    let removedCount = 0;
+    let totalAdjustment = 0;
+
     setWallet(prev => {
-      const transactionToDelete = prev.transactions.find(t => t.id === transactionId);
-      if (!transactionToDelete) return prev;
-      
-      const newTransactions = prev.transactions.filter(t => t.id !== transactionId);
-      
-      // Recalculate balance if it was a completed transaction
+      const currentTxs = prev.transactions || [];
       let balanceAdjustment = 0;
-      if (transactionToDelete.type === 'إيداع' && transactionToDelete.status === 'completed') {
-        balanceAdjustment = -transactionToDelete.amount;
-      } else if (transactionToDelete.type === 'سحب' && transactionToDelete.status !== 'cancelled') {
-        balanceAdjustment = transactionToDelete.amount;
-      }
-      
+
+      const newTransactions = currentTxs.filter(t => {
+        if (!idSet.has(t.id)) return true;
+        removedCount += 1;
+        const amt = Number(t.amount) || 0;
+        if (t.type === 'إيداع' && t.status === 'completed') {
+          balanceAdjustment -= amt;
+        } else if (t.type === 'سحب' && t.status !== 'cancelled') {
+          balanceAdjustment += amt;
+        }
+        return false;
+      });
+
+      if (removedCount === 0) return prev;
+      totalAdjustment = Math.round(balanceAdjustment * 100) / 100;
+
       return {
         ...prev,
         transactions: newTransactions,
-        balance: prev.balance + balanceAdjustment
+        balance: Math.round(((Number(prev.balance) || 0) + totalAdjustment) * 100) / 100
       };
     });
+
+    if (activeStoreId && idsToDelete.length > 0) {
+      void deleteStoreItems(activeStoreId, 'transactions', idsToDelete);
+    }
+
+    inAppToast(
+      `تم حذف ${idsToDelete.length} ${idsToDelete.length > 1 ? 'حركات' : 'حركة'} (${txToDelete.label}) وتحديث رصيد المحفظة تلقائياً.`,
+      'success'
+    );
     setTxToDelete(null);
+  };
+
+  const getOrderTrackingCode = (o: Order | null | undefined): string => {
+    if (!o) return '';
+    return String(o.waybillNumber || o.bostaTrackingNumber || (o as any).trackingNumber || (o as any).shippingTrackingNumber || '').trim();
   };
 
   // Derived settings or defaults
@@ -1161,10 +1478,16 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       </div>
 
                       <div className="pt-2">
-                          <span className="text-[11px] font-bold text-slate-400 block mb-1">الرصيد الصافي المتاح للسحب الفوري والتحويل</span>
-                          <p className="text-4xl md:text-5xl font-black tracking-tight text-white flex items-baseline gap-2">
-                              {walletStats.liveBalance.toLocaleString('ar-EG')}
-                              <span className="text-base font-bold text-emerald-400">ج.م</span>
+                          <span className="text-[11px] font-bold text-slate-400 block mb-1">
+                            {walletStats.liveBalance < 0
+                              ? 'رصيد المحفظة الحالي (مديونية / رصيد سالب)'
+                              : 'الرصيد الصافي المتاح للسحب الفوري والتحويل'}
+                          </span>
+                          <p className={`text-4xl md:text-5xl font-black tracking-tight tabular-nums flex items-baseline gap-2 ${walletStats.liveBalance < 0 ? 'text-rose-400' : 'text-white'}`}>
+                              <span dir="ltr">
+                                {walletStats.liveBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                              </span>
+                              <span className={`text-base font-bold ${walletStats.liveBalance < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>ج.م</span>
                           </p>
                       </div>
 
@@ -1343,22 +1666,26 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* 1. Primary Central Wallet (Real Active Balance) */}
-                <div className="bg-white dark:bg-slate-900 border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-3xl p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-all text-right relative overflow-hidden">
+                <div className={`bg-white dark:bg-slate-900 border-2 rounded-3xl p-5 shadow-xs flex flex-col justify-between hover:shadow-md transition-all text-right relative overflow-hidden ${walletStats.liveBalance < 0 ? 'border-rose-500/40 dark:border-rose-500/30' : 'border-emerald-500/30 dark:border-emerald-500/20'}`}>
                   <div className="flex items-center justify-between mb-3">
-                    <div className="p-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
+                    <div className={`p-2.5 rounded-2xl ${walletStats.liveBalance < 0 ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600'}`}>
                       <WalletIcon size={18} />
                     </div>
-                    <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      الرصيد الأساسي المتاح 💎
+                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border ${walletStats.liveBalance < 0 ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800' : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'}`}>
+                      {walletStats.liveBalance < 0 ? 'رصيد سالب (مديونية شحن)' : 'الرصيد الأساسي المتاح'}
                     </span>
                   </div>
                   <div>
                     <h4 className="text-xs font-black text-slate-900 dark:text-white line-clamp-1">المحفظة المركزية الرئيسية</h4>
-                    <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                      {Number(walletStats.liveBalance || 0).toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{' '}
+                    <p className={`text-2xl font-black tabular-nums mt-1 flex items-baseline gap-1 ${walletStats.liveBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      <span dir="ltr">
+                        {Number(walletStats.liveBalance || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </span>
                       <span className="text-xs font-bold text-slate-400">ج.م</span>
                     </p>
-                    <span className="text-[10px] text-slate-400 font-bold block mt-1">حساب التحصيلات والمبيعات المباشر</span>
+                    <span className="text-[10px] text-slate-400 font-bold block mt-1">
+                      {walletStats.liveBalance < 0 ? 'مخصوم منها مصاريف الشحن المستحقة' : 'حساب التحصيلات والمبيعات المباشر'}
+                    </span>
                   </div>
                 </div>
 
@@ -1915,7 +2242,17 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
           <>
           <div className="grid grid-cols-1 gap-4">
               <AnimatePresence mode="popLayout">
-                {paginatedHistory.map((item: any, idx) => (
+                {paginatedHistory.map((item: any, idx) => {
+                    const relatedOrder = findRelatedOrderForItem(item);
+                    const isOrderLinked = isOrderLinkedItem(item);
+                    const isOrphanedOrderTx = isOrderLinked && !relatedOrder;
+                    const trackingCode = getOrderTrackingCode(relatedOrder);
+                    const itemTxIds = getItemTxIds(item);
+                    const deleteLabel = item.orderNumber
+                      ? `تسويات الأوردر #${item.orderNumber}`
+                      : getTransactionTitle(item);
+
+                    return (
                     <div key={item.id} className="space-y-4">
                       <motion.div
                         layout
@@ -1931,11 +2268,13 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                           }
                         }}
                         className={`group p-5 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200/60 dark:border-slate-800/60 shadow-xs hover:shadow-xl hover:border-indigo-200/50 dark:hover:border-indigo-500/30 transition-all cursor-pointer relative overflow-hidden ${
-                          item.isGroup || item.orderId || item.orderNumber || activeTab === 'orders'
-                            ? 'border-r-[6px] border-r-indigo-600 dark:border-r-indigo-500' 
-                            : isDepositTransaction(item) 
-                              ? 'border-r-[6px] border-r-emerald-500' 
-                              : 'border-r-[6px] border-r-rose-500'
+                          isOrphanedOrderTx
+                            ? 'border-r-[6px] border-r-amber-500 dark:border-r-amber-400'
+                            : item.isGroup || item.orderId || item.orderNumber || activeTab === 'orders'
+                              ? 'border-r-[6px] border-r-indigo-600 dark:border-r-indigo-500' 
+                              : isDepositTransaction(item) 
+                                ? 'border-r-[6px] border-r-emerald-500' 
+                                : 'border-r-[6px] border-r-rose-500'
                         }`}
                       >
                           {/* Status dynamic hover glow */}
@@ -1943,22 +2282,56 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                           
                           <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                               <div className="flex items-center gap-5 w-full md:w-auto flex-row-reverse">
-                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 ${
-                                      item.isGroup || item.orderId || item.orderNumber || activeTab === 'orders'
+                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110 shrink-0 ${
+                                      isOrphanedOrderTx
+                                      ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-200/70 dark:border-amber-500/20'
+                                      : item.isGroup || item.orderId || item.orderNumber || activeTab === 'orders'
                                       ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-500/10'
                                       : isDepositTransaction(item) 
                                       ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-500/10' 
                                       : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-100/50 dark:border-rose-500/10'
                                   }`}>
-                                      {item.isGroup ? <Layers size={24} className="text-indigo-600 dark:text-indigo-400" /> : (isDepositTransaction(item) ? <ArrowUpRight size={24} /> : <ArrowDownLeft size={24} />)}
+                                      {isOrphanedOrderTx ? <AlertTriangle size={24} /> : item.isGroup ? <Layers size={24} className="text-indigo-600 dark:text-indigo-400" /> : (isDepositTransaction(item) ? <ArrowUpRight size={24} /> : <ArrowDownLeft size={24} />)}
                                   </div>
                                   <div className="text-right">
                                       <h5 className="text-base font-black text-slate-800 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors tracking-tight">
                                           {getTransactionTitle(item)}
                                       </h5>
-                                      <div className="flex items-center gap-3 flex-row-reverse mt-1.5">
-                                          <span className="text-[11px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">#{item.orderNumber || item.id.slice(-6)}</span>
-                                           
+                                      <div className="flex flex-wrap items-center gap-2 flex-row-reverse mt-1.5">
+                                          {relatedOrder ? (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setInspectedOrder(relatedOrder);
+                                              }}
+                                              className="inline-flex items-center gap-1.5 text-[11px] font-black text-indigo-700 dark:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 px-2.5 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-700/60 transition-colors cursor-pointer"
+                                              title="اضغط لعرض تفاصيل الأوردر المرتبط"
+                                            >
+                                              <Eye size={12} />
+                                              <span>#{relatedOrder.orderNumber}</span>
+                                              {relatedOrder.customerName && (
+                                                <span className="text-slate-600 dark:text-slate-300 font-bold">· {relatedOrder.customerName}</span>
+                                              )}
+                                            </button>
+                                          ) : (
+                                            <span className="text-[11px] font-black text-slate-400 bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">#{item.orderNumber || item.id.slice(-6)}</span>
+                                          )}
+
+                                          {trackingCode && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 tabular-nums">
+                                              <Truck size={11} className="text-slate-400" />
+                                              <span>بوليصة #{trackingCode}</span>
+                                            </span>
+                                          )}
+
+                                          {isOrphanedOrderTx && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-black text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-700/60">
+                                              <AlertTriangle size={11} />
+                                              <span>أوردر محذوف / غير موجود بالطلبات</span>
+                                            </span>
+                                          )}
+
                                           <span className="w-1 h-1 bg-slate-300 dark:bg-slate-600 rounded-full"></span>
                                           <div className="flex items-center gap-1.5 flex-row-reverse">
                                               <Calendar size={12} className="text-slate-400"/>
@@ -1974,10 +2347,10 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                   </div>
                               </div>
 
-                              <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end flex-row-reverse">
+                              <div className="flex items-center gap-5 w-full md:w-auto justify-between md:justify-end flex-row-reverse">
                                   <div className="text-right">
                                       <div className="flex items-baseline gap-1 flex-row-reverse">
-                                          <p className={`text-2xl font-black ${isDepositTransaction(item) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                                          <p className={`text-2xl font-black tabular-nums ${isDepositTransaction(item) ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                               {isDepositTransaction(item) ? '+' : '-'}{item.amount.toLocaleString()}
                                           </p>
                                           <span className={`text-xs font-bold ${isDepositTransaction(item) ? 'text-emerald-600/60' : 'text-rose-600/60'}`}>ج.م</span>
@@ -1990,15 +2363,9 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                       )}
                                   </div>
                                   
-                                  <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2.5">
                                       {(() => {
-                                          const relevantOrder = item.orderId 
-                                              ? cycleOrders.find(o => o.id === item.orderId) || orders.find(o => o.id === item.orderId)
-                                              : item.orderNumber 
-                                                ? cycleOrders.find(o => String(o.orderNumber) === String(item.orderNumber)) || orders.find(o => String(o.orderNumber) === String(item.orderNumber))
-                                                : null;
-                                          
-                                          const isCancelledWithDeduction = relevantOrder?.status === 'ملغي';
+                                          const isCancelledWithDeduction = relatedOrder?.status === 'ملغي';
 
                                           return (
                                               <span className={`inline-flex flex-row-reverse items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-[11px] font-black border tracking-wide ${
@@ -2030,6 +2397,23 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                               </span>
                                           );
                                       })()}
+                                      {isOrphanedOrderTx && itemTxIds.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTxToDelete({
+                                              ids: itemTxIds,
+                                              label: deleteLabel,
+                                              isOrphaned: true
+                                            });
+                                          }}
+                                          className="p-3 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 transition-all cursor-pointer shadow-xs border border-rose-200/70 dark:border-rose-800/60"
+                                          title="حذف حركات الأوردر المحذوف وعكس أثرها من المحفظة"
+                                        >
+                                          <Trash2 size={17} />
+                                        </button>
+                                      )}
                                       <button
                                           type="button"
                                           onClick={(e) => { e.stopPropagation(); setSelectedReceiptItem(item); }}
@@ -2056,11 +2440,79 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="mr-12 overflow-hidden space-y-2"
+                            className="mr-6 md:mr-12 overflow-hidden space-y-2"
                           >
+                            {/* Linked Order Context Banner */}
+                            {relatedOrder ? (
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/70 dark:border-indigo-800/60">
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-right text-xs">
+                                  <span className="font-black text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-1.5">
+                                    <Package size={14} />
+                                    الأوردر #{relatedOrder.orderNumber}
+                                  </span>
+                                  {relatedOrder.customerName && (
+                                    <span className="font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1">
+                                      <User size={12} className="text-slate-400" />
+                                      {relatedOrder.customerName}
+                                    </span>
+                                  )}
+                                  {relatedOrder.customerPhone && (
+                                    <span className="font-bold text-slate-500 dark:text-slate-400 tabular-nums">{relatedOrder.customerPhone}</span>
+                                  )}
+                                  {trackingCode && (
+                                    <span className="font-bold text-slate-600 dark:text-slate-300 inline-flex items-center gap-1 tabular-nums">
+                                      <Truck size={12} className="text-slate-400" />
+                                      بوليصة #{trackingCode}
+                                    </span>
+                                  )}
+                                  <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-800 border border-indigo-200/70 dark:border-indigo-700/60 text-[11px] font-black text-indigo-700 dark:text-indigo-300">
+                                    {String(relatedOrder.status || '').replace(/_/g, ' ')}
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInspectedOrder(relatedOrder);
+                                  }}
+                                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black transition-all cursor-pointer shrink-0"
+                                >
+                                  <Eye size={14} />
+                                  <span>عرض تفاصيل الأوردر</span>
+                                </button>
+                              </div>
+                            ) : isOrphanedOrderTx ? (
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-amber-50/80 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-800/60">
+                                <div className="flex items-start gap-2.5 text-right">
+                                  <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                  <div className="text-xs">
+                                    <p className="font-black text-amber-900 dark:text-amber-200">
+                                      هذا الأوردر (#{item.orderNumber || item.id.replace('group-', '')}) غير موجود حالياً في قائمة الطلبات
+                                    </p>
+                                    <p className="text-[11px] font-bold text-amber-700/90 dark:text-amber-300/80 mt-0.5">
+                                      يبدو أنه تم حذفه مسبقاً قبل تفعيل الحذف التلقائي من المحفظة. يمكنك مسح حركاته الآن لعكس أثرها من الرصيد.
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTxToDelete({
+                                      ids: itemTxIds,
+                                      label: deleteLabel,
+                                      isOrphaned: true
+                                    });
+                                  }}
+                                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition-all cursor-pointer shrink-0"
+                                >
+                                  <Trash2 size={14} />
+                                  <span>حذف من المحفظة وعكس الرصيد</span>
+                                </button>
+                              </div>
+                            ) : null}
+
                             {(() => {
-                              const orderNum = item.orderNumber || item.id.replace('group-', '');
-                              const relatedOrder = orders.find(o => String(o.orderNumber) === String(orderNum) || o.id === orderNum);
                               const advance = relatedOrder ? Number(relatedOrder.advancePayment) || 0 : 0;
                               if (advance > 0 && relatedOrder) {
                                 return (
@@ -2075,7 +2527,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                       </div>
                                     </div>
                                     <div className="flex items-baseline gap-1 flex-row-reverse">
-                                      <span className="text-sm font-black text-amber-600 dark:text-amber-400">
+                                      <span className="text-sm font-black text-amber-600 dark:text-amber-400 tabular-nums">
                                         +{advance.toLocaleString()}
                                       </span>
                                       <span className="text-[10px] opacity-40">ج.م</span>
@@ -2085,28 +2537,54 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                               }
                               return null;
                             })()}
-                            {item.items.map((sub: any) => (
-                              <div 
-                                key={sub.id} 
-                                className="flex items-center justify-between p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-200 dark:border-slate-800"
-                              >
-                                <div className="flex items-center gap-3 flex-row-reverse">
-                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${sub.type === 'إيداع' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                    {sub.type === 'إيداع' ? <ArrowUpRight size={14}/> : <ArrowDownLeft size={14}/>}
+                            {item.items.map((sub: any) => {
+                              const subTitle = getTransactionTitle(sub);
+                              const showRawNote = sub.note && sub.note.trim() !== subTitle.trim();
+                              return (
+                                <div 
+                                  key={sub.id} 
+                                  className="flex items-center justify-between gap-3 p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-200 dark:border-slate-800"
+                                >
+                                  <div className="flex items-center gap-3 flex-row-reverse">
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${sub.type === 'إيداع' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                      {sub.type === 'إيداع' ? <ArrowUpRight size={14}/> : <ArrowDownLeft size={14}/>}
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{subTitle}</p>
+                                      {showRawNote && (
+                                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">{sub.note}</p>
+                                      )}
+                                      <p className="text-[10px] text-slate-400 mt-0.5">{new Date(sub.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
+                                    </div>
                                   </div>
-                                  <div className="text-right">
-                                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{getTransactionTitle(sub)}</p>
-                                    <p className="text-[10px] text-slate-400">{new Date(sub.date).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</p>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="flex items-baseline gap-1 flex-row-reverse">
+                                      <span className={`text-sm font-black tabular-nums ${sub.type === 'إيداع' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {sub.type === 'إيداع' ? '+' : '-'}{sub.amount.toLocaleString()}
+                                      </span>
+                                      <span className="text-[10px] opacity-40">ج.م</span>
+                                    </div>
+                                    {currentUser?.isAdmin && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setTxToDelete({
+                                            ids: [sub.id],
+                                            label: `${subTitle} (${sub.amount.toLocaleString()} ج.م)`,
+                                            isOrphaned: isOrphanedOrderTx
+                                          });
+                                        }}
+                                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                        title="حذف هذه الحركة الفرعية"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
-                                <div className="flex items-baseline gap-1 flex-row-reverse">
-                                  <span className={`text-sm font-black ${sub.type === 'إيداع' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                    {sub.type === 'إيداع' ? '+' : '-'}{sub.amount.toLocaleString()}
-                                  </span>
-                                  <span className="text-[10px] opacity-40">ج.م</span>
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </motion.div>
                         )}
                         {!item.isGroup && expandedItems[item.id] && (
@@ -2132,35 +2610,63 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                                     </div>
                                     <div className="space-y-1">
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">المبلغ</p>
-                                        <p className={`text-xs font-black ${isDepositTransaction(item) ? 'text-emerald-600' : 'text-rose-600'}`}>{item.amount.toLocaleString()} ج.م</p>
+                                        <p className={`text-xs font-black tabular-nums ${isDepositTransaction(item) ? 'text-emerald-600' : 'text-rose-600'}`}>{item.amount.toLocaleString()} ج.م</p>
                                     </div>
                                 </div>
                                 <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
                                 <div className="text-right space-y-1">
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">تفاصيل / ملاحظات</p>
-                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{getTransactionTitle(item)}</p>
+                                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">{item.note || getTransactionTitle(item)}</p>
                                 </div>
-                                {item.orderId && (
+                                {(relatedOrder || isOrderLinked) && (
                                     <>
                                         <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
-                                        <div className="text-right space-y-1">
-                                            <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">مرتبط بطلب رقم</p>
-                                            <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">#{item.orderNumber || item.orderId}</p>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                            <div className="text-right space-y-1">
+                                                <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest">الطلب المرتبط</p>
+                                                {relatedOrder ? (
+                                                  <p className="text-sm font-black text-indigo-600 dark:text-indigo-400">
+                                                    #{relatedOrder.orderNumber} — {relatedOrder.customerName || 'عميل'} {trackingCode ? `(بوليصة #${trackingCode})` : ''}
+                                                  </p>
+                                                ) : (
+                                                  <p className="text-xs font-black text-amber-600 dark:text-amber-400">
+                                                    #{item.orderNumber || item.orderId} — الأوردر غير موجود في قائمة الطلبات (محذوف مسبقاً)
+                                                  </p>
+                                                )}
+                                            </div>
+                                            {relatedOrder && (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setInspectedOrder(relatedOrder);
+                                                }}
+                                                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black transition-all cursor-pointer shrink-0"
+                                              >
+                                                <Eye size={14} />
+                                                <span>عرض تفاصيل الأوردر</span>
+                                              </button>
+                                            )}
                                         </div>
                                     </>
                                 )}
                                 <div className="h-px bg-slate-200 dark:bg-slate-700 w-full" />
                                 <div className="flex justify-end pt-2">
-                                    {currentUser?.isAdmin ? (
+                                    {(currentUser?.isAdmin || isOrphanedOrderTx) ? (
                                         <button
+                                            type="button"
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                setTxToDelete(item.id);
+                                                setTxToDelete({
+                                                  ids: [item.id],
+                                                  label: deleteLabel,
+                                                  isOrphaned: isOrphanedOrderTx
+                                                });
                                             }}
                                             className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 rounded-xl text-xs font-black transition-all border border-rose-200/60 dark:border-rose-900/40 cursor-pointer"
                                         >
                                             <Trash2 size={14} />
-                                            <span>حذف العملية نهائياً وتصحيح الرصيد (مدير المنصة)</span>
+                                            <span>{isOrphanedOrderTx ? 'حذف حركة الأوردر المحذوف وعكس الرصيد' : 'حذف العملية نهائياً وتصحيح الرصيد (مدير المنصة)'}</span>
                                         </button>
                                     ) : (
                                         <button
@@ -2182,7 +2688,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         )}
                       </AnimatePresence>
                     </div>
-                ))}
+                    );
+                })}
               </AnimatePresence>
 
               {paginatedHistory.length === 0 && (
@@ -2292,8 +2799,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         <p className="text-xs font-bold text-slate-400">الرصيد المتاح</p>
                     </div>
                     <div className="flex items-baseline gap-1.5 flex-row-reverse">
-                      <h4 className="text-2xl font-black text-slate-800 dark:text-white">
-                        {walletStats.liveBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      <h4 dir="ltr" className={`text-2xl font-black tabular-nums ${walletStats.liveBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-white'}`}>
+                        {walletStats.liveBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </h4>
                       <span className="text-[10px] font-bold text-slate-400">ج.م</span>
                     </div>
@@ -2446,8 +2953,8 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                         <p className="text-xs font-bold text-slate-400">الرصيد المتاح</p>
                     </div>
                     <div className="flex items-baseline gap-1.5 flex-row-reverse">
-                      <h4 className="text-2xl font-black text-slate-800 dark:text-white">
-                        {walletStats.liveBalance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      <h4 dir="ltr" className={`text-2xl font-black tabular-nums ${walletStats.liveBalance < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-white'}`}>
+                        {walletStats.liveBalance.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </h4>
                       <span className="text-[10px] font-bold text-slate-400">ج.م</span>
                     </div>
@@ -3285,6 +3792,44 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                       <span className="text-slate-500 dark:text-slate-400 max-w-[200px] text-left line-clamp-2">{selectedReceiptItem.note}</span>
                     </div>
                   )}
+                  {(() => {
+                    const receiptOrder = findRelatedOrderForItem(selectedReceiptItem);
+                    if (receiptOrder) {
+                      const trk = getOrderTrackingCode(receiptOrder);
+                      return (
+                        <>
+                          <div className="flex justify-between pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <span>الأوردر المرتبط:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedReceiptItem(null);
+                                setInspectedOrder(receiptOrder);
+                              }}
+                              className="text-indigo-600 dark:text-indigo-400 underline font-black cursor-pointer"
+                            >
+                              #{receiptOrder.orderNumber} — {receiptOrder.customerName || 'عميل'}
+                            </button>
+                          </div>
+                          {trk && (
+                            <div className="flex justify-between">
+                              <span>رقم البوليصة:</span>
+                              <span className="font-mono tabular-nums">#{trk}</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    }
+                    if (isOrderLinkedItem(selectedReceiptItem)) {
+                      return (
+                        <div className="flex justify-between pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-amber-600 dark:text-amber-400">
+                          <span>حالة الأوردر بالمتجر:</span>
+                          <span className="font-black">غير موجود (تم حذفه مسبقاً)</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 {/* Verification Stamp */}
@@ -3601,9 +4146,198 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
         </div>
       )}
 
+      {/* Linked Order Details Preview Modal */}
+      <AnimatePresence>
+        {inspectedOrder && (
+          <div
+            className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md"
+            onClick={() => setInspectedOrder(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 16 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-slate-900 w-full max-w-xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-right"
+              dir="rtl"
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                    <Package size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                      تفاصيل الأوردر #{inspectedOrder.orderNumber}
+                    </h3>
+                    <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                      {new Date(inspectedOrder.date || inspectedOrder.createdAt || Date.now()).toLocaleDateString('ar-EG', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectedOrder(null)}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 dark:bg-slate-800 dark:text-slate-300 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+                {/* Status & Tracking Row */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-3 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800 text-xs font-black">
+                    الحالة: {String(inspectedOrder.status || '').replace(/_/g, ' ')}
+                  </span>
+                  {inspectedOrder.paymentStatus && (
+                    <span className="px-3 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800 text-xs font-black">
+                      الدفع: {inspectedOrder.paymentStatus}
+                    </span>
+                  )}
+                  {getOrderTrackingCode(inspectedOrder) && (
+                    <span className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-black tabular-nums inline-flex items-center gap-1.5">
+                      <Truck size={13} className="text-slate-400" />
+                      بوليصة #{getOrderTrackingCode(inspectedOrder)}
+                    </span>
+                  )}
+                  {inspectedOrder.shippingCompany && (
+                    <span className="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold">
+                      {inspectedOrder.shippingCompany}
+                    </span>
+                  )}
+                </div>
+
+                {/* Customer Info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 text-xs">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-bold text-slate-400">العميل</p>
+                    <p className="font-black text-slate-800 dark:text-white flex items-center gap-1.5">
+                      <User size={13} className="text-indigo-500" />
+                      {inspectedOrder.customerName || 'غير محدد'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-bold text-slate-400">رقم الهاتف</p>
+                    <p className="font-black text-slate-800 dark:text-white tabular-nums flex items-center gap-1.5">
+                      <PhoneCall size={13} className="text-emerald-500" />
+                      {inspectedOrder.customerPhone || '—'}
+                    </p>
+                  </div>
+                  <div className="sm:col-span-2 space-y-1">
+                    <p className="text-[11px] font-bold text-slate-400">العنوان / المحافظة</p>
+                    <p className="font-bold text-slate-700 dark:text-slate-300 flex items-start gap-1.5">
+                      <MapPin size={13} className="text-rose-500 shrink-0 mt-0.5" />
+                      <span>
+                        {[inspectedOrder.governorate, inspectedOrder.shippingArea, inspectedOrder.customerAddress]
+                          .filter(Boolean)
+                          .join(' — ') || '—'}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Products List */}
+                <div className="space-y-2">
+                  <p className="text-xs font-black text-slate-500 dark:text-slate-400">المنتجات</p>
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                    {Array.isArray(inspectedOrder.items) && inspectedOrder.items.length > 0 ? (
+                      inspectedOrder.items.map((it: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between px-4 py-2.5 text-xs">
+                          <div>
+                            <p className="font-bold text-slate-800 dark:text-white">{it.name || 'منتج'}</p>
+                            {it.variantName && (
+                              <p className="text-[11px] text-slate-400">{it.variantName}</p>
+                            )}
+                          </div>
+                          <div className="text-left tabular-nums">
+                            <span className="font-black text-slate-700 dark:text-slate-200">
+                              {Number(it.quantity || 1)} × {Number(it.price || 0).toLocaleString()} ج.م
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-4 py-3 text-xs font-bold text-slate-600 dark:text-slate-300">
+                        {inspectedOrder.productName || 'منتج غير محدد'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Financial Summary */}
+                <div className="grid grid-cols-3 gap-2.5 text-center">
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800">
+                    <p className="text-[11px] font-bold text-slate-400">سعر المنتجات</p>
+                    <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums mt-0.5">
+                      {Number(inspectedOrder.productPrice || 0).toLocaleString()} ج.م
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800">
+                    <p className="text-[11px] font-bold text-slate-400">شحن العميل</p>
+                    <p className="text-sm font-black text-slate-800 dark:text-white tabular-nums mt-0.5">
+                      {Number(inspectedOrder.shippingFee || 0).toLocaleString()} ج.م
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/70 dark:border-indigo-800/60">
+                    <p className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300">التحصيل (COD)</p>
+                    <p className="text-sm font-black text-indigo-700 dark:text-indigo-300 tabular-nums mt-0.5">
+                      {Number(
+                        inspectedOrder.totalAmountOverride ??
+                          inspectedOrder.totalPrice ??
+                          (Number(inspectedOrder.productPrice || 0) + Number(inspectedOrder.shippingFee || 0) - Number(inspectedOrder.discount || 0))
+                      ).toLocaleString()} ج.م
+                    </p>
+                  </div>
+                </div>
+
+                {(inspectedOrder.notes || inspectedOrder.internalNotes) && (
+                  <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/50 text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    <span className="font-black text-amber-800 dark:text-amber-300 block mb-1">ملاحظات الأوردر:</span>
+                    {inspectedOrder.internalNotes || inspectedOrder.notes}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectedOrder(null);
+                    navigate(activeStoreId ? `/store/${activeStoreId}/orders` : '/orders');
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black transition-all cursor-pointer"
+                >
+                  <ExternalLink size={14} />
+                  <span>فتح في شاشة الطلبات</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectedOrder(null)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-black transition-all cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <ConfirmationModal 
         isOpen={!!txToDelete}
-        message="هل أنت متأكد من حذف هذه العملية؟ سيتم تعديل الرصيد تلقائياً إذا كانت العملية قد اكتملت."
+        title={txToDelete?.isOrphaned ? 'حذف حركات أوردر محذوف من المحفظة' : 'تأكيد حذف العملية من المحفظة'}
+        message={
+          txToDelete
+            ? `هل أنت متأكد من حذف ${txToDelete.label} (${txToDelete.ids.length} ${txToDelete.ids.length > 1 ? 'حركات' : 'حركة'})؟ سيتم عكس أثرها من رصيد المحفظة تلقائياً.`
+            : 'هل أنت متأكد من حذف هذه العملية؟ سيتم تعديل الرصيد تلقائياً إذا كانت العملية قد اكتملت.'
+        }
         onConfirm={confirmDeleteTransaction}
         onCancel={() => setTxToDelete(null)}
       />

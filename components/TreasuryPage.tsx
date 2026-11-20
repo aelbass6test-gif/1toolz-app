@@ -373,7 +373,7 @@ export const TreasuryPage: React.FC<TreasuryPageProps> = ({
       id: 'main_wallet',
       name: 'المحفظة العامة (الرصيد الأساسي)',
       type: 'wallet',
-      balance: Math.max(0, calculateMainWalletBalance() - hidden),
+      balance: Math.round((calculateMainWalletBalance() - hidden) * 100) / 100,
       currency: 'EGP',
       walletName: 'المحفظة العامة',
       location: 'المركز المالي الرئيسي'

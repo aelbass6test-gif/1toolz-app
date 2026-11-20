@@ -15,7 +15,7 @@ import { InvoiceAttachmentUploader } from './InvoiceAttachmentUploader';
 import { MerchantTransparencyTab } from './MerchantTransparencyTab';
 import MerchantPortal from './MerchantPortal';
 import * as XLSX from 'xlsx';
-import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee, getCompanySpecificFees, calculateInsuranceFee, calculateBostaVat } from '../utils/financials';
+import { calculateCodFee, calculateOrderShippingAndFees, getStandardShippingFee, getCompanySpecificFees, calculateInsuranceFee, calculateBostaVat, getEffectiveReturnShippingFee } from '../utils/financials';
 import { inAppAlert, inAppConfirm, inAppToast } from '../utils/inAppAlert';
 import { allocateMerchantWithdrawal, calculateMerchantBalance, calculateMerchantOpeningBalance, getMerchantOrderGroups, splitSettlementByOrder, transitionMerchantSettlement, upsertOrderSettlements } from '../utils/merchantAccounting';
 
@@ -100,8 +100,8 @@ const calculateMerchantShippingBreakdown = (
     
     // Determine if calculateOrderShippingAndFees added a return fee
     const isReturnStatus = RETURN_STATUSES.includes(order.status);
-    const applyReturnFee = useCustom ? (compFees?.enableFixedReturn ?? false) : settings.enableReturnShipping;
-    const returnFeeInTotal = isReturnStatus && applyReturnFee ? (useCustom ? (compFees?.returnShippingFee ?? 0) : settings.returnShippingFee) : 0;
+    const { returnFeeAmount: effectiveReturnFee } = getEffectiveReturnShippingFee(order, settings);
+    const returnFeeInTotal = isReturnStatus ? effectiveReturnFee : 0;
 
     // Use total WITHOUT return fee for the 'total' field here, 
     // because computeOrderFinancials will add its own returnFee variable from the UI state.

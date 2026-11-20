@@ -1113,7 +1113,7 @@ const Dashboard = ({ orders: allOrders, settings, wallet, treasury, currentUser,
         : (settings.hiddenWalletAmount || 0);
 
     const hidden = settings.enableHiddenWalletAmount ? autoClosingDiff : 0;
-    const cashBalance = Math.max(0, rawCashBalance - hidden);
+    const cashBalance = Math.round((rawCashBalance - hidden) * 100) / 100;
 
     const treasuryTotal = Math.max(0, (treasury?.accounts || []).reduce((sum, acc) => sum + (acc.balance || 0), 0) - hidden);
     const workingCapital = treasuryTotal + totalInventoryValue;

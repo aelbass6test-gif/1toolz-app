@@ -1338,6 +1338,15 @@ export interface Settings {
   codReconciliationBatches?: CodSettlementBatch[];
   codCarrierColumnProfiles?: Record<string, CodSheetColumnProfile>;
   codExpectedPayoutGraceDays?: number;
+  sheetProductMappings?: Record<
+    string,
+    Array<{
+      productId: string;
+      variantId?: string;
+      quantity?: number;
+      updatedAt?: string;
+    }>
+  >;
 }
 
 export type ApiKeyScope = 
@@ -2050,6 +2059,7 @@ export interface Order {
   codPayoutExpectedNet?: number;
   codPayoutDiff?: number;
   codPayoutSheetRef?: string;
+  sheetFeeBillingMode?: 'carrier_all_inclusive' | 'store_company_fees';
 }
 
 export interface MerchantSettlement {

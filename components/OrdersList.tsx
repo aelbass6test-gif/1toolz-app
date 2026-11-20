@@ -78,7 +78,7 @@ import {
   Wallet as WalletIcon,
   Store as StoreIcon,
 } from "lucide-react";
-import { deleteStoreItem } from "../services/databaseService";
+import { deleteStoreItem, deleteStoreItems } from "../services/databaseService";
 import { cfFetch } from "../services/cloudflareClient";
 import {
   Order,
@@ -122,6 +122,14 @@ import {
   getOrderProductCost,
   calculateOrderProfitLoss,
   getAdvancePaymentCustodyName,
+  isSheetReconciledOrder,
+  getCompanySpecificFees,
+  getEffectiveInsuranceRate,
+  getEffectiveInspectionFee,
+  getEffectiveReturnShippingFee,
+  getEffectiveFlexShipConfig,
+  isAllInclusiveSheetOrder,
+  getBostaSheetActualCarrierFee,
 } from "../utils/financials";
 import { generateOrdersReportHTML } from "../utils/reportGenerator";
 import { triggerWebhooks } from "../utils/webhook";
@@ -1022,6 +1030,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
 
   const handleCancelShipping = async (order: Order) => {
+    if (isSheetReconciledOrder(order)) {
+      inAppToast(
+        "هذا الطلب منزّل أو مرتبط بشيت التسوية وحالته مقفولة — التعديل متاح من صفحة الشيت فقط",
+        "warning"
+      );
+      return;
+    }
     let adapter: ShippingAdapter | null = null;
     if (order.turboTrackingNumber || order.turboDeliveryId) {
       adapter = getShippingAdapter('تربو');
@@ -1140,6 +1155,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const handleCancelBostaDelivery = handleCancelShipping;
 
   const handleSyncShippingStatus = async (order: Order) => {
+    if (isSheetReconciledOrder(order)) {
+      inAppToast(
+        "هذا الطلب منزّل أو مرتبط بشيت التسوية وحالته معتمدة ومقفولة — التعديل متاح من صفحة الشيت فقط",
+        "warning"
+      );
+      return;
+    }
     let adapter = getShippingAdapter(order.shippingCompany);
     if (!adapter) {
       if (order.bostaDeliveryId || order.bostaTrackingNumber) {
@@ -1768,8 +1790,10 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         : (o.isInsured ?? true)
           ? calculateInsuranceFee(o, insuranceRate, settings)
           : 0;
+      const isBostaSheetImport = o.platform === "bosta_sheet_import";
+      const isAllInclusiveSheet = isBostaSheetImport && o.sheetFeeBillingMode !== "store_company_fees";
       const inspectionFee =
-        !isPosOrder && (o.includeInspectionFee ?? true)
+        !isPosOrder && (o.includeInspectionFee ?? !isAllInclusiveSheet)
           ? useCustom
             ? (compFees?.inspectionFee ?? 0)
             : settings.enableInspection
@@ -1790,7 +1814,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       const orderTotal =
         o.totalAmountOverride != null
           ? Number(o.totalAmountOverride)
-          : computedTotal;
+          : isBostaSheetImport && o.totalPrice != null
+            ? Number(o.totalPrice)
+            : computedTotal;
 
       const totalCarrierExpenses = isPosOrder
         ? 0
@@ -2114,10 +2140,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           "إجمالي الحساب (COD)":
             o.totalAmountOverride != null
               ? Number(o.totalAmountOverride)
-              : Number(o.productPrice) +
-                Number(o.shippingFee) -
-                Number(o.discount) -
-                Number(o.advancePayment),
+              : o.platform === "bosta_sheet_import" && o.totalPrice != null
+                ? Number(o.totalPrice)
+                : Number(o.productPrice) +
+                  Number(o.shippingFee) -
+                  Number(o.discount) -
+                  Number(o.advancePayment),
           "تكلفة البضاعة الأصلية (COGS)": getOrderProductCost(o, settings),
           "الصافي الربحي": profit,
           "شركة الشحن": o.shippingCompany || "",
@@ -2145,6 +2173,15 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const handleDeleteOrder = (deleteRelated?: boolean) => {
     if (!orderToDelete) {
       console.error("handleDeleteOrder called with no order to delete.");
+      return;
+    }
+
+    if (isSheetReconciledOrder(orderToDelete)) {
+      inAppToast(
+        "لا يمكن حذف أوردر منزّل أو مرتبط بشيت التسوية من صفحة الطلبات — يتم فك الربط والحذف من صفحة شيت التسوية فقط.",
+        "warning"
+      );
+      setOrderToDelete(null);
       return;
     }
 
@@ -2178,52 +2215,67 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       // 1. Return stock to inventory if needed
       if (isStockDeducted) {
         let updatedProducts = [...(updatedSettings.products || [])];
+        const whId =
+          orderToDelete.warehouseId ||
+          (updatedSettings as any).defaultWarehouseId ||
+          updatedSettings.warehouses?.find((w) => w.isDefault)?.id ||
+          updatedSettings.warehouses?.[0]?.id ||
+          "wh_main";
+
         (orderToDelete.items || []).forEach((orderItem) => {
+          const qty = Math.max(0, Number(orderItem.quantity) || 0);
+          if (qty <= 0) return;
           const pIdx = updatedProducts.findIndex(
-            (p) => p.id === orderItem.productId,
+            (p) =>
+              p.id === orderItem.productId ||
+              (orderItem.variantId &&
+                p.variants?.some((v) => v.id === orderItem.variantId)),
           );
           if (pIdx > -1) {
             const prod = { ...updatedProducts[pIdx] };
-            let newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+            let newQty = (prod.stockQuantity ?? prod.stock ?? 0) + qty;
 
             // Return to warehouse stock
             let updatedWhStock = prod.warehouseStock
               ? { ...prod.warehouseStock }
               : {};
-            const whId =
-              orderToDelete.warehouseId ||
-              updatedSettings.warehouses?.find((w) => w.isDefault)?.id;
             if (whId) {
-              updatedWhStock[whId] =
-                (updatedWhStock[whId] || 0) + orderItem.quantity;
+              updatedWhStock[whId] = (updatedWhStock[whId] || 0) + qty;
             }
 
             // Return variant stock if variantId is matched
-            if (orderItem.variantId && prod.variants) {
+            if (orderItem.variantId && prod.variants?.length) {
               prod.variants = prod.variants.map((v) => {
                 if (v.id === orderItem.variantId) {
                   const vUpdated = { ...v };
-                  vUpdated.stockQuantity =
-                    (vUpdated.stockQuantity || 0) + orderItem.quantity;
+                  const nextVQty = (vUpdated.stockQuantity ?? vUpdated.stock ?? 0) + qty;
+                  vUpdated.stockQuantity = nextVQty;
+                  if (typeof vUpdated.stock === "number") {
+                    vUpdated.stock = nextVQty;
+                  }
                   vUpdated.warehouseStock = vUpdated.warehouseStock
                     ? { ...vUpdated.warehouseStock }
                     : {};
                   if (whId) {
                     vUpdated.warehouseStock[whId] =
-                      (vUpdated.warehouseStock[whId] || 0) + orderItem.quantity;
+                      (vUpdated.warehouseStock[whId] || 0) + qty;
                   }
                   return vUpdated;
                 }
                 return v;
               });
-              newQty = prod.variants.reduce((sum, v) => sum + (v.stockQuantity || 0), 0);
+              newQty = prod.variants.reduce(
+                (sum, v) => sum + (v.stockQuantity ?? v.stock ?? 0),
+                0,
+              );
             } else {
-              newQty = (prod.stockQuantity || 0) + orderItem.quantity;
+              newQty = (prod.stockQuantity ?? prod.stock ?? 0) + qty;
             }
 
             updatedProducts[pIdx] = {
               ...prod,
               stockQuantity: newQty,
+              ...(typeof prod.stock === "number" ? { stock: newQty } : {}),
               warehouseStock: updatedWhStock,
             };
           }
@@ -2491,36 +2543,57 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       );
     }
 
-    // 2. Remove associated transactions from Wallet
+    // 2. Remove associated transactions from Wallet & accurately reverse wallet balance
+    let singleWalletDeleteDispatched = false;
     setWallet((prevWallet) => {
-      // Ensure transactions is an array to prevent errors
       const currentTransactions = prevWallet.transactions || [];
+      let balanceDelta = 0;
+      const cleanNum = String(orderNumberToDelete || "").trim();
+      const removedIds: string[] = [];
 
       const updatedTransactions = currentTransactions.filter((t) => {
         const note = t.note || "";
         const id = t.id || "";
 
-        // Check if transaction is related by order number in note
-        const relatedByNote = orderNumberToDelete
-          ? note.includes(`#${orderNumberToDelete}`)
-          : false;
-
+        const relatedByNote = cleanNum ? note.includes(`#${cleanNum}`) : false;
+        const relatedByOrderNumber =
+          Boolean(cleanNum) && String(t.orderNumber || "").trim() === cleanNum;
         const relatedByField = t.orderId === orderIdToDelete;
-
-        // Check if transaction is related by a conventional ID
         const relatedById = id.endsWith(`_${orderIdToDelete}`);
 
-        // If it's related, we want to remove it, so we return false from filter
-        return !(relatedByNote || relatedById || relatedByField);
+        const isRelated =
+          relatedByNote || relatedByOrderNumber || relatedById || relatedByField;
+
+        if (isRelated) {
+          if (t.id) removedIds.push(t.id);
+          const amt = Number(t.amount) || 0;
+          if (t.type === "إيداع" && t.status === "completed") {
+            balanceDelta -= amt;
+          } else if (t.type === "سحب" && t.status !== "cancelled") {
+            balanceDelta += amt;
+          }
+        }
+
+        return !isRelated;
       });
 
-      // If nothing changed, return original wallet to avoid re-render
       if (updatedTransactions.length === currentTransactions.length) {
         return prevWallet;
       }
 
+      if (activeStore?.id && removedIds.length > 0 && !singleWalletDeleteDispatched) {
+        singleWalletDeleteDispatched = true;
+        const storeIdForDelete = activeStore.id;
+        queueMicrotask(() => {
+          void deleteStoreItems(storeIdForDelete, 'transactions', removedIds);
+        });
+      }
+
       return {
         ...prevWallet,
+        balance:
+          Math.round(((Number(prevWallet.balance) || 0) + balanceDelta) * 100) /
+          100,
         transactions: updatedTransactions,
       };
     });
@@ -2548,14 +2621,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   ): { updatedOrderData: Order; newTransactions: Transaction[] } => {
     let updatedOrderData = { ...orderToUpdate, status: newStatus };
     const newTransactions: Transaction[] = [];
-    const compFees =
-      settings.companySpecificFees?.[orderToUpdate.shippingCompany];
+    const compFees = getCompanySpecificFees(settings, orderToUpdate.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
-    const companyInspectionFee = useCustom
-      ? (compFees?.inspectionFee ?? 0)
-      : settings.enableInspection
-        ? (settings.inspectionFee ?? 0)
-        : 0;
+    const companyInspectionFee = getEffectiveInspectionFee(orderToUpdate, settings);
 
     if (
       newStatus === "تم_الارسال" &&
@@ -2578,11 +2646,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         orderNumber: orderToUpdate.orderNumber,
       });
 
-      const insuranceRate = useCustom
-        ? compFees!.insuranceFeePercent
-        : settings.enableInsurance
-          ? settings.insuranceFeePercent
-          : 0;
+      const insuranceRate = getEffectiveInsuranceRate(orderToUpdate, settings);
       let insuranceFee = 0;
       if (orderToUpdate.isInsured && insuranceRate > 0) {
         insuranceFee = calculateInsuranceFee(
@@ -2612,8 +2676,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         const companySpecificVat = useCustom
           ? (compFees?.shippingVatRate ??
             (isBosta(orderToUpdate.shippingCompany) ? 0.14 : 0))
-          : (settings?.shippingVatRate ??
-            (isBosta(orderToUpdate.shippingCompany) ? 0.14 : 0));
+          : (settings?.enableGlobalFinancials
+              ? (settings?.shippingVatRate ?? (isBosta(orderToUpdate.shippingCompany) ? 0.14 : 0))
+              : 0);
         const vatPercentageText = `${(companySpecificVat * 100).toFixed(0)}%`;
         newTransactions.push({
           id: `vat_${orderToUpdate.id}`,
@@ -2661,27 +2726,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       (newStatus === "مرتجع" || newStatus === "فشل_التوصيل" || (newStatus === "ملغي" && updatedOrderData.shippingAndInsuranceDeducted)) &&
       !updatedOrderData.returnFeeDeducted
     ) {
-      const applyReturnFee = useCustom
-        ? (compFees?.enableFixedReturn ?? false)
-        : settings.enableReturnShipping;
-      if (applyReturnFee) {
-        const returnFeeAmount = useCustom
-          ? compFees!.returnShippingFee
-          : settings.returnShippingFee;
-        if (returnFeeAmount > 0) {
-          newTransactions.push({
-            id: `return_${orderToUpdate.id}`,
-            type: "سحب",
-            amount: returnFeeAmount,
-            date: new Date().toISOString(),
-            note: `خصم مصاريف مرتجع أوردر #${orderToUpdate.orderNumber}`,
-            category: "return",
-            status: "completed",
-            orderId: orderToUpdate.id,
-            orderNumber: orderToUpdate.orderNumber,
-          });
-          updatedOrderData.returnFeeDeducted = true;
-        }
+      const { applyReturnFee, returnFeeAmount } = getEffectiveReturnShippingFee(
+        orderToUpdate,
+        settings,
+      );
+      if (applyReturnFee && returnFeeAmount > 0) {
+        newTransactions.push({
+          id: `return_${orderToUpdate.id}`,
+          type: "سحب",
+          amount: returnFeeAmount,
+          date: new Date().toISOString(),
+          note: `خصم مصاريف مرتجع أوردر #${orderToUpdate.orderNumber}`,
+          category: "return",
+          status: "completed",
+          orderId: orderToUpdate.id,
+          orderNumber: orderToUpdate.orderNumber,
+        });
+        updatedOrderData.returnFeeDeducted = true;
       }
     }
 
@@ -2864,27 +2925,23 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       orderToUpdate.returnFeeDeducted &&
       !["مرتجع", "فشل_التوصيل", "ملغي"].includes(newStatus)
     ) {
-      const applyReturnFee = useCustom
-        ? (compFees?.enableFixedReturn ?? false)
-        : settings.enableReturnShipping;
-      if (applyReturnFee) {
-        const returnFeeAmount = useCustom
-          ? (compFees?.returnShippingFee ?? 0)
-          : settings.returnShippingFee;
-        if (returnFeeAmount > 0) {
-          newTransactions.push({
-            id: `revert_return_${orderToUpdate.id}`,
-            type: "إيداع",
-            amount: returnFeeAmount,
-            date: new Date().toISOString(),
-            note: `إعادة مصاريف مرتجع أوردر #${orderToUpdate.orderNumber} (تغيير الحالة إلى ${newStatus})`,
-            category: "return",
-            status: "completed",
-            orderId: orderToUpdate.id,
-            orderNumber: orderToUpdate.orderNumber,
-          });
-          updatedOrderData.returnFeeDeducted = false;
-        }
+      const { applyReturnFee, returnFeeAmount } = getEffectiveReturnShippingFee(
+        orderToUpdate,
+        settings,
+      );
+      if (applyReturnFee && returnFeeAmount > 0) {
+        newTransactions.push({
+          id: `revert_return_${orderToUpdate.id}`,
+          type: "إيداع",
+          amount: returnFeeAmount,
+          date: new Date().toISOString(),
+          note: `إعادة مصاريف مرتجع أوردر #${orderToUpdate.orderNumber} (تغيير الحالة إلى ${newStatus})`,
+          category: "return",
+          status: "completed",
+          orderId: orderToUpdate.id,
+          orderNumber: orderToUpdate.orderNumber,
+        });
+        updatedOrderData.returnFeeDeducted = false;
       }
     }
 
@@ -2902,23 +2959,27 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       const orderShip = Number(updatedOrderData.shippingFee) || 0;
       const orderDisc = Number(updatedOrderData.discount) || 0;
       const orderTax = Number((updatedOrderData as any).tax) || 0;
-      const orderInsp = (updatedOrderData.includeInspectionFee && (updatedOrderData.inspectionFeePaidByCustomer !== false)) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const orderInsp = (updatedOrderData.includeInspectionFee && (updatedOrderData.inspectionFeePaidByCustomer !== false)) ? getEffectiveInspectionFee(updatedOrderData, settings) : 0;
 
       const baseAmountToCollect =
         updatedOrderData.totalAmountOverride ??
-        (orderPrice + orderShip + orderTax + orderInsp - orderDisc - advancePayment);
+        (updatedOrderData.platform === "bosta_sheet_import" && updatedOrderData.totalPrice != null
+          ? Number(updatedOrderData.totalPrice)
+          : orderPrice + orderShip + orderTax + orderInsp - orderDisc - advancePayment);
 
-      newTransactions.push({
-        id: `collect_${orderToUpdate.id}`,
-        type: "إيداع",
-        amount: baseAmountToCollect,
-        date: new Date().toISOString(),
-        note: `رصيد من الدفع عند الاستلام أوردر #${orderToUpdate.orderNumber}${advancePayment > 0 ? ` (بعد خصم عربون ${advancePayment} ج.م)` : ""}`,
-        category: "collection",
-        status: "completed",
-        orderId: orderToUpdate.id,
-        orderNumber: orderToUpdate.orderNumber,
-      });
+      if (baseAmountToCollect > 0) {
+        newTransactions.push({
+          id: `collect_${orderToUpdate.id}`,
+          type: "إيداع",
+          amount: baseAmountToCollect,
+          date: new Date().toISOString(),
+          note: `رصيد من الدفع عند الاستلام أوردر #${orderToUpdate.orderNumber}${advancePayment > 0 ? ` (بعد خصم عربون ${advancePayment} ج.م)` : ""}`,
+          category: "collection",
+          status: "completed",
+          orderId: orderToUpdate.id,
+          orderNumber: orderToUpdate.orderNumber,
+        });
+      }
 
       updatedOrderData.collectionProcessed = true;
       updatedOrderData.paymentStatus = "مدفوع";
@@ -3165,6 +3226,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         : incomingStatus;
     const orderToUpdate = orders.find((o) => o.id === id);
     if (!orderToUpdate) return;
+    if (isSheetReconciledOrder(orderToUpdate)) {
+      inAppToast(
+        "لا يمكن تعديل حالة طلب منزّل أو مرتبط بشيت التسوية يدوياً — التعديل متاح من صفحة الشيت فقط",
+        "warning"
+      );
+      return;
+    }
 
     if (newStatus === "تم_الارسال" && !orderToUpdate.waybillNumber) {
       setOrderForWaybill({ orderId: id, newStatus: newStatus });
@@ -3542,6 +3610,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     order: Order,
     customerPaidInspection: boolean,
   ) => {
+    if (isSheetReconciledOrder(order)) {
+      inAppToast(
+        "لا يمكن تعديل تحصيل أو حالة طلب مرتبط بشيت التسوية يدوياً — التعديل متاح من صفحة الشيت فقط",
+        "warning"
+      );
+      return;
+    }
     const isMaintenance =
       order.orderType === "maintenance" ||
       (order.status as string) === "سحب_للصيانة";
@@ -3570,23 +3645,27 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     // Always use actual order shipping/discount for base collect amount if not overridden
     const baseAmountToCollect =
       order.totalAmountOverride ??
-      basePrice + order.shippingFee + safeTax + (((order.inspectionFeePaidByCustomer !== false) && order.includeInspectionFee !== false) ? inspectionFee : 0) - (order.discount || 0) - safeAdvance;
+      (order.platform === "bosta_sheet_import" && order.totalPrice != null
+        ? Number(order.totalPrice)
+        : basePrice + order.shippingFee + safeTax + (((order.inspectionFeePaidByCustomer !== false) && order.includeInspectionFee !== false) ? inspectionFee : 0) - (order.discount || 0) - safeAdvance);
 
     const txnNote = isMaintenance
       ? `رصيد من سداد أوردر صيانة #${order.orderNumber}`
       : `رصيد من الدفع عند الاستلام أوردر #${order.orderNumber}${safeAdvance > 0 ? ` (بعد خصم عربون ${safeAdvance} ج.م)` : ""}`;
 
-    newTransactions.push({
-      id: `collect_${order.id}`,
-      type: "إيداع",
-      amount: baseAmountToCollect,
-      date: new Date().toISOString(),
-      note: txnNote,
-      category: "collection",
-      status: "completed",
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-    });
+    if (baseAmountToCollect > 0) {
+      newTransactions.push({
+        id: `collect_${order.id}`,
+        type: "إيداع",
+        amount: baseAmountToCollect,
+        date: new Date().toISOString(),
+        note: txnNote,
+        category: "collection",
+        status: "completed",
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      });
+    }
 
     const codFee = calculateCodFee(order, settings);
     if (codFee > 0) {
@@ -3633,6 +3712,13 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     order: Order,
     newPaymentStatus: PaymentStatus,
   ) => {
+    if (isSheetReconciledOrder(order)) {
+      inAppToast(
+        "لا يمكن تعديل حالة الدفع لطلب منزّل أو مرتبط بشيت التسوية يدوياً — التعديل متاح من صفحة الشيت فقط",
+        "warning"
+      );
+      return;
+    }
     const updatedOrder = { ...order, paymentStatus: newPaymentStatus };
     const isMaintenance =
       order.orderType === "maintenance" ||
@@ -3670,23 +3756,24 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   };
 
   const handlePostCollectionReturn = (order: Order) => {
-    const compFees = settings.companySpecificFees?.[order.shippingCompany];
+    if (isSheetReconciledOrder(order)) {
+      inAppToast(
+        "لا يمكن تنفيذ مرتجع يدوي لطلب منزّل أو مرتبط بشيت التسوية — التعديل متاح من صفحة الشيت فقط",
+        "warning"
+      );
+      return;
+    }
+    const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
 
     const shouldRefundProduct = useCustom
-      ? (compFees.postCollectionReturnRefundsProductPrice ?? true)
+      ? (compFees?.postCollectionReturnRefundsProductPrice ?? true)
       : true;
-    const returnShippingFee =
-      useCustom && compFees.enableFixedReturn
-        ? compFees.returnShippingFee
-        : settings.enableReturnShipping
-          ? settings.returnShippingFee
-          : 0;
-    const inspectionFee = useCustom
-      ? compFees.inspectionFee
-      : settings.enableInspection
-        ? settings.inspectionFee
-        : 0;
+    const { returnFeeAmount: returnShippingFee } = getEffectiveReturnShippingFee(
+      order,
+      settings,
+    );
+    const inspectionFee = getEffectiveInspectionFee(order, settings);
 
     let confirmationMessage = `هل أنت متأكد من إرجاع الطلب #${order.orderNumber}؟\n`;
     const transactions: Transaction[] = [];
@@ -3868,9 +3955,27 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   const handleBulkDelete = () => {
     if (selectedOrders.length === 0) return;
+
+    const selectedOrderObjs = orders.filter((o) => selectedOrders.includes(o.id));
+    const deletableOrders = selectedOrderObjs.filter((o) => !isSheetReconciledOrder(o));
+    const protectedCount = selectedOrderObjs.length - deletableOrders.length;
+
+    if (deletableOrders.length === 0) {
+      inAppToast(
+        "جميع الطلبات المحددة منزّلة أو مرتبطة بشيت التسوية ولا يمكن حذفها من صفحة الطلبات — يتم فك الربط والحذف من صفحة الشيت فقط.",
+        "warning"
+      );
+      return;
+    }
+
+    const deletableIds = new Set(deletableOrders.map((o) => o.id));
+
     confirmAction({
-      title: "حذف حماعي",
-      message: `هل أنت متأكد من حذف ${selectedOrders.length} طلبات نهائياً؟ هذا الإجراء سيقوم بإزالة بياناتهم تماماً من النظام.`,
+      title: "حذف جماعي",
+      message:
+        protectedCount > 0
+          ? `هل أنت متأكد من حذف ${deletableOrders.length} طلبات نهائياً؟ (سيتم تخطي ${protectedCount} طلبات محمية بشيت التسوية ولن تُحذف من هنا).`
+          : `هل أنت متأكد من حذف ${deletableOrders.length} طلبات نهائياً؟ هذا الإجراء سيقوم بإزالة بياناتهم وعكس حركات المحفظة ورد المخزون.`,
       type: "danger",
       confirmText: "حذف نهائي",
       onConfirm: () => {
@@ -3879,9 +3984,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         let updatedPosSales = [...(settings.posSales || [])];
         let posSalesChanged = false;
 
-        const ordersBeingDeleted = orders.filter((o) =>
-          selectedOrders.includes(o.id),
-        );
+        const ordersBeingDeleted = deletableOrders;
 
         ordersBeingDeleted.forEach((orderToDelete) => {
           const isPos =
@@ -4017,28 +4120,58 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           cashHandovers: updatedCashHandovers,
         }));
 
-        // Cascade delete from Wallet
+        // Cascade delete from Wallet & accurately reverse wallet balance
+        let bulkWalletDeleteDispatched = false;
         setWallet((prevWallet) => {
           const currentTransactions = prevWallet.transactions || [];
+          let balanceDelta = 0;
+          const removedIds: string[] = [];
+
           const updatedTransactions = currentTransactions.filter((t) => {
             const note = t.note || "";
             const id = t.id || "";
 
             const isRelated = ordersBeingDeleted.some((orderToDelete) => {
               const orderIdToDelete = orderToDelete.id;
-              const orderNumberToDelete = orderToDelete.orderNumber;
-              const relatedByNote = orderNumberToDelete
-                ? note.includes(`#${orderNumberToDelete}`)
-                : false;
+              const cleanNum = String(orderToDelete.orderNumber || "").trim();
+              const relatedByNote = cleanNum ? note.includes(`#${cleanNum}`) : false;
+              const relatedByOrderNumber =
+                Boolean(cleanNum) && String(t.orderNumber || "").trim() === cleanNum;
               const relatedByField = t.orderId === orderIdToDelete;
               const relatedById = id.endsWith(`_${orderIdToDelete}`);
-              return relatedByNote || relatedByField || relatedById;
+              return relatedByNote || relatedByOrderNumber || relatedByField || relatedById;
             });
+
+            if (isRelated) {
+              if (t.id) removedIds.push(t.id);
+              const amt = Number(t.amount) || 0;
+              if (t.type === "إيداع" && t.status === "completed") {
+                balanceDelta -= amt;
+              } else if (t.type === "سحب" && t.status !== "cancelled") {
+                balanceDelta += amt;
+              }
+            }
 
             return !isRelated;
           });
+
+          if (updatedTransactions.length === currentTransactions.length) {
+            return prevWallet;
+          }
+
+          if (activeStore?.id && removedIds.length > 0 && !bulkWalletDeleteDispatched) {
+            bulkWalletDeleteDispatched = true;
+            const storeIdForDelete = activeStore.id;
+            queueMicrotask(() => {
+              void deleteStoreItems(storeIdForDelete, 'transactions', removedIds);
+            });
+          }
+
           return {
             ...prevWallet,
+            balance:
+              Math.round(((Number(prevWallet.balance) || 0) + balanceDelta) * 100) /
+              100,
             transactions: updatedTransactions,
           };
         });
@@ -4073,7 +4206,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         }
 
         setOrders((prevOrders) =>
-          prevOrders.filter((o) => !selectedOrders.includes(o.id)),
+          prevOrders.filter((o) => !deletableIds.has(o.id)),
         );
 
         if (activeStore?.id) {
@@ -4103,16 +4236,34 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       return;
     }
 
+    const selectedOrderObjs = orders.filter((o) => selectedOrders.includes(o.id));
+    const editableOrders = selectedOrderObjs.filter((o) => !isSheetReconciledOrder(o));
+    const protectedCount = selectedOrderObjs.length - editableOrders.length;
+
+    if (editableOrders.length === 0) {
+      inAppToast(
+        "جميع الطلبات المحددة منزّلة أو مرتبطة بشيت التسوية وحالتها مقفولة ولا يمكن تعديلها يدوياً.",
+        "warning"
+      );
+      if (selectElement) selectElement.value = "default";
+      return;
+    }
+
+    const editableIds = new Set(editableOrders.map((o) => o.id));
+
     confirmAction({
       title: "تغيير الحالة جماعياً",
-      message: `هل أنت متأكد من تغيير حالة ${selectedOrders.length} طلبات إلى "${newStatus.replace(/_/g, " ")}"?`,
+      message:
+        protectedCount > 0
+          ? `هل أنت متأكد من تغيير حالة ${editableOrders.length} طلبات إلى "${newStatus.replace(/_/g, " ")}"؟ (سيتم تخطي ${protectedCount} طلبات مرتبطة بشيت التسوية لأن حالتها مقفولة).`
+          : `هل أنت متأكد من تغيير حالة ${editableOrders.length} طلبات إلى "${newStatus.replace(/_/g, " ")}"?`,
       type: "warning",
       confirmText: "تأكيد التغيير",
       onConfirm: () => {
         const allNewTransactions: Transaction[] = [];
         let currentProducts = [...settings.products];
         const updatedOrders = orders.map((o) => {
-          if (selectedOrders.includes(o.id)) {
+          if (editableIds.has(o.id)) {
             // 1. Inventory Sync
             const { updatedProducts: nextProducts, stockDeducted } =
               updateInventoryForOrder(
@@ -4171,7 +4322,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
         setSettings((prev) => {
           let nextSettings = { ...prev, products: currentProducts };
           orders.forEach((o) => {
-            if (selectedOrders.includes(o.id)) {
+            if (editableIds.has(o.id)) {
               nextSettings = processEmployeeCommission(o, o.status, newStatus as OrderStatus, nextSettings);
             }
           });
@@ -4215,10 +4366,12 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       const isPosOrder = o.channel === 'pos' || o.shippingCompany === 'كاشير - بيع مباشر' || o.shippingArea === 'نقطة البيع' || (o.id && o.id.startsWith('POS-'));
       const compFees = settings?.companySpecificFees?.[o.shippingCompany];
       const useCustom = compFees?.useCustomFees ?? false;
-      const inspectionFeeParams = !isPosOrder && (o.includeInspectionFee ?? true) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
+      const isBostaSheetImport = o.platform === 'bosta_sheet_import';
+      const isAllInclusiveSheet = isBostaSheetImport && o.sheetFeeBillingMode !== 'store_company_fees';
+      const inspectionFeeParams = !isPosOrder && (o.includeInspectionFee ?? !isAllInclusiveSheet) ? (useCustom ? (compFees?.inspectionFee ?? 0) : (settings?.enableInspection ? settings.inspectionFee : 0)) : 0;
       const computedTotal = (Number(o.productPrice) || 0) + (Number(o.shippingFee) || 0) - (Number(o.discount) || 0) - (Number(o.advancePayment) || 0) + inspectionFeeParams;
       const amountToCollect = o.totalAmountOverride != null ? Math.max(0, Math.round(Number(o.totalAmountOverride))) : computedTotal;
-      const displayTotal = o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) + inspectionFeeParams : amountToCollect;
+      const displayTotal = isBostaSheetImport && o.totalPrice != null ? Math.max(0, Number(o.totalPrice)) : (o.source === 'synced' && o.totalPrice != null ? Number(o.totalPrice) + inspectionFeeParams : amountToCollect);
 
       return [
         o.orderNumber,
@@ -6600,6 +6753,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
             setQuickViewOrder(null);
             setShowDetailsModal(ord);
           }}
+          onDelete={
+            isSheetReconciledOrder(quickViewOrder)
+              ? undefined
+              : (ord) => {
+                  setQuickViewOrder(null);
+                  setOrderToDelete(ord);
+                }
+          }
+          deleteLockedReason={
+            isSheetReconciledOrder(quickViewOrder)
+              ? "هذا الأوردر منزّل أو مرتبط بشيت التسوية — فك الربط والحذف متاح من صفحة الشيت فقط"
+              : undefined
+          }
           settings={settings}
         />
       )}
@@ -6650,11 +6816,19 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       )}
       {orderToDelete && (
         <ConfirmationModal
-          title="حذف الطلب؟"
+          title={`حذف الطلب #${orderToDelete.orderNumber} نهائياً؟`}
           description={
             orderToDelete.quotationNumber
-              ? `هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟\n\n💡 ملاحظة: هذا الطلب تم تحويله من عرض السعر #${orderToDelete.quotationNumber}. حذف هذا الطلب لن يحذف عرض السعر إطلاقاً، بل سيعود عرض السعر تلقائياً لحالة (معمد ومقبول) في صفحة عروض الأسعار لتتمكن من مراجعته أو إعادة تحويله لاحقاً.`
-              : `هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟`
+              ? `هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟\n\n• سيتم مسح جميع عمليات الطلب من محفظة المتجر وإعادة ضبط الرصيد تلقائياً.${
+                  orderToDelete.stockDeducted
+                    ? `\n• سيتم رد الكميات المسحوبة (${(orderToDelete.items || []).reduce((s, i) => s + (Number(i.quantity) || 0), 0)} قطعة) إلى المخزون الموحّد.`
+                    : ''
+                }\n• هذا الطلب تم تحويله من عرض السعر #${orderToDelete.quotationNumber} وسيعود العرض لحالة (معمد ومقبول).`
+              : `هل أنت متأكد من حذف طلب العميل "${orderToDelete.customerName}"؟\n\n• سيتم مسح جميع عمليات الطلب من محفظة المتجر وإعادة ضبط الرصيد تلقائياً.${
+                  orderToDelete.stockDeducted
+                    ? `\n• سيتم رد الكميات المسحوبة (${(orderToDelete.items || []).reduce((s, i) => s + (Number(i.quantity) || 0), 0)} قطعة) إلى المخزون الموحّد.`
+                    : '\n• هذا الطلب لم يخصم من المخزون.'
+                }`
           }
           onConfirm={handleDeleteOrder}
           onCancel={() => setOrderToDelete(null)}
@@ -7190,8 +7364,10 @@ const OrderCard = ({
     : (order.isInsured ?? true)
       ? calculateInsuranceFee(order, insuranceRate, settings)
       : 0;
+  const isBostaSheetImport = order.platform === "bosta_sheet_import";
+  const isAllInclusiveSheet = isBostaSheetImport && order.sheetFeeBillingMode !== "store_company_fees";
   const inspectionFeeAmount =
-    !isPosOrder && (order.includeInspectionFee ?? true)
+    !isPosOrder && (order.includeInspectionFee ?? !isAllInclusiveSheet)
       ? useCustom
         ? (compFees?.inspectionFee ?? 0)
         : settings.enableInspection
@@ -7224,9 +7400,11 @@ const OrderCard = ({
       ? Math.max(0, Math.round(Number(order.totalAmountOverride)))
       : computedTotal;
   const displayTotal =
-    order.source === "synced" && order.totalPrice != null
-      ? Number(order.totalPrice) + inspectionFee
-      : totalAmount;
+    isBostaSheetImport && order.totalPrice != null
+      ? Math.max(0, Number(order.totalPrice))
+      : order.source === "synced" && order.totalPrice != null
+        ? Number(order.totalPrice) + inspectionFee
+        : totalAmount;
 
   const standardInspectionFee = (order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
   const standardRequiredTotal = Math.max(
@@ -7242,6 +7420,42 @@ const OrderCard = ({
         safeReturnCash,
     ),
   );
+
+  const negativeCarrierSettlement: number | null = (() => {
+    if (isPosOrder || displayTotal !== 0) return null;
+    const isCarrierSettled =
+      order.collectionProcessed ||
+      order.shippingAndInsuranceDeducted ||
+      [
+        "تم_التحصيل",
+        "تم_التوصيل",
+        "تم_توصيلها",
+        "مدفوعة",
+        "تم_الاستبدال",
+        "مرتجع",
+        "فشل_التوصيل",
+      ].includes(order.status);
+    if (!isCarrierSettled) return null;
+    if (order.codPayoutNetReceived != null && Number(order.codPayoutNetReceived) < 0) {
+      return Math.round(Number(order.codPayoutNetReceived) * 100) / 100;
+    }
+    const noteText = `${order.internalNotes || ""} ${order.notes || ""}`;
+    const matchActual =
+      noteText.match(/شحن بوسطة الفعلي:\s*([\d.,]+)/) ||
+      noteText.match(/تكلفة بوسطة\s*([\d.,]+)/);
+    if (matchActual && matchActual[1]) {
+      const parsed = parseFloat(matchActual[1].replace(/,/g, ""));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return -Math.round(parsed * 100) / 100;
+      }
+    }
+    if (isAllInclusiveSheet && order.codPayoutDiff != null && Number(order.shippingFee) > 0) {
+      const reconstructed = Math.round((Number(order.shippingFee) - Number(order.codPayoutDiff)) * 100) / 100;
+      if (reconstructed > 0) return -reconstructed;
+    }
+    const totalCarrierCharge = Math.round((safeShippingFee + insuranceFee + bostaVatFee) * 100) / 100;
+    return totalCarrierCharge > 0 ? -totalCarrierCharge : null;
+  })();
 
   return (
     <motion.div
@@ -7334,9 +7548,17 @@ const OrderCard = ({
       <div className="flex flex-wrap items-center gap-3 mb-8">
         <div
           className={`inline-flex items-center gap-2 px-4 py-2 rounded-2xl ${statusInfo.color} text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}
+          title={
+            isSheetReconciledOrder(order)
+              ? "الحالة مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية ولا يمكن تعديل حالته يدوياً"
+              : undefined
+          }
         >
           <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
-          {statusInfo.label}
+          <span>{statusInfo.label}</span>
+          {isSheetReconciledOrder(order) && (
+            <Lock size={11} className="opacity-90 shrink-0" />
+          )}
         </div>
         {order.compensationStatus === 'compensated' && (
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-850 whitespace-nowrap shadow-sm">
@@ -7491,39 +7713,75 @@ const OrderCard = ({
       <div className="flex items-center justify-between flex-row-reverse mb-8 group/total">
         <div className="text-right">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-            المبلغ الإجمالي
+            {negativeCarrierSettlement !== null ? "صافي تحصيل شركة الشحن" : "المبلغ الإجمالي"}
           </p>
           <div className="flex flex-col items-end gap-1 text-right">
             <div className="flex items-baseline gap-1 justify-end">
-              <span className="text-xs font-black text-indigo-600">ج.م</span>
-              <h4 className="text-3xl font-black text-slate-900 dark:text-white tabular-nums group-hover/total:scale-105 transition-transform origin-right">
-                {displayTotal.toLocaleString(undefined, {
+              <span className={`text-xs font-black ${negativeCarrierSettlement !== null ? "text-rose-600 dark:text-rose-400" : "text-indigo-600"}`}>ج.م</span>
+              <h4
+                dir="ltr"
+                className={`text-3xl font-black tabular-nums group-hover/total:scale-105 transition-transform origin-right ${
+                  negativeCarrierSettlement !== null
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-slate-900 dark:text-white"
+                }`}
+              >
+                {(negativeCarrierSettlement !== null ? negativeCarrierSettlement : displayTotal).toLocaleString("en-US", {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 2,
                 })}
               </h4>
             </div>
-            {displayTotal !== standardRequiredTotal && (
-              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
+            {negativeCarrierSettlement !== null ? (
+              <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-rose-50/70 dark:bg-rose-950/25 p-2 rounded-xl border border-rose-200/70 dark:border-rose-900/50">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
-                  <span className="font-black text-indigo-600 dark:text-indigo-400">
-                    {standardRequiredTotal.toLocaleString(undefined, {
+                  <span className="font-bold text-[10px]">تحصيل العميل (COD):</span>
+                  <span className="font-black text-slate-700 dark:text-slate-200 tabular-nums">0 ج.م</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-[10px]">خصم شركة الشحن:</span>
+                  <span dir="ltr" className="font-black text-rose-600 dark:text-rose-400 tabular-nums">
+                    {negativeCarrierSettlement.toLocaleString("en-US", {
                       minimumFractionDigits: 0,
                       maximumFractionDigits: 2,
                     })} ج.م
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-[10px]">المحصل فعلياً:</span>
-                  <span className="font-black text-slate-700 dark:text-slate-300">
-                    {displayTotal.toLocaleString(undefined, {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 2,
-                    })} ج.م
-                  </span>
-                </div>
+                {safeProductPrice > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-[10px]">قيمة المنتج:</span>
+                    <span className="font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                      {safeProductPrice.toLocaleString("en-US", {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
+                    </span>
+                  </div>
+                )}
               </div>
+            ) : (
+              displayTotal !== standardRequiredTotal && (
+                <div className="flex flex-col items-end gap-1 text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-2 rounded-xl border border-slate-200/50 dark:border-slate-800">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-[10px]">المطلوب تحصيله:</span>
+                    <span className="font-black text-indigo-600 dark:text-indigo-400">
+                      {standardRequiredTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-[10px]">المحصل فعلياً:</span>
+                    <span className="font-black text-slate-700 dark:text-slate-300">
+                      {displayTotal.toLocaleString(undefined, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2,
+                      })} ج.م
+                    </span>
+                  </div>
+                </div>
+              )
             )}
           </div>
           {(order.advancePayment || 0) > 0 && (
@@ -7760,12 +8018,22 @@ const OrderCard = ({
               );
             })()}
             <div className="h-[1px] bg-slate-100 dark:bg-slate-800 my-1 mx-2" />
-            <button
-              onClick={onDelete}
-              className="w-full text-right px-4 py-3 text-xs font-black text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
-            >
-              حذف نهائي <Trash2 size={16} />
-            </button>
+            {isSheetReconciledOrder(order) ? (
+              <div
+                className="w-full text-right px-4 py-2.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/30 rounded-2xl flex items-center justify-end gap-2.5 cursor-not-allowed"
+                title="هذا الأوردر منزّل أو مرتبط بشيت التسوية — فك الربط والحذف يتم من صفحة الشيت فقط"
+              >
+                <span>مرتبط بشيت التسوية (الحذف من الشيت)</span>
+                <Lock size={14} className="shrink-0" />
+              </div>
+            ) : (
+              <button
+                onClick={onDelete}
+                className="w-full text-right px-4 py-3 text-xs font-black text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-2xl flex items-center justify-end gap-3 transition-colors"
+              >
+                حذف نهائي <Trash2 size={16} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -7838,44 +8106,45 @@ const ProfitBreakdown: React.FC<{
 
   const effectiveCustomerShippingFee = isShippingIncludedInAgreedTotal ? 0 : safeShippingFee;
 
-  // Calculate Standard Shipping Fee for expense side
-  const standardShippingFee = getStandardShippingFee(order, settings);
+  const isBostaSheetImport = order.platform === "bosta_sheet_import";
+  const isAllInclusiveSheet = isAllInclusiveSheetOrder(order);
+  const actualSheetCarrierFee = isAllInclusiveSheet ? getBostaSheetActualCarrierFee(order) : 0;
 
-  const compFees = settings.companySpecificFees?.[order.shippingCompany];
+  // Calculate Standard Shipping Fee for expense side
+  const standardShippingFee = isAllInclusiveSheet
+    ? actualSheetCarrierFee
+    : (order.isManualShippingOverride && order.shippingFee !== undefined)
+      ? Number(order.shippingFee)
+      : getStandardShippingFee(order, settings);
+
+  const compFees = getCompanySpecificFees(settings, order.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
 
-  const insuranceRate = useCustom
-    ? (compFees?.insuranceFeePercent ?? 0)
-    : settings.enableInsurance
-      ? settings.insuranceFeePercent
-      : 0;
+  const insuranceRate = isAllInclusiveSheet ? 0 : getEffectiveInsuranceRate(order, settings);
   const insuranceFee =
-    (order.isInsured ?? true)
+    !isAllInclusiveSheet && (order.isInsured ?? true)
       ? calculateInsuranceFee(order, insuranceRate, settings)
       : 0;
   const isPosOrder =
     order.channel === "pos" || order.shippingCompany === "كاشير - بيع مباشر";
   const inspectionFee =
-    !isPosOrder && (order.includeInspectionFee ?? true)
-      ? useCustom
-        ? (compFees?.inspectionFee ?? 0)
-        : settings.enableInspection
-          ? settings.inspectionFee
-          : 0
+    !isPosOrder && !isAllInclusiveSheet && (order.includeInspectionFee ?? true)
+      ? getEffectiveInspectionFee(order, settings)
       : 0;
-  const codFee = calculateCodFee(order, settings);
-  const bostaVatFee = calculateBostaVat(order, insuranceFee, settings);
+  const codFee = isAllInclusiveSheet ? 0 : calculateCodFee(order, settings);
+  const bostaVatFee = isAllInclusiveSheet ? 0 : calculateBostaVat(order, insuranceFee, settings);
   const currentVatRate = useCustom
     ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0))
-    : (settings?.shippingVatRate ??
-      (isBosta(order.shippingCompany) ? 0.14 : 0));
+    : (settings?.enableGlobalFinancials
+        ? (settings?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0))
+        : 0);
   const dynamicVatLabel = `ضريبة القيمة المضافة (${(currentVatRate * 100).toFixed(0)}%)`;
 
   const safeTax = Number(order.tax) || 0;
   const inspectionAdjustment = isPosOrder ? 0 : inspectionFee;
 
   const inspectionRevenue =
-    (order.includeInspectionFee !== false && !isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
+    (!isAllInclusiveSheet && order.includeInspectionFee !== false && !isPosOrder && order.inspectionFeePaidByCustomer !== false) ? inspectionFee : 0;
 
   const baseRevenue =
     safeProductPrice + effectiveCustomerShippingFee + safeTax + inspectionRevenue + safeAdminFee;
@@ -7887,58 +8156,41 @@ const ProfitBreakdown: React.FC<{
     order.totalAmountOverride !== null &&
     String(order.totalAmountOverride).trim() !== ""
       ? Number(order.totalAmountOverride)
-      : expectedCollectionAmount;
+      : isBostaSheetImport && order.totalPrice != null
+        ? Number(order.totalPrice)
+        : expectedCollectionAmount;
 
   const manualDifference = amountCollectedFromCustomer - expectedCollectionAmount;
 
   const extraAdjustment = manualDifference;
 
-  const totalExpenses =
-    safeProductCost +
-    standardShippingFee +
-    insuranceFee +
-    inspectionAdjustment +
-    codFee +
-    bostaVatFee;
+  const totalExpenses = isAllInclusiveSheet
+    ? safeProductCost + actualSheetCarrierFee
+    : safeProductCost +
+      standardShippingFee +
+      insuranceFee +
+      inspectionAdjustment +
+      codFee +
+      bostaVatFee;
 
   // Dynamic Profit/Loss calculations based on status
   const isReturnedOrFailed = ["مرتجع", "فشل_التوصيل"].includes(order.status);
-  const applyReturnFee = isPosOrder
-    ? false
-    : useCustom
-      ? (compFees?.enableFixedReturn ?? false)
-      : settings.enableReturnShipping;
-  const returnFeeAmount = applyReturnFee
-    ? useCustom
-      ? (compFees?.returnShippingFee ?? 0)
-      : settings.returnShippingFee
-    : 0;
+  const { returnFeeAmount } = getEffectiveReturnShippingFee(order, settings);
 
-  const carrierCost =
-    standardShippingFee +
-    insuranceFee +
-    bostaVatFee +
-    (isReturnedOrFailed ? inspectionAdjustment + returnFeeAmount : 0);
-  const isFlexShipEnabled =
-    order.enableFlexShip !== undefined
-      ? order.enableFlexShip
-      : useCustom
-        ? (compFees?.enableFlexShip ?? false)
-        : (settings.enableFlexShip ?? false);
-  const flexFeeValue = isFlexShipEnabled
-    ? (order.flexShipFee !== undefined ? order.flexShipFee : (useCustom
-      ? (compFees?.flexShipFee ?? 0)
-      : (settings.flexShipFee ?? 0)))
-    : 0;
+  const carrierCost = isAllInclusiveSheet
+    ? actualSheetCarrierFee
+    : standardShippingFee +
+      insuranceFee +
+      bostaVatFee +
+      (isReturnedOrFailed ? inspectionAdjustment + returnFeeAmount : 0);
+  const flexConfig = getEffectiveFlexShipConfig(order, settings);
+  const isFlexShipEnabled = flexConfig.enabled;
+  const flexFeeValue = flexConfig.flexShipFee;
   const flexPaidAmount =
     isFlexShipEnabled && order.flexShipFeePaidByCustomer
-      ? order.flexShipFee || flexFeeValue
+      ? (order.flexShipFee || flexFeeValue)
       : 0;
-  const flexCompanyFeeValue = isFlexShipEnabled
-    ? useCustom
-      ? (compFees?.flexShipCompanyFee ?? 0)
-      : (settings.flexShipCompanyFee ?? 0)
-    : 0;
+  const flexCompanyFeeValue = flexConfig.flexShipCompanyFee;
   const flexCompanyFeePaid =
     isFlexShipEnabled && order.flexShipFeePaidByCustomer
       ? (order.flexShipCompanyFee ?? flexCompanyFeeValue)
@@ -8108,13 +8360,13 @@ const ProfitBreakdown: React.FC<{
                 </div>
 
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                  <span>تكلفة بوليصة الشحن (للشركة):</span>
+                  <span>{isAllInclusiveSheet ? "تكلفة بوسطة الفعلية الشاملة (بالشيت):" : "تكلفة بوليصة الشحن (للشركة):"}</span>
                   <span className="font-mono font-bold text-rose-500 tabular-nums">
                     -{standardShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                   </span>
                 </div>
 
-                {insuranceFee > 0 && (
+                {!isAllInclusiveSheet && insuranceFee > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>التأمين على الشحنة:</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
@@ -8123,7 +8375,7 @@ const ProfitBreakdown: React.FC<{
                   </div>
                 )}
 
-                {bostaVatFee > 0 && (
+                {!isAllInclusiveSheet && bostaVatFee > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>{dynamicVatLabel}:</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
@@ -8132,7 +8384,7 @@ const ProfitBreakdown: React.FC<{
                   </div>
                 )}
 
-                {inspectionAdjustment > 0 && (
+                {!isAllInclusiveSheet && inspectionAdjustment > 0 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>المعاينة (سماح بفتح الطرد):</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
@@ -8141,7 +8393,7 @@ const ProfitBreakdown: React.FC<{
                   </div>
                 )}
 
-                {codFee > 0.009 && (
+                {!isAllInclusiveSheet && codFee > 0.009 && (
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
                     <span>رسوم التحصيل (COD):</span>
                     <span className="font-mono font-bold text-rose-500 tabular-nums">
@@ -8220,9 +8472,11 @@ const ProfitBreakdown: React.FC<{
             <div className="space-y-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
               <div className="flex justify-between items-center flex-row-reverse text-sm">
                 <span className="text-slate-500 font-semibold">
-                  بوليصة الشحن (الذهاب):
+                  {isAllInclusiveSheet
+                    ? "تكلفة بوسطة الفعلية الشاملة (بالشيت):"
+                    : "بوليصة الشحن (الذهاب):"}
                 </span>
-                <span className="font-black text-rose-500">
+                <span className="font-black text-rose-500 tabular-nums">
                   -
                   {standardShippingFee.toLocaleString(undefined, {
                     minimumFractionDigits: 0,
@@ -8231,12 +8485,12 @@ const ProfitBreakdown: React.FC<{
                   ج.م
                 </span>
               </div>
-              {insuranceFee > 0 && (
+              {!isAllInclusiveSheet && insuranceFee > 0 && (
                 <div className="flex justify-between items-center flex-row-reverse text-sm">
                   <span className="text-slate-500 font-semibold">
                     التأمين المقتطع:
                   </span>
-                  <span className="font-black text-rose-500">
+                  <span className="font-black text-rose-500 tabular-nums">
                     -
                     {insuranceFee.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
@@ -8246,12 +8500,12 @@ const ProfitBreakdown: React.FC<{
                   </span>
                 </div>
               )}
-              {bostaVatFee > 0 && (
+              {!isAllInclusiveSheet && bostaVatFee > 0 && (
                 <div className="flex justify-between items-center flex-row-reverse text-sm">
                   <span className="text-slate-500 font-semibold">
                     ضريبة القيمة المضافة للبوليصة:
                   </span>
-                  <span className="font-black text-rose-500">
+                  <span className="font-black text-rose-500 tabular-nums">
                     -
                     {bostaVatFee.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
@@ -8261,12 +8515,12 @@ const ProfitBreakdown: React.FC<{
                   </span>
                 </div>
               )}
-              {isReturnedOrFailed && inspectionAdjustment > 0 && (
+              {!isAllInclusiveSheet && isReturnedOrFailed && inspectionAdjustment > 0 && (
                 <div className="flex justify-between items-center flex-row-reverse text-sm">
                   <span className="text-slate-500 font-semibold">
                     رسوم المعاينة:
                   </span>
-                  <span className="font-black text-rose-500">
+                  <span className="font-black text-rose-500 tabular-nums">
                     -
                     {inspectionAdjustment.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
@@ -8276,12 +8530,12 @@ const ProfitBreakdown: React.FC<{
                   </span>
                 </div>
               )}
-              {isReturnedOrFailed && returnFeeAmount > 0 && (
+              {!isAllInclusiveSheet && isReturnedOrFailed && returnFeeAmount > 0 && (
                 <div className="flex justify-between items-center flex-row-reverse text-sm">
                   <span className="text-slate-500 font-semibold">
                     رسوم المرتجع لشركة الشحن:
                   </span>
-                  <span className="font-black text-rose-500">
+                  <span className="font-black text-rose-500 tabular-nums">
                     -
                     {returnFeeAmount.toLocaleString(undefined, {
                       minimumFractionDigits: 0,
@@ -8294,7 +8548,7 @@ const ProfitBreakdown: React.FC<{
               <div className="h-[1px] bg-slate-200/50 dark:bg-slate-700/50" />
               <div className="flex justify-between items-center flex-row-reverse text-sm font-bold text-rose-700 dark:text-rose-400">
                 <span>إجمالي خسائر الشحن لشركة النقل:</span>
-                <span>
+                <span className="tabular-nums">
                   -
                   {carrierCost.toLocaleString(undefined, {
                     minimumFractionDigits: 0,
@@ -8902,30 +9156,24 @@ const OrderRow = ({
   const safeProductCost = Number(order.productCost) || 0;
   const safeAdvance = Number(order.advancePayment) || 0;
 
-  const compFees = settings.companySpecificFees?.[order.shippingCompany];
+  const compFees = getCompanySpecificFees(settings, order.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
   const isPosOrder =
     order.channel === "pos" || order.shippingCompany === "كاشير - بيع مباشر";
-  const insuranceRate = useCustom
-    ? (compFees?.insuranceFeePercent ?? 0)
-    : settings.enableInsurance
-      ? settings.insuranceFeePercent
-      : 0;
-  const insuranceFee = isPosOrder
+  const isBostaSheetImport = order.platform === "bosta_sheet_import";
+  const isAllInclusiveSheet = isAllInclusiveSheetOrder(order);
+  const insuranceRate = isPosOrder || isAllInclusiveSheet ? 0 : getEffectiveInsuranceRate(order, settings);
+  const insuranceFee = isPosOrder || isAllInclusiveSheet
     ? 0
     : (order.isInsured ?? true)
       ? calculateInsuranceFee(order, insuranceRate, settings)
       : 0;
   const inspectionFeeAmount =
-    !isPosOrder && (order.includeInspectionFee ?? true)
-      ? useCustom
-        ? (compFees?.inspectionFee ?? 0)
-        : settings.enableInspection
-          ? settings.inspectionFee
-          : 0
+    !isPosOrder && !isAllInclusiveSheet && (order.includeInspectionFee ?? true)
+      ? getEffectiveInspectionFee(order, settings)
       : 0;
   const inspectionFee = (order.inspectionFeePaidByCustomer !== false && order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
-  const bostaVatFee = isPosOrder
+  const bostaVatFee = isPosOrder || isAllInclusiveSheet
     ? 0
     : calculateBostaVat(order, insuranceFee, settings);
 
@@ -8950,9 +9198,11 @@ const OrderRow = ({
       ? Math.max(0, Math.round(Number(order.totalAmountOverride)))
       : computedTotal;
   const displayTotal =
-    order.source === "synced" && order.totalPrice != null
-      ? Number(order.totalPrice) + inspectionFee
-      : totalAmount;
+    isBostaSheetImport && order.totalPrice != null
+      ? Math.max(0, Number(order.totalPrice))
+      : order.source === "synced" && order.totalPrice != null
+        ? Number(order.totalPrice) + inspectionFee
+        : totalAmount;
 
   const standardInspectionFee = (order.includeInspectionFee !== false) ? inspectionFeeAmount : 0;
   const standardRequiredTotal = Math.max(
@@ -8968,6 +9218,49 @@ const OrderRow = ({
         safeReturnCash,
     ),
   );
+
+  const negativeCarrierSettlement: number | null = (() => {
+    if (isPosOrder || displayTotal !== 0) return null;
+    const isCarrierSettled =
+      order.collectionProcessed ||
+      order.shippingAndInsuranceDeducted ||
+      [
+        "تم_التحصيل",
+        "تم_التوصيل",
+        "تم_توصيلها",
+        "مدفوعة",
+        "تم_الاستبدال",
+        "مرتجع",
+        "فشل_التوصيل",
+      ].includes(order.status);
+    if (!isCarrierSettled) return null;
+    if (isAllInclusiveSheet) {
+      const sheetFee = getBostaSheetActualCarrierFee(order);
+      if (sheetFee > 0) return -sheetFee;
+    }
+    if (order.sheetFeeBillingMode !== "store_company_fees") {
+      if (order.codPayoutNetReceived != null && Number(order.codPayoutNetReceived) < 0) {
+        return Math.round(Number(order.codPayoutNetReceived) * 100) / 100;
+      }
+      const noteText = `${order.internalNotes || ""} ${order.notes || ""}`;
+      const matchActual =
+        noteText.match(/شحن بوسطة الفعلي:\s*([\d.,]+)/) ||
+        noteText.match(/تكلفة بوسطة\s*([\d.,]+)/);
+      if (matchActual && matchActual[1]) {
+        const parsed = parseFloat(matchActual[1].replace(/,/g, ""));
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return -Math.round(parsed * 100) / 100;
+        }
+      }
+    }
+    const { returnFeeAmount: rowReturnFee } = ["مرتجع", "فشل_التوصيل"].includes(order.status)
+      ? getEffectiveReturnShippingFee(order, settings)
+      : { returnFeeAmount: 0 };
+    const totalCarrierCharge = Math.round(
+      (safeShippingFee + insuranceFee + bostaVatFee + inspectionFeeAmount + rowReturnFee) * 100
+    ) / 100;
+    return totalCarrierCharge > 0 ? -totalCarrierCharge : null;
+  })();
 
   const getStatusBadgeStyle = (status: OrderStatus) => {
     switch (status) {
@@ -8990,17 +9283,9 @@ const OrderRow = ({
   };
   const attemptsCount = (order.callAttempts || []).length;
 
-  const isFlexShipEnabled =
-    order.enableFlexShip !== undefined
-      ? order.enableFlexShip
-      : useCustom
-        ? (compFees?.enableFlexShip ?? false)
-        : (settings.enableFlexShip ?? false);
-  const flexFeeValue = isFlexShipEnabled
-    ? (order.flexShipFee !== undefined ? order.flexShipFee : (useCustom
-      ? (compFees?.flexShipFee ?? 0)
-      : (settings.flexShipFee ?? 0)))
-    : 0;
+  const flexConfig = getEffectiveFlexShipConfig(order, settings);
+  const isFlexShipEnabled = flexConfig.enabled;
+  const flexFeeValue = flexConfig.flexShipFee;
 
   const { net } = calculateOrderProfitLoss(order, settings);
   const currentNetProfit = net;
@@ -9314,13 +9599,33 @@ const OrderRow = ({
           <div className="text-right space-y-1 relative">
             <div className="flex flex-col items-end gap-1 justify-end group/collection">
               <div className="flex items-baseline gap-1 justify-end flex-row-reverse">
-                <span className={`text-lg font-black tabular-nums drop-shadow-sm ${isPosOrder && displayTotal === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
-                  {(isPosOrder && displayTotal === 0 ? orderTotalValue : displayTotal).toLocaleString(undefined, {
+                <span
+                  dir="ltr"
+                  className={`text-lg font-black tabular-nums drop-shadow-sm ${
+                    negativeCarrierSettlement !== null
+                      ? 'text-rose-600 dark:text-rose-400'
+                      : isPosOrder && displayTotal === 0
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-slate-900 dark:text-white'
+                  }`}
+                >
+                  {(negativeCarrierSettlement !== null
+                    ? negativeCarrierSettlement
+                    : isPosOrder && displayTotal === 0
+                      ? orderTotalValue
+                      : displayTotal
+                  ).toLocaleString("en-US", {
                     minimumFractionDigits: 0,
                     maximumFractionDigits: 2,
                   })}
                 </span>
-                <span className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 relative top-[-2px]">
+                <span
+                  className={`text-[9px] font-extrabold relative top-[-2px] ${
+                    negativeCarrierSettlement !== null
+                      ? 'text-rose-500 dark:text-rose-400'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
                   ج.م
                 </span>
               </div>
@@ -9329,7 +9634,12 @@ const OrderRow = ({
                   مدفوع بالكامل (كاشير)
                 </div>
               )}
-              {!isPosOrder && displayTotal === 0 && (
+              {!isPosOrder && displayTotal === 0 && negativeCarrierSettlement !== null && (
+                <div className="text-[10px] font-black text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-2 py-0.5 rounded-md border border-rose-200/70 dark:border-rose-900/40">
+                  خصم شحن (تحصيل العميل 0)
+                </div>
+              )}
+              {!isPosOrder && displayTotal === 0 && negativeCarrierSettlement === null && (
                 <div className="text-[10px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-md border border-emerald-100 dark:border-emerald-900/30">
                   {order.quotationNumber ? `عرض أسعار #${order.quotationNumber} (تحصيل 0)` : 'مدفوع مسبقاً (تحصيل 0)'}
                 </div>
@@ -9362,27 +9672,56 @@ const OrderRow = ({
                   </div>
                 </div>
               )}
-              {displayTotal !== standardRequiredTotal && (
-                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+              {negativeCarrierSettlement !== null ? (
+                <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-rose-50/50 dark:bg-rose-950/20 p-1.5 rounded-xl border border-rose-200/60 dark:border-rose-900/40">
                   <div className="flex items-center gap-1">
-                    <span className="font-bold text-[9px]">المطلوب:</span>
-                    <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
-                      {standardRequiredTotal.toLocaleString(undefined, {
+                    <span className="font-bold text-[9px]">تحصيل العميل:</span>
+                    <span className="font-extrabold text-slate-700 dark:text-slate-200 tabular-nums">0 ج.م</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="font-bold text-[9px]">خصم الشحن:</span>
+                    <span dir="ltr" className="font-extrabold text-rose-600 dark:text-rose-400 tabular-nums">
+                      {negativeCarrierSettlement.toLocaleString("en-US", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 2,
                       })} ج.م
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <span className="font-bold text-[9px]">الفعلي:</span>
-                    <span className="font-extrabold text-slate-700 dark:text-slate-300">
-                      {displayTotal.toLocaleString(undefined, {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })} ج.م
-                    </span>
-                  </div>
+                  {safeProductPrice > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-[9px]">قيمة المنتج:</span>
+                      <span className="font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                        {safeProductPrice.toLocaleString("en-US", {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2,
+                        })} ج.م
+                      </span>
+                    </div>
+                  )}
                 </div>
+              ) : (
+                displayTotal !== standardRequiredTotal && (
+                  <div className="flex flex-col items-end gap-1 text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium bg-slate-50 dark:bg-slate-800/40 p-1.5 rounded-xl border border-slate-200/50 dark:border-slate-800/50">
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-[9px]">المطلوب:</span>
+                      <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-xs">
+                        {standardRequiredTotal.toLocaleString(undefined, {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2,
+                        })} ج.م
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-[9px]">الفعلي:</span>
+                      <span className="font-extrabold text-slate-700 dark:text-slate-300">
+                        {displayTotal.toLocaleString(undefined, {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2,
+                        })} ج.م
+                      </span>
+                    </div>
+                  </div>
+                )
               )}
             </div>
             <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 flex items-center gap-1.5 justify-end mix-blend-multiply dark:mix-blend-normal mt-1">
@@ -9464,42 +9803,57 @@ const OrderRow = ({
         {/* 6. الحالة */}
         <td className={`${cellPadding}`}>
           <div className="relative group/status-select inline-block text-right">
-            <div
-              className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all duration-300 ${getStatusBadgeStyle(order.status)}`}
-            >
-              <span>{statusInfo.label}</span>
-              {order.status === "تم_التحصيل" ? (
-                <span>✓</span>
-              ) : (
-                <StatusIcon size={12} className="opacity-80" />
-              )}
-              <ChevronDown
-                size={10}
-                className="opacity-40 group-hover/status-select:opacity-100 transition-opacity"
-              />
-
-              <select
-                value={
-                  ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "مدفوعة"].includes(
-                    order.status,
-                  )
-                    ? "تم_التوصيل"
-                    : order.status
-                }
-                onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
-                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+            {isSheetReconciledOrder(order) ? (
+              <div
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border cursor-not-allowed ${getStatusBadgeStyle(order.status)}`}
+                title="الحالة مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية ولا يمكن تعديل حالته يدوياً (التعديل من صفحة الشيت فقط)"
               >
-                {ORDER_STATUSES.map((s) => (
-                  <option
-                    key={s}
-                    value={s}
-                    className="text-slate-900 bg-white font-bold"
-                  >
-                    {ORDER_STATUS_METADATA[s]?.label || s}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <span>{statusInfo.label}</span>
+                {order.status === "تم_التحصيل" ? (
+                  <span>✓</span>
+                ) : (
+                  <StatusIcon size={12} className="opacity-80" />
+                )}
+                <Lock size={10} className="opacity-75 shrink-0" />
+              </div>
+            ) : (
+              <div
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border transition-all duration-300 ${getStatusBadgeStyle(order.status)}`}
+              >
+                <span>{statusInfo.label}</span>
+                {order.status === "تم_التحصيل" ? (
+                  <span>✓</span>
+                ) : (
+                  <StatusIcon size={12} className="opacity-80" />
+                )}
+                <ChevronDown
+                  size={10}
+                  className="opacity-40 group-hover/status-select:opacity-100 transition-opacity"
+                />
+
+                <select
+                  value={
+                    ["تم_توصيلها", "تم_التوصيل", "تم_التحصيل", "مدفوعة"].includes(
+                      order.status,
+                    )
+                      ? "تم_التوصيل"
+                      : order.status
+                  }
+                  onChange={(e) => onStatusChange(e.target.value as OrderStatus)}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                >
+                  {ORDER_STATUSES.map((s) => (
+                    <option
+                      key={s}
+                      value={s}
+                      className="text-slate-900 bg-white font-bold"
+                    >
+                      {ORDER_STATUS_METADATA[s]?.label || s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {(() => {
               const isFlexShip = !!(order.flexShipFeePaidByCustomer || (order.enableFlexShip && order.flexShipFeePaidByCustomer));
               const accId = order.compensationTreasuryAccountId;
@@ -9707,32 +10061,51 @@ const OrderRow = ({
                         </div>
                       </button>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowOps(false);
-                          onPaymentChange(
-                            order.paymentStatus === "مدفوع"
-                              ? "بانتظار الدفع"
-                              : "مدفوع",
-                          );
-                        }}
-                        className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
-                      >
-                        <div className="text-right flex-1">
-                          <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-                            {order.paymentStatus === "مدفوع"
-                              ? "تحديد كـ معلق (غير مدفوع)"
-                              : "تحديد كـ مدفوع ومسوى"}
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-400 block">
-                            تحديث حالة التحصيل والمحفظة
-                          </span>
+                      {isSheetReconciledOrder(order) ? (
+                        <div
+                          className="w-full text-right p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl flex items-center justify-end gap-3 cursor-not-allowed opacity-85"
+                          title="حالة الدفع والتحصيل مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-amber-800 dark:text-amber-300 block">
+                              حالة الدفع مقفولة (تبع الشيت)
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-700/80 dark:text-amber-400/80 block">
+                              تعديل الحالة والتحصيل من صفحة الشيت فقط
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                            <Lock size={15} />
+                          </div>
                         </div>
-                        <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                          <Coins size={15} />
-                        </div>
-                      </button>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOps(false);
+                            onPaymentChange(
+                              order.paymentStatus === "مدفوع"
+                                ? "بانتظار الدفع"
+                                : "مدفوع",
+                            );
+                          }}
+                          className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+                              {order.paymentStatus === "مدفوع"
+                                ? "تحديد كـ معلق (غير مدفوع)"
+                                : "تحديد كـ مدفوع ومسوى"}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 block">
+                              تحديث حالة التحصيل والمحفظة
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                            <Coins size={15} />
+                          </div>
+                        </button>
+                      )}
                     </div>
 
                     {/* SECTION 2: DOCUMENTS & SHIPPING */}
@@ -10011,37 +10384,45 @@ const OrderRow = ({
 
                     {/* SECTION 3: MANAGEMENT & DELETION */}
                     <div className="pt-2 space-y-0.5">
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          setShowOps(false);
-                          const ok = await inAppConfirm(
-                            "هل أنت متأكد من حذف هذا الطلب نهائياً؟ لا يمكن التراجع عن هذا الإجراء وسيتم إزالته من قاعدة البيانات.",
-                            {
-                              title: "تأكيد حذف الطلب",
-                              type: "danger",
-                              confirmText: "نعم، حذف نهائياً",
-                              cancelText: "تراجع",
-                            }
-                          );
-                          if (ok) {
+                      {isSheetReconciledOrder(order) ? (
+                        <div
+                          className="w-full text-right p-2.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/50 rounded-xl flex items-center justify-end gap-3 cursor-not-allowed"
+                          title="هذا الأوردر منزّل أو مرتبط بشيت التسوية — فك الربط والحذف متاح فقط من صفحة شيت التسوية"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-amber-800 dark:text-amber-300 block">
+                              مرتبط بشيت التسوية
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-700/80 dark:text-amber-400/80 block">
+                              فك الربط أو الحذف يتم من صفحة الشيت فقط
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
+                            <Lock size={15} />
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOps(false);
                             onDelete();
-                          }
-                        }}
-                        className="w-full text-right p-2.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
-                      >
-                        <div className="text-right flex-1">
-                          <span className="text-xs font-black text-rose-600 dark:text-rose-400 block">
-                            حذف الطلب نهائياً
-                          </span>
-                          <span className="text-[10px] font-bold text-rose-400/80 block">
-                            مسح السجل من قاعدة البيانات
-                          </span>
-                        </div>
-                        <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                          <Trash2 size={15} />
-                        </div>
-                      </button>
+                          }}
+                          className="w-full text-right p-2.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-rose-600 dark:text-rose-400 block">
+                              حذف الطلب نهائياً
+                            </span>
+                            <span className="text-[10px] font-bold text-rose-400/80 block">
+                              مسح السجل وحركات المحفظة ورد المخزون
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                            <Trash2 size={15} />
+                          </div>
+                        </button>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -10189,6 +10570,7 @@ const KanbanView: React.FC<{
               {columnOrders.map((order, oIdx) => {
                 const safeTax = Number(order.tax) || 0;
                 const safeAdvance = Number(order.advancePayment) || 0;
+                const isSheetLocked = isSheetReconciledOrder(order);
                 return (
                   <motion.div
                     key={order.id}
@@ -10196,8 +10578,12 @@ const KanbanView: React.FC<{
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 + oIdx * 0.03 }}
-                    draggable={true}
+                    draggable={!isSheetLocked}
                     onDragStart={(e) => {
+                      if (isSheetLocked) {
+                        e.preventDefault();
+                        return;
+                      }
                       (e as any).dataTransfer.setData("orderId", order.id);
                       setDraggedOrderId(order.id);
                     }}
@@ -10205,7 +10591,9 @@ const KanbanView: React.FC<{
                       setDraggedOrderId(null);
                       setDragOverColumn(null);
                     }}
-                    className={`bg-white/90 dark:bg-[#0f1523]/90 backdrop-blur-md p-5 rounded-[1.75rem] border border-slate-200/70 dark:border-white/10 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all cursor-grab active:cursor-grabbing group relative overflow-visible ${
+                    className={`bg-white/90 dark:bg-[#0f1523]/90 backdrop-blur-md p-5 rounded-[1.75rem] border border-slate-200/70 dark:border-white/10 shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500/40 transition-all ${
+                      isSheetLocked ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+                    } group relative overflow-visible ${
                       draggedOrderId === order.id ? "opacity-40 scale-95" : ""
                     }`}
                     onClick={() => onEdit(order)}
@@ -10221,6 +10609,15 @@ const KanbanView: React.FC<{
                       <span className="text-xs font-black text-slate-900 dark:text-white font-mono bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg">
                         #{order.orderNumber || order.id.slice(0, 5)}
                       </span>
+                      {isSheetLocked && (
+                        <span
+                          className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/50"
+                          title="الحالة مقفولة — منزّل أو مرتبط بشيت التسوية"
+                        >
+                          <Lock size={9} />
+                          تبع الشيت
+                        </span>
+                      )}
                       {order.paymentStatus === "مدفوع" ? (
                         <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 px-2 py-0.5 rounded-md border border-emerald-500/20">
                           ✓ مدفوع

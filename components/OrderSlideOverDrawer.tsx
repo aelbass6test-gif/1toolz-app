@@ -6,7 +6,7 @@ import {
   Banknote, Truck, Clock, ShieldCheck, User as UserIcon,
   ShoppingBag, CheckCircle2, RotateCcw, Building2, Store,
   CreditCard, ArrowUpRight, TrendingUp, DollarSign, ShieldAlert,
-  Percent, Eye
+  Percent, Eye, Trash2, Lock
 } from 'lucide-react';
 import { Order, OrderStatus, Settings } from '../types';
 import { ORDER_STATUS_METADATA } from '../constants';
@@ -15,11 +15,13 @@ import { printHTMLDirectly } from '../utils/printHelper';
 import { 
   calculateOrderProfitLoss, 
   getStandardShippingFee, 
+  getBostaSheetActualCarrierFee,
   calculateInsuranceFee, 
   calculateBostaVat, 
   calculateCodFee, 
   isBosta, 
-  getOrderProductCost 
+  getOrderProductCost,
+  isSheetReconciledOrder
 } from '../utils/financials';
 
 interface OrderSlideOverDrawerProps {
@@ -27,6 +29,8 @@ interface OrderSlideOverDrawerProps {
   onClose: () => void;
   onStatusChange: (id: string, newStatus: OrderStatus) => void;
   onEdit: (order: Order) => void;
+  onDelete?: (order: Order) => void;
+  deleteLockedReason?: string;
   onOpenFullDetails: (order: Order) => void;
   settings: Settings;
 }
@@ -36,6 +40,8 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
   onClose,
   onStatusChange,
   onEdit,
+  onDelete,
+  deleteLockedReason,
   onOpenFullDetails,
   settings,
 }) => {
@@ -132,11 +138,15 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
     ? (compFees?.insuranceFeePercent ?? 0) 
     : (settings?.enableInsurance ? settings.insuranceFeePercent : 0));
 
-  const isInsured = isPos ? false : (order.isInsured ?? true);
+  const isBostaSheetImport = order.platform === 'bosta_sheet_import';
+  const isAllInclusiveSheet = isBostaSheetImport && order.sheetFeeBillingMode !== 'store_company_fees';
+  const sheetActualCarrierFee = isAllInclusiveSheet ? getBostaSheetActualCarrierFee(order) : 0;
+
+  const isInsured = isPos || isAllInclusiveSheet ? false : (order.isInsured ?? true);
   const insuranceFee = isInsured ? calculateInsuranceFee(order, insuranceRate, settings) : 0;
 
-  const bostaVatFee = isPos ? 0 : calculateBostaVat(order, insuranceFee, settings);
-  const codFee = isPos ? 0 : calculateCodFee(order, settings);
+  const bostaVatFee = isPos || isAllInclusiveSheet ? 0 : calculateBostaVat(order, insuranceFee, settings);
+  const codFee = isPos || isAllInclusiveSheet ? 0 : calculateCodFee(order, settings);
 
   const currentVatRate = useCustom 
     ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) 
@@ -146,14 +156,20 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
     ? (compFees?.inspectionFee ?? 0) 
     : (settings?.enableInspection ? settings.inspectionFee : 0);
 
-  const effectiveInspectionCost = isPos || !(order.includeInspectionFee ?? true) 
+  const effectiveInspectionCost = isPos || isAllInclusiveSheet || !(order.includeInspectionFee ?? true) 
     ? 0 
     : (Number(order.inspectionFee) > 0 ? Number(order.inspectionFee) : configInspectionCost);
 
-  const standardShippingFee = isPos ? 0 : getStandardShippingFee(order, settings);
+  const standardShippingFee = isPos
+    ? 0
+    : isAllInclusiveSheet
+    ? sheetActualCarrierFee
+    : (order.isManualShippingOverride && order.shippingFee !== undefined ? Number(order.shippingFee) : getStandardShippingFee(order, settings));
   const safeProductCost = getOrderProductCost(order, settings) || 0;
 
-  const totalCarrierExpenses = standardShippingFee + insuranceFee + bostaVatFee + codFee + (order.inspectionFeePaidByCustomer ? 0 : effectiveInspectionCost);
+  const totalCarrierExpenses = isAllInclusiveSheet
+    ? sheetActualCarrierFee
+    : standardShippingFee + insuranceFee + bostaVatFee + codFee + (order.inspectionFeePaidByCustomer ? 0 : effectiveInspectionCost);
 
   // Operational Profit / Loss
   let profitLoss: any = null;
@@ -162,6 +178,10 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
   } catch (err) {
     console.warn('Error calculating profit loss in drawer:', err);
   }
+  const displayedCarrierDeduction =
+    profitLoss && typeof profitLoss.carrierFees === 'number' && profitLoss.carrierFees > 0
+      ? profitLoss.carrierFees
+      : totalCarrierExpenses;
 
   // 4. Payment Status & Method differentiation
   const isPrepaid = (
@@ -306,39 +326,50 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
             <div className="p-4 border-b border-slate-200/80 dark:border-white/[0.08] bg-white dark:bg-[#0c121e] relative">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-bold text-slate-500 dark:text-slate-400">حالة الطلب:</span>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowStatusMenu(!showStatusMenu)}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+                {isSheetReconciledOrder(order) ? (
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-200/80 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs font-black text-amber-800 dark:text-amber-300 cursor-not-allowed"
+                    title="الحالة مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية ولا يمكن تعديل حالته يدوياً"
                   >
+                    <Lock size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
                     <span>{statusMeta.label}</span>
-                    <ChevronDown size={14} className="text-slate-400" />
-                  </button>
+                    <span className="text-[10px] font-bold opacity-80">(تبع الشيت)</span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowStatusMenu(!showStatusMenu)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-black text-slate-800 dark:text-slate-200 transition-all cursor-pointer"
+                    >
+                      <span>{statusMeta.label}</span>
+                      <ChevronDown size={14} className="text-slate-400" />
+                    </button>
 
-                  {showStatusMenu && (
-                    <div className="absolute left-0 mt-1 w-52 max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-1 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                      {allStatuses.map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          onClick={() => {
-                            onStatusChange(order.id, st);
-                            setShowStatusMenu(false);
-                          }}
-                          className={`w-full text-right px-3 py-2 rounded-xl font-bold transition-colors flex items-center justify-between cursor-pointer ${
-                            order.status === st 
-                              ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' 
-                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          <span>{ORDER_STATUS_METADATA[st]?.label || st.replace(/_/g, ' ')}</span>
-                          {order.status === st && <Check size={14} />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    {showStatusMenu && (
+                      <div className="absolute left-0 mt-1 w-52 max-h-60 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-1 divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                        {allStatuses.map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => {
+                              onStatusChange(order.id, st);
+                              setShowStatusMenu(false);
+                            }}
+                            className={`w-full text-right px-3 py-2 rounded-xl font-bold transition-colors flex items-center justify-between cursor-pointer ${
+                              order.status === st 
+                                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' 
+                                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <span>{ORDER_STATUS_METADATA[st]?.label || st.replace(/_/g, ' ')}</span>
+                            {order.status === st && <Check size={14} />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -626,91 +657,122 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                   </div>
 
                   <div className="space-y-2">
-                    {/* 1. Basic Shipping Waybill Fee */}
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                      <span>تكلفة بوليصة الشحن الأساسية:</span>
-                      <div className="font-mono font-bold text-rose-500">
-                        <span>-</span>
-                        <span className="tabular-nums">{standardShippingFee.toLocaleString()}</span>
-                        <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
-                      </div>
-                    </div>
-
-                    {/* 2. Insurance Fee (التأمين على الشحنة) */}
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                      <div className="flex items-center gap-1">
-                        <ShieldCheck size={12} className="text-emerald-500" />
-                        <span>التأمين على الشحنة:</span>
-                      </div>
-                      <div className="font-mono font-bold text-rose-500">
-                        {insuranceFee > 0 ? (
-                          <>
+                    {isAllInclusiveSheet ? (
+                      <>
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                          <span>إجمالي مصاريف بوسطة الفعلية من الشيت (شاملة 14% ضريبة والرسوم):</span>
+                          <div className="font-mono font-bold text-rose-500">
                             <span>-</span>
-                            <span className="tabular-nums">{insuranceFee.toFixed(2)}</span>
+                            <span className="tabular-nums">{sheetActualCarrierFee.toFixed(2)}</span>
                             <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400 font-normal">0.00 ج.م</span>
+                          </div>
+                        </div>
+                        {Math.abs(safeShipping - sheetActualCarrierFee) > 0.01 && (
+                          <div className="flex justify-between items-center text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-dashed border-slate-200 dark:border-white/[0.06]">
+                            <span>فرق الشحن (شحن العميل {safeShipping.toLocaleString()} − تكلفة بوسطة {sheetActualCarrierFee.toFixed(2)}):</span>
+                            <span
+                              dir="ltr"
+                              className={`font-mono font-bold tabular-nums ${
+                                safeShipping - sheetActualCarrierFee >= 0
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-500'
+                              }`}
+                            >
+                              {safeShipping - sheetActualCarrierFee >= 0 ? '+' : ''}
+                              {(safeShipping - sheetActualCarrierFee).toFixed(2)} ج.م
+                            </span>
+                          </div>
                         )}
-                      </div>
-                    </div>
-
-                    {/* 3. VAT 14% (ضريبة القيمة المضافة) */}
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                      <div className="flex items-center gap-1">
-                        <Percent size={12} className="text-indigo-500" />
-                        <span>ضريبة القيمة المضافة ({(currentVatRate * 100).toFixed(0)}%):</span>
-                      </div>
-                      <div className="font-mono font-bold text-rose-500">
-                        {bostaVatFee > 0 ? (
-                          <>
+                      </>
+                    ) : (
+                      <>
+                        {/* 1. Basic Shipping Waybill Fee */}
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                          <span>تكلفة بوليصة الشحن الأساسية:</span>
+                          <div className="font-mono font-bold text-rose-500">
                             <span>-</span>
-                            <span className="tabular-nums">{bostaVatFee.toFixed(2)}</span>
+                            <span className="tabular-nums">{standardShippingFee.toLocaleString()}</span>
                             <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400 font-normal">0.00 ج.م</span>
-                        )}
-                      </div>
-                    </div>
+                          </div>
+                        </div>
 
-                    {/* 4. Inspection Fee (المعاينة) */}
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                      <div className="flex items-center gap-1">
-                        <Eye size={12} className="text-cyan-500" />
-                        <span>المعاينة (سماح بفتح الطرد):</span>
-                      </div>
-                      <div className="font-mono font-bold text-rose-500">
-                        {effectiveInspectionCost > 0 ? (
-                          <>
-                            <span>-</span>
-                            <span className="tabular-nums">{effectiveInspectionCost.toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400 font-normal">0.00 ج.م</span>
-                        )}
-                      </div>
-                    </div>
+                        {/* 2. Insurance Fee (التأمين على الشحنة) */}
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center gap-1">
+                            <ShieldCheck size={12} className="text-emerald-500" />
+                            <span>التأمين على الشحنة:</span>
+                          </div>
+                          <div className="font-mono font-bold text-rose-500">
+                            {insuranceFee > 0 ? (
+                              <>
+                                <span>-</span>
+                                <span className="tabular-nums">{insuranceFee.toFixed(2)}</span>
+                                <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                              </>
+                            ) : (
+                              <span className="text-slate-400 font-normal">0.00 ج.م</span>
+                            )}
+                          </div>
+                        </div>
 
-                    {/* 5. COD Collection Fee (رسوم التحصيل) */}
-                    <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                      <div className="flex items-center gap-1">
-                        <Banknote size={12} className="text-amber-500" />
-                        <span>رسوم التحصيل (COD):</span>
-                      </div>
-                      <div className="font-mono font-bold text-rose-500">
-                        {codFee > 0 ? (
-                          <>
-                            <span>-</span>
-                            <span className="tabular-nums">{codFee.toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
-                          </>
-                        ) : (
-                          <span className="text-slate-400 font-normal">0.00 ج.م</span>
-                        )}
-                      </div>
-                    </div>
+                        {/* 3. VAT 14% (ضريبة القيمة المضافة) */}
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center gap-1">
+                            <Percent size={12} className="text-indigo-500" />
+                            <span>ضريبة القيمة المضافة ({(currentVatRate * 100).toFixed(0)}%):</span>
+                          </div>
+                          <div className="font-mono font-bold text-rose-500">
+                            {bostaVatFee > 0 ? (
+                              <>
+                                <span>-</span>
+                                <span className="tabular-nums">{bostaVatFee.toFixed(2)}</span>
+                                <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                              </>
+                            ) : (
+                              <span className="text-slate-400 font-normal">0.00 ج.م</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 4. Inspection Fee (المعاينة) */}
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center gap-1">
+                            <Eye size={12} className="text-cyan-500" />
+                            <span>المعاينة (سماح بفتح الطرد):</span>
+                          </div>
+                          <div className="font-mono font-bold text-rose-500">
+                            {effectiveInspectionCost > 0 ? (
+                              <>
+                                <span>-</span>
+                                <span className="tabular-nums">{effectiveInspectionCost.toFixed(2)}</span>
+                                <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                              </>
+                            ) : (
+                              <span className="text-slate-400 font-normal">0.00 ج.م</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 5. COD Collection Fee (رسوم التحصيل) */}
+                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                          <div className="flex items-center gap-1">
+                            <Banknote size={12} className="text-amber-500" />
+                            <span>رسوم التحصيل (COD):</span>
+                          </div>
+                          <div className="font-mono font-bold text-rose-500">
+                            {codFee > 0 ? (
+                              <>
+                                <span>-</span>
+                                <span className="tabular-nums">{codFee.toFixed(2)}</span>
+                                <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
+                              </>
+                            ) : (
+                              <span className="text-slate-400 font-normal">0.00 ج.م</span>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Total Carrier Deductions */}
@@ -718,7 +780,7 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                     <span className="text-slate-800 dark:text-slate-200 text-xs">إجمالي استقطاع شركة الشحن:</span>
                     <div className="font-mono font-black text-rose-600 dark:text-rose-400">
                       <span>-</span>
-                      <span className="tabular-nums">{totalCarrierExpenses.toFixed(2)}</span>
+                      <span className="tabular-nums">{displayedCarrierDeduction.toFixed(2)}</span>
                       <span className="text-[10px] mr-1">ج.م</span>
                     </div>
                   </div>
@@ -740,7 +802,11 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                           ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
                     }`}>
-                      صافي الربح: {profitLoss.profit > 0 ? `+${profitLoss.profit.toLocaleString()} ج.م` : profitLoss.loss > 0 ? `-${profitLoss.loss.toLocaleString()} ج.م` : '0 ج.م'}
+                      {profitLoss.profit > 0
+                        ? `صافي الربح: +${profitLoss.profit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`
+                        : profitLoss.loss > 0
+                          ? `صافي الخسارة: -${profitLoss.loss.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`
+                          : 'صافي الربح: 0 ج.م'}
                     </span>
                   </div>
 
@@ -748,13 +814,13 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                     <div className="p-2 bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200/50 dark:border-white/[0.04]">
                       <span className="text-slate-400 block text-[10px]">رأس مال البضاعة:</span>
                       <span className="font-mono font-bold text-rose-500 tabular-nums">
-                        -{safeProductCost.toLocaleString()} ج.م
+                        -{safeProductCost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                       </span>
                     </div>
                     <div className="p-2 bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200/50 dark:border-white/[0.04]">
                       <span className="text-slate-400 block text-[10px]">استقطاع الشحن بالكامل:</span>
                       <span className="font-mono font-bold text-rose-500 tabular-nums">
-                        -{totalCarrierExpenses.toFixed(2)} ج.م
+                        -{displayedCarrierDeduction.toFixed(2)} ج.م
                       </span>
                     </div>
                   </div>
@@ -803,6 +869,23 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
               >
                 <Printer size={16} />
               </button>
+              {onDelete ? (
+                <button
+                  type="button"
+                  onClick={() => onDelete(order)}
+                  className="p-2.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200/70 dark:border-rose-800/50 rounded-xl text-xs font-black transition-all cursor-pointer"
+                  title="حذف الطلب نهائياً (مسح حركات المحفظة ورد المخزون)"
+                >
+                  <Trash2 size={16} />
+                </button>
+              ) : deleteLockedReason ? (
+                <div
+                  className="p-2.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black cursor-not-allowed"
+                  title={deleteLockedReason}
+                >
+                  <Lock size={16} />
+                </div>
+              ) : null}
             </div>
           </motion.div>
         </div>

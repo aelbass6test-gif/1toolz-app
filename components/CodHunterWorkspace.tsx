@@ -69,6 +69,7 @@ import {
   exportCodClaimWorkbook,
   InternalFraudCategory,
   LinkedCashoutAdjustmentItem,
+  normalizeTrackingCode,
   parseExcelOrCsvFiles,
   runTwoWayCodAudit,
   SheetAuditRow,
@@ -88,6 +89,12 @@ import {
 import CashoutForensicAuditPanel from './CashoutForensicAuditPanel';
 import NetPositionWalletPanel from './NetPositionWalletPanel';
 import OrdersLifecycleHub from './OrdersLifecycleHub';
+import ErrorsCenterPanel, { collectUnifiedErrors } from './ErrorsCenterPanel';
+import SheetOrderLinkAndImportModal, {
+  SheetOrderImportPayload,
+  SheetOrderLinkUpdatePayload,
+  SheetOrderUpdatePayload
+} from './SheetOrderLinkAndImportModal';
 
 export interface CodHunterWorkspaceProps {
   storeId: string;
@@ -116,6 +123,14 @@ export interface CodHunterWorkspaceProps {
     totalDiscrepancy: number;
   }) => void;
   onReverseBatch?: (batch: CodSettlementBatch) => void;
+  onCreateOrderFromSheet?: (payload: SheetOrderImportPayload) => void;
+  onLinkOrderWithSettlement?: (payload: SheetOrderLinkUpdatePayload) => void;
+  onUpdateOrderFromSheet?: (payload: SheetOrderUpdatePayload) => void;
+  onDeleteOrderFromStore?: (orderId: string) => {
+    orderNumber: string;
+    removedWalletTxs: number;
+    restoredUnits: number;
+  } | null | void;
   onOpenOrder?: (order: Order) => void;
   onNotify?: (msg: string, type?: 'success' | 'error') => void;
 }
@@ -301,6 +316,10 @@ export default function CodHunterWorkspace({
   onUpdateGraceDays,
   onSettleBatch,
   onReverseBatch,
+  onCreateOrderFromSheet,
+  onLinkOrderWithSettlement,
+  onUpdateOrderFromSheet,
+  onDeleteOrderFromStore,
   onOpenOrder,
   onNotify
 }: CodHunterWorkspaceProps) {
@@ -360,8 +379,15 @@ export default function CodHunterWorkspace({
     businessRefCol: ''
   });
 
-  // Primary workspace view: clean modern Main Orders Screen by default, or full Audit/Wallet mode
-  const [workspaceView, setWorkspaceView] = useState<'orders_hub' | 'audit'>('orders_hub');
+  // Primary workspace view: Main Orders Screen, Unified Errors Center, or Full Audit/Wallet mode
+  const [workspaceView, setWorkspaceView] = useState<'orders_hub' | 'errors_center' | 'audit'>(
+    'orders_hub'
+  );
+  const [linkOrImportRow, setLinkOrImportRow] = useState<SheetAuditRow | null>(null);
+  const [linkModalInitialMode, setLinkModalInitialMode] = useState<'create' | 'link' | 'edit' | undefined>(
+    undefined
+  );
+  const [confirmDeleteWaybillOrderId, setConfirmDeleteWaybillOrderId] = useState<string | null>(null);
   // Audit workspace navigation & filters
   const [activeTab, setActiveTab] = useState<AuditTabId>('untransferred');
   const [searchQuery, setSearchQuery] = useState('');
@@ -715,6 +741,11 @@ export default function CodHunterWorkspace({
     manualMatches,
     manualCreditTrackingMap
   ]);
+
+  const unifiedErrorsCount = useMemo(
+    () => collectUnifiedErrors(auditResult, storeName).length,
+    [auditResult, storeName]
+  );
 
   useEffect(() => {
     if (uploadedFiles.length === 0) {
@@ -1411,16 +1442,28 @@ export default function CodHunterWorkspace({
     content: React.ReactNode,
     className = 'font-mono tabular-nums font-bold text-indigo-600 dark:text-indigo-400 hover:underline block text-right cursor-pointer'
   ) => {
+    const landedBadge =
+      order.platform === 'bosta_sheet_import' ? (
+        <span
+          title="نزل في أوردرات المتجر من الشيت"
+          className="inline-flex items-center gap-0.5 mr-1.5 px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 text-[9px] font-black font-sans align-middle"
+        >
+          ✓ نزل بالمتجر
+        </span>
+      ) : null;
+
     if (onOpenOrder) {
       return (
         <button type="button" onClick={() => onOpenOrder(order)} className={className}>
           {content}
+          {landedBadge}
         </button>
       );
     }
     return (
       <Link to={`${orderBasePath}/${order.id}`} className={className}>
         {content}
+        {landedBadge}
       </Link>
     );
   };
@@ -2007,8 +2050,8 @@ export default function CodHunterWorkspace({
 
           {/* Primary View Switcher & Actions */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* 3-Mode Workspace Segmented Switcher */}
-            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60">
+            {/* 4-Mode Workspace Segmented Switcher */}
+            <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60">
               <button
                 type="button"
                 onClick={() => setWorkspaceView('orders_hub')}
@@ -2020,6 +2063,25 @@ export default function CodHunterWorkspace({
               >
                 <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
                 <span>الشاشة الرئيسية</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceView('errors_center')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                  workspaceView === 'errors_center'
+                    ? 'bg-rose-600 text-white shadow-xs'
+                    : unifiedErrorsCount > 0
+                    ? 'text-rose-600 dark:text-rose-400 hover:bg-rose-50/70 dark:hover:bg-rose-950/40'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                <span>مركز الأخطاء</span>
+                {unifiedErrorsCount > 0 && (
+                  <span className="font-mono tabular-nums text-[11px] opacity-90">
+                    ({unifiedErrorsCount.toLocaleString('en-US')})
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -2241,7 +2303,7 @@ export default function CodHunterWorkspace({
         </div>
       </div>
 
-      {/* MAIN MODERN ORDERS LIFECYCLE SCREEN vs FULL AUDIT WORKSPACE */}
+      {/* MAIN MODERN ORDERS LIFECYCLE SCREEN vs UNIFIED ERRORS CENTER vs FULL AUDIT WORKSPACE */}
       {workspaceView === 'orders_hub' ? (
         <OrdersLifecycleHub
           storeName={storeName}
@@ -2251,10 +2313,44 @@ export default function CodHunterWorkspace({
           matchWithStoreOrders={matchWithStoreOrders}
           bankConfirmedCashouts={bankConfirmedCashouts}
           orderBasePath={orderBasePath}
+          manualMatches={manualMatches}
           onInspectWaybill={(trackingCode, cashoutId) =>
             setInspectedQuickRef({ mode: 'waybill', trackingCode, cashoutId })
           }
           onInspectCashout={tx => openCashoutOrdersModal(tx)}
+          onOpenLinkOrImportModal={row => {
+            setLinkModalInitialMode(undefined);
+            setLinkOrImportRow(row);
+          }}
+          onOpenEditOrderModal={row => {
+            setLinkModalInitialMode('edit');
+            setLinkOrImportRow(row);
+          }}
+          onDeleteOrderFromStore={
+            onDeleteOrderFromStore
+              ? orderId => {
+                  const res = onDeleteOrderFromStore(orderId);
+                  setManualMatches(prev => {
+                    const next = { ...prev };
+                    for (const [k, v] of Object.entries(next)) {
+                      if (v === orderId) delete next[k];
+                    }
+                    return next;
+                  });
+                  if (res) {
+                    notify(
+                      `تم فك ربط وحذف الأوردر #${res.orderNumber} من المتجر · مسح ${res.removedWalletTxs} حركة من المحفظة${
+                        res.restoredUnits > 0
+                          ? ` · رد ${res.restoredUnits} قطعة للمخزون الموحّد`
+                          : ''
+                      }.`
+                    );
+                  } else {
+                    notify('تم فك ربط وحذف الأوردر وحركاته من المحفظة.');
+                  }
+                }
+              : undefined
+          }
           onUploadSheets={() => fileInputRef.current?.click()}
           onOpenAuditWorkspace={() => {
             setWorkspaceView('audit');
@@ -2264,6 +2360,23 @@ export default function CodHunterWorkspace({
             setWorkspaceView('audit');
             setActiveTab('net_wallet');
           }}
+          onOpenErrorsCenter={() => setWorkspaceView('errors_center')}
+          errorsCount={unifiedErrorsCount}
+          onNotify={notify}
+        />
+      ) : workspaceView === 'errors_center' ? (
+        <ErrorsCenterPanel
+          storeName={storeName}
+          auditResult={auditResult}
+          orderBasePath={orderBasePath}
+          onInspectWaybill={(trackingCode, cashoutId) =>
+            setInspectedQuickRef({ mode: 'waybill', trackingCode, cashoutId })
+          }
+          onInspectCashout={tx => openCashoutOrdersModal(tx)}
+          onOpenLinkOrImportModal={row => setLinkOrImportRow(row)}
+          onJumpToAuditTab={(tab, search) =>
+            jumpToAuditTab(tab as AuditTabId, search ? { search } : undefined)
+          }
           onNotify={notify}
         />
       ) : (
@@ -9671,10 +9784,14 @@ export default function CodHunterWorkspace({
         // Mode === 'waybill'
         const code = inspectedQuickRef.trackingCode;
         const codeLower = code.trim().toLowerCase();
+        const normCode = normalizeTrackingCode(code);
         const sheetRow = auditResult.sheetRows.find(
           r =>
             r.trackingKey.toLowerCase() === codeLower ||
-            (r.businessRefKey || '').toLowerCase() === codeLower
+            (r.businessRefKey || '').toLowerCase() === codeLower ||
+            (normCode &&
+              (normalizeTrackingCode(r.trackingKey) === normCode ||
+                normalizeTrackingCode(r.businessRefKey) === normCode))
         );
         const compEntry = auditResult.compensationsSummary.entries.find(
           c => c.orderId.toLowerCase() === codeLower
@@ -9682,14 +9799,29 @@ export default function CodHunterWorkspace({
         const creditEntry = auditResult.bostaCreditsSummary.entries.find(
           cr => (cr.trackingNumber || '').toLowerCase() === codeLower
         );
+        const manualMatchedId =
+          (sheetRow?.trackingKey && manualMatches[sheetRow.trackingKey]) ||
+          (normCode && manualMatches[normCode]) ||
+          '';
+        const normRowRef = normalizeTrackingCode(sheetRow?.businessRefKey);
         const matchedOrder =
           sheetRow?.matchedOrder ||
           compEntry?.matchedOrder ||
-          orders.find(
-            o =>
-              (o.waybillNumber || '').trim().toLowerCase() === codeLower ||
-              (o.orderNumber || '').trim().toLowerCase() === codeLower
-          ) ||
+          (manualMatchedId ? orders.find(o => o.id === manualMatchedId) : undefined) ||
+          orders.find(o => {
+            const candidates = [
+              o.waybillNumber,
+              o.bostaTrackingNumber,
+              o.turboTrackingNumber,
+              o.returnTrackingNumber,
+              o.referenceNumber,
+              o.orderNumber,
+              o.id
+            ]
+              .map(normalizeTrackingCode)
+              .filter(Boolean);
+            return (normCode && candidates.includes(normCode)) || (normRowRef && candidates.includes(normRowRef));
+          }) ||
           null;
 
         const targetTabForWaybill: AuditTabId = compEntry
@@ -9842,17 +9974,115 @@ export default function CodHunterWorkspace({
               )}
 
               <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-                {matchedOrder && (
-                  <Link
-                    to={`${orderBasePath}/${matchedOrder.id}`}
-                    className="px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+                {sheetRow && matchedOrder && onUpdateOrderFromSheet && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetRow = sheetRow.matchedOrder
+                        ? sheetRow
+                        : { ...sheetRow, matchedOrder };
+                      setInspectedQuickRef(null);
+                      setLinkModalInitialMode('edit');
+                      setLinkOrImportRow(targetRow);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer"
                   >
-                    فتح صفحة الأوردر بالمتجر
-                  </Link>
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>تعديل الأوردر</span>
+                  </button>
+                )}
+                {sheetRow && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetRow =
+                        matchedOrder && !sheetRow.matchedOrder
+                          ? { ...sheetRow, matchedOrder }
+                          : sheetRow;
+                      setInspectedQuickRef(null);
+                      setLinkModalInitialMode(undefined);
+                      setLinkOrImportRow(targetRow);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#008060] hover:bg-[#006b50] text-white text-xs font-bold cursor-pointer"
+                  >
+                    {matchedOrder ? 'تسوية فرق الشحن' : 'ربط أو تنزيل بالأوردرات'}
+                  </button>
+                )}
+                {matchedOrder && (
+                  <>
+                    <Link
+                      to={`${orderBasePath}/edit/${matchedOrder.id}`}
+                      className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>تعديل بالمتجر</span>
+                    </Link>
+                    <Link
+                      to={`${orderBasePath}/${matchedOrder.id}`}
+                      className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-700"
+                    >
+                      فتح صفحة الأوردر بالمتجر
+                    </Link>
+                  </>
+                )}
+                {matchedOrder && onDeleteOrderFromStore && (
+                  confirmDeleteWaybillOrderId === matchedOrder.id ? (
+                    <div className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const targetId = matchedOrder.id;
+                          setConfirmDeleteWaybillOrderId(null);
+                          setInspectedQuickRef(null);
+                          const res = onDeleteOrderFromStore(targetId);
+                          setManualMatches(prev => {
+                            const next = { ...prev };
+                            for (const [k, v] of Object.entries(next)) {
+                              if (v === targetId) delete next[k];
+                            }
+                            return next;
+                          });
+                          if (res) {
+                            notify(
+                              `تم فك ربط وحذف الأوردر #${res.orderNumber} من المتجر · مسح ${res.removedWalletTxs} حركة من المحفظة${
+                                res.restoredUnits > 0
+                                  ? ` · رد ${res.restoredUnits} قطعة للمخزون الموحّد`
+                                  : ''
+                              }.`
+                            );
+                          } else {
+                            notify('تم فك ربط وحذف الأوردر وحركاته من المحفظة.');
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>تأكيد فك الربط وحذف #{matchedOrder.orderNumber}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteWaybillOrderId(null)}
+                        className="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500 cursor-pointer"
+                      >
+                        تراجع
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteWaybillOrderId(matchedOrder.id)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-rose-200 dark:border-rose-800/80 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-bold cursor-pointer"
+                      title="فك الربط وحذف الأوردر من أوردرات المتجر وعكس المحفظة ورد المخزون"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>فك ربط / حذف من المتجر</span>
+                    </button>
+                  )
                 )}
                 <button
                   type="button"
                   onClick={() => {
+                    setConfirmDeleteWaybillOrderId(null);
                     setInspectedQuickRef(null);
                     setInspectedCashoutOrders(null);
                     jumpToAuditTab(targetTabForWaybill, { search: code });
@@ -9863,7 +10093,10 @@ export default function CodHunterWorkspace({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setInspectedQuickRef(null)}
+                  onClick={() => {
+                    setConfirmDeleteWaybillOrderId(null);
+                    setInspectedQuickRef(null);
+                  }}
                   className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   إغلاق
@@ -9873,6 +10106,82 @@ export default function CodHunterWorkspace({
           </div>
         );
       })()}
+
+      {/* LINK / IMPORT / EDIT ORDER + SHIPPING SPREAD SETTLEMENT + OPTIONAL UNIFIED INVENTORY DEDUCTION MODAL */}
+      {linkOrImportRow && (
+        <SheetOrderLinkAndImportModal
+          sheetRow={linkOrImportRow}
+          orders={orders}
+          settings={settings}
+          storeName={storeName}
+          canWriteStore={Boolean(onCreateOrderFromSheet)}
+          initialMode={linkModalInitialMode}
+          orderBasePath={orderBasePath}
+          onClose={() => {
+            setLinkModalInitialMode(undefined);
+            setLinkOrImportRow(null);
+          }}
+          onCreateOrderFromSheet={payload => {
+            onCreateOrderFromSheet?.(payload);
+            notify(
+              `تم تنزيل الأوردر #${payload.orderNumber} في أوردرات المتجر${
+                payload.deductFromInventory ? ' وخصم الكمية من المخزون الموحّد' : ''
+              } (فرق الشحن ${payload.shippingSpread >= 0 ? '+' : ''}${formatEgp(payload.shippingSpread)}).`
+            );
+          }}
+          onLinkOrderWithSettlement={payload => {
+            onLinkOrderWithSettlement?.(payload);
+            setManualMatches(prev => ({
+              ...prev,
+              [payload.sheetRow.trackingKey]: payload.orderId
+            }));
+            notify(
+              `تم ربط البوليصة ${payload.sheetRow.trackingKey} بالأوردر وحفظ تسوية فرق الشحن (${
+                payload.shippingSpread >= 0 ? '+' : ''
+              }${formatEgp(payload.shippingSpread)})${
+                payload.deductFromInventory ? ' مع الخصم من المخزون الموحّد' : ''
+              }.`
+            );
+          }}
+          onUpdateOrderFromSheet={
+            onUpdateOrderFromSheet
+              ? payload => {
+                  onUpdateOrderFromSheet(payload);
+                  notify(`تم تعديل بيانات الأوردر #${payload.orderNumber} وتحديث المحفظة بنجاح.`);
+                }
+              : undefined
+          }
+          onLocalManualLinkOnly={(trackingKey, orderId) => {
+            setManualMatches(prev => ({ ...prev, [trackingKey]: orderId }));
+            notify(`تم ربط البوليصة ${trackingKey} بالأوردر يدوياً.`);
+          }}
+          onDeleteOrderFromStore={
+            onDeleteOrderFromStore
+              ? orderId => {
+                  const res = onDeleteOrderFromStore(orderId);
+                  setManualMatches(prev => {
+                    const next = { ...prev };
+                    for (const [k, v] of Object.entries(next)) {
+                      if (v === orderId) delete next[k];
+                    }
+                    return next;
+                  });
+                  if (res) {
+                    notify(
+                      `تم إلغاء النزول وحذف الأوردر #${res.orderNumber} من المتجر · مسح ${res.removedWalletTxs} حركة من المحفظة${
+                        res.restoredUnits > 0
+                          ? ` · رد ${res.restoredUnits} قطعة للمخزون الموحّد`
+                          : ''
+                      }.`
+                    );
+                  } else {
+                    notify('تم إلغاء النزول وحذف الأوردر وحركاته من المحفظة.');
+                  }
+                }
+              : undefined
+          }
+        />
+      )}
     </div>
   );
 }
