@@ -51,18 +51,28 @@ const Sidebar: React.FC<SidebarProps> = ({
         prevPathnameRef.current = location.pathname;
     }, [location.pathname, onClose]);
 
-    // Define Navigation Items with Custom Badges and Sizes
-    const navItems = [
+    // Define Navigation Items (clean executive labels — only real operational counters shown as badges)
+    const navItems: Array<{
+        type: 'group';
+        title: string;
+        links: Array<{
+            to: string;
+            label: string;
+            icon: React.ReactNode;
+            external?: boolean;
+            badge?: { text: string; color: string };
+        }>;
+    }> = [
         { 
             type: 'group', 
             title: 'الرئيسية والمتابعة العامة', 
             links: [
-                { to: `${storePrefix}/dashboard`, label: 'لوحة التحكم الرئيسية', icon: <LayoutDashboard size={18} /> },
-                { to: `${storePrefix}/store`, label: 'معاينة المتجر المباشر', icon: <Eye size={18} />, external: true },
-                { to: `${storePrefix}/reports`, label: 'تحليلات الأداء الذكية', icon: <BarChart2 size={18} /> },
-                { to: `${storePrefix}/standard-reports`, label: 'تقارير المبيعات التفصيلية', icon: <FileSpreadsheet size={18} /> },
-                { to: `${storePrefix}/activity-logs`, label: 'سجل نشاط النظام والعمليات', icon: <Activity size={18} /> },
-                { to: `${storePrefix}/webhook-monitor`, label: 'مراقب الربط البرمجي Webhooks', icon: <Activity size={18} /> },
+                { to: `${storePrefix}/dashboard`, label: 'لوحة التحكم الرئيسية', icon: <LayoutDashboard size={17} /> },
+                { to: `${storePrefix}/store`, label: 'معاينة المتجر المباشر', icon: <Eye size={17} />, external: true },
+                { to: `${storePrefix}/reports`, label: 'تحليلات الأداء الذكية', icon: <BarChart2 size={17} /> },
+                { to: `${storePrefix}/standard-reports`, label: 'تقارير المبيعات التفصيلية', icon: <FileSpreadsheet size={17} /> },
+                { to: `${storePrefix}/activity-logs`, label: 'سجل نشاط النظام والعمليات', icon: <Activity size={17} /> },
+                { to: `${storePrefix}/webhook-monitor`, label: 'مراقب الربط البرمجي Webhooks', icon: <Activity size={17} /> },
             ]
         },
         {
@@ -72,63 +82,42 @@ const Sidebar: React.FC<SidebarProps> = ({
                 ...(isPosEnabled ? [{ 
                     to: `${storePrefix}/pos`, 
                     label: 'كاشير - نقطة البيع (POS)', 
-                    icon: <Monitor size={18} />, 
-                    badge: { text: "نشط ⚡", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/10 text-[9px] font-bold" } 
+                    icon: <Monitor size={17} />
                 }] : []),
-                { to: `${storePrefix}/create-order`, label: 'إنشاء طلب جديد', icon: <Plus size={18} /> },
-                { to: `${storePrefix}/orders`, label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={18} /> },
-                { 
-                    to: `${storePrefix}/quotations`, 
-                    label: 'عروض الأسعار والفواتير', 
-                    icon: <FileSpreadsheet size={18} />,
-                    badge: { text: "جديد 📄", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px] font-bold" }
-                },
-                { 
-                    to: `${storePrefix}/confirmation-queue`, 
-                    label: 'تأكيد الطلبات والمعالجة', 
-                    icon: <PhoneForwarded size={18} />,
-                    badge: { text: "تأكيد", color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/10 text-[9px]" }
-                },
-                { to: `${storePrefix}/dropshipping`, label: 'إدارة الدروب شيبينغ والتوريد', icon: <Package size={18} /> },
-                { to: `${storePrefix}/returns`, label: 'إدارة مرتجعات المبيعات', icon: <RotateCcw size={18} /> },
-                { to: `${storePrefix}/abandoned-carts`, label: 'السلات الشرائية المتروكة', icon: <Archive size={18} /> },
-                { to: `${storePrefix}/failed-delivery-compensation`, label: 'تعويضات الشحن الفاشل', icon: <ShieldAlert size={18} /> },
-                { to: `${storePrefix}/tracking`, label: 'تتبع الشحنات الموحد', icon: <Search size={18} /> },
+                { to: `${storePrefix}/create-order`, label: 'إنشاء طلب جديد', icon: <Plus size={17} /> },
+                { to: `${storePrefix}/orders`, label: 'سجل الطلبيات والمبيعات', icon: <ShoppingCart size={17} /> },
+                { to: `${storePrefix}/quotations`, label: 'عروض الأسعار والفواتير', icon: <FileSpreadsheet size={17} /> },
+                { to: `${storePrefix}/confirmation-queue`, label: 'تأكيد الطلبات والمعالجة', icon: <PhoneForwarded size={17} /> },
+                { to: `${storePrefix}/dropshipping`, label: 'إدارة الدروب شيبينغ والتوريد', icon: <Package size={17} /> },
+                { to: `${storePrefix}/returns`, label: 'إدارة مرتجعات المبيعات', icon: <RotateCcw size={17} /> },
+                { to: `${storePrefix}/abandoned-carts`, label: 'السلات الشرائية المتروكة', icon: <Archive size={17} /> },
+                { to: `${storePrefix}/failed-delivery-compensation`, label: 'تعويضات الشحن الفاشل', icon: <ShieldAlert size={17} /> },
+                { to: `${storePrefix}/tracking`, label: 'تتبع الشحنات الموحد', icon: <Search size={17} /> },
             ]
         },
         {
             type: 'group',
             title: 'كتالوج المنتجات والمخزون',
             links: [
-                { to: `${storePrefix}/products`, label: 'المنظومة والمخزون الموحد', icon: <Package size={18} /> },
-                { to: `${storePrefix}/collections`, label: 'مجموعات وتصنيفات المنتجات', icon: <Grid3x3 size={18} /> },
-                { to: `${storePrefix}/collections-report`, label: 'تقرير مبيعات المجموعات', icon: <BarChart2 size={14} /> },
-                { to: `${storePrefix}/product-options`, label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={18} /> },
-                { to: `${storePrefix}/reviews`, label: 'تقييمات وآراء العملاء', icon: <Star size={18} /> },
-                { to: `${storePrefix}/inventory-transfers`, label: 'تحويلات المخزون الداخلية', icon: <ArrowRightLeft size={18} /> },
-                { to: `${storePrefix}/purchase-returns`, label: 'مرتجعات المشتريات (موردين)', icon: <RotateCw size={18} /> },
+                { to: `${storePrefix}/products`, label: 'المنظومة والمخزون الموحد', icon: <Package size={17} /> },
+                { to: `${storePrefix}/collections`, label: 'مجموعات وتصنيفات المنتجات', icon: <Grid3x3 size={17} /> },
+                { to: `${storePrefix}/collections-report`, label: 'تقرير مبيعات المجموعات', icon: <BarChart2 size={16} /> },
+                { to: `${storePrefix}/product-options`, label: 'خيارات ومتغيرات المنتجات', icon: <ClipboardList size={17} /> },
+                { to: `${storePrefix}/reviews`, label: 'تقييمات وآراء العملاء', icon: <Star size={17} /> },
+                { to: `${storePrefix}/inventory-transfers`, label: 'تحويلات المخزون الداخلية', icon: <ArrowRightLeft size={17} /> },
+                { to: `${storePrefix}/purchase-returns`, label: 'مرتجعات المشتريات (موردين)', icon: <RotateCw size={17} /> },
             ]
         },
         {
             type: 'group',
             title: 'التسويق وعلاقات العملاء CRM',
             links: [
-                { to: `${storePrefix}/customers`, label: 'قاعدة بيانات العملاء', icon: <Users size={18} /> },
-                { 
-                    to: `${storePrefix}/whatsapp`, 
-                    label: 'شات ورسائل واتساب للعملاء', 
-                    icon: <MessageSquare size={18} />, 
-                    badge: { text: "شات 💬", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-bold" } 
-                },
-                { 
-                    to: `${storePrefix}/ai-assistant`, 
-                    label: 'مستشار الذكاء الاصطناعي (AI)', 
-                    icon: <Wand2 size={18} />,
-                    badge: { text: "AI ✨", color: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/10 text-[9px] font-bold animate-pulse" }
-                },
-                { to: `${storePrefix}/marketing`, label: 'الحملات التسويقية والترويج', icon: <Megaphone size={18} /> },
-                { to: `${storePrefix}/discounts`, label: 'قسائم التخفيض وكوبونات الترويج', icon: <Percent size={18} /> },
-                { to: `${storePrefix}/team-chat`, label: 'الدردشة الداخلية للفريق', icon: <MessageSquare size={18} /> },
+                { to: `${storePrefix}/customers`, label: 'قاعدة بيانات العملاء', icon: <Users size={17} /> },
+                { to: `${storePrefix}/whatsapp`, label: 'شات ورسائل واتساب للعملاء', icon: <MessageSquare size={17} /> },
+                { to: `${storePrefix}/ai-assistant`, label: 'مستشار الذكاء الاصطناعي (AI)', icon: <Wand2 size={17} /> },
+                { to: `${storePrefix}/marketing`, label: 'الحملات التسويقية والترويج', icon: <Megaphone size={17} /> },
+                { to: `${storePrefix}/discounts`, label: 'قسائم التخفيض وكوبونات الترويج', icon: <Percent size={17} /> },
+                { to: `${storePrefix}/team-chat`, label: 'الدردشة الداخلية للفريق', icon: <MessageSquare size={17} /> },
             ]
         },
         {
@@ -137,78 +126,68 @@ const Sidebar: React.FC<SidebarProps> = ({
             links: [
                 { 
                     to: `${storePrefix}/agency-hub`, 
-                    label: 'إدارة منظومة الموكلين الشاملة 💼', 
-                    icon: <Building2 size={18} />,
+                    label: 'إدارة منظومة الموكلين الشاملة', 
+                    icon: <Building2 size={17} />,
                     badge: pendingRequestsCounts.merchants > 0 
-                      ? { text: `${pendingRequestsCounts.merchants} طلب جديد`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20 text-[9px] font-black" }
-                      : { text: "المركز الموحد ✨", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
-                },
-                { to: `${storePrefix}/suppliers`, label: 'إدارة الموردين والمخازن المباشرة', icon: <Handshake size={18} /> },
-                { 
-                    to: `${storePrefix}/partners`, 
-                    label: 'إدارة الشركاء والمسوقين (Wallet)', 
-                    icon: <Users2 size={18} />,
-                    badge: pendingRequestsCounts.partners > 0
-                      ? { text: `${pendingRequestsCounts.partners} جديد`, color: "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/20 text-[9px] font-black" }
+                      ? { text: `${pendingRequestsCounts.merchants}`, color: "bg-rose-500 text-white font-mono tabular-nums text-[10px] font-black" }
                       : undefined
                 },
-                { to: `${storePrefix}/purchase-returns`, label: 'مرتجعات المشتريات (موردين)', icon: <RotateCw size={18} /> },
+                { to: `${storePrefix}/suppliers`, label: 'إدارة الموردين والمخازن المباشرة', icon: <Handshake size={17} /> },
+                { 
+                    to: `${storePrefix}/partners`, 
+                    label: 'إدارة الشركاء والمسوقين', 
+                    icon: <Users2 size={17} />,
+                    badge: pendingRequestsCounts.partners > 0
+                      ? { text: `${pendingRequestsCounts.partners}`, color: "bg-rose-500 text-white font-mono tabular-nums text-[10px] font-black" }
+                      : undefined
+                },
+                { to: `${storePrefix}/purchase-returns`, label: 'مرتجعات المشتريات (موردين)', icon: <RotateCw size={17} /> },
             ]
         },
         {
             type: 'group',
             title: 'نظام الإدارة المالية الشاملة',
             links: [
-                { 
-                    to: `${storePrefix}/wallet`, 
-                    label: 'المحفظة الماليّة المركزيّة', 
-                    icon: <WalletIcon size={18} />,
-                    badge: { text: "الرئيسية 💎", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black" }
-                },
-                {
-                    to: `${storePrefix}/subscription`,
-                    label: 'الاشتراك ومحفظة الكوتا والموديولات',
-                    icon: <Sparkles size={18} />,
-                    badge: { text: "الباقات", color: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 text-[9px] font-black" }
-                },
-                { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={18} /> },
-                { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={18} /> },
-                { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={18} /> },
-                { to: `${storePrefix}/reconciliation`, label: 'كاشف التحصيلات ومطابقة الإكسيل', icon: <FileSpreadsheet size={18} /> },
-                { to: `${storePrefix}/cash-management`, label: 'إدارة العهد النقدية', icon: <Landmark size={18} /> },
+                { to: `${storePrefix}/wallet`, label: 'المحفظة الماليّة المركزيّة', icon: <WalletIcon size={17} /> },
+                { to: `${storePrefix}/subscription`, label: 'الاشتراك ومحفظة الكوتا والموديولات', icon: <Sparkles size={17} /> },
+                { to: `${storePrefix}/treasury`, label: 'الخزائن وصناديق السيولة المالية', icon: <Landmark size={17} /> },
+                { to: `${storePrefix}/expenses`, label: 'المصروفات والتكاليف العامة', icon: <DollarSign size={17} /> },
+                { to: `${storePrefix}/employees-payroll`, label: 'كشوف المرتبات والأجور', icon: <Receipt size={17} /> },
+                { to: `${storePrefix}/reconciliation`, label: 'كاشف التحصيلات ومطابقة الإكسيل', icon: <FileSpreadsheet size={17} /> },
+                { to: `${storePrefix}/cash-management`, label: 'إدارة العهد النقدية', icon: <Landmark size={17} /> },
             ]
         },
         {
             type: 'group',
             title: 'الشحن والتوصيل اللوجستي',
             links: [
-                { to: `${storePrefix}/shipping`, label: 'شركات وقنوات الشحن اللوجستي', icon: <Truck size={18} /> },
+                { to: `${storePrefix}/shipping`, label: 'شركات وقنوات الشحن اللوجستي', icon: <Truck size={17} /> },
             ]
         },
         {
             type: 'group',
             title: 'مظهر المتجر والتطبيقات',
             links: [
-                { to: `${storePrefix}/customize-store`, label: 'تنسيق الخطوط والألوان والمظهر', icon: <Brush size={18} /> },
-                { to: `${storePrefix}/design-templates`, label: 'قوالب وثيمات المتجر الجاهزة', icon: <LayoutGrid size={18} /> },
-                { to: `${storePrefix}/domain`, label: 'ربط النطاق المخصص والدومين', icon: <Globe size={18} /> },
-                { to: `${storePrefix}/pages`, label: 'الصفحات الإضافية والمدونة', icon: <FileText size={18} /> },
-                { to: `${storePrefix}/apps`, label: 'متجر التطبيقات والربط البرمجي', icon: <AppWindow size={18} />, badge: { text: "Apps", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10 text-[9px]" } },
+                { to: `${storePrefix}/customize-store`, label: 'تنسيق الخطوط والألوان والمظهر', icon: <Brush size={17} /> },
+                { to: `${storePrefix}/design-templates`, label: 'قوالب وثيمات المتجر الجاهزة', icon: <LayoutGrid size={17} /> },
+                { to: `${storePrefix}/domain`, label: 'ربط النطاق المخصص والدومين', icon: <Globe size={17} /> },
+                { to: `${storePrefix}/pages`, label: 'الصفحات الإضافية والمدونة', icon: <FileText size={17} /> },
+                { to: `${storePrefix}/apps`, label: 'متجر التطبيقات والربط البرمجي', icon: <AppWindow size={17} /> },
             ]
         },
         {
             type: 'group',
             title: 'النظام وإعدادات التحكم الشاملة',
             links: [
-                { to: `${storePrefix}/settings`, label: 'الإعدادات العامة وإدارة المتجر ⚙️', icon: <Settings2 size={18} /> },
-                { to: `${storePrefix}/settings/payment`, label: 'بوابات وطرق الدفع والتحصيل', icon: <CreditCard size={18} /> },
-                { to: `${storePrefix}/settings/employees`, label: 'سجل صلاحيات طاقم العمل والـ CRM', icon: <Users2 size={18} /> },
-                { to: `${storePrefix}/settings/developer`, label: 'إعدادات المطورين والربط التقني', icon: <Code size={18} />, badge: { text: "Dev 🛠️", color: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/10 text-[9px]" } },
-                { to: `${storePrefix}/api-docs`, label: 'وثائق المطورين API Docs', icon: <FileText size={18} /> },
-                { to: `${storePrefix}/maintenance`, label: 'صيانة وفحص سلامة البيانات', icon: <Wrench size={18} /> },
-                { to: `/select-store`, label: 'إدارة واختيار المتاجر والمشاريع', icon: <LayoutGrid size={18} /> },
-                { to: `${storePrefix}/account-settings`, label: 'إعدادات حساب المالك', icon: <UserCog size={18} /> },
-                ...(isAdmin ? [{ to: '/saeed', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={18} /> }] : []),
+                { to: `${storePrefix}/settings`, label: 'الإعدادات العامة وإدارة المتجر', icon: <Settings2 size={17} /> },
+                { to: `${storePrefix}/settings/payment`, label: 'بوابات وطرق الدفع والتحصيل', icon: <CreditCard size={17} /> },
+                { to: `${storePrefix}/settings/employees`, label: 'سجل صلاحيات طاقم العمل والـ CRM', icon: <Users2 size={17} /> },
+                { to: `${storePrefix}/settings/developer`, label: 'إعدادات المطورين والربط التقني', icon: <Code size={17} /> },
+                { to: `${storePrefix}/api-docs`, label: 'وثائق المطورين API Docs', icon: <FileText size={17} /> },
+                { to: `${storePrefix}/maintenance`, label: 'صيانة وفحص سلامة البيانات', icon: <Wrench size={17} /> },
+                { to: `/select-store`, label: 'إدارة واختيار المتاجر والمشاريع', icon: <LayoutGrid size={17} /> },
+                { to: `${storePrefix}/account-settings`, label: 'إعدادات حساب المالك', icon: <UserCog size={17} /> },
+                ...(isAdmin ? [{ to: '/saeed', label: 'لوحة تحكم النظام (أدمن)', icon: <Shield size={17} /> }] : []),
             ]
         }
     ];
@@ -349,156 +328,134 @@ const Sidebar: React.FC<SidebarProps> = ({
     const hasActiveSearch = searchQuery.trim().length > 0;
 
     const sidebarContentJSX = (
-        <div className="h-full flex-1 min-h-0 flex flex-col p-3 bg-white/95 dark:bg-[#070c14]/95 backdrop-blur-2xl border-l border-slate-200/80 dark:border-white/[0.08] font-sans text-right select-none" dir="rtl">
+        <div className="h-full flex-1 min-h-0 flex flex-col px-3 py-3 bg-white dark:bg-[#080d17] border-l border-slate-200/80 dark:border-white/[0.07] font-sans text-right select-none" dir="rtl">
             
-            {/* Header section (Architectural Store Crest) */}
-            <div className="p-2.5 mb-2 rounded-2xl bg-slate-100/70 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.07] flex justify-between items-center group/store shadow-2xs">
+            {/* Store Identity Header (Clean Linear/Stripe Workspace Switcher Style) */}
+            <div className="px-2 py-2 mb-2.5 flex justify-between items-center gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 border border-emerald-400/30 flex items-center justify-center text-white shadow-xs shrink-0 ring-1 ring-emerald-500/20">
-                        <ShoppingCart size={17} />
+                    <div className="w-8 h-8 rounded-xl bg-slate-900 dark:bg-emerald-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+                        <ShoppingCart size={15} />
                     </div>
                     <div className="overflow-hidden min-w-0">
                         <div className="flex items-center gap-1.5">
-                            <h2 className="text-xs font-black text-slate-900 dark:text-white truncate" title={activeStore?.name}>
+                            <h2 className="text-[13px] font-black text-slate-900 dark:text-white truncate" title={activeStore?.name}>
                                 {activeStore?.name || 'منظومة التشغيل'}
                             </h2>
                             <VerifiedStoreBadge verified={isStoreVerified(settings)} tier={getStoreVerificationTier(settings)} size="xs" />
-                            <span className="relative flex h-1.5 w-1.5 shrink-0" title="المتجر نشط">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                            </span>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">الإدارة المركزية</span>
-                            <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-white/[0.08]">
+                        <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
+                            <span className="font-semibold">الإدارة المركزية</span>
+                            <span className="text-slate-300 dark:text-slate-700">·</span>
+                            <span className="font-mono tabular-nums text-slate-400 dark:text-slate-500">
                                 {activeStore?.id ? activeStore.id.slice(-8) : 'm-media'}
                             </span>
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-0.5">
-                    {/* Desktop Collapse Trigger to Expand Workspace */}
+                <div className="flex items-center gap-0.5 shrink-0">
                     {onToggleDesktopCollapse && (
                         <button 
                             onClick={onToggleDesktopCollapse}
-                            className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-white/80 dark:hover:bg-white/[0.06] transition-all cursor-pointer border border-transparent hover:border-slate-200/80 dark:hover:border-white/[0.08]"
+                            className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
                             title="طي القائمة وتوسيع مساحة العمل (Ctrl + B)"
                         >
                             <PanelLeftClose size={15} />
                         </button>
                     )}
                     {onClose && (
-                        <button onClick={onClose} className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer">
+                        <button onClick={onClose} className="md:hidden p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors cursor-pointer">
                             <X size={16}/>
                         </button>
                     )}
                 </div>
             </div>
 
-            {/* Quick Workspace Expand Strip (Architectural Utility Bar) */}
-            {onToggleDesktopCollapse && (
-                <div className="hidden md:flex items-center justify-between px-2.5 py-1.5 mb-2 bg-slate-100/60 dark:bg-white/[0.03] rounded-xl border border-slate-200/70 dark:border-white/[0.06] text-slate-600 dark:text-slate-300 shadow-2xs">
-                    <div className="flex items-center gap-1.5 text-[11px] font-bold">
-                        <Maximize2 size={12} className="text-emerald-600 dark:text-emerald-400" />
-                        <span>توسيع مساحة العمل</span>
-                    </div>
-                    <button
-                        onClick={onToggleDesktopCollapse}
-                        className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-black rounded-md bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 border border-slate-200/80 dark:border-white/[0.08] transition-all cursor-pointer shadow-2xs group"
-                        title="طي الشريط وتوسيع مساحة العمل بالكامل (Ctrl + B)"
-                    >
-                        <span>طي</span>
-                        <kbd className="font-mono text-[9px] opacity-70 group-hover:opacity-100">⌘B</kbd>
-                    </button>
-                </div>
-            )}
-
-            {/* Smart Search Filter (Engineered Input) */}
-            <div className="mb-2.5 relative">
+            {/* Clean Search Filter */}
+            <div className="mb-3 px-0.5">
                 <div className="relative">
                     <input 
                         type="text"
                         placeholder="بحث سريع في القائمة..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-slate-100/70 dark:bg-white/[0.03] text-xs border border-slate-200/80 dark:border-white/[0.07] rounded-xl py-2 px-3 pl-7 pr-8 text-right focus:outline-none focus:ring-1 focus:ring-emerald-500/40 focus:border-emerald-500/40 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                        className="w-full bg-slate-100/80 dark:bg-white/[0.04] text-xs border border-slate-200/70 dark:border-white/[0.07] rounded-xl py-2 pl-7 pr-8 text-right focus:outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/50 transition-all text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
                     />
-                    <div className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none">
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                         <Search size={13} />
                     </div>
                     {searchQuery ? (
                         <button 
                             onClick={() => setSearchQuery('')}
-                            className="absolute left-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                            className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
                         >
                             <X size={13} />
                         </button>
                     ) : null}
                 </div>
 
-                {/* Collapse / Expand all quick triggers */}
+                {/* Collapse / Expand all quiet triggers */}
                 {!hasActiveSearch && (
-                    <div className="flex justify-between items-center mt-1.5 px-1 text-[10px] text-slate-400 font-mono font-medium">
+                    <div className="flex justify-between items-center mt-1.5 px-1.5 text-[10px] text-slate-400 dark:text-slate-500 font-semibold">
                         <button 
                             onClick={expandAll}
-                            className="flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
+                            className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer"
                         >
-                            <Maximize2 size={9} />
-                            <span>توسيع الكل</span>
+                            توسيع الكل
                         </button>
                         <button 
                             onClick={collapseAll}
-                            className="flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
+                            className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer"
                         >
-                            <Minimize2 size={9} />
-                            <span>طي الكل</span>
+                            طي الكل
                         </button>
                     </div>
                 )}
             </div>
             
-            {/* Nav Links & Scrollable Container */}
-            <nav className="flex-1 space-y-1.5 overflow-y-auto pb-6 no-scrollbar pr-0.5 pl-0.5">
+            {/* Flat, Airy Grouped Navigation */}
+            <nav className="flex-1 space-y-3 overflow-y-auto pb-6 no-scrollbar px-0.5">
                 {filteredNavItems.length === 0 ? (
-                    <div className="text-center py-8 px-2 text-xs font-bold text-slate-400 bg-slate-50/50 dark:bg-white/[0.02] rounded-xl border border-dashed border-slate-200 dark:border-white/[0.08]">
+                    <div className="text-center py-8 px-2 text-xs font-semibold text-slate-400">
                         لا توجد نتائج مطابقة لبحثك
                     </div>
                 ) : (
-                    filteredNavItems.map((item) => {
+                    filteredNavItems.map((item, groupIndex) => {
                         if (item.type === 'group') {
                             const isCollapsed = hasActiveSearch ? false : !!collapsedGroups[item.title];
                             const containsActivePath = item.links.some(link => isLinkActive(link));
 
                             return (
-                                <div key={item.title} className="space-y-0.5 bg-slate-50 dark:bg-white/[0.02] rounded-2xl p-1.5 border border-slate-200/40 dark:border-white/[0.04] transition-all duration-150">
-                                    
-                                    {/* Actionable Header representing a grouping */}
+                                <div
+                                    key={item.title}
+                                    className={groupIndex > 0 ? 'pt-2.5 border-t border-slate-100 dark:border-white/[0.05]' : ''}
+                                >
+                                    {/* Quiet Section Header */}
                                     <button 
                                         onClick={() => toggleGroup(item.title)}
-                                        className="w-full flex items-center justify-between px-2 py-1 text-right hover:bg-slate-200/40 dark:hover:bg-white/[0.04] rounded-lg transition-colors cursor-pointer group"
+                                        className="w-full flex items-center justify-between px-2 py-1 mb-1 text-right rounded-lg hover:bg-slate-100/70 dark:hover:bg-white/[0.03] transition-colors cursor-pointer group"
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-mono font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 truncate">
                                                 {item.title}
                                             </span>
                                             {containsActivePath && isCollapsed && (
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="الصفحة الحالية داخل هذا القسم" />
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="الصفحة الحالية داخل هذا القسم" />
                                             )}
                                         </div>
                                         
                                         {!hasActiveSearch && (
                                             <ChevronDown 
                                                 size={12} 
-                                                className={`text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-200 ${
-                                                    !isCollapsed ? 'rotate-180 text-emerald-500' : ''
+                                                className={`text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-transform duration-150 shrink-0 ${
+                                                    !isCollapsed ? 'rotate-180' : ''
                                                 }`} 
                                             />
                                         )}
                                     </button>
 
-                                    {/* Sub Items under the Category Accordion */}
+                                    {/* Navigation Links */}
                                     {!isCollapsed && (
-                                        <div className="space-y-0.5 mt-0.5 transition-all">
+                                        <div className="space-y-0.5">
                                             {item.links.map(link => {
                                                 const active = isLinkActive(link);
                                                 const modId = getRouteModuleId(link.to);
@@ -516,43 +473,40 @@ const Sidebar: React.FC<SidebarProps> = ({
                                                         end={true}
                                                         target={link.external ? "_blank" : undefined}
                                                         rel={link.external ? "noopener noreferrer" : undefined}
-                                                        className={`relative flex items-center justify-between px-3 py-2.5 rounded-xl transition-all duration-150 text-xs ${
+                                                        className={`group/item relative flex items-center justify-between px-2.5 py-2 rounded-xl transition-all duration-150 text-xs ${
                                                             active 
-                                                                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-950 dark:text-emerald-50 font-black border border-emerald-500/20 dark:border-emerald-500/30 shadow-xs' 
+                                                                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-900 dark:text-emerald-200 font-bold' 
                                                                 : isOwnerPermRestricted
-                                                                ? 'text-slate-400 dark:text-slate-600 opacity-70 hover:bg-rose-50/50 dark:hover:bg-rose-950/10 font-bold'
-                                                                : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-bold'
+                                                                ? 'text-slate-400 dark:text-slate-600 opacity-70 hover:bg-rose-50/50 dark:hover:bg-rose-950/10 font-medium'
+                                                                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-slate-100 font-semibold'
                                                         }`}
                                                     >
                                                         {() => (
                                                             <>
-                                                                <div className="flex items-center gap-2.5 min-w-0 pr-1">
+                                                                {active && (
+                                                                    <span className="absolute right-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                                                                )}
+                                                                <div className="flex items-center gap-2.5 min-w-0 pr-0.5">
                                                                     <span className={`shrink-0 transition-colors duration-150 ${
                                                                         active 
                                                                             ? 'text-emerald-600 dark:text-emerald-400' 
-                                                                            : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-200'
+                                                                            : 'text-slate-400 dark:text-slate-500 group-hover/item:text-slate-700 dark:group-hover/item:text-slate-200'
                                                                     }`}>
                                                                         {link.icon}
                                                                     </span>
-                                                                    <span className="truncate pr-0.5">{link.label}</span>
+                                                                    <span className="truncate">{link.label}</span>
                                                                 </div>
 
                                                                 {isOwnerPermRestricted ? (
                                                                     <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400" title="مقيّد من صلاحيات المالك بواسطة إدارة المنصة">
                                                                         <Lock size={11} />
-                                                                        <span>مقيّد</span>
                                                                     </span>
                                                                 ) : isModLocked ? (
                                                                     <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400" title="وضع القراءة فقط — اضغط للتفعيل من محفظة الكوتا">
                                                                         <Lock size={11} />
-                                                                        <span>مقفل</span>
                                                                     </span>
                                                                 ) : link.badge ? (
-                                                                    <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-mono font-black rounded-md leading-none ${
-                                                                        active 
-                                                                            ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' 
-                                                                            : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-white/[0.06]'
-                                                                    }`}>
+                                                                    <span className={`shrink-0 min-w-[18px] h-[18px] px-1.5 inline-flex items-center justify-center rounded-full leading-none ${link.badge.color}`}>
                                                                         {link.badge.text}
                                                                     </span>
                                                                 ) : null}
@@ -571,10 +525,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                 )}
             </nav>
 
-            {/* Brand Credit Signature */}
-            <div className="mt-auto pt-3 border-t border-slate-100 dark:border-white/5 text-center flex flex-col items-center justify-center gap-1 shrink-0">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300 dark:text-slate-700">AbdoMedia Premium</span>
-                <span className="text-[8px] font-bold text-slate-400 dark:text-slate-600">منظومة التجارة المتكاملة © 2026</span>
+            {/* Quiet Footer */}
+            <div className="mt-auto pt-2.5 border-t border-slate-100 dark:border-white/[0.05] text-center shrink-0">
+                <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-600">
+                    منظومة التجارة المتكاملة · 2026
+                </span>
             </div>
         </div>
     );

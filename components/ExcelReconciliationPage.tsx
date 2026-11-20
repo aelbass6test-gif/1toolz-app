@@ -217,13 +217,14 @@ export default function ExcelReconciliationPage({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen bg-[#f8fafc] dark:bg-[#060a12] px-3 sm:px-5 lg:px-7 py-4 sm:py-6">
       <CodHunterWorkspace
         storeId={storeId}
         storeName={storeDisplayName}
         orders={storeData.orders || []}
         settings={storeData.settings}
         treasuryAccounts={storeData.treasury?.accounts || []}
+        storeWallet={storeData.wallet}
         allowBatchSettlement={true}
         showBackToDashboard={true}
         orderDetailBasePath={`/store/${storeId}/orders`}

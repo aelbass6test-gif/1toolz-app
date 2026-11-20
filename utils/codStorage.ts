@@ -7,12 +7,47 @@ export interface BankConfirmationRecord {
   note?: string;
 }
 
+export type WalletEntryKind =
+  | 'goods_cost'
+  | 'ads'
+  | 'operating_expense'
+  | 'supplier_payment'
+  | 'partner_withdrawal'
+  | 'personal_withdrawal'
+  | 'extra_income'
+  | 'opening_balance';
+
+export interface WalletLedgerEntry {
+  id: string;
+  date: string;
+  kind: WalletEntryKind;
+  direction: 'in' | 'out';
+  amount: number;
+  brandName?: string;
+  note: string;
+  createdAt: string;
+}
+
+export type WalletCalculationMode = 'verified_only' | 'full_sheets';
+export type WalletDataScope = 'orders_period' | 'full_transactions';
+
+export interface WalletCostConfig {
+  calculationMode?: WalletCalculationMode;
+  dataScope?: WalletDataScope;
+  useAutoCogsFromOrders: boolean;
+  includeStoreExpensesFromWallet: boolean;
+  includeTreasuryBalances: boolean;
+  deductEstimatedShippingOnDeliveriesOnly?: boolean;
+}
+
 export interface PersistedCodHunterState {
   storeId: string;
   uploadedFiles: UploadedSheetFile[];
   bankConfirmedCashouts: Record<string, BankConfirmationRecord>;
   manualMatches: Record<string, string>;
   manualCreditTrackingMap?: Record<string, string>;
+  walletLedgerEntries?: WalletLedgerEntry[];
+  walletCostConfig?: WalletCostConfig;
   maxExpectedShippingFee: number;
   zoneRates?: ZoneRateConfig;
   matchWithStoreOrders: boolean;
@@ -72,6 +107,8 @@ export async function saveCodHunterState(state: PersistedCodHunterState): Promis
       bankConfirmedCashouts: state.bankConfirmedCashouts,
       manualMatches: state.manualMatches,
       manualCreditTrackingMap: state.manualCreditTrackingMap || {},
+      walletLedgerEntries: state.walletLedgerEntries || [],
+      walletCostConfig: state.walletCostConfig,
       maxExpectedShippingFee: state.maxExpectedShippingFee,
       zoneRates: state.zoneRates,
       matchWithStoreOrders: state.matchWithStoreOrders,
@@ -120,6 +157,8 @@ export async function loadCodHunterState(
       bankConfirmedCashouts: parsed.bankConfirmedCashouts || {},
       manualMatches: parsed.manualMatches || {},
       manualCreditTrackingMap: parsed.manualCreditTrackingMap || {},
+      walletLedgerEntries: Array.isArray(parsed.walletLedgerEntries) ? parsed.walletLedgerEntries : [],
+      walletCostConfig: parsed.walletCostConfig,
       maxExpectedShippingFee:
         typeof parsed.maxExpectedShippingFee === 'number' ? parsed.maxExpectedShippingFee : 110,
       zoneRates: parsed.zoneRates,

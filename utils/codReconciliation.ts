@@ -8,6 +8,31 @@ import {
 } from '../types';
 import { calculateOrderProfitLoss } from './financials';
 
+// Brand Family normalization merges ONLY spelling/orthography variants of the exact same brand (NO merging of distinct brands like "وان تولز" vs "إن تولز")
+export const getBrandFamilyMeta = (name?: string): { key: string; label: string } => {
+  const raw = (name || '').trim();
+  if (!raw) return { key: '', label: '' };
+  const norm = raw
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .trim();
+  const stripped = norm
+    .replace(/\s*(للعدد والادوات|للعدد|للعده|للعد|والادوات|ستور|store)\s*$/g, '')
+    .trim();
+  if (stripped.includes('وان تولز') || stripped.includes('onetoolz') || stripped.includes('one toolz')) {
+    return { key: 'وان تولز', label: 'وان تولز' };
+  }
+  if (stripped === 'ان تولز' || stripped.startsWith('ان تولز ')) {
+    return { key: 'ان تولز', label: 'إن تولز' };
+  }
+  const displayLabel =
+    raw.replace(/\s*(للعدد والادوات|للعدد|للعده|للعد|والادوات)\s*$/g, '').trim() || raw;
+  return { key: stripped || norm, label: displayLabel };
+};
+
 export type UploadedSheetRole =
   | 'bosta_orders'
   | 'cash_cycles'
@@ -15,7 +40,8 @@ export type UploadedSheetRole =
   | 'compensations'
   | 'pickup_requests'
   | 'bosta_credits'
-  | 'warehouse_orders';
+  | 'warehouse_orders'
+  | 'bank_statement';
 
 export interface UploadedSheetFile {
   id: string;
@@ -175,8 +201,21 @@ export interface TransactionCashoutEntry {
   linkedCompensationsTotal: number;
   linkedPackingTotal: number;
   linkedPickupTotal: number;
+  linkedAdjustmentItems?: LinkedCashoutAdjustmentItem[];
   bankVariance: number;
   isUnlinkedGeneralPayout: boolean;
+}
+
+export interface LinkedCashoutAdjustmentItem {
+  id: string;
+  kind: 'packing' | 'pickup' | 'compensation' | 'adjustment';
+  transactionId: string;
+  orderRef?: string;
+  date: string;
+  amount: number;
+  category: string;
+  categoryAr: string;
+  description?: string;
 }
 
 export interface TransactionLedgerRow {
@@ -184,6 +223,8 @@ export interface TransactionLedgerRow {
   fileName: string;
   rowIndex: number;
   transactionId: string;
+  orderRef?: string;
+  description?: string;
   date: string;
   category: string;
   categoryAr: string;
@@ -958,6 +999,164 @@ export interface DeliverySlaSummary {
   items: DeliverySlaItem[];
 }
 
+export interface SuspectedOmittedOrder {
+  trackingKey: string;
+  customerName?: string;
+  brandName?: string;
+  sheetGrossAmount: number;
+  sheetNetPayout: number;
+  matchType: 'exact_net' | 'exact_cod' | 'pair_net';
+  pairWithTrackingKey?: string;
+  pairWithCustomerName?: string;
+  pairCombinedNet?: number;
+  diffFromDeficit: number;
+}
+
+export type CashoutForensicVerdict =
+  | 'verified_exact'
+  | 'explained_by_carryover'
+  | 'short_cashout_deficit'
+  | 'surplus_or_partial_cycles'
+  | 'unlinked_no_cycles';
+
+export type BankMatchStatus =
+  | 'no_bank_sheet'
+  | 'bank_matched_exact'
+  | 'bank_short_deposit'
+  | 'bank_missing_deposit'
+  | 'bank_outside_range';
+
+export interface CashoutForensicAuditEntry {
+  id: string;
+  cashoutId: string;
+  date: string;
+  cashoutAmount: number;
+  transferFees: number;
+  linkedOrderCount: number;
+  linkedDeliveredCount: number;
+  linkedReturnedCount: number;
+  linkedGrossTotal: number;
+  linkedFeesTotal: number;
+  linkedNetTotal: number;
+  linkedAdjustmentsTotal: number;
+  linkedCompensationsTotal: number;
+  linkedPackingTotal: number;
+  linkedPickupTotal: number;
+  expectedFromOrdersNet: number;
+  priorCarryOverBalance: number | null;
+  endingBalanceAfterCashout: number | null;
+  periodUnlinkedAdjustments: number;
+  expectedWithCarryOver: number | null;
+  rawVariance: number;
+  unexplainedVariance: number;
+  verdict: CashoutForensicVerdict;
+  suspectedOmittedOrders: SuspectedOmittedOrder[];
+  bankMatchStatus: BankMatchStatus;
+  bankMatchedDate?: string;
+  bankMatchedAmount?: number;
+  bankMatchedDescription?: string;
+  bankMatchedRef?: string;
+  bankDepositDiff?: number;
+  reasonSummary: string;
+}
+
+export interface PhantomCashoutOrderAlert {
+  id: string;
+  trackingKey: string;
+  customerName?: string;
+  brandName?: string;
+  sheetCashoutId: string;
+  sheetPaymentStatus: string;
+  sheetPaidAt?: string;
+  sheetDeliveredAt?: string;
+  sheetGrossAmount: number;
+  sheetFeesAmount: number;
+  sheetNetPayout: number;
+  status: 'phantom_missing_in_tx' | 'outside_tx_date_range';
+  reasonSummary: string;
+}
+
+export interface DeliveriesVsCyclesMismatchAlert {
+  id: string;
+  trackingKey: string;
+  customerName?: string;
+  brandName?: string;
+  dropoffCity?: string;
+  deliveriesState: string;
+  deliveriesDate?: string;
+  cyclesStatus: string;
+  deliveriesCod: number;
+  cyclesCod: number;
+  codDifference: number;
+  cyclesNet: number;
+  cyclesCashoutId?: string;
+  mismatchKind:
+    | 'cod_short_in_cycles'
+    | 'cod_zero_in_cycles'
+    | 'cod_higher_in_cycles'
+    | 'delivered_missing_in_cycles';
+  reasonSummary: string;
+}
+
+export interface BankStatementRow {
+  id: string;
+  fileName: string;
+  rowIndex: number;
+  date: string;
+  amount: number;
+  description: string;
+  reference: string;
+  matchedCashoutId?: string;
+  matchDiff?: number;
+}
+
+export interface CycleTotalsReconciliation {
+  hasBothSheets: boolean;
+  txCollectionCyclesTotal: number;
+  txFeesCyclesTotal: number;
+  txNetCyclesTotal: number;
+  sheetsAllCodTotal: number;
+  sheetsAllFeesTotal: number;
+  sheetsAllNetTotal: number;
+  sheetsPaidCodTotal: number;
+  sheetsPaidFeesTotal: number;
+  sheetsPaidNetTotal: number;
+  collectionGapVsPaid: number;
+  feesGapVsPaid: number;
+  netCycleGapVsPaid: number;
+  txDateRange: { min: string; max: string } | null;
+  cyclesDateRange: { min: string; max: string } | null;
+  noteAr: string;
+}
+
+export interface CashoutForensicSummary {
+  cashoutAudits: CashoutForensicAuditEntry[];
+  phantomCashoutOrders: PhantomCashoutOrderAlert[];
+  deliveriesVsCyclesMismatches: DeliveriesVsCyclesMismatchAlert[];
+  cycleTotalsComparison: CycleTotalsReconciliation;
+  hasBankStatementSheet: boolean;
+  bankDateRange: { min: string; max: string } | null;
+  txDateRange: { min: string; max: string } | null;
+  bankRows: BankStatementRow[];
+  shortCashoutCount: number;
+  shortCashoutDeficitTotal: number;
+  verifiedCashoutCount: number;
+  carryOverExplainedCount: number;
+  phantomCashoutCount: number;
+  phantomCashoutUniqueIds: string[];
+  phantomCashoutAmount: number;
+  outsideTxRangeCount: number;
+  deliveriesCyclesMismatchCount: number;
+  deliveriesCyclesShortfallAmount: number;
+  bankMatchedCount: number;
+  bankMatchedAmount: number;
+  bankShortCount: number;
+  bankShortAmount: number;
+  bankMissingCount: number;
+  bankMissingAmount: number;
+  bankOutsideRangeCount: number;
+}
+
 export interface TwoWayCodAuditResult {
   matchWithStoreOrders: boolean;
   availableSheetBrands: string[];
@@ -987,6 +1186,7 @@ export interface TwoWayCodAuditResult {
   bostaCreditsSummary: BostaCreditsAuditSummary;
   payoutSlaSummary: PayoutSlaSummary;
   deliverySlaSummary: DeliverySlaSummary;
+  cashoutForensicSummary: CashoutForensicSummary;
   healthyInTransitCount: number;
   alreadySettledCount: number;
   totals: {
@@ -1036,6 +1236,16 @@ export interface TwoWayCodAuditResult {
     undocumentedWalletCompAmount: number;
     delayedPayoutsCount: number;
     avgPayoutLagDays: number;
+    cashoutShortfallCount: number;
+    cashoutShortfallAmount: number;
+    phantomCashoutCount: number;
+    phantomCashoutAmount: number;
+    deliveriesCyclesMismatchCount: number;
+    deliveriesCyclesShortfallAmount: number;
+    bankMissingDepositCount: number;
+    bankMissingDepositAmount: number;
+    bankShortDepositCount: number;
+    bankShortDepositAmount: number;
   };
 }
 
@@ -1253,6 +1463,46 @@ export function detectUploadedSheetRole(
     !hasHeader(['delivery state', 'confirmed delivery at'])
   ) {
     return 'warehouse_orders';
+  }
+
+  // 5. Bank Statement / InstaPay CSV / XLSX (CIB, NBE, Banque Misr, QNB, AlexBank, InstaPay)
+  const isNotBostaShipmentSheet = !hasHeader([
+    'tracking number',
+    'delivery state',
+    'cash-out id',
+    'transactions id',
+    'pickup id',
+    'compensation id'
+  ]);
+  if (
+    isNotBostaShipmentSheet &&
+    (lowName.includes('bank') ||
+      lowName.includes('statement') ||
+      lowName.includes('instapay') ||
+      lowName.includes('كشف حساب') ||
+      lowName.includes('البنك') ||
+      lowName.includes('بنك') ||
+      lowName.includes('cib') ||
+      lowName.includes('nbe') ||
+      lowName.includes('qnb') ||
+      lowName.includes('banque misr') ||
+      (hasHeader(['credit', 'deposit', 'دائن', 'إيداع', 'ايداع', 'وارد', 'له']) &&
+        hasHeader([
+          'debit',
+          'withdrawal',
+          'مدين',
+          'منصرف',
+          'balance',
+          'الرصيد',
+          'description',
+          'narrative',
+          'البيان',
+          'التفاصيل',
+          'value date',
+          'تاريخ القيمة'
+        ])))
+  ) {
+    return 'bank_statement';
   }
 
   // Default fallback
@@ -1901,6 +2151,7 @@ export function runTwoWayCodAudit(params: {
   const compensationFiles = uploadedFiles.filter(f => f.role === 'compensations');
   const pickupFiles = uploadedFiles.filter(f => f.role === 'pickup_requests');
   const creditsFiles = uploadedFiles.filter(f => f.role === 'bosta_credits');
+  const bankStatementFiles = uploadedFiles.filter(f => f.role === 'bank_statement');
 
   // Index Cash Cycles by Tracking / Order Id so we know which Bosta Orders entered Cash Cycles
   const cashCyclesByKey = new Map<
@@ -2140,23 +2391,46 @@ export function runTwoWayCodAudit(params: {
   let pickupFeesTotal = 0;
   let adjustmentsTotal = 0;
 
+  const isPackingCat = (low: string) =>
+    low.includes('packing') ||
+    low.includes('packaging') ||
+    low.includes('flyer') ||
+    low.includes('تغليف');
+  const isPackingRefundCat = (low: string) =>
+    isPackingCat(low) && (low.includes('refund') || low.includes('استرداد'));
+  const isPickupCat = (low: string) =>
+    low.includes('pickup') || low.includes('بيك اب') || low.includes('بيك أب');
+  const isCompensationCat = (low: string) =>
+    low.includes('compensation') || low.includes('تعويض');
+
   const translateTxCategory = (cat: string): string => {
     const low = cat.toLowerCase();
     if (low.includes('cash collection cycle')) return 'دورة تحصيل كاش';
     if (low.includes('bosta fees cycle')) return 'دورة مصاريف بوسطة';
     if (low === 'cash out' || low.includes('cash out')) return 'تحويل بنكي (Cash Out)';
     if (low.includes('transfer fee')) return 'رسوم تحويل بنكي';
-    if (low.includes('compensation')) return 'تعويض شحنة';
-    if (low.includes('packaging material refund') || low.includes('packing material refund')) {
+    if (isCompensationCat(low)) return 'تعويض شحنة';
+    if (isPackingRefundCat(low)) {
       return 'استرداد مستلزمات تغليف';
     }
-    if (low.includes('packing material') || low.includes('packaging material')) {
+    if (isPackingCat(low)) {
       return 'خصم مستلزمات تغليف';
     }
-    if (low.includes('pickup fee')) return 'رسوم بيك أب';
-    if (low.includes('balance adjustment')) return 'تسوية رصيد';
+    if (isPickupCat(low)) return 'رسوم بيك أب';
+    if (low.includes('balance adjustment') || low.includes('تسوية')) return 'تسوية رصيد';
     return cat || 'حركة مالية';
   };
+
+  type OrphanTxAdjKind = 'packing' | 'pickup' | 'compensation' | 'adjustment';
+  interface OrphanTxAdjustment {
+    kind: OrphanTxAdjKind;
+    amount: number;
+    dateStr: string;
+    rowIndex: number;
+    ledgerRow: TransactionLedgerRow;
+    assigned: boolean;
+  }
+  const orphanLedgerAdjustments: OrphanTxAdjustment[] = [];
 
   const ensureCashoutEntry = (
     idKey: string,
@@ -2188,11 +2462,32 @@ export function runTwoWayCodAudit(params: {
       linkedCompensationsTotal: 0,
       linkedPackingTotal: 0,
       linkedPickupTotal: 0,
+      linkedAdjustmentItems: [],
       bankVariance: 0,
       isUnlinkedGeneralPayout: false
     };
     cashoutMap.set(idKey, created);
     return created;
+  };
+
+  const pushLinkedAdjustmentItem = (
+    tx: TransactionCashoutEntry,
+    kind: OrphanTxAdjKind,
+    ledgerRow: TransactionLedgerRow
+  ) => {
+    if (!tx.linkedAdjustmentItems) tx.linkedAdjustmentItems = [];
+    if (tx.linkedAdjustmentItems.some(x => x.id === ledgerRow.id)) return;
+    tx.linkedAdjustmentItems.push({
+      id: ledgerRow.id,
+      kind,
+      transactionId: ledgerRow.transactionId,
+      orderRef: ledgerRow.orderRef,
+      date: ledgerRow.date,
+      amount: ledgerRow.amount,
+      category: ledgerRow.category,
+      categoryAr: ledgerRow.categoryAr,
+      description: ledgerRow.description
+    });
   };
 
   const seenTxKeys = new Set<string>();
@@ -2219,6 +2514,47 @@ export function runTwoWayCodAudit(params: {
         pickCell(raw, undefined, ['date', 'cashout date', 'created at', 'التاريخ'])
       );
       const cashoutDateStr = formatSheetDateCell(pickCell(raw, undefined, ['cashout date']));
+      const explicitOrderRef = normalizeTrackingCode(
+        pickCell(raw, undefined, [
+          'order id',
+          'order_id',
+          'order number',
+          'order_number',
+          'packing order id',
+          'packaging order id',
+          'request id',
+          'tracking number',
+          'tracking_number',
+          'reference',
+          'reference id',
+          'business reference',
+          'رقم الطلب',
+          'رقم البوليصة',
+          'المرجع'
+        ])
+      );
+      const txDesc = String(
+        pickCell(raw, undefined, [
+          'description',
+          'details',
+          'note',
+          'notes',
+          'sub category',
+          'sub_category',
+          'التفاصيل',
+          'البيان',
+          'ملاحظات'
+        ]) || ''
+      ).trim();
+      let extractedOrderRef = explicitOrderRef;
+      if (!extractedOrderRef && txDesc) {
+        const refMatch = txDesc.match(
+          /(?:order|tracking|request|ref|#|طلب|بوليصة)\s*[:#-]?\s*([A-Za-z0-9-]{4,})/i
+        );
+        if (refMatch?.[1]) {
+          extractedOrderRef = normalizeTrackingCode(refMatch[1]);
+        }
+      }
 
       const txDedupeKey = txId
         ? `${txId}|${catLow}|${amountVal}`
@@ -2226,11 +2562,13 @@ export function runTwoWayCodAudit(params: {
       if (seenTxKeys.has(txDedupeKey)) return;
       seenTxKeys.add(txDedupeKey);
 
-      ledgerRows.push({
+      const createdLedgerRow: TransactionLedgerRow = {
         id: `${file.id}_ledger_${entry.rowIndex}`,
         fileName: file.fileName,
         rowIndex: entry.rowIndex,
         transactionId: txId || `ROW_${entry.rowIndex}`,
+        orderRef: extractedOrderRef || undefined,
+        description: txDesc || undefined,
         date: dateStr,
         category: categoryStr,
         categoryAr: translateTxCategory(categoryStr),
@@ -2240,12 +2578,23 @@ export function runTwoWayCodAudit(params: {
           refCashoutId || (catLow.includes('cash out') && txId ? txId : undefined),
         cashoutDate: cashoutDateStr || undefined,
         cashoutAmount: refCashoutAmt > 0 ? refCashoutAmt : undefined
-      });
+      };
+      ledgerRows.push(createdLedgerRow);
 
       if (catLow.includes('cash collection cycle')) {
         totalCollectionCycles += amountVal;
+        if (refCashoutId) {
+          const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
+          item.collectionCycleAmount =
+            Math.round((item.collectionCycleAmount + amountVal) * 100) / 100;
+        }
       } else if (catLow.includes('bosta fees cycle')) {
         totalBostaFeesCycles += Math.abs(amountVal);
+        if (refCashoutId) {
+          const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
+          item.bostaFeesCycleAmount =
+            Math.round((item.bostaFeesCycleAmount + Math.abs(amountVal)) * 100) / 100;
+        }
       } else if (catLow === 'cash out' || catLow.includes('cash out')) {
         const cashId = refCashoutId || txId || `TX_${entry.rowIndex}`;
         const outAmt = refCashoutAmt > 0 ? refCashoutAmt : Math.abs(amountVal);
@@ -2272,7 +2621,7 @@ export function runTwoWayCodAudit(params: {
         } else if (dateStr) {
           orphanTransferFees.push({ file, rowIndex: entry.rowIndex, dateStr, feeAmt });
         }
-      } else if (catLow.includes('balance adjustment')) {
+      } else if (catLow.includes('balance adjustment') || catLow.includes('تسوية')) {
         if (amountVal === -25) {
           totalTransferFees += 25;
           if (refCashoutId) {
@@ -2287,9 +2636,19 @@ export function runTwoWayCodAudit(params: {
             const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
             item.linkedAdjustmentsTotal =
               Math.round((item.linkedAdjustmentsTotal + amountVal) * 100) / 100;
+            pushLinkedAdjustmentItem(item, 'adjustment', createdLedgerRow);
+          } else if (amountVal !== 0) {
+            orphanLedgerAdjustments.push({
+              kind: 'adjustment',
+              amount: amountVal,
+              dateStr,
+              rowIndex: entry.rowIndex,
+              ledgerRow: createdLedgerRow,
+              assigned: false
+            });
           }
         }
-      } else if (catLow.includes('compensation')) {
+      } else if (isCompensationCat(catLow)) {
         totalCompensations += amountVal;
         if (refCashoutId) {
           const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
@@ -2297,8 +2656,18 @@ export function runTwoWayCodAudit(params: {
             Math.round((item.linkedCompensationsTotal + amountVal) * 100) / 100;
           item.linkedAdjustmentsTotal =
             Math.round((item.linkedAdjustmentsTotal + amountVal) * 100) / 100;
+          pushLinkedAdjustmentItem(item, 'compensation', createdLedgerRow);
+        } else if (amountVal !== 0) {
+          orphanLedgerAdjustments.push({
+            kind: 'compensation',
+            amount: amountVal,
+            dateStr,
+            rowIndex: entry.rowIndex,
+            ledgerRow: createdLedgerRow,
+            assigned: false
+          });
         }
-      } else if (catLow.includes('packing material') || catLow.includes('packaging material')) {
+      } else if (isPackingCat(catLow)) {
         packingMaterialNet += amountVal;
         if (refCashoutId) {
           const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
@@ -2306,8 +2675,18 @@ export function runTwoWayCodAudit(params: {
             Math.round((item.linkedPackingTotal + amountVal) * 100) / 100;
           item.linkedAdjustmentsTotal =
             Math.round((item.linkedAdjustmentsTotal + amountVal) * 100) / 100;
+          pushLinkedAdjustmentItem(item, 'packing', createdLedgerRow);
+        } else if (amountVal !== 0) {
+          orphanLedgerAdjustments.push({
+            kind: 'packing',
+            amount: amountVal,
+            dateStr,
+            rowIndex: entry.rowIndex,
+            ledgerRow: createdLedgerRow,
+            assigned: false
+          });
         }
-      } else if (catLow.includes('pickup fee')) {
+      } else if (isPickupCat(catLow)) {
         pickupFeesTotal += Math.abs(amountVal);
         if (refCashoutId) {
           const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
@@ -2315,6 +2694,16 @@ export function runTwoWayCodAudit(params: {
             Math.round((item.linkedPickupTotal + amountVal) * 100) / 100;
           item.linkedAdjustmentsTotal =
             Math.round((item.linkedAdjustmentsTotal + amountVal) * 100) / 100;
+          pushLinkedAdjustmentItem(item, 'pickup', createdLedgerRow);
+        } else if (amountVal !== 0) {
+          orphanLedgerAdjustments.push({
+            kind: 'pickup',
+            amount: amountVal,
+            dateStr,
+            rowIndex: entry.rowIndex,
+            ledgerRow: createdLedgerRow,
+            assigned: false
+          });
         }
       } else if (refCashoutId && refCashoutAmt > 0) {
         const item = ensureCashoutEntry(refCashoutId, file, entry.rowIndex, dateStr);
@@ -2948,6 +3337,165 @@ export function runTwoWayCodAudit(params: {
       });
     });
   });
+
+  // Attribute unlinked Transactions packing / pickup / compensation / balance adjustment rows
+  // (where Bosta left Cashout ID blank or N/A) to the exact Cash Out that settled them
+  if (orphanLedgerAdjustments.length > 0 && transactionsEntries.length > 0) {
+    const chronoPositiveCashouts = [...transactionsEntries]
+      .filter(tx => tx.cashoutAmount > 0 && tx.cashoutId !== '-')
+      .sort((a, b) => {
+        const da = a.date || '';
+        const db = b.date || '';
+        if (da !== db) return da.localeCompare(db);
+        return b.rowIndex - a.rowIndex;
+      });
+
+    const dateDiffDays = (dFrom: string, dTo: string): number => {
+      if (!dFrom || !dTo) return 9999;
+      const t1 = Date.parse(dFrom);
+      const t2 = Date.parse(dTo);
+      if (!Number.isFinite(t1) || !Number.isFinite(t2)) return 9999;
+      return Math.round((t2 - t1) / 86400000);
+    };
+
+    const getCurGap = (tx: TransactionCashoutEntry): number =>
+      Math.round(
+        (tx.cashoutAmount - (tx.linkedNetTotal + tx.linkedAdjustmentsTotal - tx.transferFees)) *
+          100
+      ) / 100;
+
+    const applyOrphanToCashout = (adj: OrphanTxAdjustment, tx: TransactionCashoutEntry) => {
+      adj.assigned = true;
+      if (adj.kind === 'packing') {
+        tx.linkedPackingTotal = Math.round((tx.linkedPackingTotal + adj.amount) * 100) / 100;
+      } else if (adj.kind === 'pickup') {
+        tx.linkedPickupTotal = Math.round((tx.linkedPickupTotal + adj.amount) * 100) / 100;
+      } else if (adj.kind === 'compensation') {
+        tx.linkedCompensationsTotal =
+          Math.round((tx.linkedCompensationsTotal + adj.amount) * 100) / 100;
+      }
+      tx.linkedAdjustmentsTotal =
+        Math.round((tx.linkedAdjustmentsTotal + adj.amount) * 100) / 100;
+      pushLinkedAdjustmentItem(tx, adj.kind, adj.ledgerRow);
+      if (!adj.ledgerRow.cashoutId && tx.cashoutId && tx.cashoutId !== '-') {
+        adj.ledgerRow.cashoutId = tx.cashoutId;
+        if (!adj.ledgerRow.cashoutDate && tx.date) {
+          adj.ledgerRow.cashoutDate = tx.date;
+        }
+      }
+    };
+
+    const tryMatchExactSubset = (
+      candidates: OrphanTxAdjustment[],
+      targetGap: number,
+      tol = 1
+    ): OrphanTxAdjustment[] | null => {
+      if (candidates.length === 0) return null;
+      // 1. All candidates sum to targetGap
+      const fullSum =
+        Math.round(candidates.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+      if (Math.abs(fullSum - targetGap) <= tol) return candidates;
+      // 2. Single exact match
+      const single = candidates.find(a => Math.abs(a.amount - targetGap) <= tol);
+      if (single) return [single];
+      // 3. Pair exact match
+      const pool = candidates.slice(0, 24);
+      for (let i = 0; i < pool.length; i++) {
+        for (let j = i + 1; j < pool.length; j++) {
+          const sum2 = Math.round((pool[i].amount + pool[j].amount) * 100) / 100;
+          if (Math.abs(sum2 - targetGap) <= tol) return [pool[i], pool[j]];
+        }
+      }
+      // 4. Triple exact match
+      const smallPool = pool.slice(0, 16);
+      for (let i = 0; i < smallPool.length; i++) {
+        for (let j = i + 1; j < smallPool.length; j++) {
+          for (let k = j + 1; k < smallPool.length; k++) {
+            const sum3 =
+              Math.round((smallPool[i].amount + smallPool[j].amount + smallPool[k].amount) * 100) /
+              100;
+            if (Math.abs(sum3 - targetGap) <= tol) {
+              return [smallPool[i], smallPool[j], smallPool[k]];
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    // Pass 1: Strict chronological window exact variance matching for linked cashouts
+    chronoPositiveCashouts.forEach((tx, idx) => {
+      if (tx.linkedOrderCount === 0 || !tx.date) return;
+      const gap = getCurGap(tx);
+      if (Math.abs(gap) <= 1) return;
+      const prevDate = idx > 0 ? chronoPositiveCashouts[idx - 1].date : '';
+
+      const strictWindow = orphanLedgerAdjustments.filter(a => {
+        if (a.assigned || !a.dateStr) return false;
+        if (prevDate) return a.dateStr > prevDate && a.dateStr <= tx.date;
+        const diff = dateDiffDays(a.dateStr, tx.date);
+        return diff >= 0 && diff <= 21;
+      });
+      let matched = tryMatchExactSubset(strictWindow, gap);
+
+      if (!matched && prevDate) {
+        const inclusiveWindow = orphanLedgerAdjustments.filter(
+          a => !a.assigned && a.dateStr && a.dateStr >= prevDate && a.dateStr <= tx.date
+        );
+        matched = tryMatchExactSubset(inclusiveWindow, gap);
+      }
+
+      if (matched) {
+        matched.forEach(a => applyOrphanToCashout(a, tx));
+      }
+    });
+
+    // Pass 2: Wider date tolerance exact match (up to 14 days before, or +2 days posting lag)
+    chronoPositiveCashouts.forEach(tx => {
+      if (tx.linkedOrderCount === 0 || !tx.date) return;
+      const gap = getCurGap(tx);
+      if (Math.abs(gap) <= 1) return;
+      const nearCandidates = orphanLedgerAdjustments
+        .filter(a => {
+          if (a.assigned || !a.dateStr) return false;
+          const diff = dateDiffDays(a.dateStr, tx.date);
+          return diff >= -2 && diff <= 14;
+        })
+        .sort((a, b) => Math.abs(dateDiffDays(a.dateStr, tx.date)) - Math.abs(dateDiffDays(b.dateStr, tx.date)));
+
+      const matched = tryMatchExactSubset(nearCandidates, gap);
+      if (matched) {
+        matched.forEach(a => applyOrphanToCashout(a, tx));
+      }
+    });
+
+    // Pass 3: Remaining strictly-in-window orphans — attach to unlinked cashouts OR reduce partial variance on linked cashouts
+    chronoPositiveCashouts.forEach((tx, idx) => {
+      if (!tx.date) return;
+      const prevDate = idx > 0 ? chronoPositiveCashouts[idx - 1].date : '';
+      const strictWindow = orphanLedgerAdjustments.filter(a => {
+        if (a.assigned || !a.dateStr) return false;
+        if (prevDate) return a.dateStr > prevDate && a.dateStr <= tx.date;
+        const diff = dateDiffDays(a.dateStr, tx.date);
+        return diff >= 0 && diff <= 14;
+      });
+      if (strictWindow.length === 0) return;
+
+      if (tx.linkedOrderCount === 0) {
+        strictWindow.forEach(a => applyOrphanToCashout(a, tx));
+      } else {
+        let gap = getCurGap(tx);
+        if (Math.abs(gap) <= 1) return;
+        strictWindow.forEach(a => {
+          if (a.assigned) return;
+          if (Math.abs(gap - a.amount) < Math.abs(gap) - 0.5) {
+            applyOrphanToCashout(a, tx);
+            gap = getCurGap(tx);
+          }
+        });
+      }
+    });
+  }
 
   // Finalize Transactions summary
   let unlinkedCashoutTotal = 0;
@@ -3739,30 +4287,7 @@ export function runTwoWayCodAudit(params: {
       .replace(/\s+/g, ' ')
       .toLowerCase();
 
-  // Brand Family normalization merges ONLY spelling/orthography variants of the exact same brand (NO merging of distinct brands like "وان تولز" vs "إن تولز")
-  const getBrandFamilyMeta = (name?: string): { key: string; label: string } => {
-    const raw = (name || '').trim();
-    if (!raw) return { key: '', label: '' };
-    const norm = raw
-      .replace(/[أإآ]/g, 'ا')
-      .replace(/ة/g, 'ه')
-      .replace(/ى/g, 'ي')
-      .replace(/\s+/g, ' ')
-      .toLowerCase()
-      .trim();
-    const stripped = norm
-      .replace(/\s*(للعدد والادوات|للعدد|للعده|للعد|والادوات|ستور|store)\s*$/g, '')
-      .trim();
-    if (stripped.includes('وان تولز') || stripped.includes('onetoolz') || stripped.includes('one toolz')) {
-      return { key: 'وان تولز', label: 'وان تولز' };
-    }
-    if (stripped === 'ان تولز' || stripped.startsWith('ان تولز ')) {
-      return { key: 'ان تولز', label: 'إن تولز' };
-    }
-    const displayLabel =
-      raw.replace(/\s*(للعدد والادوات|للعدد|للعده|للعد|والادوات)\s*$/g, '').trim() || raw;
-    return { key: stripped || norm, label: displayLabel };
-  };
+  // Brand Family normalization uses exported module-level getBrandFamilyMeta
 
   // Generalized Cross-Brand Pickup & Return-Address Swap Detector (100% Data-Driven from Sheets)
   const normalizeWarehouseAddrKey = (addr?: string, contact?: string): string => {
@@ -5170,6 +5695,55 @@ export function runTwoWayCodAudit(params: {
       });
     });
   });
+
+  // Cross-enrich packing/adjustment orderRef on Transactions ledger & cashouts from Bosta Credits tracking numbers
+  if (creditEntries.length > 0 && ledgerRows.length > 0) {
+    const creditTrackingByTxId = new Map<string, string>();
+    const packingCreditsWithTracking = creditEntries.filter(
+      cr =>
+        Boolean(cr.trackingNumber) &&
+        (cr.category.toLowerCase().includes('packing') ||
+          cr.category.toLowerCase().includes('packaging'))
+    );
+    creditEntries.forEach(cr => {
+      if (cr.transactionId && cr.trackingNumber) {
+        creditTrackingByTxId.set(cr.transactionId, cr.trackingNumber);
+      }
+    });
+    const resolveCreditTracking = (txId: string, date: string, amount: number, isPacking: boolean) => {
+      const byId = creditTrackingByTxId.get(txId);
+      if (byId) return byId;
+      if (isPacking && date) {
+        const hit = packingCreditsWithTracking.find(
+          cr => cr.date === date && Math.abs(Math.abs(cr.amount) - Math.abs(amount)) <= 1
+        );
+        if (hit?.trackingNumber) return hit.trackingNumber;
+      }
+      return undefined;
+    };
+    ledgerRows.forEach(row => {
+      if (row.orderRef) return;
+      const hit = resolveCreditTracking(
+        row.transactionId,
+        row.date,
+        row.amount,
+        isPackingCat(row.category.toLowerCase())
+      );
+      if (hit) row.orderRef = hit;
+    });
+    transactionsEntries.forEach(tx => {
+      tx.linkedAdjustmentItems?.forEach(item => {
+        if (item.orderRef) return;
+        const hit = resolveCreditTracking(
+          item.transactionId,
+          item.date,
+          item.amount,
+          item.kind === 'packing'
+        );
+        if (hit) item.orderRef = hit;
+      });
+    });
+  }
 
   // Verify Bosta Credits wallet balance continuity using before/after multiset conservation
   const creditsWithBal = creditEntries.filter(r => r.balance !== null);
@@ -7240,6 +7814,963 @@ export function runTwoWayCodAudit(params: {
   const netFeeOverchargeAmount =
     Math.round(feeAnomalies.reduce((s, i) => s + i.netUncompensatedOvercharge, 0) * 100) / 100;
 
+  // ============================================================================
+  // FORENSIC ENGINE PACK (6 High-Precision Reconciliation Layers):
+  // 1) Closed-Equation Per-Cashout Forensic Audit (Carry-over aware, zero false positives)
+  // 2) Smart Missing-Order Hunter inside Short Cashouts (1-order & 2-order subset-sum)
+  // 3) Phantom / Ghost Cash-out ID Radar (Date-window guarded)
+  // 4) Direct Deliveries ↔ Cash Cycles COD Mismatch & Missing Audit
+  // 5) Aggregate Cycle Totals Reconciliation (Transactions Cycles vs Cash Cycles)
+  // 6) Bank Statement / InstaPay CSV Auto-Matcher
+  // ============================================================================
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const parseIsoDayMs = (iso?: string): number | null => {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    const ms = Date.parse(`${iso}T00:00:00Z`);
+    return Number.isNaN(ms) ? null : ms;
+  };
+
+  const parseFlexibleBankDate = (input: unknown): string => {
+    const std = formatSheetDateCell(input);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(std)) return std;
+    const rawStr = toWesternDigits(input).trim();
+    if (!rawStr) return '';
+    // Handle DD-MMM-YYYY or DD MMM YYYY (common in CIB / NBE / QNB Egypt bank statements)
+    const months: Record<string, string> = {
+      jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
+    };
+    const mNamed = /^(\d{1,2})[\s/-]([a-zA-Z]{3,9})[\s/-](\d{2,4})/.exec(rawStr);
+    if (mNamed) {
+      const dd = mNamed[1].padStart(2, '0');
+      const monKey = mNamed[2].slice(0, 3).toLowerCase();
+      const yyyy = mNamed[3].length === 2 ? `20${mNamed[3]}` : mNamed[3];
+      if (months[monKey]) return `${yyyy}-${months[monKey]}-${dd}`;
+    }
+    // Handle DD/MM/YYYY explicitly when bank exports use day-first
+    const dmy = /^(\d{1,2})[/. -](\d{1,2})[/. -](\d{4})/.exec(rawStr);
+    if (dmy) {
+      const a = Number(dmy[1]);
+      const b = Number(dmy[2]);
+      const yyyy = dmy[3];
+      // Bank statements in Egypt are predominantly DD/MM/YYYY unless second part > 12
+      const day = b > 12 ? b : a;
+      const month = b > 12 ? a : b;
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${yyyy}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+    const isoPrefix = /^(\d{4}-\d{2}-\d{2})/.exec(rawStr);
+    if (isoPrefix) return isoPrefix[1];
+    return std;
+  };
+
+  // --- Layer 6 Pre-parse: Bank Statement / InstaPay CSV ---
+  const bankRows: BankStatementRow[] = [];
+  const allBankDates: string[] = [];
+  bankStatementFiles.forEach(file => {
+    file.rows.forEach(entry => {
+      const raw = entry.raw;
+      const dateStr = parseFlexibleBankDate(
+        pickCell(raw, undefined, [
+          'value date',
+          'transaction date',
+          'posting date',
+          'booking date',
+          'تاريخ القيمة',
+          'تاريخ العملية',
+          'تاريخ المعاملة',
+          'date',
+          'التاريخ'
+        ])
+      );
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        allBankDates.push(dateStr);
+      }
+
+      const creditRaw = pickCell(raw, undefined, [
+        'credit amount',
+        'credit',
+        'deposits',
+        'deposit',
+        'money in',
+        'inflow',
+        'دائن',
+        'إيداع',
+        'ايداع',
+        'وارد',
+        'المبلغ المضاف',
+        'له'
+      ]);
+      const debitRaw = pickCell(raw, undefined, [
+        'debit amount',
+        'debit',
+        'withdrawal',
+        'withdrawals',
+        'money out',
+        'outflow',
+        'مدين',
+        'سحب',
+        'منصرف',
+        'عليه'
+      ]);
+      const typeStr = String(
+        pickCell(raw, undefined, ['dr/cr', 'cr/dr', 'type', 'transaction type', 'نوع العملية', 'الحركة']) || ''
+      )
+        .trim()
+        .toLowerCase();
+
+      let depositAmt = 0;
+      if (creditRaw !== undefined && String(creditRaw).trim() !== '') {
+        depositAmt = Math.abs(parseNumericCell(creditRaw));
+      } else {
+        const genericAmtRaw = pickCell(raw, undefined, [
+          'transaction amount',
+          'amount',
+          'المبلغ',
+          'القيمة'
+        ]);
+        const genericAmt = parseNumericCell(genericAmtRaw);
+        const debitVal = Math.abs(parseNumericCell(debitRaw));
+        const isExplicitDebit =
+          typeStr === 'dr' ||
+          typeStr.includes('debit') ||
+          typeStr.includes('مدين') ||
+          typeStr.includes('سحب') ||
+          typeStr.includes('خصم');
+        const isExplicitCredit =
+          typeStr === 'cr' ||
+          typeStr.includes('credit') ||
+          typeStr.includes('دائن') ||
+          typeStr.includes('إيداع') ||
+          typeStr.includes('ايداع') ||
+          typeStr.includes('وارد');
+
+        if (isExplicitCredit && genericAmt !== 0) {
+          depositAmt = Math.abs(genericAmt);
+        } else if (!isExplicitDebit && genericAmt > 0 && debitVal === 0) {
+          depositAmt = genericAmt;
+        }
+      }
+
+      if (depositAmt <= 0) return;
+
+      const description = String(
+        pickCell(raw, undefined, [
+          'transaction details',
+          'description',
+          'narrative',
+          'details',
+          'particulars',
+          'remarks',
+          'البيان',
+          'التفاصيل',
+          'وصف العملية',
+          'ملاحظات'
+        ]) || ''
+      ).trim();
+
+      const reference = String(
+        pickCell(raw, undefined, [
+          'reference number',
+          'transaction ref',
+          'reference',
+          'ref no',
+          'ref',
+          'رقم المرجع',
+          'المرجع',
+          'رقم العملية'
+        ]) || ''
+      ).trim();
+
+      bankRows.push({
+        id: `${file.id}_bank_${entry.rowIndex}`,
+        fileName: file.fileName,
+        rowIndex: entry.rowIndex,
+        date: dateStr,
+        amount: round2(depositAmt),
+        description,
+        reference
+      });
+    });
+  });
+
+  allBankDates.sort();
+  const bankDateRange =
+    allBankDates.length > 0
+      ? { min: allBankDates[0], max: allBankDates[allBankDates.length - 1] }
+      : null;
+
+  // Date range of Transactions statement
+  const allTxDates: string[] = [];
+  ledgerRows.forEach(r => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(r.date)) allTxDates.push(r.date);
+  });
+  transactionsEntries.forEach(t => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t.date)) allTxDates.push(t.date);
+  });
+  allTxDates.sort();
+  const txDateRange =
+    allTxDates.length > 0 ? { min: allTxDates[0], max: allTxDates[allTxDates.length - 1] } : null;
+
+  // Index non-duplicate sheetRows by sheetCashoutId (account-wide for exact cashout verification)
+  const ordersByCashoutId = new Map<string, SheetAuditRow[]>();
+  sheetRows.forEach(r => {
+    if (r.category === 'duplicate') return;
+    if (!r.sheetCashoutId || r.sheetCashoutId === '-') return;
+    const list = ordersByCashoutId.get(r.sheetCashoutId) || [];
+    list.push(r);
+    ordersByCashoutId.set(r.sheetCashoutId, list);
+  });
+
+  // Helper for Layer 2: Smart Missing-Order Hunter inside Short Cashout
+  const findSuspectedOmittedOrders = (
+    linkedOrders: SheetAuditRow[],
+    deficitAbs: number,
+    matchTolerance: number
+  ): SuspectedOmittedOrder[] => {
+    if (deficitAbs <= matchTolerance || linkedOrders.length === 0) return [];
+    const tol = Math.max(matchTolerance, 2);
+    const hits: SuspectedOmittedOrder[] = [];
+    const seenSig = new Set<string>();
+
+    // Pass A: Single-order exact/near match on Net Payout or Gross COD
+    linkedOrders.forEach(o => {
+      const diffNet = round2(Math.abs(o.sheetNetPayout - deficitAbs));
+      if (o.sheetNetPayout > 0 && diffNet <= tol) {
+        const sig = `net:${o.trackingKey}`;
+        if (!seenSig.has(sig)) {
+          seenSig.add(sig);
+          hits.push({
+            trackingKey: o.trackingKey,
+            customerName: o.customerName || o.matchedOrder?.customerName,
+            brandName: o.brandName,
+            sheetGrossAmount: o.sheetGrossAmount,
+            sheetNetPayout: o.sheetNetPayout,
+            matchType: 'exact_net',
+            diffFromDeficit: diffNet
+          });
+        }
+        return;
+      }
+      const diffCod = round2(Math.abs(o.sheetGrossAmount - deficitAbs));
+      if (o.sheetGrossAmount > 0 && diffCod <= tol) {
+        const sig = `cod:${o.trackingKey}`;
+        if (!seenSig.has(sig)) {
+          seenSig.add(sig);
+          hits.push({
+            trackingKey: o.trackingKey,
+            customerName: o.customerName || o.matchedOrder?.customerName,
+            brandName: o.brandName,
+            sheetGrossAmount: o.sheetGrossAmount,
+            sheetNetPayout: o.sheetNetPayout,
+            matchType: 'exact_cod',
+            diffFromDeficit: diffCod
+          });
+        }
+      }
+    });
+
+    // Pass B: Bounded 2-order pair match on Net Payout (when < 3 single matches found)
+    const positiveOrders = linkedOrders.filter(o => o.sheetNetPayout > 0);
+    if (hits.length < 3 && positiveOrders.length >= 2 && positiveOrders.length <= 450) {
+      const pairHits: SuspectedOmittedOrder[] = [];
+      for (let i = 0; i < positiveOrders.length; i++) {
+        const a = positiveOrders[i];
+        if (a.sheetNetPayout >= deficitAbs + tol) continue;
+        for (let j = i + 1; j < positiveOrders.length; j++) {
+          const b = positiveOrders[j];
+          const sum = round2(a.sheetNetPayout + b.sheetNetPayout);
+          const diff = round2(Math.abs(sum - deficitAbs));
+          if (diff <= tol) {
+            pairHits.push({
+              trackingKey: a.trackingKey,
+              customerName: a.customerName || a.matchedOrder?.customerName,
+              brandName: a.brandName,
+              sheetGrossAmount: a.sheetGrossAmount,
+              sheetNetPayout: a.sheetNetPayout,
+              matchType: 'pair_net',
+              pairWithTrackingKey: b.trackingKey,
+              pairWithCustomerName: b.customerName || b.matchedOrder?.customerName,
+              pairCombinedNet: sum,
+              diffFromDeficit: diff
+            });
+            if (pairHits.length >= 12) break;
+          }
+        }
+        if (pairHits.length >= 12) break;
+      }
+      pairHits.sort((x, y) => x.diffFromDeficit - y.diffFromDeficit);
+      pairHits.slice(0, 3).forEach(p => hits.push(p));
+    }
+
+    hits.sort((a, b) => a.diffFromDeficit - b.diffFromDeficit);
+    return hits.slice(0, 6);
+  };
+
+  // --- Layer 1 + 2: Closed-Equation Per-Cashout Forensic Audit ---
+  const chronoCashouts = [...transactionsEntries]
+    .filter(tx => tx.cashoutAmount > 0 && tx.cashoutId !== '-')
+    .sort((a, b) => {
+      const da = a.date || '';
+      const db = b.date || '';
+      if (da !== db) return da.localeCompare(db);
+      // Within same day, higher rowIndex in newest-first Bosta CSV is older
+      return b.rowIndex - a.rowIndex;
+    });
+
+  // Unlinked adjustment ledger rows (Compensations, Packing, Pickup, Balance Adjustment without a Cashout ID)
+  const unlinkedAdjLedgerRows = ledgerRows.filter(r => {
+    if (r.cashoutId) return false;
+    const c = r.category.toLowerCase();
+    return (
+      c.includes('compensation') ||
+      c.includes('packing') ||
+      c.includes('packaging') ||
+      c.includes('pickup fee') ||
+      c.includes('balance adjustment')
+    );
+  });
+
+  const cashoutAudits: CashoutForensicAuditEntry[] = [];
+  const consumedBankRowIds = new Set<string>();
+
+  chronoCashouts.forEach((tx, idx) => {
+    const prevTx = idx > 0 ? chronoCashouts[idx - 1] : null;
+    const expectedFromOrdersNet = round2(
+      tx.linkedNetTotal + tx.linkedAdjustmentsTotal - tx.transferFees
+    );
+    const rawVariance = round2(tx.cashoutAmount - expectedFromOrdersNet);
+
+    const priorCarryOverBalance =
+      prevTx && prevTx.balanceAfterCashout !== null ? prevTx.balanceAfterCashout : null;
+    const endingBalanceAfterCashout = tx.balanceAfterCashout;
+
+    // Sum still-unlinked adjustments strictly between previous cashout date and this cashout date (or <=14d before first cashout)
+    let periodUnlinkedAdjustments = 0;
+    if (tx.date) {
+      unlinkedAdjLedgerRows.forEach(r => {
+        if (!r.date) return;
+        if (prevTx && prevTx.date) {
+          if (r.date > prevTx.date && r.date <= tx.date) {
+            periodUnlinkedAdjustments = round2(periodUnlinkedAdjustments + r.amount);
+          }
+        } else {
+          const t1 = Date.parse(r.date);
+          const t2 = Date.parse(tx.date);
+          if (Number.isFinite(t1) && Number.isFinite(t2)) {
+            const diffDays = Math.round((t2 - t1) / 86400000);
+            if (diffDays >= 0 && diffDays <= 14) {
+              periodUnlinkedAdjustments = round2(periodUnlinkedAdjustments + r.amount);
+            }
+          }
+        }
+      });
+    }
+
+    const hasCarryOverMath =
+      priorCarryOverBalance !== null && endingBalanceAfterCashout !== null;
+    const expectedWithCarryOver = hasCarryOverMath
+      ? round2(expectedFromOrdersNet + priorCarryOverBalance - endingBalanceAfterCashout)
+      : null;
+    const expectedWithPeriodAdj =
+      expectedWithCarryOver !== null && periodUnlinkedAdjustments !== 0
+        ? round2(expectedWithCarryOver + periodUnlinkedAdjustments)
+        : null;
+
+    let verdict: CashoutForensicVerdict = 'verified_exact';
+    let unexplainedVariance = 0;
+    let suspectedOmittedOrders: SuspectedOmittedOrder[] = [];
+    let reasonSummary = '';
+
+    if (tx.linkedOrderCount === 0) {
+      verdict = 'unlinked_no_cycles';
+      unexplainedVariance = 0;
+      reasonSummary =
+        'دفعة تحويل موجودة في Transactions بدون بوالص مربوطة بها في شيت Cash Cycles المرفوع (ارفع شيت Cash Cycles لنفس الفترة لتدقيق بوالصها).';
+    } else if (Math.abs(rawVariance) <= toleranceEgp) {
+      verdict = 'verified_exact';
+      unexplainedVariance = 0;
+      reasonSummary =
+        'مطابقة 100% — المبلغ المحوّل يطابق مجموع صافي البوالص والتسويات ورسوم التحويل بدقة تامة.';
+    } else if (
+      expectedWithCarryOver !== null &&
+      Math.abs(tx.cashoutAmount - expectedWithCarryOver) <= toleranceEgp
+    ) {
+      verdict = 'explained_by_carryover';
+      unexplainedVariance = 0;
+      reasonSummary = `الفرق (${rawVariance > 0 ? '+' : ''}${rawVariance.toLocaleString()} ج.م) مُفسَّر بالكامل بالرصيد المرحّل من الدفعة السابقة (${priorCarryOverBalance!.toLocaleString()} ج.م) والمتبقي بالمحفظة (${endingBalanceAfterCashout!.toLocaleString()} ج.م).`;
+    } else if (
+      expectedWithPeriodAdj !== null &&
+      Math.abs(tx.cashoutAmount - expectedWithPeriodAdj) <= toleranceEgp
+    ) {
+      verdict = 'explained_by_carryover';
+      unexplainedVariance = 0;
+      reasonSummary = `الفرق مُفسَّر بالرصيد المرحّل (${priorCarryOverBalance!.toLocaleString()} ج.م) وتسويات/خصومات الفترة غير المربوطة برقم دفعة (${periodUnlinkedAdjustments.toLocaleString()} ج.م).`;
+    } else {
+      // Choose conservative minimum residual so we never overstate a shortfall
+      const candidates = [rawVariance];
+      if (expectedWithCarryOver !== null) {
+        candidates.push(round2(tx.cashoutAmount - expectedWithCarryOver));
+      }
+      if (expectedWithPeriodAdj !== null) {
+        candidates.push(round2(tx.cashoutAmount - expectedWithPeriodAdj));
+      }
+      unexplainedVariance = candidates.reduce((best, cur) =>
+        Math.abs(cur) < Math.abs(best) ? cur : best
+      );
+
+      if (unexplainedVariance < -toleranceEgp) {
+        verdict = 'short_cashout_deficit';
+        const linkedOrders = ordersByCashoutId.get(tx.cashoutId) || [];
+        suspectedOmittedOrders = findSuspectedOmittedOrders(
+          linkedOrders,
+          Math.abs(unexplainedVariance),
+          toleranceEgp
+        );
+        const suspectHint =
+          suspectedOmittedOrders.length > 0
+            ? suspectedOmittedOrders[0].matchType === 'pair_net'
+              ? ` · مشتبه بسقوط بوليصتين: ${suspectedOmittedOrders[0].trackingKey} + ${suspectedOmittedOrders[0].pairWithTrackingKey}`
+              : ` · بوليصة مطابقة للفرق: ${suspectedOmittedOrders[0].trackingKey} (${suspectedOmittedOrders[0].sheetNetPayout.toLocaleString()} ج.م)`
+            : '';
+        reasonSummary = `عجز حقيقي في دفعة التحويل بقيمة ${Math.abs(unexplainedVariance).toLocaleString()} ج.م — المحوّل (${tx.cashoutAmount.toLocaleString()} ج.م) أقل من صافي بوالص الدفعة المستحق (${expectedFromOrdersNet.toLocaleString()} ج.م)${suspectHint}`;
+      } else if (unexplainedVariance > toleranceEgp) {
+        verdict = 'surplus_or_partial_cycles';
+        reasonSummary = `المبلغ المحوّل أعلى من بوالص الدفعة المربوطة بـ +${unexplainedVariance.toLocaleString()} ج.م — غالباً توجد بوالص أخرى بنفس الدفعة في شيت Cash Cycles لبراند أو فترة لم تُرفع بعد، أو رصيد مرحّل موجب.`;
+      } else {
+        verdict = 'verified_exact';
+        unexplainedVariance = 0;
+        reasonSummary = 'مطابقة مالية ضمن هامش السماحية المحدد.';
+      }
+    }
+
+    cashoutAudits.push({
+      id: `forensic_${tx.cashoutId}_${idx}`,
+      cashoutId: tx.cashoutId,
+      date: tx.date,
+      cashoutAmount: tx.cashoutAmount,
+      transferFees: tx.transferFees,
+      linkedOrderCount: tx.linkedOrderCount,
+      linkedDeliveredCount: tx.linkedDeliveredCount,
+      linkedReturnedCount: tx.linkedReturnedCount,
+      linkedGrossTotal: tx.linkedGrossTotal,
+      linkedFeesTotal: tx.linkedFeesTotal,
+      linkedNetTotal: tx.linkedNetTotal,
+      linkedAdjustmentsTotal: tx.linkedAdjustmentsTotal,
+      linkedCompensationsTotal: tx.linkedCompensationsTotal,
+      linkedPackingTotal: tx.linkedPackingTotal,
+      linkedPickupTotal: tx.linkedPickupTotal,
+      expectedFromOrdersNet,
+      priorCarryOverBalance,
+      endingBalanceAfterCashout,
+      periodUnlinkedAdjustments,
+      expectedWithCarryOver,
+      rawVariance,
+      unexplainedVariance,
+      verdict,
+      suspectedOmittedOrders,
+      bankMatchStatus: 'no_bank_sheet',
+      reasonSummary
+    });
+  });
+
+  // --- Layer 6: Bank Statement Auto-Matching against Cashouts ---
+  const hasBankStatementSheet = bankStatementFiles.length > 0;
+  if (hasBankStatementSheet) {
+    const bankTol = Math.max(toleranceEgp, 2);
+    const isBostaDesc = (row: BankStatementRow): boolean => {
+      const txt = `${row.description} ${row.reference}`.toLowerCase();
+      return (
+        txt.includes('bosta') ||
+        txt.includes('بوسطة') ||
+        txt.includes('بوسطه') ||
+        txt.includes('bostah')
+      );
+    };
+    const dayDiff = (bankDate: string, txDate: string): number | null => {
+      const bMs = parseIsoDayMs(bankDate);
+      const tMs = parseIsoDayMs(txDate);
+      if (bMs === null || tMs === null) return null;
+      return Math.round((bMs - tMs) / 86400000);
+    };
+
+    // Pass 1: Explicit Cashout ID in Bank description/reference
+    cashoutAudits.forEach(ca => {
+      if (ca.cashoutId.length < 5) return;
+      const needle = ca.cashoutId.toLowerCase();
+      const hit = bankRows.find(
+        br =>
+          !consumedBankRowIds.has(br.id) &&
+          (`${br.description} ${br.reference}`.toLowerCase().includes(needle))
+      );
+      if (hit) {
+        consumedBankRowIds.add(hit.id);
+        hit.matchedCashoutId = ca.cashoutId;
+        const diff = round2(hit.amount - ca.cashoutAmount);
+        hit.matchDiff = diff;
+        ca.bankMatchedDate = hit.date;
+        ca.bankMatchedAmount = hit.amount;
+        ca.bankMatchedDescription = hit.description;
+        ca.bankMatchedRef = hit.reference;
+        ca.bankDepositDiff = diff;
+        ca.bankMatchStatus = diff < -bankTol ? 'bank_short_deposit' : 'bank_matched_exact';
+      }
+    });
+
+    // Pass 2: Exact Amount (or amount - 25 transfer fee) within -2 .. +10 days
+    cashoutAudits.forEach(ca => {
+      if (ca.bankMatchStatus !== 'no_bank_sheet') return;
+      const candidates = bankRows
+        .filter(br => {
+          if (consumedBankRowIds.has(br.id)) return false;
+          const d = dayDiff(br.date, ca.date);
+          if (d !== null && (d < -2 || d > 10)) return false;
+          const exactDiff = Math.abs(br.amount - ca.cashoutAmount);
+          const minusFeeDiff = Math.abs(br.amount - (ca.cashoutAmount - 25));
+          return exactDiff <= bankTol || (ca.cashoutAmount > 50 && minusFeeDiff <= 2);
+        })
+        .sort((a, b) => {
+          const aExact = Math.abs(a.amount - ca.cashoutAmount) <= bankTol ? 0 : 1;
+          const bExact = Math.abs(b.amount - ca.cashoutAmount) <= bankTol ? 0 : 1;
+          if (aExact !== bExact) return aExact - bExact;
+          const aBosta = isBostaDesc(a) ? 0 : 1;
+          const bBosta = isBostaDesc(b) ? 0 : 1;
+          if (aBosta !== bBosta) return aBosta - bBosta;
+          const da = Math.abs(dayDiff(a.date, ca.date) ?? 5);
+          const db = Math.abs(dayDiff(b.date, ca.date) ?? 5);
+          return da - db;
+        });
+
+      const best = candidates[0];
+      if (best) {
+        consumedBankRowIds.add(best.id);
+        best.matchedCashoutId = ca.cashoutId;
+        const diff = round2(best.amount - ca.cashoutAmount);
+        best.matchDiff = diff;
+        ca.bankMatchedDate = best.date;
+        ca.bankMatchedAmount = best.amount;
+        ca.bankMatchedDescription = best.description;
+        ca.bankMatchedRef = best.reference;
+        ca.bankDepositDiff = diff;
+        ca.bankMatchStatus = 'bank_matched_exact';
+      }
+    });
+
+    // Pass 3: Bosta-tagged Short Deposit in date window
+    cashoutAudits.forEach(ca => {
+      if (ca.bankMatchStatus !== 'no_bank_sheet') return;
+      const candidates = bankRows
+        .filter(br => {
+          if (consumedBankRowIds.has(br.id)) return false;
+          if (!isBostaDesc(br)) return false;
+          const d = dayDiff(br.date, ca.date);
+          if (d !== null && (d < -2 || d > 10)) return false;
+          return br.amount > 0 && br.amount < ca.cashoutAmount - bankTol;
+        })
+        .sort((a, b) => {
+          const da = Math.abs(dayDiff(a.date, ca.date) ?? 5);
+          const db = Math.abs(dayDiff(b.date, ca.date) ?? 5);
+          return da - db;
+        });
+      const best = candidates[0];
+      if (best) {
+        consumedBankRowIds.add(best.id);
+        best.matchedCashoutId = ca.cashoutId;
+        const diff = round2(best.amount - ca.cashoutAmount);
+        best.matchDiff = diff;
+        ca.bankMatchedDate = best.date;
+        ca.bankMatchedAmount = best.amount;
+        ca.bankMatchedDescription = best.description;
+        ca.bankMatchedRef = best.reference;
+        ca.bankDepositDiff = diff;
+        ca.bankMatchStatus = 'bank_short_deposit';
+      }
+    });
+
+    // Pass 4: Remaining unmatched cashouts → check Bank Statement date range to prevent false alarms
+    cashoutAudits.forEach(ca => {
+      if (ca.bankMatchStatus !== 'no_bank_sheet') return;
+      if (bankDateRange && /^\d{4}-\d{2}-\d{2}$/.test(ca.date)) {
+        if (ca.date < bankDateRange.min || ca.date > bankDateRange.max) {
+          ca.bankMatchStatus = 'bank_outside_range';
+          return;
+        }
+      }
+      ca.bankMatchStatus = 'bank_missing_deposit';
+      ca.bankDepositDiff = -ca.cashoutAmount;
+    });
+  }
+
+  // Sort cashout audits newest-first with deficits & missing bank deposits highlighted first
+  cashoutAudits.sort((a, b) => {
+    const aAlert =
+      a.verdict === 'short_cashout_deficit' ||
+      a.bankMatchStatus === 'bank_missing_deposit' ||
+      a.bankMatchStatus === 'bank_short_deposit'
+        ? 0
+        : 1;
+    const bAlert =
+      b.verdict === 'short_cashout_deficit' ||
+      b.bankMatchStatus === 'bank_missing_deposit' ||
+      b.bankMatchStatus === 'bank_short_deposit'
+        ? 0
+        : 1;
+    if (aAlert !== bAlert) return aAlert - bAlert;
+    return (b.date || '').localeCompare(a.date || '');
+  });
+
+  // --- Layer 3: Phantom / Ghost Cash-out ID Radar (Date-window guarded) ---
+  const phantomCashoutOrders: PhantomCashoutOrderAlert[] = [];
+  if (transactionFiles.length > 0 && (cashoutMap.size > 0 || ledgerRows.length > 0)) {
+    const knownTxIdsAndCashoutIds = new Set<string>();
+    cashoutMap.forEach((_v, k) => knownTxIdsAndCashoutIds.add(k));
+    ledgerRows.forEach(r => {
+      if (r.cashoutId) knownTxIdsAndCashoutIds.add(r.cashoutId);
+      if (r.transactionId) knownTxIdsAndCashoutIds.add(r.transactionId);
+    });
+
+    // Determine date bounds per unknown cashoutId across all rows sharing that ID
+    const unknownCashoutDates = new Map<string, string[]>();
+    filteredSheetRows.forEach(r => {
+      if (r.category === 'duplicate') return;
+      if (!r.sheetCashoutId || r.sheetCashoutId === '-') return;
+      if (knownTxIdsAndCashoutIds.has(r.sheetCashoutId)) return;
+      const d = r.sheetPaidAt || r.sheetDeliveredAt || r.sheetDate || '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        const list = unknownCashoutDates.get(r.sheetCashoutId) || [];
+        list.push(d);
+        unknownCashoutDates.set(r.sheetCashoutId, list);
+      }
+    });
+
+    filteredSheetRows.forEach(r => {
+      if (r.category === 'duplicate') return;
+      if (!r.sheetCashoutId || r.sheetCashoutId === '-') return;
+      if (knownTxIdsAndCashoutIds.has(r.sheetCashoutId)) return;
+
+      const refDate = r.sheetPaidAt || r.sheetDeliveredAt || r.sheetDate || '';
+      const groupDates = unknownCashoutDates.get(r.sheetCashoutId) || [];
+      let isInsideTxWindow = false;
+      if (txDateRange) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(refDate)) {
+          isInsideTxWindow = refDate >= txDateRange.min && refDate <= txDateRange.max;
+        } else if (groupDates.length > 0) {
+          isInsideTxWindow = groupDates.some(
+            gd => gd >= txDateRange.min && gd <= txDateRange.max
+          );
+        }
+      }
+
+      const status: PhantomCashoutOrderAlert['status'] = isInsideTxWindow
+        ? 'phantom_missing_in_tx'
+        : 'outside_tx_date_range';
+
+      phantomCashoutOrders.push({
+        id: `phantom_${r.id}`,
+        trackingKey: r.trackingKey,
+        customerName: r.customerName || r.matchedOrder?.customerName,
+        brandName: r.brandName,
+        sheetCashoutId: r.sheetCashoutId,
+        sheetPaymentStatus: r.sheetPaymentStatus || 'Paid',
+        sheetPaidAt: r.sheetPaidAt,
+        sheetDeliveredAt: r.sheetDeliveredAt,
+        sheetGrossAmount: r.sheetGrossAmount,
+        sheetFeesAmount: r.sheetFeesAmount,
+        sheetNetPayout: r.sheetNetPayout,
+        status,
+        reasonSummary: isInsideTxWindow
+          ? `تحويل وهمي / غير موجود بـ Transactions: الشحنة مختومة بكود (${r.sheetCashoutId}) بتاريخ ${refDate || '-'} ضمن فترة كشف الحساب (${txDateRange!.min} ← ${txDateRange!.max}) لكن هذا الكود غير موجود تماماً في Transactions!`
+          : `كود الدفعة (${r.sheetCashoutId}) بتاريخ ${refDate || '-'} يقع خارج نطاق تواريخ ملف Transactions المرفوع (${txDateRange ? `${txDateRange.min} ← ${txDateRange.max}` : 'غير محدد'}).`
+      });
+    });
+
+    phantomCashoutOrders.sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === 'phantom_missing_in_tx' ? -1 : 1;
+      }
+      return b.sheetNetPayout - a.sheetNetPayout;
+    });
+  }
+
+  // --- Layer 4: Direct Deliveries ↔ Cash Cycles Cross-Sheet Mismatch Audit ---
+  const deliveriesVsCyclesMismatches: DeliveriesVsCyclesMismatchAlert[] = [];
+  if (bostaOrderFiles.length > 0 && cashCycleFiles.length > 0) {
+    bostaOpMetaByKey.forEach(op => {
+      if (normalizedBrandFilter !== 'all') {
+        if (normalizeBrandKey(op.brandName) !== normalizedBrandFilter) return;
+      }
+      const isDeliv =
+        isExplicitDeliveredStatus(op.deliveryState) &&
+        !isReturnedOrUncollectedStatus(op.deliveryState);
+      const cc = cashCyclesByKey.get(op.trackingKey);
+
+      if (cc) {
+        if (!isDeliv) return;
+        const ccReturned = isReturnedOrUncollectedStatus(cc.orderStatus);
+        const codDiff = round2(op.codAmount - cc.cod);
+        if (op.codAmount > toleranceEgp && cc.cod <= 0 && !ccReturned) {
+          deliveriesVsCyclesMismatches.push({
+            id: `dvc_${op.trackingKey}`,
+            trackingKey: op.trackingKey,
+            customerName: op.customerName || undefined,
+            brandName: op.brandName || undefined,
+            dropoffCity: op.dropoffCity || undefined,
+            deliveriesState: op.deliveryState,
+            deliveriesDate: op.deliveredAt || undefined,
+            cyclesStatus: cc.orderStatus || '-',
+            deliveriesCod: op.codAmount,
+            cyclesCod: cc.cod,
+            codDifference: codDiff,
+            cyclesNet: cc.net,
+            cyclesCashoutId: cc.cashoutId || undefined,
+            mismatchKind: 'cod_zero_in_cycles',
+            reasonSummary: `تضارب خطير: الشحنة مسلّمة في Deliveries بقيمة COD (${op.codAmount.toLocaleString()} ج.م) لكنها نزلت في Cash Cycles بـ 0 ج.م!`
+          });
+        } else if (op.codAmount > toleranceEgp && codDiff > toleranceEgp && !ccReturned) {
+          deliveriesVsCyclesMismatches.push({
+            id: `dvc_${op.trackingKey}`,
+            trackingKey: op.trackingKey,
+            customerName: op.customerName || undefined,
+            brandName: op.brandName || undefined,
+            dropoffCity: op.dropoffCity || undefined,
+            deliveriesState: op.deliveryState,
+            deliveriesDate: op.deliveredAt || undefined,
+            cyclesStatus: cc.orderStatus || '-',
+            deliveriesCod: op.codAmount,
+            cyclesCod: cc.cod,
+            codDifference: codDiff,
+            cyclesNet: cc.net,
+            cyclesCashoutId: cc.cashoutId || undefined,
+            mismatchKind: 'cod_short_in_cycles',
+            reasonSummary: `تضارب قيمة التحصيل: Deliveries مسجّل ${op.codAmount.toLocaleString()} ج.م بينما Cash Cycles سجّل ${cc.cod.toLocaleString()} ج.م فقط (عجز ${codDiff.toLocaleString()} ج.م)!`
+          });
+        } else if (op.codAmount > 0 && codDiff < -toleranceEgp) {
+          deliveriesVsCyclesMismatches.push({
+            id: `dvc_${op.trackingKey}`,
+            trackingKey: op.trackingKey,
+            customerName: op.customerName || undefined,
+            brandName: op.brandName || undefined,
+            dropoffCity: op.dropoffCity || undefined,
+            deliveriesState: op.deliveryState,
+            deliveriesDate: op.deliveredAt || undefined,
+            cyclesStatus: cc.orderStatus || '-',
+            deliveriesCod: op.codAmount,
+            cyclesCod: cc.cod,
+            codDifference: codDiff,
+            cyclesNet: cc.net,
+            cyclesCashoutId: cc.cashoutId || undefined,
+            mismatchKind: 'cod_higher_in_cycles',
+            reasonSummary: `Cash Cycles سجّل COD (${cc.cod.toLocaleString()} ج.م) أعلى من Deliveries (${op.codAmount.toLocaleString()} ج.م) بفارق +${Math.abs(codDiff).toLocaleString()} ج.م.`
+          });
+        }
+      } else if (isDeliv && op.codAmount > toleranceEgp) {
+        deliveriesVsCyclesMismatches.push({
+          id: `dvc_miss_${op.trackingKey}`,
+          trackingKey: op.trackingKey,
+          customerName: op.customerName || undefined,
+          brandName: op.brandName || undefined,
+          dropoffCity: op.dropoffCity || undefined,
+          deliveriesState: op.deliveryState,
+          deliveriesDate: op.deliveredAt || undefined,
+          cyclesStatus: 'غير موجودة في Cash Cycles',
+          deliveriesCod: op.codAmount,
+          cyclesCod: 0,
+          codDifference: op.codAmount,
+          cyclesNet: 0,
+          mismatchKind: 'delivered_missing_in_cycles',
+          reasonSummary: `مسلّمة في Deliveries بتاريخ ${op.deliveredAt || '-'} بقيمة COD (${op.codAmount.toLocaleString()} ج.م) ولم تظهر نهائياً في شيت Cash Cycles المرفوع!`
+        });
+      }
+    });
+
+    const dvcOrder: Record<DeliveriesVsCyclesMismatchAlert['mismatchKind'], number> = {
+      cod_zero_in_cycles: 0,
+      cod_short_in_cycles: 1,
+      delivered_missing_in_cycles: 2,
+      cod_higher_in_cycles: 3
+    };
+    deliveriesVsCyclesMismatches.sort((a, b) => {
+      const kd = dvcOrder[a.mismatchKind] - dvcOrder[b.mismatchKind];
+      if (kd !== 0) return kd;
+      return b.codDifference - a.codDifference;
+    });
+  }
+
+  // --- Layer 5: Aggregate Cycle Totals Reconciliation (Transactions vs Cash Cycles) ---
+  const uniqueCashCycleSheetRows = sheetRows.filter(
+    r => r.fileRole === 'cash_cycles' && r.category !== 'duplicate'
+  );
+  const allCycleDates: string[] = [];
+  let sheetsAllCodTotal = 0;
+  let sheetsAllFeesTotal = 0;
+  let sheetsAllNetTotal = 0;
+  let sheetsPaidCodTotal = 0;
+  let sheetsPaidFeesTotal = 0;
+  let sheetsPaidNetTotal = 0;
+
+  uniqueCashCycleSheetRows.forEach(r => {
+    const d = r.sheetPaidAt || r.sheetDeliveredAt || r.sheetDate || '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) allCycleDates.push(d);
+    sheetsAllCodTotal += r.sheetGrossAmount;
+    sheetsAllFeesTotal += r.sheetFeesAmount;
+    sheetsAllNetTotal += r.sheetNetPayout;
+    const isRowPaidOrCycled = Boolean(r.sheetCashoutId) || isExplicitPaid(r.sheetPaymentStatus);
+    if (isRowPaidOrCycled) {
+      sheetsPaidCodTotal += r.sheetGrossAmount;
+      sheetsPaidFeesTotal += r.sheetFeesAmount;
+      sheetsPaidNetTotal += r.sheetNetPayout;
+    }
+  });
+  allCycleDates.sort();
+  const cyclesDateRange =
+    allCycleDates.length > 0
+      ? { min: allCycleDates[0], max: allCycleDates[allCycleDates.length - 1] }
+      : null;
+
+  const hasBothCycleSheets = transactionFiles.length > 0 && cashCycleFiles.length > 0;
+  const txCollectionCyclesRounded = round2(totalCollectionCycles);
+  const txFeesCyclesRounded = round2(totalBostaFeesCycles);
+  const txNetCyclesRounded = round2(totalCollectionCycles - totalBostaFeesCycles);
+  sheetsAllCodTotal = round2(sheetsAllCodTotal);
+  sheetsAllFeesTotal = round2(sheetsAllFeesTotal);
+  sheetsAllNetTotal = round2(sheetsAllNetTotal);
+  sheetsPaidCodTotal = round2(sheetsPaidCodTotal);
+  sheetsPaidFeesTotal = round2(sheetsPaidFeesTotal);
+  sheetsPaidNetTotal = round2(sheetsPaidNetTotal);
+
+  const collectionGapVsPaid = round2(txCollectionCyclesRounded - sheetsPaidCodTotal);
+  const feesGapVsPaid = round2(txFeesCyclesRounded - sheetsPaidFeesTotal);
+  const netCycleGapVsPaid = round2(txNetCyclesRounded - sheetsPaidNetTotal);
+
+  let cycleNoteAr = '';
+  if (!hasBothCycleSheets) {
+    cycleNoteAr = 'ارفع ملفي Cash Cycles و Transactions معاً لتفعيل مطابقة إجماليات الدورات.';
+  } else if (
+    Math.abs(collectionGapVsPaid) <= Math.max(toleranceEgp * 5, 10) &&
+    Math.abs(feesGapVsPaid) <= Math.max(toleranceEgp * 5, 10)
+  ) {
+    cycleNoteAr =
+      'إجماليات دورات التحصيل والمصاريف في Transactions مطابقة تماماً لمجموع البوالص المسوّاة في Cash Cycles.';
+  } else {
+    const parts: string[] = [];
+    if (collectionGapVsPaid < -toleranceEgp) {
+      parts.push(
+        `دورات التحصيل (Cash Collection Cycle) في Transactions أقل من مجموع COD المدفوع في Cash Cycles بـ ${Math.abs(collectionGapVsPaid).toLocaleString()} ج.م`
+      );
+    } else if (collectionGapVsPaid > toleranceEgp) {
+      parts.push(
+        `Transactions يشمل تحصيلات أعلى من شيت Cash Cycles بـ +${collectionGapVsPaid.toLocaleString()} ج.م (قد يغطي Transactions فترة زمنية أوسع)`
+      );
+    }
+    if (feesGapVsPaid > toleranceEgp) {
+      parts.push(
+        `خصومات (Bosta Fees Cycle) في Transactions أعلى من مجموع مصاريف Cash Cycles بـ +${feesGapVsPaid.toLocaleString()} ج.م`
+      );
+    } else if (feesGapVsPaid < -toleranceEgp) {
+      parts.push(
+        `مصاريف Cash Cycles أعلى من Bosta Fees Cycle في Transactions بـ ${Math.abs(feesGapVsPaid).toLocaleString()} ج.م`
+      );
+    }
+    cycleNoteAr = parts.join(' · ');
+  }
+
+  const cycleTotalsComparison: CycleTotalsReconciliation = {
+    hasBothSheets: hasBothCycleSheets,
+    txCollectionCyclesTotal: txCollectionCyclesRounded,
+    txFeesCyclesTotal: txFeesCyclesRounded,
+    txNetCyclesTotal: txNetCyclesRounded,
+    sheetsAllCodTotal,
+    sheetsAllFeesTotal,
+    sheetsAllNetTotal,
+    sheetsPaidCodTotal,
+    sheetsPaidFeesTotal,
+    sheetsPaidNetTotal,
+    collectionGapVsPaid,
+    feesGapVsPaid,
+    netCycleGapVsPaid,
+    txDateRange,
+    cyclesDateRange,
+    noteAr: cycleNoteAr
+  };
+
+  // Aggregate forensic counters
+  const shortCashoutEntries = cashoutAudits.filter(c => c.verdict === 'short_cashout_deficit');
+  const shortCashoutDeficitTotal = round2(
+    shortCashoutEntries.reduce((s, c) => s + Math.abs(c.unexplainedVariance), 0)
+  );
+  const verifiedCashoutCount = cashoutAudits.filter(c => c.verdict === 'verified_exact').length;
+  const carryOverExplainedCount = cashoutAudits.filter(
+    c => c.verdict === 'explained_by_carryover'
+  ).length;
+
+  const truePhantomOrders = phantomCashoutOrders.filter(p => p.status === 'phantom_missing_in_tx');
+  const phantomCashoutUniqueIds = Array.from(new Set(truePhantomOrders.map(p => p.sheetCashoutId)));
+  const phantomCashoutAmount = round2(
+    truePhantomOrders.reduce((s, p) => s + Math.max(0, p.sheetNetPayout), 0)
+  );
+  const outsideTxRangeCount = phantomCashoutOrders.filter(
+    p => p.status === 'outside_tx_date_range'
+  ).length;
+
+  const dvcShortfalls = deliveriesVsCyclesMismatches.filter(
+    m =>
+      m.mismatchKind === 'cod_short_in_cycles' ||
+      m.mismatchKind === 'cod_zero_in_cycles' ||
+      m.mismatchKind === 'delivered_missing_in_cycles'
+  );
+  const deliveriesCyclesShortfallAmount = round2(
+    dvcShortfalls.reduce((s, m) => s + Math.max(0, m.codDifference), 0)
+  );
+
+  const bankMatchedEntries = cashoutAudits.filter(c => c.bankMatchStatus === 'bank_matched_exact');
+  const bankShortEntries = cashoutAudits.filter(c => c.bankMatchStatus === 'bank_short_deposit');
+  const bankMissingEntries = cashoutAudits.filter(
+    c => c.bankMatchStatus === 'bank_missing_deposit'
+  );
+  const bankOutsideRangeCount = cashoutAudits.filter(
+    c => c.bankMatchStatus === 'bank_outside_range'
+  ).length;
+
+  const bankMatchedAmount = round2(
+    bankMatchedEntries.reduce((s, c) => s + (c.bankMatchedAmount ?? c.cashoutAmount), 0)
+  );
+  const bankShortAmount = round2(
+    bankShortEntries.reduce((s, c) => s + Math.abs(c.bankDepositDiff ?? 0), 0)
+  );
+  const bankMissingAmount = round2(
+    bankMissingEntries.reduce((s, c) => s + c.cashoutAmount, 0)
+  );
+
+  const cashoutForensicSummary: CashoutForensicSummary = {
+    cashoutAudits,
+    phantomCashoutOrders,
+    deliveriesVsCyclesMismatches,
+    cycleTotalsComparison,
+    hasBankStatementSheet,
+    bankDateRange,
+    txDateRange,
+    bankRows,
+    shortCashoutCount: shortCashoutEntries.length,
+    shortCashoutDeficitTotal,
+    verifiedCashoutCount,
+    carryOverExplainedCount,
+    phantomCashoutCount: truePhantomOrders.length,
+    phantomCashoutUniqueIds,
+    phantomCashoutAmount,
+    outsideTxRangeCount,
+    deliveriesCyclesMismatchCount: dvcShortfalls.length,
+    deliveriesCyclesShortfallAmount,
+    bankMatchedCount: bankMatchedEntries.length,
+    bankMatchedAmount,
+    bankShortCount: bankShortEntries.length,
+    bankShortAmount,
+    bankMissingCount: bankMissingEntries.length,
+    bankMissingAmount,
+    bankOutsideRangeCount
+  };
+
   return {
     matchWithStoreOrders,
     availableSheetBrands,
@@ -7269,6 +8800,7 @@ export function runTwoWayCodAudit(params: {
     bostaCreditsSummary,
     payoutSlaSummary,
     deliverySlaSummary,
+    cashoutForensicSummary,
     healthyInTransitCount,
     alreadySettledCount,
     totals: {
@@ -7343,7 +8875,17 @@ export function runTwoWayCodAudit(params: {
       undocumentedWalletCompCount: transactionsSummary.undocumentedWalletCompCount,
       undocumentedWalletCompAmount: transactionsSummary.undocumentedWalletCompAmount,
       delayedPayoutsCount: payoutSlaSummary.delayedCount,
-      avgPayoutLagDays: payoutSlaSummary.avgLagDays
+      avgPayoutLagDays: payoutSlaSummary.avgLagDays,
+      cashoutShortfallCount: shortCashoutEntries.length,
+      cashoutShortfallAmount: shortCashoutDeficitTotal,
+      phantomCashoutCount: truePhantomOrders.length,
+      phantomCashoutAmount,
+      deliveriesCyclesMismatchCount: dvcShortfalls.length,
+      deliveriesCyclesShortfallAmount,
+      bankMissingDepositCount: bankMissingEntries.length,
+      bankMissingDepositAmount: bankMissingAmount,
+      bankShortDepositCount: bankShortEntries.length,
+      bankShortDepositAmount: bankShortAmount
     }
   };
 }
@@ -7974,6 +9516,104 @@ export function exportCodClaimWorkbook(result: TwoWayCodAuditResult, storeName: 
     );
   }
 
+  if (result.cashoutForensicSummary.cashoutAudits.length > 0) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        result.cashoutForensicSummary.cashoutAudits.map(c => ({
+          'رقم الدفعة (Cash-out ID)': c.cashoutId,
+          'التاريخ': c.date || '-',
+          'عدد البوالص المربوطة': c.linkedOrderCount,
+          'صافي بوالص الشيت (ج.م)': c.linkedNetTotal,
+          'تسويات وتعويضات الدفعة (ج.م)': c.linkedAdjustmentsTotal,
+          'رسوم التحويل (ج.م)': c.transferFees,
+          'الرصيد المرحّل السابق (ج.م)': c.priorCarryOverBalance ?? '-',
+          'المستحق المتوقع (ج.م)': c.expectedFromOrdersNet,
+          'المحوّل فعلياً بـ Transactions (ج.م)': c.cashoutAmount,
+          'الفرق غير المفسّر (ج.م)': c.unexplainedVariance,
+          'الحكم التدقيقي':
+            c.verdict === 'short_cashout_deficit'
+              ? 'عجز حقيقي في الدفعة'
+              : c.verdict === 'verified_exact'
+              ? 'مطابق 100%'
+              : c.verdict === 'explained_by_carryover'
+              ? 'مُفسّر بالرصيد المرحّل'
+              : c.verdict === 'surplus_or_partial_cycles'
+              ? 'فائض / بوالص ناقصة بالشيت'
+              : 'بدون بوالص مربوطة',
+          'البوالص المشتبه سقوطها':
+            c.suspectedOmittedOrders.length > 0
+              ? c.suspectedOmittedOrders
+                  .map(s =>
+                    s.matchType === 'pair_net'
+                      ? `${s.trackingKey} + ${s.pairWithTrackingKey} (${s.pairCombinedNet} ج.م)`
+                      : `${s.trackingKey} (${s.sheetNetPayout} ج.م)`
+                  )
+                  .join(' | ')
+              : '-',
+          'حالة كشف البنك':
+            c.bankMatchStatus === 'bank_matched_exact'
+              ? `دخل البنك (${c.bankMatchedAmount} ج.م يوم ${c.bankMatchedDate || '-'})`
+              : c.bankMatchStatus === 'bank_short_deposit'
+              ? `وصل البنك ناقصاً (${c.bankMatchedAmount} ج.م — عجز ${Math.abs(c.bankDepositDiff || 0)} ج.م)`
+              : c.bankMatchStatus === 'bank_missing_deposit'
+              ? 'لم يظهر إيداع مطابق بكشف البنك!'
+              : c.bankMatchStatus === 'bank_outside_range'
+              ? 'خارج فترة كشف البنك'
+              : 'لم يُرفع كشف بنك',
+          'التشخيص': c.reasonSummary
+        }))
+      ),
+      'تدقيق دفعات التحويل والبنك'
+    );
+  }
+
+  const truePhantoms = result.cashoutForensicSummary.phantomCashoutOrders.filter(
+    p => p.status === 'phantom_missing_in_tx'
+  );
+  if (truePhantoms.length > 0) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        truePhantoms.map(p => ({
+          'رقم البوليصة': p.trackingKey,
+          'العميل': p.customerName || '-',
+          'البراند': p.brandName || '-',
+          'كود التحويل الوهمي (Cash-out ID)': p.sheetCashoutId,
+          'حالة الدفع بالشيت': p.sheetPaymentStatus,
+          'تاريخ التحويل المزعوم': p.sheetPaidAt || p.sheetDeliveredAt || '-',
+          'COD (ج.م)': p.sheetGrossAmount,
+          'الصافي (ج.م)': p.sheetNetPayout,
+          'التشخيص': p.reasonSummary
+        }))
+      ),
+      'دفعات وهمية غير موجودة'
+    );
+  }
+
+  if (result.cashoutForensicSummary.deliveriesVsCyclesMismatches.length > 0) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        result.cashoutForensicSummary.deliveriesVsCyclesMismatches.map(m => ({
+          'رقم البوليصة': m.trackingKey,
+          'العميل': m.customerName || '-',
+          'البراند': m.brandName || '-',
+          'المدينة': m.dropoffCity || '-',
+          'حالة Deliveries': m.deliveriesState,
+          'تاريخ التسليم': m.deliveriesDate || '-',
+          'حالة Cash Cycles': m.cyclesStatus,
+          'COD في Deliveries (ج.م)': m.deliveriesCod,
+          'COD في Cash Cycles (ج.م)': m.cyclesCod,
+          'فرق التحصيل (ج.م)': m.codDifference,
+          'كود التحويل': m.cyclesCashoutId || '-',
+          'التشخيص': m.reasonSummary
+        }))
+      ),
+      'تضارب Deliveries و Cycles'
+    );
+  }
+
   const safeName = (storeName || 'store').replace(/[^\w\u0600-\u06FF-]/g, '_');
   const dateStamp = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `مطالبة_تحصيل_COD_${safeName}_${dateStamp}.xlsx`);
@@ -8130,11 +9770,85 @@ export function buildWhatsappClaimMessage(
     }
   }
 
+  const shortCashouts = result.cashoutForensicSummary.cashoutAudits.filter(
+    c => c.verdict === 'short_cashout_deficit'
+  );
+  if (shortCashouts.length > 0) {
+    lines.push(
+      `🏦 *عجز في دفعات التحويل (المبلغ المحوّل أقل من بوالص الدفعة — ${shortCashouts.length} دفعة بإجمالي عجز ${result.totals.cashoutShortfallAmount.toLocaleString()} ج.م):*`
+    );
+    shortCashouts.slice(0, 10).forEach((c, i) => {
+      const suspectStr =
+        c.suspectedOmittedOrders.length > 0
+          ? ` | بوليصة مطابقة للفرق: ${c.suspectedOmittedOrders[0].trackingKey}${
+              c.suspectedOmittedOrders[0].pairWithTrackingKey
+                ? ` + ${c.suspectedOmittedOrders[0].pairWithTrackingKey}`
+                : ''
+            }`
+          : '';
+      lines.push(
+        `${i + 1}) دفعة ${c.cashoutId} (${c.date || '-'}): مستحق ${c.expectedFromOrdersNet.toLocaleString()} ج.م ← محوّل ${c.cashoutAmount.toLocaleString()} ج.م (عجز ${Math.abs(c.unexplainedVariance).toLocaleString()} ج.م)${suspectStr}`
+      );
+    });
+    lines.push('');
+  }
+
+  const phantomAlerts = result.cashoutForensicSummary.phantomCashoutOrders.filter(
+    p => p.status === 'phantom_missing_in_tx'
+  );
+  if (phantomAlerts.length > 0) {
+    lines.push(
+      `👻 *بوالص مختومة بـ Cash-out ID غير موجود نهائياً في كشف حساب Transactions (${phantomAlerts.length} بوليصة — إجمالي ${result.totals.phantomCashoutAmount.toLocaleString()} ج.م):*`
+    );
+    phantomAlerts.slice(0, 15).forEach((p, i) => {
+      lines.push(
+        `${i + 1}) بوليصة: ${p.trackingKey} | كود الدفعة الوهمي: ${p.sheetCashoutId} | صافي: ${p.sheetNetPayout.toLocaleString()} ج.م`
+      );
+    });
+    lines.push('');
+  }
+
+  const dvcShortAlerts = result.cashoutForensicSummary.deliveriesVsCyclesMismatches.filter(
+    m => m.mismatchKind === 'cod_short_in_cycles' || m.mismatchKind === 'cod_zero_in_cycles'
+  );
+  if (dvcShortAlerts.length > 0) {
+    lines.push(
+      `⚖️ *تضارب قيمة التحصيل (COD) بين Deliveries و Cash Cycles (${dvcShortAlerts.length} بوليصة):*`
+    );
+    dvcShortAlerts.slice(0, 15).forEach((m, i) => {
+      lines.push(
+        `${i + 1}) بوليصة: ${m.trackingKey} | Deliveries: ${m.deliveriesCod.toLocaleString()} ج.م ← Cash Cycles: ${m.cyclesCod.toLocaleString()} ج.م (عجز ${m.codDifference.toLocaleString()} ج.م)`
+      );
+    });
+    lines.push('');
+  }
+
+  const bankMissingAlerts = result.cashoutForensicSummary.cashoutAudits.filter(
+    c => c.bankMatchStatus === 'bank_missing_deposit' || c.bankMatchStatus === 'bank_short_deposit'
+  );
+  if (bankMissingAlerts.length > 0) {
+    lines.push(
+      `💳 *دفعات لم تصل لحساب البنك أو وصلت ناقصة بمطابقة كشف البنك (${bankMissingAlerts.length} دفعة):*`
+    );
+    bankMissingAlerts.slice(0, 10).forEach((c, i) => {
+      lines.push(
+        c.bankMatchStatus === 'bank_missing_deposit'
+          ? `${i + 1}) دفعة ${c.cashoutId} (${c.date}): قيمة ${c.cashoutAmount.toLocaleString()} ج.م — لم يظهر إيداع مطابق بكشف البنك`
+          : `${i + 1}) دفعة ${c.cashoutId} (${c.date}): محوّل ببوسطة ${c.cashoutAmount.toLocaleString()} ج.م ← وصل البنك ${c.bankMatchedAmount?.toLocaleString()} ج.م (عجز ${Math.abs(c.bankDepositDiff || 0).toLocaleString()} ج.م)`
+      );
+    });
+    lines.push('');
+  }
+
   const grandClaim =
     Math.round(
       (result.totals.collectedUntransferredAmount +
         result.totals.uncollectedDeliveredAmount +
         result.totals.shortPaidDeficitAmount +
+        result.totals.cashoutShortfallAmount +
+        result.totals.phantomCashoutAmount +
+        result.totals.bankMissingDepositAmount +
+        result.totals.bankShortDepositAmount +
         result.totals.wrongfulPickupFeeAmount +
         result.totals.uncompensatedRateSizeOverchargeAmount +
         result.totals.returnedInsuranceWithVat +

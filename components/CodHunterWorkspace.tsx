@@ -17,10 +17,15 @@ import {
   Filter,
   Landmark,
   Layers,
+  LayoutGrid,
   Link2,
+  ListFilter,
   MessageSquare,
   Package,
+  PanelRightClose,
+  PanelRightOpen,
   Pencil,
+  Plus,
   Power,
   Receipt,
   RotateCcw,
@@ -45,7 +50,8 @@ import {
   CodSheetColumnProfile,
   Order,
   Settings,
-  TreasuryAccount
+  TreasuryAccount,
+  Wallet as StoreWallet
 } from '../types';
 import {
   autoDetectSheetMapping,
@@ -62,6 +68,7 @@ import {
   DEFAULT_ZONE_RATE_CONFIG,
   exportCodClaimWorkbook,
   InternalFraudCategory,
+  LinkedCashoutAdjustmentItem,
   parseExcelOrCsvFiles,
   runTwoWayCodAudit,
   SheetAuditRow,
@@ -74,8 +81,13 @@ import {
   BankConfirmationRecord,
   clearCodHunterFiles,
   loadCodHunterState,
-  saveCodHunterState
+  saveCodHunterState,
+  WalletCostConfig,
+  WalletLedgerEntry
 } from '../utils/codStorage';
+import CashoutForensicAuditPanel from './CashoutForensicAuditPanel';
+import NetPositionWalletPanel from './NetPositionWalletPanel';
+import OrdersLifecycleHub from './OrdersLifecycleHub';
 
 export interface CodHunterWorkspaceProps {
   storeId: string;
@@ -83,6 +95,7 @@ export interface CodHunterWorkspaceProps {
   orders: Order[];
   settings: Settings;
   treasuryAccounts?: TreasuryAccount[];
+  storeWallet?: StoreWallet;
   allowBatchSettlement?: boolean;
   isDark?: boolean;
   showBackToDashboard?: boolean;
@@ -108,7 +121,9 @@ export interface CodHunterWorkspaceProps {
 }
 
 type AuditTabId =
+  | 'net_wallet'
   | 'untransferred'
+  | 'cashout_audit'
   | 'uncollected'
   | 'discrepancy'
   | 'not_collected'
@@ -131,6 +146,35 @@ type AuditTabId =
   | 'not_found'
   | 'batches';
 
+type AuditGroupId = 'claims' | 'audits' | 'logistics' | 'finance' | 'archive';
+
+const TAB_TO_GROUP: Record<AuditTabId, AuditGroupId> = {
+  net_wallet: 'claims',
+  untransferred: 'claims',
+  cashout_audit: 'claims',
+  uncollected: 'claims',
+  discrepancy: 'claims',
+  missing_comp: 'claims',
+  matched: 'claims',
+  fee_anomalies: 'audits',
+  fraud_alerts: 'audits',
+  zero_attempt_returns: 'audits',
+  exchange_audits: 'audits',
+  customer_risk: 'audits',
+  pickup_requests: 'logistics',
+  stuck_returns: 'logistics',
+  not_collected: 'logistics',
+  in_transit_sheet: 'logistics',
+  overdue: 'logistics',
+  transactions_ledger: 'finance',
+  compensations: 'finance',
+  bosta_credits: 'finance',
+  online_flex: 'finance',
+  duplicate: 'archive',
+  not_found: 'archive',
+  batches: 'archive'
+};
+
 const ROLE_LABELS: Record<UploadedSheetRole, string> = {
   cash_cycles: 'Cash Cycles (دورات التحصيل)',
   bosta_orders: 'أوردرات بوسطة / الشحن',
@@ -138,7 +182,8 @@ const ROLE_LABELS: Record<UploadedSheetRole, string> = {
   compensations: 'جدول التعويضات (Compensations)',
   pickup_requests: 'طلبات البيك أب (Pickup Requests)',
   bosta_credits: 'محفظة رصيد بوسطة (Bosta Credits)',
-  warehouse_orders: 'أوردرات المستودع (خارجي)'
+  warehouse_orders: 'أوردرات المستودع (خارجي)',
+  bank_statement: 'كشف حساب البنك / إنستاباي (Bank Statement)'
 };
 
 const formatEgp = (val: number): string => {
@@ -247,6 +292,7 @@ export default function CodHunterWorkspace({
   orders,
   settings,
   treasuryAccounts = [],
+  storeWallet,
   allowBatchSettlement = true,
   isDark = false,
   showBackToDashboard = true,
@@ -290,6 +336,13 @@ export default function CodHunterWorkspace({
   const [zoneRates, setZoneRates] = useState<ZoneRateConfig>(DEFAULT_ZONE_RATE_CONFIG);
   const [activeRatePlanZone, setActiveRatePlanZone] = useState<BostaZoneId>('cairo_giza');
   const [showMappingDrawer, setShowMappingDrawer] = useState(false);
+  const [showUploadConfigPanel, setShowUploadConfigPanel] = useState(false);
+  const [showLifecycleDeck, setShowLifecycleDeck] = useState(false);
+  const [showBankCashoutsPanel, setShowBankCashoutsPanel] = useState(false);
+  const [tabViewMode, setTabViewMode] = useState<'grouped' | 'alerts_all'>('grouped');
+  const [isAuditRailOpen, setIsAuditRailOpen] = useState(true);
+  const [railOnlyActive, setRailOnlyActive] = useState(false);
+  const [showRateMatrixPanel, setShowRateMatrixPanel] = useState(false);
 
   const [mapping, setMapping] = useState<ColumnMappingConfig>({
     amountMode: 'gross_and_fees',
@@ -307,6 +360,8 @@ export default function CodHunterWorkspace({
     businessRefCol: ''
   });
 
+  // Primary workspace view: clean modern Main Orders Screen by default, or full Audit/Wallet mode
+  const [workspaceView, setWorkspaceView] = useState<'orders_hub' | 'audit'>('orders_hub');
   // Audit workspace navigation & filters
   const [activeTab, setActiveTab] = useState<AuditTabId>('untransferred');
   const [searchQuery, setSearchQuery] = useState('');
@@ -350,11 +405,60 @@ export default function CodHunterWorkspace({
   const [bankConfirmedCashouts, setBankConfirmedCashouts] = useState<
     Record<string, BankConfirmationRecord>
   >({});
+  const [walletLedgerEntries, setWalletLedgerEntries] = useState<WalletLedgerEntry[]>([]);
+  const [walletCostConfig, setWalletCostConfig] = useState<WalletCostConfig>({
+    calculationMode: 'verified_only',
+    dataScope: 'orders_period',
+    useAutoCogsFromOrders: true,
+    includeStoreExpensesFromWallet: false,
+    includeTreasuryBalances: false,
+    deductEstimatedShippingOnDeliveriesOnly: true
+  });
   const hasHydratedStorageRef = useRef(false);
   const [manualLinkRow, setManualLinkRow] = useState<SheetAuditRow | null>(null);
   const [manualOrderSearch, setManualOrderSearch] = useState('');
   const [activeLinkedCashoutId, setActiveLinkedCashoutId] = useState('');
   const [inspectedCashout, setInspectedCashout] = useState<TransactionCashoutEntry | null>(null);
+  const [inspectedCashoutOrders, setInspectedCashoutOrders] =
+    useState<TransactionCashoutEntry | null>(null);
+  const [cashoutOrdersSearch, setCashoutOrdersSearch] = useState('');
+  const [cashoutOrdersFilter, setCashoutOrdersFilter] = useState<
+    'all' | 'delivered' | 'returned' | 'linked_store' | 'unlinked_store'
+  >('all');
+  const [inspectedQuickRef, setInspectedQuickRef] = useState<
+    | { mode: 'waybill'; trackingCode: string; cashoutId?: string }
+    | { mode: 'tx_adjustment'; item: LinkedCashoutAdjustmentItem; cashoutId: string }
+    | null
+  >(null);
+  const workspaceTabsRef = useRef<HTMLDivElement | null>(null);
+
+  const openCashoutOrdersModal = (tx: TransactionCashoutEntry) => {
+    setCashoutOrdersSearch('');
+    setCashoutOrdersFilter('all');
+    setInspectedCashoutOrders(tx);
+  };
+
+  const jumpToAuditTab = (
+    tab: AuditTabId,
+    opts?: {
+      search?: string;
+      txCategory?: 'all' | 'cashout_fees' | 'compensations' | 'packing_pickup' | 'cycles';
+    }
+  ) => {
+    if (opts?.txCategory !== undefined) {
+      setTxCategoryFilter(opts.txCategory);
+    } else if (tab === 'transactions_ledger' && opts?.search) {
+      setTxCategoryFilter('all');
+    }
+    if (opts?.search !== undefined) {
+      setSearchQuery(opts.search);
+    }
+    setWorkspaceView('audit');
+    setActiveTab(tab);
+    window.requestAnimationFrame(() => {
+      workspaceTabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   // Internal fallback toast
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -396,6 +500,29 @@ export default function CodHunterWorkspace({
           setBankConfirmedCashouts(saved.bankConfirmedCashouts || {});
           setManualMatches(saved.manualMatches || {});
           setManualCreditTrackingMap(saved.manualCreditTrackingMap || {});
+          setWalletLedgerEntries(
+            Array.isArray(saved.walletLedgerEntries) ? saved.walletLedgerEntries : []
+          );
+          if (saved.walletCostConfig) {
+            setWalletCostConfig({
+              calculationMode: 'verified_only',
+              dataScope: 'orders_period',
+              useAutoCogsFromOrders: true,
+              includeStoreExpensesFromWallet: false,
+              includeTreasuryBalances: false,
+              deductEstimatedShippingOnDeliveriesOnly: true,
+              ...saved.walletCostConfig
+            });
+          } else {
+            setWalletCostConfig({
+              calculationMode: 'verified_only',
+              dataScope: 'orders_period',
+              useAutoCogsFromOrders: true,
+              includeStoreExpensesFromWallet: false,
+              includeTreasuryBalances: false,
+              deductEstimatedShippingOnDeliveriesOnly: true
+            });
+          }
           setMaxExpectedShippingFee(
             typeof saved.maxExpectedShippingFee === 'number' ? saved.maxExpectedShippingFee : 110
           );
@@ -439,6 +566,8 @@ export default function CodHunterWorkspace({
         bankConfirmedCashouts,
         manualMatches,
         manualCreditTrackingMap,
+        walletLedgerEntries,
+        walletCostConfig,
         maxExpectedShippingFee: Math.max(0, Number(maxExpectedShippingFee) || 110),
         zoneRates,
         matchWithStoreOrders,
@@ -455,6 +584,8 @@ export default function CodHunterWorkspace({
     bankConfirmedCashouts,
     manualMatches,
     manualCreditTrackingMap,
+    walletLedgerEntries,
+    walletCostConfig,
     maxExpectedShippingFee,
     zoneRates,
     matchWithStoreOrders,
@@ -462,6 +593,27 @@ export default function CodHunterWorkspace({
     productPriceAuditSource,
     sheetBrandFilter
   ]);
+
+  const handleAddWalletLedgerEntry = (
+    entry: Omit<WalletLedgerEntry, 'id' | 'createdAt'>
+  ) => {
+    const newEntry: WalletLedgerEntry = {
+      ...entry,
+      id: `wl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      createdAt: new Date().toISOString()
+    };
+    setWalletLedgerEntries(prev => [newEntry, ...prev]);
+    notify(
+      entry.direction === 'in'
+        ? `تم تسجيل إضافة بقيمة ${formatEgp(entry.amount)} في محفظة الصافي.`
+        : `تم خصم قيد بقيمة ${formatEgp(entry.amount)} من محفظة الصافي.`
+    );
+  };
+
+  const handleDeleteWalletLedgerEntry = (id: string) => {
+    setWalletLedgerEntries(prev => prev.filter(item => item.id !== id));
+    notify('تم حذف القيد من سجل محفظة الصافي.');
+  };
 
   const toggleBankConfirm = (tx: TransactionCashoutEntry) => {
     const key = tx.cashoutId && tx.cashoutId !== '-' ? tx.cashoutId : tx.id;
@@ -942,7 +1094,11 @@ export default function CodHunterWorkspace({
         if (
           !catLow.includes('packing') &&
           !catLow.includes('packaging') &&
-          !catLow.includes('pickup')
+          !catLow.includes('flyer') &&
+          !catLow.includes('تغليف') &&
+          !catLow.includes('pickup') &&
+          !catLow.includes('بيك اب') &&
+          !catLow.includes('بيك أب')
         ) {
           return false;
         }
@@ -952,6 +1108,8 @@ export default function CodHunterWorkspace({
       if (!q) return true;
       return (
         row.transactionId.toLowerCase().includes(q) ||
+        (row.orderRef || '').toLowerCase().includes(q) ||
+        (row.description || '').toLowerCase().includes(q) ||
         row.category.toLowerCase().includes(q) ||
         row.categoryAr.toLowerCase().includes(q) ||
         (row.cashoutId || '').toLowerCase().includes(q) ||
@@ -1215,18 +1373,36 @@ export default function CodHunterWorkspace({
     };
   }, [auditResult.transactionsSummary.entries, bankConfirmedCashouts]);
 
+  const forensicAlertsCount =
+    auditResult.totals.cashoutShortfallCount +
+    auditResult.totals.phantomCashoutCount +
+    auditResult.totals.deliveriesCyclesMismatchCount +
+    auditResult.totals.bankMissingDepositCount +
+    auditResult.totals.bankShortDepositCount;
+
+  const forensicClaimsAmount =
+    Math.round(
+      (auditResult.totals.cashoutShortfallAmount +
+        auditResult.totals.phantomCashoutAmount +
+        auditResult.totals.bankMissingDepositAmount +
+        auditResult.totals.bankShortDepositAmount) *
+        100
+    ) / 100;
+
   const totalClaimsAmount =
     Math.round(
       (auditResult.totals.collectedUntransferredAmount +
         auditResult.totals.uncollectedDeliveredAmount +
-        auditResult.totals.shortPaidDeficitAmount) *
+        auditResult.totals.shortPaidDeficitAmount +
+        forensicClaimsAmount) *
         100
     ) / 100;
 
   const totalClaimsCount =
     auditResult.collectedUntransferred.length +
     auditResult.uncollectedDelivered.length +
-    auditResult.shortPaid.length;
+    auditResult.shortPaid.length +
+    forensicAlertsCount;
 
   const orderBasePath = orderDetailBasePath || `/store/${storeId}/orders`;
 
@@ -1431,11 +1607,342 @@ export default function CodHunterWorkspace({
     );
   };
 
+  // Modern 2-Tier Grouped Tab Architecture (all 22 AuditTabIds cleanly categorized)
+  const allAuditTabs: Array<{
+    id: AuditTabId;
+    group: AuditGroupId;
+    label: string;
+    count: number;
+    accent: string;
+    isAlert?: boolean;
+    hidden: boolean;
+  }> = [
+    // 1. Claims & Collections
+    {
+      id: 'net_wallet',
+      group: 'claims',
+      label: 'محفظة الصافي النهائي',
+      count: walletLedgerEntries.length,
+      accent: 'text-[#008060] dark:text-[#00ab84]',
+      isAlert: false,
+      hidden: false
+    },
+    {
+      id: 'untransferred',
+      group: 'claims',
+      label: 'متحصل ولم يُحوّل',
+      count: auditResult.collectedUntransferred.length,
+      accent: 'text-rose-600 dark:text-rose-400',
+      isAlert: auditResult.collectedUntransferred.length > 0,
+      hidden: false
+    },
+    {
+      id: 'cashout_audit',
+      group: 'claims',
+      label: 'تدقيق الدفعات والبنك',
+      count:
+        forensicAlertsCount > 0
+          ? forensicAlertsCount
+          : auditResult.cashoutForensicSummary.cashoutAudits.length,
+      accent:
+        forensicAlertsCount > 0
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-emerald-600 dark:text-emerald-400',
+      isAlert: forensicAlertsCount > 0,
+      hidden: uploadedFiles.length === 0
+    },
+    {
+      id: 'uncollected',
+      group: 'claims',
+      label: 'مسلّمة لم تظهر بالشيت',
+      count: auditResult.uncollectedDelivered.length,
+      accent: 'text-rose-600 dark:text-rose-400',
+      isAlert: auditResult.uncollectedDelivered.length > 0,
+      hidden: !matchWithStoreOrders
+    },
+    {
+      id: 'discrepancy',
+      group: 'claims',
+      label: 'عجز وفروقات الشيت',
+      count: auditResult.shortPaid.length + auditResult.overPaid.length,
+      accent: 'text-amber-600 dark:text-amber-400',
+      isAlert: auditResult.shortPaid.length > 0,
+      hidden: false
+    },
+    {
+      id: 'missing_comp',
+      group: 'claims',
+      label: 'تعويضات مفقودة',
+      count: auditResult.missingCompensations.length,
+      accent: 'text-rose-600 dark:text-rose-400',
+      isAlert: auditResult.missingCompensations.length > 0,
+      hidden: uploadedFiles.length === 0
+    },
+    {
+      id: 'matched',
+      group: 'claims',
+      label: 'مثبت ومطابق',
+      count: auditResult.matchedReady.length,
+      accent: 'text-emerald-600 dark:text-emerald-400',
+      isAlert: false,
+      hidden: false
+    },
+
+    // 2. Audits, Fees & Anti-Fraud Radars
+    {
+      id: 'fee_anomalies',
+      group: 'audits',
+      label: 'مصاريف ووزن وبيك أب',
+      count: auditResult.feeAnomalies.length + auditResult.totals.wrongfulPickupFeeCount,
+      accent:
+        auditResult.totals.wrongfulPickupFeeCount > 0
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-amber-600 dark:text-amber-400',
+      isAlert: auditResult.feeAnomalies.length + auditResult.totals.wrongfulPickupFeeCount > 0,
+      hidden: uploadedFiles.length === 0
+    },
+    {
+      id: 'fraud_alerts',
+      group: 'audits',
+      label: 'كاشف النصب والتلاعب',
+      count: auditResult.internalFraudAlerts.length,
+      accent: 'text-rose-600 dark:text-rose-400',
+      isAlert: auditResult.internalFraudAlerts.length > 0,
+      hidden: uploadedFiles.length === 0 && !matchWithStoreOrders
+    },
+    {
+      id: 'zero_attempt_returns',
+      group: 'audits',
+      label: 'مرتجعات بدون محاولات',
+      count: auditResult.zeroAttemptReturns.length,
+      accent: 'text-amber-600 dark:text-amber-400',
+      isAlert: auditResult.zeroAttemptReturns.length > 0,
+      hidden: uploadedFiles.length === 0
+    },
+    {
+      id: 'exchange_audits',
+      group: 'audits',
+      label: 'الاستبدال والجزئي',
+      count: auditResult.totals.exchangeIssueCount,
+      accent:
+        auditResult.totals.exchangeIssueCount > 0
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-emerald-600 dark:text-emerald-400',
+      isAlert: auditResult.totals.exchangeIssueCount > 0,
+      hidden: uploadedFiles.length === 0
+    },
+    {
+      id: 'customer_risk',
+      group: 'audits',
+      label: 'العملاء الخطِرين',
+      count: auditResult.customerRiskAlerts.length,
+      accent: 'text-rose-600 dark:text-rose-400',
+      isAlert: auditResult.customerRiskAlerts.length > 0,
+      hidden: uploadedFiles.length === 0 && !matchWithStoreOrders
+    },
+
+    // 3. Logistics, Returns & Pickups
+    {
+      id: 'pickup_requests',
+      group: 'logistics',
+      label: 'طلبات البيك أب',
+      count: auditResult.pickupRequestsSummary.totalPickups,
+      accent:
+        auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 ||
+        auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-indigo-600 dark:text-indigo-400',
+      isAlert:
+        auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 ||
+        auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0,
+      hidden: !auditResult.pickupRequestsSummary.hasPickupSheet
+    },
+    {
+      id: 'stuck_returns',
+      group: 'logistics',
+      label: 'مرتجعات محتجزة بالفروع',
+      count: auditResult.stuckReturns.length,
+      accent: 'text-amber-600 dark:text-amber-400',
+      isAlert: auditResult.stuckReturns.length > 0,
+      hidden: uploadedFiles.length === 0
+    },
+    {
+      id: 'not_collected',
+      group: 'logistics',
+      label: 'لم يُحصّل (مرتجع)',
+      count: auditResult.notCollectedCustomer.length,
+      accent: 'text-slate-600 dark:text-slate-400',
+      isAlert: false,
+      hidden: false
+    },
+    {
+      id: 'in_transit_sheet',
+      group: 'logistics',
+      label: 'قيد التشغيل بالشيت',
+      count: auditResult.inTransitInSheet.length,
+      accent: 'text-indigo-600 dark:text-indigo-400',
+      isAlert: false,
+      hidden: auditResult.inTransitInSheet.length === 0
+    },
+    {
+      id: 'overdue',
+      group: 'logistics',
+      label: 'متأخرة بالشحن',
+      count: auditResult.inTransitOverdue.length,
+      accent: 'text-amber-600 dark:text-amber-400',
+      isAlert: auditResult.inTransitOverdue.length > 0,
+      hidden: !matchWithStoreOrders
+    },
+
+    // 4. Finance, Wallets & Credits
+    {
+      id: 'transactions_ledger',
+      group: 'finance',
+      label: 'سجل Transactions',
+      count: auditResult.transactionsSummary.ledgerRows.length,
+      accent: 'text-indigo-600 dark:text-indigo-400',
+      isAlert: auditResult.transactionsSummary.walletGaps.length > 0,
+      hidden: !auditResult.transactionsSummary.hasTransactionsSheet
+    },
+    {
+      id: 'compensations',
+      group: 'finance',
+      label: 'مركز التعويضات',
+      count:
+        auditResult.compensationsSummary.entries.length +
+        auditResult.transactionsSummary.walletCompensations.length,
+      accent:
+        auditResult.totals.underCompensatedCount > 0 ||
+        auditResult.totals.undocumentedWalletCompCount > 0
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-emerald-600 dark:text-emerald-400',
+      isAlert:
+        auditResult.totals.underCompensatedCount > 0 ||
+        auditResult.totals.undocumentedWalletCompCount > 0,
+      hidden:
+        !auditResult.compensationsSummary.hasCompensationsSheet &&
+        auditResult.transactionsSummary.walletCompensations.length === 0
+    },
+    {
+      id: 'bosta_credits',
+      group: 'finance',
+      label: 'رصيد بوسطة (Credits)',
+      count: auditResult.bostaCreditsSummary.entries.length,
+      accent: 'text-emerald-600 dark:text-emerald-400',
+      isAlert: false,
+      hidden: !auditResult.bostaCreditsSummary.hasCreditsSheet
+    },
+    {
+      id: 'online_flex',
+      group: 'finance',
+      label: 'أونلاين و FlexShip',
+      count: auditResult.onlineAndFlexAlerts.length,
+      accent: 'text-indigo-600 dark:text-indigo-400',
+      isAlert: auditResult.onlineAndFlexAlerts.length > 0,
+      hidden: uploadedFiles.length === 0
+    },
+
+    // 5. Records & Archive
+    {
+      id: 'duplicate',
+      group: 'archive',
+      label: 'مكرر / محصّل سابقاً',
+      count: auditResult.duplicates.length,
+      accent: 'text-amber-600 dark:text-amber-400',
+      isAlert: auditResult.duplicates.length > 0,
+      hidden: false
+    },
+    {
+      id: 'not_found',
+      group: 'archive',
+      label: 'غير مسجل',
+      count: auditResult.notFound.length,
+      accent: 'text-slate-500 dark:text-slate-400',
+      isAlert: false,
+      hidden: false
+    },
+    {
+      id: 'batches',
+      group: 'archive',
+      label: 'أرشيف الدفعات',
+      count: savedBatches.length,
+      accent: 'text-indigo-600 dark:text-indigo-400',
+      isAlert: false,
+      hidden: !allowBatchSettlement
+    }
+  ];
+
+  const visibleAuditTabs = allAuditTabs.filter(t => !t.hidden);
+  const activeGroupId: AuditGroupId = TAB_TO_GROUP[activeTab] || 'claims';
+
+  const auditGroupDefs: Array<{
+    id: AuditGroupId;
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    tabs: typeof visibleAuditTabs;
+    alertCount: number;
+    hasAlert: boolean;
+  }> = (
+    [
+      { id: 'claims' as AuditGroupId, label: 'المطالبات والتحصيل', Icon: ShieldAlert },
+      { id: 'audits' as AuditGroupId, label: 'رادارات التدقيق والرسوم', Icon: Scale },
+      { id: 'logistics' as AuditGroupId, label: 'الشحن والبيك أب', Icon: Truck },
+      { id: 'finance' as AuditGroupId, label: 'المحفظة والتعويضات', Icon: Wallet },
+      { id: 'archive' as AuditGroupId, label: 'السجلات والأرشيف', Icon: Archive }
+    ] as const
+  )
+    .map(g => {
+      const tabs = visibleAuditTabs.filter(t => t.group === g.id);
+      const alertTabs = tabs.filter(t => t.isAlert);
+      const alertCount =
+        alertTabs.length > 0
+          ? alertTabs.reduce((sum, t) => sum + t.count, 0)
+          : tabs.reduce((sum, t) => sum + t.count, 0);
+      return {
+        ...g,
+        tabs,
+        alertCount,
+        hasAlert: alertTabs.length > 0
+      };
+    })
+    .filter(g => g.tabs.length > 0);
+
+  const activeGroupTabs = visibleAuditTabs.filter(t => t.group === activeGroupId);
+  const activeTabMeta = visibleAuditTabs.find(t => t.id === activeTab) || visibleAuditTabs[0];
+  const activeGroupMeta = auditGroupDefs.find(g => g.id === activeGroupId) || auditGroupDefs[0];
+  const nonEmptyTabs = visibleAuditTabs.filter(t => t.count > 0);
+  const totalRadarSignals =
+    auditResult.internalFraudAlerts.length +
+    auditResult.totals.returnedInsuranceCount +
+    auditResult.totals.returnedUntouchedOpeningCount +
+    auditResult.zeroAttemptReturns.length +
+    auditResult.customerRiskAlerts.length +
+    auditResult.totals.exchangeIssueCount +
+    auditResult.pickupRequestsSummary.crossBrandSwapCount +
+    forensicAlertsCount;
+  const isUploadExpanded = uploadedFiles.length === 0 || showUploadConfigPanel;
+
   return (
     <div
-      className={`space-y-5 text-slate-900 dark:text-slate-100 ${isDark ? 'dark' : ''}`}
+      data-cod-workspace="true"
+      className={`space-y-4 text-slate-900 dark:text-slate-100 ${isDark ? 'dark' : ''}`}
       dir="rtl"
     >
+      {/* Hidden Global File Input (always mounted so "+ إضافة شيتات" works even when drawer is collapsed) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".xlsx,.xls,.csv,.tsv,.txt"
+        className="hidden"
+        onChange={e => {
+          if (e.target.files?.length) {
+            handleFilesProcess(e.target.files);
+            e.target.value = '';
+          }
+        }}
+      />
+
       {/* Floating Toast */}
       {toast && (
         <div
@@ -1454,202 +1961,340 @@ export default function CodHunterWorkspace({
         </div>
       )}
 
-      {/* Header + ON/OFF Master Match Mode Toggle + Export Actions */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-        <div className="flex items-start sm:items-center gap-3">
-          {showBackToDashboard && (
-            <Link
-              to={`/store/${storeId}/dashboard`}
-              className="p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all duration-200 shrink-0"
-              title="العودة للوحة التحكم"
+      {/* Executive Header — Calm Enterprise Hierarchy & Streamlined Action Strip */}
+      <div className="bg-white dark:bg-[#0b1120] rounded-2xl border border-slate-200/90 dark:border-slate-800/90 px-4 sm:px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
+          <div className="flex items-start sm:items-center gap-3 min-w-0">
+            {showBackToDashboard && (
+              <Link
+                to={`/store/${storeId}/dashboard`}
+                className="p-2 bg-slate-50 dark:bg-slate-800/70 rounded-xl border border-slate-200/80 dark:border-slate-700/70 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+                title="العودة للوحة التحكم"
+              >
+                <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+              </Link>
+            )}
+            <div className="w-10 h-10 rounded-xl bg-slate-900 dark:bg-emerald-600 flex items-center justify-center shrink-0 shadow-xs">
+              <FileSpreadsheet className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white truncate">
+                مركز مطابقة وتدقيق التحصيلات (COD)
+              </h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="font-bold text-slate-700 dark:text-slate-200">{storeName}</span>
+                <span className="text-slate-300 dark:text-slate-700">·</span>
+                <span className="font-mono tabular-nums">
+                  {orders.length.toLocaleString('en-US')} طلب
+                </span>
+                {matchWithStoreOrders && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold">
+                      {auditResult.alreadySettledCount.toLocaleString('en-US')} محصّل ومصفّى
+                    </span>
+                  </>
+                )}
+                {allowBatchSettlement && (
+                  <>
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+                    <span className="font-mono tabular-nums">{savedBatches.length} دفعة</span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Primary View Switcher & Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* 3-Mode Workspace Segmented Switcher */}
+            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60">
+              <button
+                type="button"
+                onClick={() => setWorkspaceView('orders_hub')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                  workspaceView === 'orders_hub'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+                <span>الشاشة الرئيسية</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceView('audit');
+                  setActiveTab('net_wallet');
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                  workspaceView === 'audit' && activeTab === 'net_wallet'
+                    ? 'bg-[#008060] dark:bg-[#00ab84] text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5 shrink-0" />
+                <span>محفظة الصافي</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceView('audit');
+                  if (activeTab === 'net_wallet') {
+                    setActiveTab('untransferred');
+                  }
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                  workspaceView === 'audit' && activeTab !== 'net_wallet'
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Scale className="w-3.5 h-3.5 shrink-0" />
+                <span>التدقيق والشيتات</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCopyWhatsappClaim}
+              disabled={
+                totalClaimsCount === 0 &&
+                auditResult.missingCompensations.length === 0 &&
+                auditResult.totals.uncompensatedRateSizeOverchargeAmount === 0 &&
+                auditResult.totals.returnedInsuranceCount === 0 &&
+                auditResult.totals.returnedUntouchedOpeningCount === 0 &&
+                auditResult.totals.wrongfulPickupFeeCount === 0 &&
+                auditResult.totals.crossBrandSwapCount === 0
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-40 transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-300" />
-            </Link>
-          )}
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              <FileSpreadsheet className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
-              <span>كاشف التحصيلات ومطابقة بوسطة والإكسيل (COD)</span>
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span>متجر {storeName}</span>
-              <span>·</span>
-              <span className="font-mono tabular-nums">
-                {orders.length.toLocaleString('en-US')} طلب بالنظام
-              </span>
-              {matchWithStoreOrders && (
-                <>
-                  <span>·</span>
-                  <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold">
-                    {auditResult.alreadySettledCount.toLocaleString('en-US')} محصّل ومصفّى
-                  </span>
-                </>
+              {copiedWhatsapp ? (
+                <Check className="w-3.5 h-3.5 text-emerald-600" />
+              ) : (
+                <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
               )}
-              {allowBatchSettlement && (
-                <>
-                  <span>·</span>
-                  <span className="font-mono tabular-nums">{savedBatches.length} دفعة محفوظة</span>
-                </>
-              )}
-            </p>
+              <span>{copiedWhatsapp ? 'تم النسخ' : 'مطالبة واتساب'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportClaimWorkbook}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700/80 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>تصدير XLSX</span>
+            </button>
+
+            {allowBatchSettlement && onSettleBatch && uploadedFiles.length > 0 && matchWithStoreOrders && (
+              <button
+                type="button"
+                onClick={() => openSettleModal()}
+                disabled={selectedRowsList.length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs disabled:opacity-40 transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>اعتماد وتحصيل ({selectedRowsList.length.toLocaleString('en-US')})</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Right Controls: ON/OFF Master Toggle + Claims + Settle */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* ON / OFF Toggle Switch: Match with Live Store Orders vs Uploaded Sheets Only */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={matchWithStoreOrders}
-            onClick={() => {
-              const next = !matchWithStoreOrders;
-              setMatchWithStoreOrders(next);
-              notify(
-                next
-                  ? 'وضع ON مفعّل: سيتم مطابقة الشيتات مع أوردرات قسم الطلبات بالنظام.'
-                  : 'وضع OFF مفعّل: سيتم مطابقة الشيتات المرفوعة ببعضها فقط بدون أوردرات الطلبات.'
-              );
-              if (!next && activeTab === 'uncollected') {
-                setActiveTab('untransferred');
-              }
-            }}
-            className={`inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl border text-xs font-bold transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
-              matchWithStoreOrders
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200'
-                : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-            }`}
-          >
-            <Power
-              className={`w-4 h-4 shrink-0 ${
-                matchWithStoreOrders ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
-              }`}
-            />
-            <span>
-              {matchWithStoreOrders
-                ? 'ربط المطابقة بأوردرات الطلبات: ON'
-                : 'مطابقة الشيتات المرفوعة فقط: OFF'}
-            </span>
-            <span
-              className={`w-9 h-5 rounded-full p-0.5 transition-colors flex items-center ${
-                matchWithStoreOrders
-                  ? 'bg-emerald-600 justify-start'
-                  : 'bg-slate-400 dark:bg-slate-600 justify-end'
-              }`}
-            >
-              <span className="w-4 h-4 rounded-full bg-white shadow-xs" />
-            </span>
-          </button>
-
-          {/* ON / OFF Toggle Switch: Radar #5 Product Price vs Unified Inventory */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={enableProductPriceAudit}
-            onClick={() => {
-              const next = !enableProductPriceAudit;
-              setEnableProductPriceAudit(next);
-              notify(
-                next
-                  ? 'تم تفعيل رادار أسعار المنتجات (#5): يقارن السعر في بوسطة مع المخزون الموحد ومتوسط الشيتات.'
-                  : 'تم إيقاف رادار أسعار المنتجات (#5).'
-              );
-            }}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-bold transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
-              enableProductPriceAudit
-                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-800 dark:text-indigo-200'
-                : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-            }`}
-            title="مقارنة سعر COD الفعلي للمنتج مع المخزون الموحد"
-          >
-            <Power
-              className={`w-3.5 h-3.5 shrink-0 ${
-                enableProductPriceAudit ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'
-              }`}
-            />
-            <span>
-              {enableProductPriceAudit
-                ? `مقارنة أسعار المخزون: ON`
-                : 'مقارنة أسعار المخزون: OFF'}
-            </span>
-            <span
-              className={`w-8 h-4 rounded-full p-0.5 transition-colors flex items-center ${
-                enableProductPriceAudit
-                  ? 'bg-indigo-600 justify-start'
-                  : 'bg-slate-400 dark:bg-slate-600 justify-end'
-              }`}
-            >
-              <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleCopyWhatsappClaim}
-            disabled={
-              totalClaimsCount === 0 &&
-              auditResult.missingCompensations.length === 0 &&
-              auditResult.totals.uncompensatedRateSizeOverchargeAmount === 0 &&
-              auditResult.totals.returnedInsuranceCount === 0 &&
-              auditResult.totals.returnedUntouchedOpeningCount === 0 &&
-              auditResult.totals.wrongfulPickupFeeCount === 0 &&
-              auditResult.totals.crossBrandSwapCount === 0
-            }
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-40 transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            {copiedWhatsapp ? (
-              <Check className="w-4 h-4 text-emerald-600" />
-            ) : (
-              <MessageSquare className="w-4 h-4 text-emerald-600" />
-            )}
-            <span>{copiedWhatsapp ? 'تم نسخ المطالبة' : 'نسخ مطالبة واتساب'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleExportClaimWorkbook}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <span>تصدير مطالبة (XLSX)</span>
-          </button>
-
-          {allowBatchSettlement && onSettleBatch && uploadedFiles.length > 0 && matchWithStoreOrders && (
+        {/* Sub-Toolbar: Mode Switches + Quick Sheet Controls */}
+        <div className="mt-3.5 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* ON / OFF Switch: Match with Live Store Orders */}
             <button
               type="button"
-              onClick={() => openSettleModal()}
-              disabled={selectedRowsList.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm disabled:opacity-40 transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer"
+              role="switch"
+              aria-checked={matchWithStoreOrders}
+              onClick={() => {
+                const next = !matchWithStoreOrders;
+                setMatchWithStoreOrders(next);
+                notify(
+                  next
+                    ? 'وضع ON مفعّل: سيتم مطابقة الشيتات مع أوردرات قسم الطلبات بالنظام.'
+                    : 'وضع OFF مفعّل: سيتم مطابقة الشيتات المرفوعة ببعضها فقط بدون أوردرات الطلبات.'
+                );
+                if (!next && activeTab === 'uncollected') {
+                  setActiveTab('untransferred');
+                }
+              }}
+              className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                matchWithStoreOrders
+                  ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/90 dark:border-emerald-800/70 text-emerald-800 dark:text-emerald-200'
+                  : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>اعتماد وتحصيل ({selectedRowsList.length.toLocaleString('en-US')})</span>
+              <Power
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  matchWithStoreOrders ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                }`}
+              />
+              <span>
+                {matchWithStoreOrders ? 'ربط أوردرات النظام' : 'شيتات مرفوعة فقط'}
+              </span>
+              <span
+                className={`w-7 h-4 rounded-full p-0.5 transition-colors flex items-center ${
+                  matchWithStoreOrders
+                    ? 'bg-emerald-600 justify-start'
+                    : 'bg-slate-300 dark:bg-slate-600 justify-end'
+                }`}
+              >
+                <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
+              </span>
             </button>
-          )}
+
+            {/* ON / OFF Switch: Radar #5 Product Price vs Unified Inventory */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enableProductPriceAudit}
+              onClick={() => {
+                const next = !enableProductPriceAudit;
+                setEnableProductPriceAudit(next);
+                notify(
+                  next
+                    ? 'تم تفعيل رادار أسعار المنتجات (#5): يقارن السعر في بوسطة مع المخزون الموحد ومتوسط الشيتات.'
+                    : 'تم إيقاف رادار أسعار المنتجات (#5).'
+                );
+              }}
+              className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                enableProductPriceAudit
+                  ? 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-200/90 dark:border-indigo-800/70 text-indigo-800 dark:text-indigo-200'
+                  : 'bg-slate-50 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
+              title="مقارنة سعر COD الفعلي للمنتج مع المخزون الموحد"
+            >
+              <Power
+                className={`w-3.5 h-3.5 shrink-0 ${
+                  enableProductPriceAudit ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'
+                }`}
+              />
+              <span>رادار أسعار المخزون</span>
+              <span
+                className={`w-7 h-4 rounded-full p-0.5 transition-colors flex items-center ${
+                  enableProductPriceAudit
+                    ? 'bg-indigo-600 justify-start'
+                    : 'bg-slate-300 dark:bg-slate-600 justify-end'
+                }`}
+              >
+                <span className="w-3 h-3 rounded-full bg-white shadow-xs" />
+              </span>
+            </button>
+
+            {/* Quick Inline Filters (when files exist) */}
+            {uploadedFiles.length > 0 && auditResult.availableSheetBrands.length > 0 && (
+              <select
+                value={sheetBrandFilter}
+                onChange={e => setSheetBrandFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
+                title="تصفية البراند / الحساب بالشيت"
+              >
+                <option value="all">كل البراندات ({auditResult.availableSheetBrands.length})</option>
+                {auditResult.availableSheetBrands.map(b => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Left Quick Actions for Sheets & Drawers */}
+          <div className="flex flex-wrap items-center gap-2">
+            {uploadedFiles.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 text-[11px] font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  {isParsing ? (
+                    <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Plus className="w-3.5 h-3.5" />
+                  )}
+                  <span>إضافة شيتات</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowUploadConfigPanel(v => !v)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                    showUploadConfigPanel
+                      ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>إعدادات الشيتات ({uploadedFiles.length})</span>
+                  {showUploadConfigPanel ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Executive 4-KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {/* KPI 1: Collected by Courier, NOT Transferred (Not Paid / No Cash-out ID) */}
+      {/* MAIN MODERN ORDERS LIFECYCLE SCREEN vs FULL AUDIT WORKSPACE */}
+      {workspaceView === 'orders_hub' ? (
+        <OrdersLifecycleHub
+          storeName={storeName}
+          orders={orders}
+          auditResult={auditResult}
+          uploadedFilesCount={uploadedFiles.length}
+          matchWithStoreOrders={matchWithStoreOrders}
+          bankConfirmedCashouts={bankConfirmedCashouts}
+          orderBasePath={orderBasePath}
+          onInspectWaybill={(trackingCode, cashoutId) =>
+            setInspectedQuickRef({ mode: 'waybill', trackingCode, cashoutId })
+          }
+          onInspectCashout={tx => openCashoutOrdersModal(tx)}
+          onUploadSheets={() => fileInputRef.current?.click()}
+          onOpenAuditWorkspace={() => {
+            setWorkspaceView('audit');
+            if (activeTab === 'net_wallet') setActiveTab('untransferred');
+          }}
+          onOpenWallet={() => {
+            setWorkspaceView('audit');
+            setActiveTab('net_wallet');
+          }}
+          onNotify={notify}
+        />
+      ) : (
+        <>
+      {/* Executive 4-KPI Strip — Clean Financial Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+        {/* KPI 1: Collected by Courier, NOT Transferred */}
         <button
           type="button"
           onClick={() => setActiveTab('untransferred')}
-          className={`text-right bg-white dark:bg-slate-900 rounded-xl border p-4 sm:p-5 shadow-sm transition-all duration-200 hover:border-rose-300 dark:hover:border-rose-700 cursor-pointer ${
+          className={`group relative overflow-hidden text-right bg-white dark:bg-[#0b1120] rounded-2xl border p-4 transition-all duration-150 cursor-pointer hover:shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08)] ${
             activeTab === 'untransferred'
-              ? 'border-rose-400 dark:border-rose-600 ring-1 ring-rose-500/20'
-              : 'border-slate-200 dark:border-slate-800'
+              ? 'border-rose-400 dark:border-rose-500/80 ring-1 ring-rose-500/15'
+              : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between gap-2 mb-2">
+          {activeTab === 'untransferred' && (
+            <span className="absolute inset-x-0 top-0 h-0.5 bg-rose-500" />
+          )}
+          <div className="flex items-center justify-between gap-2 mb-2.5">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              متحصل ولم يُحوّل (Not Paid / بلا Cash-out)
+              متحصل ولم يُحوّل (Not Paid)
             </span>
-            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="w-7 h-7 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-3.5 h-3.5" />
+            </span>
           </div>
-          <div className="text-2xl font-black font-mono tabular-nums text-rose-600 dark:text-rose-400">
+          <div className="text-2xl sm:text-[26px] font-black font-mono tabular-nums tracking-tight text-rose-600 dark:text-rose-400 leading-none">
             {formatEgp(auditResult.totals.collectedUntransferredAmount)}
           </div>
-          <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
             {auditResult.collectedUntransferred.length.toLocaleString('en-US')} شحنة · COD{' '}
             {formatEgp(auditResult.totals.collectedUntransferredGross)}
           </div>
@@ -1659,27 +2304,32 @@ export default function CodHunterWorkspace({
         <button
           type="button"
           onClick={() => matchWithStoreOrders && setActiveTab('uncollected')}
-          className={`text-right bg-white dark:bg-slate-900 rounded-xl border p-4 sm:p-5 shadow-sm transition-all duration-200 cursor-pointer ${
+          className={`group relative overflow-hidden text-right bg-white dark:bg-[#0b1120] rounded-2xl border p-4 transition-all duration-150 cursor-pointer hover:shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08)] ${
             activeTab === 'uncollected'
-              ? 'border-rose-400 dark:border-rose-600 ring-1 ring-rose-500/20'
-              : 'border-slate-200 dark:border-slate-800'
-          } ${!matchWithStoreOrders ? 'opacity-65' : 'hover:border-rose-300 dark:hover:border-rose-700'}`}
+              ? 'border-rose-400 dark:border-rose-500/80 ring-1 ring-rose-500/15'
+              : 'border-slate-200/90 dark:border-slate-800/90'
+          } ${!matchWithStoreOrders ? 'opacity-65' : 'hover:border-slate-300 dark:hover:border-slate-700'}`}
         >
-          <div className="flex items-center justify-between gap-2 mb-2">
+          {activeTab === 'uncollected' && (
+            <span className="absolute inset-x-0 top-0 h-0.5 bg-rose-500" />
+          )}
+          <div className="flex items-center justify-between gap-2 mb-2.5">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
-              مسلّمة بالطلبات لم تظهر بالشيت
+              مسلّمة بالنظام بدون شيت
             </span>
-            <Clock className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="w-7 h-7 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <Clock className="w-3.5 h-3.5" />
+            </span>
           </div>
-          <div className="text-2xl font-black font-mono tabular-nums text-rose-600 dark:text-rose-400">
+          <div className="text-2xl sm:text-[26px] font-black font-mono tabular-nums tracking-tight text-rose-600 dark:text-rose-400 leading-none">
             {matchWithStoreOrders
               ? formatEgp(auditResult.totals.uncollectedDeliveredAmount)
               : 'OFF (شيتات فقط)'}
           </div>
-          <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
             {matchWithStoreOrders
-              ? `${auditResult.uncollectedDelivered.length.toLocaleString('en-US')} أوردر مسلّم بالنظام بدون شيت`
-              : 'فعّل زر الطلبات (ON) لمطابقة أوردرات المتجر'}
+              ? `${auditResult.uncollectedDelivered.length.toLocaleString('en-US')} أوردر مسلّم لم يظهر بالشيت`
+              : 'فعّل ربط أوردرات النظام للمطابقة'}
           </div>
         </button>
 
@@ -1687,23 +2337,29 @@ export default function CodHunterWorkspace({
         <button
           type="button"
           onClick={() => setActiveTab('discrepancy')}
-          className={`text-right bg-white dark:bg-slate-900 rounded-xl border p-4 sm:p-5 shadow-sm transition-all duration-200 hover:border-amber-300 dark:hover:border-amber-700 cursor-pointer ${
+          className={`group relative overflow-hidden text-right bg-white dark:bg-[#0b1120] rounded-2xl border p-4 transition-all duration-150 cursor-pointer hover:shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08)] ${
             activeTab === 'discrepancy'
-              ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-500/20'
-              : 'border-slate-200 dark:border-slate-800'
+              ? 'border-amber-400 dark:border-amber-500/80 ring-1 ring-amber-500/15'
+              : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between gap-2 mb-2">
+          {activeTab === 'discrepancy' && (
+            <span className="absolute inset-x-0 top-0 h-0.5 bg-amber-500" />
+          )}
+          <div className="flex items-center justify-between gap-2 mb-2.5">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
               عجز وخصومات زائدة بالشيت
             </span>
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="w-7 h-7 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </span>
           </div>
-          <div className="text-2xl font-black font-mono tabular-nums text-amber-600 dark:text-amber-400">
+          <div className="text-2xl sm:text-[26px] font-black font-mono tabular-nums tracking-tight text-amber-600 dark:text-amber-400 leading-none">
             {formatEgp(auditResult.totals.shortPaidDeficitAmount)}
           </div>
-          <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
-            {auditResult.shortPaid.length} عجز · {auditResult.notCollectedCustomer.length} مرتجع (خصم {formatEgp(auditResult.totals.returnedFeesDeducted)})
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+            {auditResult.shortPaid.length} عجز · {auditResult.notCollectedCustomer.length} مرتجع (خصم{' '}
+            {formatEgp(auditResult.totals.returnedFeesDeducted)})
           </div>
         </button>
 
@@ -1711,1580 +2367,1922 @@ export default function CodHunterWorkspace({
         <button
           type="button"
           onClick={() => setActiveTab('matched')}
-          className={`text-right bg-white dark:bg-slate-900 rounded-xl border p-4 sm:p-5 shadow-sm transition-all duration-200 hover:border-emerald-300 dark:hover:border-emerald-700 cursor-pointer ${
+          className={`group relative overflow-hidden text-right bg-white dark:bg-[#0b1120] rounded-2xl border p-4 transition-all duration-150 cursor-pointer hover:shadow-[0_4px_16px_-6px_rgba(15,23,42,0.08)] ${
             activeTab === 'matched'
-              ? 'border-emerald-400 dark:border-emerald-600 ring-1 ring-emerald-500/20'
-              : 'border-slate-200 dark:border-slate-800'
+              ? 'border-emerald-400 dark:border-emerald-500/80 ring-1 ring-emerald-500/15'
+              : 'border-slate-200/90 dark:border-slate-800/90 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between gap-2 mb-2">
+          {activeTab === 'matched' && (
+            <span className="absolute inset-x-0 top-0 h-0.5 bg-emerald-500" />
+          )}
+          <div className="flex items-center justify-between gap-2 mb-2.5">
             <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
               مثبت تحويله ومطابق (جاهز)
             </span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            </span>
           </div>
-          <div className="text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+          <div className="text-2xl sm:text-[26px] font-black font-mono tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400 leading-none">
             {formatEgp(auditResult.totals.matchedReadyNetAmount)}
           </div>
-          <div className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums">
-            {auditResult.matchedReady.length.toLocaleString('en-US')} بوليصة مطابقة
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+            {auditResult.matchedReady.length.toLocaleString('en-US')} بوليصة مطابقة للتحصيل
           </div>
         </button>
       </div>
 
-      {/* Interactive 4-Stage Sheet Lifecycle Map: What Went Where? */}
+      {/* Compact Executive Command Ribbon (Lifecycle + Radars + Bank Wallet — Progressive Disclosure) */}
       {uploadedFiles.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-              <Layers className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>خريطة الشيتات المرفوعة — إيه راح فين بسهولة؟</span>
-            </h2>
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-              اضغط على أي مرحلة للانتقال المباشر إلى جدولها وتفاصيلها
-            </span>
+        <div className="bg-white dark:bg-slate-900/95 rounded-2xl border border-slate-200/90 dark:border-slate-800 overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+          {/* Top Compact Insights Summary Bar */}
+          <div className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setShowLifecycleDeck(v => !v)}
+                className="inline-flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-100 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer"
+              >
+                <Layers className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>خريطة المراحل والرادارات</span>
+                {totalRadarSignals > 0 && (
+                  <span className="font-mono tabular-nums text-[11px] font-black text-rose-600 dark:text-rose-400">
+                    · {totalRadarSignals} تنبيه
+                  </span>
+                )}
+                {showLifecycleDeck ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                )}
+              </button>
+
+              <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
+
+              {/* Quick Glance Telemetry Metrics (Unboxed, Clickable) */}
+              {auditResult.pickupRequestsSummary.hasPickupSheet && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pickup_requests')}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span className="font-mono tabular-nums">
+                    بيك أب: {auditResult.pickupRequestsSummary.totalPickedUpParcels.toLocaleString('en-US')} طرد
+                  </span>
+                  {auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 && (
+                    <span className="font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums">
+                      ({auditResult.pickupRequestsSummary.crossBrandSwapCount} تبديل مخزن)
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {auditResult.stuckReturns.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('stuck_returns')}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer font-mono tabular-nums"
+                >
+                  <Truck className="w-3.5 h-3.5 shrink-0" />
+                  <span>{auditResult.stuckReturns.length} مرتجع عالق</span>
+                </button>
+              )}
+
+              {auditResult.feeAnomalies.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('fee_anomalies')}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer font-mono tabular-nums"
+                >
+                  <Scale className="w-3.5 h-3.5 shrink-0" />
+                  <span>رسوم زائدة +{formatEgp(auditResult.totals.totalFeeOverchargeAmount)}</span>
+                </button>
+              )}
+
+              {forensicAlertsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('cashout_audit')}
+                  className="inline-flex items-center gap-1 text-[11px] font-black text-rose-600 dark:text-rose-400 hover:underline cursor-pointer font-mono tabular-nums"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    تدقيق الدفعات: {forensicAlertsCount} تنبيه
+                    {forensicClaimsAmount > 0 ? ` (${formatEgp(forensicClaimsAmount)})` : ''}
+                  </span>
+                </button>
+              )}
+
+              {auditResult.transactionsSummary.hasTransactionsSheet && (
+                <button
+                  type="button"
+                  onClick={() => setShowBankCashoutsPanel(v => !v)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 hover:text-indigo-900 dark:hover:text-indigo-200 transition-colors cursor-pointer"
+                >
+                  <Landmark className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span>
+                    دفعات البنك{' '}
+                    <span className="font-mono tabular-nums">
+                      ({bankConfirmStats.confirmedCount}/{bankConfirmStats.totalCount})
+                    </span>
+                  </span>
+                  {auditResult.transactionsSummary.currentWalletBalance !== null && (
+                    <span className="font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+                      · المحفظة {formatEgp(auditResult.transactionsSummary.currentWalletBalance)}
+                    </span>
+                  )}
+                  {showBankCashoutsPanel ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 text-[11px]">
+              {auditResult.transactionsSummary.hasTransactionsSheet &&
+                auditResult.transactionsSummary.walletIntegrityStatus === 'mismatch_found' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBankCashoutsPanel(true)}
+                    className="inline-flex items-center gap-1 font-bold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{auditResult.transactionsSummary.walletGaps.length} فجوة رصيد</span>
+                  </button>
+                )}
+              <span className="text-slate-400 dark:text-slate-500 font-mono tabular-nums">
+                {uploadedFiles.length} شيت محفوظ تلقائياً
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
-            {/* Stage 1: Pickup */}
-            <button
-              type="button"
-              onClick={() => {
-                if (auditResult.pickupRequestsSummary.hasPickupSheet) {
-                  setActiveTab('pickup_requests');
-                } else {
-                  fileInputRef.current?.click();
-                }
-              }}
-              className={`text-right p-3.5 rounded-lg border transition-all duration-200 cursor-pointer ${
-                activeTab === 'pickup_requests'
-                  ? 'border-indigo-400 dark:border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/20'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="font-black text-slate-800 dark:text-slate-100">
-                  1. الاستلام (Pickup)
-                </span>
-                <Package className="w-4 h-4 text-indigo-600 shrink-0" />
-              </div>
-              {auditResult.pickupRequestsSummary.hasPickupSheet ? (
-                <>
+          {/* Expandable 4-Stage Lifecycle & 4-Radar Deck */}
+          {showLifecycleDeck && (
+            <div className="px-4 pb-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3 bg-slate-50/40 dark:bg-slate-950/30">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 text-xs">
+                {/* Stage 1: Pickup */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (auditResult.pickupRequestsSummary.hasPickupSheet) {
+                      setActiveTab('pickup_requests');
+                    } else {
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  className={`text-right p-3.5 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 cursor-pointer ${
+                    activeTab === 'pickup_requests'
+                      ? 'border-indigo-400 dark:border-indigo-600 ring-1 ring-indigo-500/15'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-bold text-slate-800 dark:text-slate-100">
+                      1. الاستلام (Pickup)
+                    </span>
+                    <Package className="w-4 h-4 text-indigo-600 shrink-0" />
+                  </div>
+                  {auditResult.pickupRequestsSummary.hasPickupSheet ? (
+                    <>
+                      <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
+                        {auditResult.pickupRequestsSummary.totalPickedUpParcels.toLocaleString('en-US')} مسحوب ·{' '}
+                        {auditResult.pickupRequestsSummary.totalReceivedParcels.toLocaleString('en-US')} بالفرع
+                      </div>
+                      <div
+                        className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
+                          auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 ||
+                          auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : auditResult.pickupRequestsSummary.varianceGapCount > 0
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0
+                          ? `${auditResult.pickupRequestsSummary.wrongfulPickupFeeCount} خصم بيك أب خاطئ (-${formatEgp(auditResult.pickupRequestsSummary.wrongfulPickupFeeAmount)})`
+                          : `${auditResult.pickupRequestsSummary.totalPickups} طلب · ${
+                              auditResult.pickupRequestsSummary.varianceGapCount > 0
+                                ? `${auditResult.pickupRequestsSummary.varianceGapCount} فرق استلام بالفرع`
+                                : 'كل المسحوب مستلم بالفرع'
+                            }`}
+                        {auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 && (
+                          <span className="block text-[10px] font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                            {auditResult.pickupRequestsSummary.crossBrandSwapCount} تبديل مخزن/براند (
+                            {auditResult.pickupRequestsSummary.crossBrandSwappedReturnsCount} مرتجع)
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-semibold text-slate-500 dark:text-slate-400">
+                        شيت البيك أب غير مرفوع
+                      </div>
+                      <div className="mt-1 text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                        اضغط لرفع Pickup Requests وتتبع استلام الفرع
+                      </div>
+                    </>
+                  )}
+                </button>
+
+                {/* Stage 2: Deliveries & Hubs */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTab(auditResult.stuckReturns.length > 0 ? 'stuck_returns' : 'in_transit_sheet')
+                  }
+                  className={`text-right p-3.5 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 cursor-pointer ${
+                    activeTab === 'stuck_returns' || activeTab === 'in_transit_sheet'
+                      ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-500/15'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-bold text-slate-800 dark:text-slate-100">
+                      2. الشحن والفروع (Deliveries)
+                    </span>
+                    <Truck className="w-4 h-4 text-amber-500 shrink-0" />
+                  </div>
                   <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
-                    {auditResult.pickupRequestsSummary.totalPickedUpParcels.toLocaleString('en-US')} طرد مسحوب ·{' '}
-                    {auditResult.pickupRequestsSummary.totalReceivedParcels.toLocaleString('en-US')} مستلم بالفرع
+                    {auditResult.inTransitInSheet.length.toLocaleString('en-US')} قيد التشغيل ·{' '}
+                    {auditResult.notCollectedCustomer.length.toLocaleString('en-US')} مرتجع
                   </div>
                   <div
                     className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
-                      auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 ||
-                      auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0
+                      auditResult.stuckReturns.length > 0 ||
+                      auditResult.deliverySlaSummary.returnedAfterDelayCount > 0
                         ? 'text-rose-600 dark:text-rose-400'
-                        : auditResult.pickupRequestsSummary.varianceGapCount > 0
-                        ? 'text-amber-600 dark:text-amber-400'
                         : 'text-emerald-600 dark:text-emerald-400'
                     }`}
                   >
-                    {auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0
-                      ? `${auditResult.pickupRequestsSummary.wrongfulPickupFeeCount} خصم بيك أب خاطئ (-${formatEgp(auditResult.pickupRequestsSummary.wrongfulPickupFeeAmount)})`
-                      : `${auditResult.pickupRequestsSummary.totalPickups} طلب · ${
-                          auditResult.pickupRequestsSummary.varianceGapCount > 0
-                            ? `${auditResult.pickupRequestsSummary.varianceGapCount} فرق استلام بالفرع`
-                            : 'كل المسحوب مستلم بالفرع'
-                        }`}
-                    {auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 && (
-                      <span className="block text-[10px] font-black text-rose-600 dark:text-rose-400 mt-0.5">
-                        🔀 {auditResult.pickupRequestsSummary.crossBrandSwapCount} تبديل مخزن/براند (
-                        {auditResult.pickupRequestsSummary.crossBrandSwappedReturnsCount} مرتجع)
-                      </span>
-                    )}
+                    {auditResult.stuckReturns.length > 0
+                      ? `${auditResult.stuckReturns.length} مرتجع عالق بالفروع (${formatEgp(auditResult.totals.stuckReturnsValueAmount)})`
+                      : 'لا توجد مرتجعات عالقة بالفروع'}
+                    {auditResult.deliverySlaSummary.hasDeliveriesSlaData &&
+                      (auditResult.deliverySlaSummary.returnedAfterDelayCount > 0 ||
+                        auditResult.deliverySlaSummary.delayedDeliveredCount > 0 ||
+                        auditResult.deliverySlaSummary.overdueActiveCount > 0) && (
+                        <span className="block text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
+                          SLA التسليم: {auditResult.deliverySlaSummary.returnedAfterDelayCount} ارتجع بعد تأخير ·{' '}
+                          {auditResult.deliverySlaSummary.delayedDeliveredCount} تسليم متأخر
+                        </span>
+                      )}
                   </div>
-                </>
-              ) : (
-                <>
-                  <div className="font-bold text-slate-500 dark:text-slate-400">
-                    شيت البيك أب غير مرفوع
-                  </div>
-                  <div className="mt-1 text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                    اضغط لرفع Pickup Requests وتتبع استلام الفرع
-                  </div>
-                </>
-              )}
-            </button>
+                </button>
 
-            {/* Stage 2: Deliveries & Hubs */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveTab(auditResult.stuckReturns.length > 0 ? 'stuck_returns' : 'in_transit_sheet')
-              }
-              className={`text-right p-3.5 rounded-lg border transition-all duration-200 cursor-pointer ${
-                activeTab === 'stuck_returns' || activeTab === 'in_transit_sheet'
-                  ? 'border-amber-400 dark:border-amber-600 bg-amber-50/40 dark:bg-amber-950/20'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="font-black text-slate-800 dark:text-slate-100">
-                  2. الشحن والفروع (Deliveries)
-                </span>
-                <Truck className="w-4 h-4 text-amber-500 shrink-0" />
-              </div>
-              <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
-                {auditResult.inTransitInSheet.length.toLocaleString('en-US')} قيد التشغيل ·{' '}
-                {auditResult.notCollectedCustomer.length.toLocaleString('en-US')} مرتجع
-              </div>
-              <div
-                className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
-                  auditResult.stuckReturns.length > 0 ||
-                  auditResult.deliverySlaSummary.returnedAfterDelayCount > 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {auditResult.stuckReturns.length > 0
-                  ? `${auditResult.stuckReturns.length} مرتجع/عالق بالفروع (${formatEgp(auditResult.totals.stuckReturnsValueAmount)})`
-                  : 'لا توجد مرتجعات عالقة بالفروع'}
-                {auditResult.deliverySlaSummary.hasDeliveriesSlaData &&
-                  (auditResult.deliverySlaSummary.returnedAfterDelayCount > 0 ||
-                    auditResult.deliverySlaSummary.delayedDeliveredCount > 0 ||
-                    auditResult.deliverySlaSummary.overdueActiveCount > 0) && (
-                    <span className="block text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
-                      SLA التسليم: {auditResult.deliverySlaSummary.returnedAfterDelayCount} ارتجع بعد تأخير ·{' '}
-                      {auditResult.deliverySlaSummary.delayedDeliveredCount} تسليم متأخر
-                    </span>
-                  )}
-              </div>
-            </button>
-
-            {/* Stage 3: Cash Cycles & Fees */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveTab(
-                  auditResult.collectedUntransferred.length > 0
-                    ? 'untransferred'
-                    : auditResult.feeAnomalies.length > 0
-                    ? 'fee_anomalies'
-                    : 'matched'
-                )
-              }
-              className={`text-right p-3.5 rounded-lg border transition-all duration-200 cursor-pointer ${
-                activeTab === 'untransferred' || activeTab === 'fee_anomalies' || activeTab === 'matched'
-                  ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50/40 dark:bg-emerald-950/20'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="font-black text-slate-800 dark:text-slate-100">
-                  3. التحصيل والخصم (Cash Cycles)
-                </span>
-                <Scale className="w-4 h-4 text-emerald-600 shrink-0" />
-              </div>
-              <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
-                {auditResult.matchedReady.length.toLocaleString('en-US')} محوّل مطابق ·{' '}
-                <span
-                  className={
-                    auditResult.collectedUntransferred.length > 0
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-slate-600 dark:text-slate-300'
-                  }
-                >
-                  {auditResult.collectedUntransferred.length.toLocaleString('en-US')} معلق
-                </span>
-              </div>
-              <div
-                className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
-                  auditResult.feeAnomalies.length > 0
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-slate-500 dark:text-slate-400'
-                }`}
-              >
-                {auditResult.feeAnomalies.length > 0
-                  ? `${auditResult.feeAnomalies.length} شحنة بمصاريف زائدة (+${formatEgp(auditResult.totals.totalFeeOverchargeAmount)})`
-                  : `إجمالي صافي الشيتات ${formatEgp(auditResult.totals.totalSheetNetAmount)}`}
-              </div>
-            </button>
-
-            {/* Stage 4: Bank Cashouts, Dual-Wallet Compensations & Bosta Credits */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveTab(
-                  auditResult.missingCompensations.length > 0
-                    ? 'missing_comp'
-                    : auditResult.bostaCreditsSummary.hasCreditsSheet &&
-                      !auditResult.transactionsSummary.hasTransactionsSheet
-                    ? 'bosta_credits'
-                    : auditResult.compensationsSummary.hasCompensationsSheet ||
-                      auditResult.transactionsSummary.walletCompensations.length > 0
-                    ? 'compensations'
-                    : auditResult.bostaCreditsSummary.hasCreditsSheet
-                    ? 'bosta_credits'
-                    : 'transactions_ledger'
-                )
-              }
-              className={`text-right p-3.5 rounded-lg border transition-all duration-200 cursor-pointer ${
-                activeTab === 'transactions_ledger' ||
-                activeTab === 'compensations' ||
-                activeTab === 'bosta_credits' ||
-                activeTab === 'missing_comp'
-                  ? 'border-indigo-400 dark:border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/20'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span className="font-black text-slate-800 dark:text-slate-100">
-                  4. البنك والتعويضات (محفظة + نقاط)
-                </span>
-                <Landmark className="w-4 h-4 text-emerald-600 shrink-0" />
-              </div>
-              <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
-                {bankConfirmStats.totalCount > 0
-                  ? `${bankConfirmStats.confirmedCount}/${bankConfirmStats.totalCount} دفعة مؤكدة بالبنك`
-                  : auditResult.bostaCreditsSummary.hasCreditsSheet
-                  ? `نقاط Credits: ${formatEgp(auditResult.bostaCreditsSummary.currentCreditsBalance || 0)}`
-                  : 'لا توجد دفعات Transactions'}
-              </div>
-              <div
-                className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
-                  auditResult.missingCompensations.length > 0 ||
-                  auditResult.totals.underCompensatedCount > 0 ||
-                  auditResult.totals.undocumentedWalletCompCount > 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {auditResult.missingCompensations.length > 0
-                  ? `${auditResult.missingCompensations.length} تالف/مفقود/منقوص يستحق مطالبة`
-                  : auditResult.totals.undocumentedWalletCompCount > 0
-                  ? `${auditResult.totals.undocumentedWalletCompCount} تعويض محفظة غير موثق (${formatEgp(auditResult.totals.undocumentedWalletCompAmount)})`
-                  : auditResult.bostaCreditsSummary.hasCreditsSheet && bankConfirmStats.totalCount > 0
-                  ? `محفظة ${formatEgp(auditResult.transactionsSummary.totalCompensations)} · نقاط +${formatEgp(auditResult.bostaCreditsSummary.voucherCreditsAmount)}`
-                  : auditResult.compensationsSummary.hasCompensationsSheet
-                  ? `${auditResult.compensationsSummary.entries.length} تعويض (${formatEgp(auditResult.compensationsSummary.totalCompensatedAmount)})`
-                  : auditResult.bostaCreditsSummary.hasCreditsSheet
-                  ? `قسائم نقاط +${formatEgp(auditResult.bostaCreditsSummary.totalAddedCredits)} · صرف -${formatEgp(auditResult.bostaCreditsSummary.totalSpentCredits)}`
-                  : 'كل التالف/المفقود مغطى أو غير موجود'}
-              </div>
-            </button>
-          </div>
-
-          {/* Anti-Fraud & 7 Loopholes Defense Radar Strip */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveTab('fraud_alerts')}
-              className={`text-right p-3 rounded-lg border transition-all duration-200 flex items-center justify-between gap-2 cursor-pointer ${
-                activeTab === 'fraud_alerts'
-                  ? 'border-rose-400 dark:border-rose-600 bg-rose-50/60 dark:bg-rose-950/30'
-                  : auditResult.internalFraudAlerts.length > 0
-                  ? 'border-rose-200 dark:border-rose-900/50 bg-rose-50/40 dark:bg-rose-950/20 hover:border-rose-300'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300'
-              }`}
-            >
-              <div>
-                <div className="font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                  <span>التلاعب و0 COD وشذوذ الأسعار</span>
-                </div>
-                <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5">
-                  {auditResult.internalFraudAlerts.length > 0
-                    ? `${auditResult.internalFraudAlerts.length} شبهة (${formatEgp(auditResult.totals.internalFraudRiskAmount)})`
-                    : enableProductPriceAudit
-                    ? `مقارنة المخزون مفعّلة (${unifiedPricedProductsCount} منتج)`
-                    : 'رادار الأسعار OFF'}
-                </div>
-              </div>
-              <span
-                className={`font-mono tabular-nums font-black text-sm ${
-                  auditResult.internalFraudAlerts.length > 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {auditResult.internalFraudAlerts.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setFeeAnomalyFilter(
-                  auditResult.totals.returnedUntouchedOpeningCount > 0
-                    ? 'untouched_opening'
-                    : auditResult.totals.returnedInsuranceCount > 0
-                    ? 'returned_insurance'
-                    : 'all'
-                );
-                setActiveTab('fee_anomalies');
-              }}
-              className={`text-right p-3 rounded-lg border transition-all duration-200 flex items-center justify-between gap-2 cursor-pointer ${
-                activeTab === 'fee_anomalies'
-                  ? 'border-amber-400 dark:border-amber-600 bg-amber-50/60 dark:bg-amber-950/30'
-                  : auditResult.totals.returnedInsuranceCount > 0 ||
-                    auditResult.totals.returnedUntouchedOpeningCount > 0 ||
-                    auditResult.totals.zeroCodDeliveredCount > 0
-                  ? 'border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 hover:border-amber-300'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300'
-              }`}
-            >
-              <div>
-                <div className="font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  <Scale className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span>تأمين وفتح باطل وتأخير SLA</span>
-                </div>
-                <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5">
-                  {auditResult.totals.returnedInsuranceCount > 0 || auditResult.totals.returnedUntouchedOpeningCount > 0
-                    ? `${auditResult.totals.returnedInsuranceCount} تأمين مرتجع · ${auditResult.totals.returnedUntouchedOpeningCount} فتح باطل`
-                    : auditResult.payoutSlaSummary.delayedCount > 0
-                    ? `${auditResult.payoutSlaSummary.delayedCount} شحنة متأخرة التحويل`
-                    : 'لا توجد خصومات غير مستحقة'}
-                </div>
-              </div>
-              <span
-                className={`font-mono tabular-nums font-black text-sm ${
-                  auditResult.totals.returnedInsuranceCount + auditResult.totals.returnedUntouchedOpeningCount > 0
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {auditResult.totals.returnedInsuranceCount + auditResult.totals.returnedUntouchedOpeningCount}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('zero_attempt_returns')}
-              className={`text-right p-3 rounded-lg border transition-all duration-200 flex items-center justify-between gap-2 cursor-pointer ${
-                activeTab === 'zero_attempt_returns'
-                  ? 'border-amber-400 dark:border-amber-600 bg-amber-50/60 dark:bg-amber-950/30'
-                  : auditResult.zeroAttemptReturns.length > 0
-                  ? 'border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 hover:border-amber-300'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300'
-              }`}
-            >
-              <div>
-                <div className="font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span>مرتجعات بـ 0 محاولة توصيل</span>
-                </div>
-                <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5">
-                  {auditResult.zeroAttemptReturns.length > 0
-                    ? `${auditResult.zeroAttemptReturns.length} مرتجع وهمي (خصم ${formatEgp(auditResult.totals.zeroAttemptFeesAmount)})`
-                    : 'كل المرتجعات تمت محاولة تسليمها'}
-                </div>
-              </div>
-              <span
-                className={`font-mono tabular-nums font-black text-sm ${
-                  auditResult.zeroAttemptReturns.length > 0
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {auditResult.zeroAttemptReturns.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                setActiveTab(auditResult.exchangeAudits.length > 0 ? 'exchange_audits' : 'customer_risk')
-              }
-              className={`text-right p-3 rounded-lg border transition-all duration-200 flex items-center justify-between gap-2 cursor-pointer ${
-                activeTab === 'customer_risk' || activeTab === 'exchange_audits'
-                  ? 'border-indigo-400 dark:border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/25'
-                  : 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300'
-              }`}
-            >
-              <div>
-                <div className="font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  <UserX className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                  <span>العملاء الخطرين والاستبدال والجزئي</span>
-                </div>
-                <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5">
-                  {auditResult.exchangeAudits.length > 0
-                    ? auditResult.totals.exchangeIssueCount > 0
-                      ? `${auditResult.totals.exchangeIssueCount} مخالفة استبدال/جزئي · ${auditResult.customerRiskAlerts.length} رقم خطر`
-                      : `${auditResult.exchangeAudits.length} استبدال/جزئي سليم ✅ · ${auditResult.customerRiskAlerts.length} رقم خطر`
-                    : auditResult.customerRiskAlerts.length > 0
-                    ? `${auditResult.customerRiskAlerts.length} رقم خطر (حرق ${formatEgp(auditResult.totals.customerRiskBurnedFees)})`
-                    : 'سليم (لا أرقام خطرة أو أخطاء استبدال)'}
-                </div>
-              </div>
-              <span
-                className={`font-mono tabular-nums font-black text-sm ${
-                  auditResult.customerRiskAlerts.length + auditResult.totals.exchangeIssueCount > 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}
-              >
-                {auditResult.customerRiskAlerts.length + auditResult.totals.exchangeIssueCount}
-              </span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Transactions Sheet Summary Panel (if Transactions sheet uploaded) */}
-      {auditResult.transactionsSummary.hasTransactionsSheet && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 sm:p-5 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-black text-slate-900 dark:text-white flex flex-wrap items-center gap-2">
-              <Receipt className="w-4 h-4 text-indigo-600" />
-              <span>ملخص كشف حركة الحساب والتحويلات (Transactions)</span>
-              {auditResult.transactionsSummary.currentWalletBalance !== null && (
-                <span className="px-2.5 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono tabular-nums text-xs font-black">
-                  الرصيد الحالي بالمحفظة: {formatEgp(auditResult.transactionsSummary.currentWalletBalance)}
-                </span>
-              )}
-              {auditResult.transactionsSummary.walletIntegrityStatus === 'verified' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">
-                  <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                  <span>تسلسل رصيد المحفظة سليم 100%</span>
-                </span>
-              )}
-              {auditResult.transactionsSummary.walletIntegrityStatus === 'mismatch_found' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 text-[11px] font-bold">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>تحذير: {auditResult.transactionsSummary.walletGaps.length} فجوة في الرصيد التراكمي</span>
-                </span>
-              )}
-              {auditResult.transactionsSummary.walletIntegrityStatus === 'partial_filtered' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 text-[11px] font-bold">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  <span>كشف فئة جزئية (ارفع باقي فئات Transactions لفحص تسلسل الرصيد)</span>
-                </span>
-              )}
-            </h2>
-            <div className="flex flex-wrap items-center gap-3">
-              {bankConfirmStats.totalCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 font-mono tabular-nums">
-                  <Landmark className="w-3.5 h-3.5 shrink-0" />
-                  <span>
-                    مؤكد بالبنك: {bankConfirmStats.confirmedCount} من {bankConfirmStats.totalCount} دفعة
-                    {bankConfirmStats.confirmedAmount > 0
-                      ? ` (${formatEgp(bankConfirmStats.confirmedAmount)})`
-                      : ''}
-                  </span>
-                </span>
-              )}
-              {auditResult.transactionsSummary.unlinkedCashoutTotal > 0 && (
-                <span className="text-xs font-bold text-amber-600 dark:text-amber-400 font-mono tabular-nums">
-                  تحويلات عامة غير مربوطة بـ Cash Cycles: {formatEgp(auditResult.transactionsSummary.unlinkedCashoutTotal)}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => setActiveTab('transactions_ledger')}
-                className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                عرض كل الحركات ({auditResult.transactionsSummary.ledgerRows.length.toLocaleString('en-US')})
-              </button>
-            </div>
-          </div>
-
-          {auditResult.transactionsSummary.walletGaps.length > 0 && (
-            <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/60 text-xs space-y-1">
-              <div className="font-black text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>تحذير: تم رصد فجوة أو حذف/تعديل في تسلسل الرصيد التراكمي لملف Transactions:</span>
-              </div>
-              {auditResult.transactionsSummary.walletGaps.slice(0, 5).map(g => (
-                <div key={g.id} className="text-[11px] font-mono tabular-nums text-rose-700 dark:text-rose-200">
-                  • {g.reasonSummary}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <div className="text-slate-500 text-[11px]">دورات التحصيل</div>
-              <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white mt-0.5">
-                {formatEgp(auditResult.transactionsSummary.totalCollectionCycles)}
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <div className="text-slate-500 text-[11px]">مصاريف بوسطة</div>
-              <div className="font-mono tabular-nums font-black text-rose-600 mt-0.5">
-                -{formatEgp(auditResult.transactionsSummary.totalBostaFeesCycles)}
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <div className="text-slate-500 text-[11px]">صافي الدورات</div>
-              <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white mt-0.5">
-                {formatEgp(auditResult.transactionsSummary.netCycleBalance)}
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <div className="text-slate-500 text-[11px]">إجمالي المحوّل للبنك</div>
-              <div className="font-mono tabular-nums font-black text-emerald-600 mt-0.5">
-                {formatEgp(auditResult.transactionsSummary.totalCashouts)}
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <div className="text-slate-500 text-[11px]">تعويضات بوسطة</div>
-              <div className="font-mono tabular-nums font-black text-emerald-600 mt-0.5">
-                +{formatEgp(auditResult.transactionsSummary.totalCompensations)}
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-              <div className="text-slate-500 text-[11px]">تحويل + تغليف + بيك أب</div>
-              <div className="font-mono tabular-nums font-bold text-slate-600 dark:text-slate-300 mt-0.5 text-[11px]">
-                رسوم {formatEgp(auditResult.transactionsSummary.totalTransferFees)} · تغليف {formatEgp(auditResult.transactionsSummary.packingMaterialNet)} · بيك أب {formatEgp(auditResult.transactionsSummary.pickupFeesTotal)}
-              </div>
-              {auditResult.totals.wrongfulPickupFeeCount > 0 && (
+                {/* Stage 3: Cash Cycles & Fees */}
                 <button
                   type="button"
                   onClick={() =>
                     setActiveTab(
-                      auditResult.pickupRequestsSummary.hasPickupSheet
-                        ? 'pickup_requests'
-                        : 'fee_anomalies'
+                      auditResult.collectedUntransferred.length > 0
+                        ? 'untransferred'
+                        : auditResult.feeAnomalies.length > 0
+                        ? 'fee_anomalies'
+                        : 'matched'
                     )
                   }
-                  className="mt-1 inline-flex items-center gap-1 text-[11px] font-black font-mono tabular-nums text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                  className={`text-right p-3.5 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 cursor-pointer ${
+                    activeTab === 'untransferred' || activeTab === 'fee_anomalies' || activeTab === 'matched'
+                      ? 'border-emerald-400 dark:border-emerald-600 ring-1 ring-emerald-500/15'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
                 >
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
-                  <span>
-                    منها {formatEgp(auditResult.totals.wrongfulPickupFeeAmount)} خصم خاطئ ({auditResult.totals.wrongfulPickupFeeCount})
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-bold text-slate-800 dark:text-slate-100">
+                      3. التحصيل والخصم (Cash Cycles)
+                    </span>
+                    <Scale className="w-4 h-4 text-emerald-600 shrink-0" />
+                  </div>
+                  <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
+                    {auditResult.matchedReady.length.toLocaleString('en-US')} محوّل مطابق ·{' '}
+                    <span
+                      className={
+                        auditResult.collectedUntransferred.length > 0
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-slate-600 dark:text-slate-300'
+                      }
+                    >
+                      {auditResult.collectedUntransferred.length.toLocaleString('en-US')} معلق
+                    </span>
+                  </div>
+                  <div
+                    className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
+                      auditResult.feeAnomalies.length > 0
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {auditResult.feeAnomalies.length > 0
+                      ? `${auditResult.feeAnomalies.length} شحنة بمصاريف زائدة (+${formatEgp(auditResult.totals.totalFeeOverchargeAmount)})`
+                      : `إجمالي صافي الشيتات ${formatEgp(auditResult.totals.totalSheetNetAmount)}`}
+                  </div>
+                </button>
+
+                {/* Stage 4: Bank Cashouts, Dual-Wallet Compensations & Bosta Credits */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTab(
+                      auditResult.missingCompensations.length > 0
+                        ? 'missing_comp'
+                        : auditResult.bostaCreditsSummary.hasCreditsSheet &&
+                          !auditResult.transactionsSummary.hasTransactionsSheet
+                        ? 'bosta_credits'
+                        : auditResult.compensationsSummary.hasCompensationsSheet ||
+                          auditResult.transactionsSummary.walletCompensations.length > 0
+                        ? 'compensations'
+                        : auditResult.bostaCreditsSummary.hasCreditsSheet
+                        ? 'bosta_credits'
+                        : 'transactions_ledger'
+                    )
+                  }
+                  className={`text-right p-3.5 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 cursor-pointer ${
+                    activeTab === 'transactions_ledger' ||
+                    activeTab === 'compensations' ||
+                    activeTab === 'bosta_credits' ||
+                    activeTab === 'missing_comp'
+                      ? 'border-indigo-400 dark:border-indigo-600 ring-1 ring-indigo-500/15'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="font-bold text-slate-800 dark:text-slate-100">
+                      4. البنك والتعويضات (محفظة + نقاط)
+                    </span>
+                    <Landmark className="w-4 h-4 text-emerald-600 shrink-0" />
+                  </div>
+                  <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
+                    {bankConfirmStats.totalCount > 0
+                      ? `${bankConfirmStats.confirmedCount}/${bankConfirmStats.totalCount} دفعة مؤكدة بالبنك`
+                      : auditResult.bostaCreditsSummary.hasCreditsSheet
+                      ? `نقاط Credits: ${formatEgp(auditResult.bostaCreditsSummary.currentCreditsBalance || 0)}`
+                      : 'لا توجد دفعات Transactions'}
+                  </div>
+                  <div
+                    className={`mt-1 text-[11px] font-semibold font-mono tabular-nums ${
+                      auditResult.missingCompensations.length > 0 ||
+                      auditResult.totals.underCompensatedCount > 0 ||
+                      auditResult.totals.undocumentedWalletCompCount > 0
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {auditResult.missingCompensations.length > 0
+                      ? `${auditResult.missingCompensations.length} تالف/مفقود/منقوص يستحق مطالبة`
+                      : auditResult.totals.undocumentedWalletCompCount > 0
+                      ? `${auditResult.totals.undocumentedWalletCompCount} تعويض محفظة غير موثق (${formatEgp(auditResult.totals.undocumentedWalletCompAmount)})`
+                      : auditResult.bostaCreditsSummary.hasCreditsSheet && bankConfirmStats.totalCount > 0
+                      ? `محفظة ${formatEgp(auditResult.transactionsSummary.totalCompensations)} · نقاط +${formatEgp(auditResult.bostaCreditsSummary.voucherCreditsAmount)}`
+                      : auditResult.compensationsSummary.hasCompensationsSheet
+                      ? `${auditResult.compensationsSummary.entries.length} تعويض (${formatEgp(auditResult.compensationsSummary.totalCompensatedAmount)})`
+                      : auditResult.bostaCreditsSummary.hasCreditsSheet
+                      ? `قسائم نقاط +${formatEgp(auditResult.bostaCreditsSummary.totalAddedCredits)} · صرف -${formatEgp(auditResult.bostaCreditsSummary.totalSpentCredits)}`
+                      : 'كل التالف/المفقود مغطى أو غير موجود'}
+                  </div>
+                </button>
+              </div>
+
+              {/* Anti-Fraud & 7 Loopholes Defense Radar Strip */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('fraud_alerts')}
+                  className={`text-right p-3 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 flex items-center justify-between gap-2 cursor-pointer ${
+                    activeTab === 'fraud_alerts'
+                      ? 'border-rose-400 dark:border-rose-600 ring-1 ring-rose-500/15'
+                      : auditResult.internalFraudAlerts.length > 0
+                      ? 'border-rose-200 dark:border-rose-900/60 hover:border-rose-300'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span className="truncate">التلاعب و0 COD وشذوذ الأسعار</span>
+                    </div>
+                    <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5 truncate">
+                      {auditResult.internalFraudAlerts.length > 0
+                        ? `${auditResult.internalFraudAlerts.length} شبهة (${formatEgp(auditResult.totals.internalFraudRiskAmount)})`
+                        : enableProductPriceAudit
+                        ? `مقارنة المخزون مفعّلة (${unifiedPricedProductsCount} منتج)`
+                        : 'رادار الأسعار OFF'}
+                    </div>
+                  </div>
+                  <span
+                    className={`font-mono tabular-nums font-black text-base shrink-0 ${
+                      auditResult.internalFraudAlerts.length > 0
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {auditResult.internalFraudAlerts.length}
                   </span>
                 </button>
-              )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeeAnomalyFilter(
+                      auditResult.totals.returnedUntouchedOpeningCount > 0
+                        ? 'untouched_opening'
+                        : auditResult.totals.returnedInsuranceCount > 0
+                        ? 'returned_insurance'
+                        : 'all'
+                    );
+                    setActiveTab('fee_anomalies');
+                  }}
+                  className={`text-right p-3 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 flex items-center justify-between gap-2 cursor-pointer ${
+                    activeTab === 'fee_anomalies'
+                      ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-500/15'
+                      : auditResult.totals.returnedInsuranceCount > 0 ||
+                        auditResult.totals.returnedUntouchedOpeningCount > 0 ||
+                        auditResult.totals.zeroCodDeliveredCount > 0
+                      ? 'border-amber-200 dark:border-amber-900/60 hover:border-amber-300'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <Scale className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span className="truncate">تأمين وفتح باطل وتأخير SLA</span>
+                    </div>
+                    <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5 truncate">
+                      {auditResult.totals.returnedInsuranceCount > 0 || auditResult.totals.returnedUntouchedOpeningCount > 0
+                        ? `${auditResult.totals.returnedInsuranceCount} تأمين مرتجع · ${auditResult.totals.returnedUntouchedOpeningCount} فتح باطل`
+                        : auditResult.payoutSlaSummary.delayedCount > 0
+                        ? `${auditResult.payoutSlaSummary.delayedCount} شحنة متأخرة التحويل`
+                        : 'لا توجد خصومات غير مستحقة'}
+                    </div>
+                  </div>
+                  <span
+                    className={`font-mono tabular-nums font-black text-base shrink-0 ${
+                      auditResult.totals.returnedInsuranceCount + auditResult.totals.returnedUntouchedOpeningCount > 0
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {auditResult.totals.returnedInsuranceCount + auditResult.totals.returnedUntouchedOpeningCount}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('zero_attempt_returns')}
+                  className={`text-right p-3 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 flex items-center justify-between gap-2 cursor-pointer ${
+                    activeTab === 'zero_attempt_returns'
+                      ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-500/15'
+                      : auditResult.zeroAttemptReturns.length > 0
+                      ? 'border-amber-200 dark:border-amber-900/60 hover:border-amber-300'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="truncate">مرتجعات بـ 0 محاولة توصيل</span>
+                    </div>
+                    <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5 truncate">
+                      {auditResult.zeroAttemptReturns.length > 0
+                        ? `${auditResult.zeroAttemptReturns.length} مرتجع وهمي (خصم ${formatEgp(auditResult.totals.zeroAttemptFeesAmount)})`
+                        : 'كل المرتجعات تمت محاولة تسليمها'}
+                    </div>
+                  </div>
+                  <span
+                    className={`font-mono tabular-nums font-black text-base shrink-0 ${
+                      auditResult.zeroAttemptReturns.length > 0
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {auditResult.zeroAttemptReturns.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveTab(auditResult.exchangeAudits.length > 0 ? 'exchange_audits' : 'customer_risk')
+                  }
+                  className={`text-right p-3 rounded-xl border bg-white dark:bg-slate-900 transition-all duration-150 flex items-center justify-between gap-2 cursor-pointer ${
+                    activeTab === 'customer_risk' || activeTab === 'exchange_audits'
+                      ? 'border-indigo-400 dark:border-indigo-600 ring-1 ring-indigo-500/15'
+                      : 'border-slate-200/80 dark:border-slate-800 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <UserX className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span className="truncate">العملاء الخطرين والاستبدال</span>
+                    </div>
+                    <div className="font-mono tabular-nums text-[11px] text-slate-500 mt-0.5 truncate">
+                      {auditResult.exchangeAudits.length > 0
+                        ? auditResult.totals.exchangeIssueCount > 0
+                          ? `${auditResult.totals.exchangeIssueCount} مخالفة استبدال · ${auditResult.customerRiskAlerts.length} رقم خطر`
+                          : `${auditResult.exchangeAudits.length} استبدال سليم · ${auditResult.customerRiskAlerts.length} رقم خطر`
+                        : auditResult.customerRiskAlerts.length > 0
+                        ? `${auditResult.customerRiskAlerts.length} رقم خطر (حرق ${formatEgp(auditResult.totals.customerRiskBurnedFees)})`
+                        : 'سليم (لا أرقام خطرة أو أخطاء استبدال)'}
+                    </div>
+                  </div>
+                  <span
+                    className={`font-mono tabular-nums font-black text-base shrink-0 ${
+                      auditResult.customerRiskAlerts.length + auditResult.totals.exchangeIssueCount > 0
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {auditResult.customerRiskAlerts.length + auditResult.totals.exchangeIssueCount}
+                  </span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
-          {auditResult.transactionsSummary.entries.filter(e => e.cashoutAmount > 0).length > 0 && (
-            <div className="overflow-x-auto pt-1">
-              <table className="w-full text-right text-xs">
-                <thead className="text-slate-500 border-b border-slate-200 dark:border-slate-800">
-                  <tr>
-                    <th className="py-2 px-3 font-bold whitespace-nowrap">كود التحويل (Cashout ID)</th>
-                    <th className="py-2 px-3 font-bold whitespace-nowrap">التاريخ</th>
-                    <th className="py-2 px-3 font-bold text-left whitespace-nowrap">مبلغ التحويل للبنك</th>
-                    <th className="py-2 px-3 font-bold text-left whitespace-nowrap">رسوم التحويل</th>
-                    <th className="py-2 px-3 font-bold text-center whitespace-nowrap">أوردرات Cash Cycles</th>
-                    <th className="py-2 px-3 font-bold">التعويضات وخصم التغليف</th>
-                    <th className="py-2 px-3 font-bold">الحالة والمطابقة البنكية</th>
-                    <th className="py-2 px-3 font-bold whitespace-nowrap">وصول البنك</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {auditResult.transactionsSummary.entries
-                    .filter(e => e.cashoutAmount > 0)
-                    .map(tx => {
-                      const bankMatched =
-                        !tx.isUnlinkedGeneralPayout &&
-                        tx.linkedOrderCount > 0 &&
-                        Math.abs(tx.bankVariance) <= 1;
-                      const otherAdj =
-                        Math.round(
-                          (tx.linkedAdjustmentsTotal -
-                            tx.linkedCompensationsTotal -
-                            tx.linkedPackingTotal -
-                            tx.linkedPickupTotal) *
-                            100
-                        ) / 100;
-                      const hasAnyAdj =
-                        tx.linkedCompensationsTotal !== 0 ||
-                        tx.linkedPackingTotal !== 0 ||
-                        tx.linkedPickupTotal !== 0 ||
-                        otherAdj !== 0;
+          {/* Expandable Bank & Transactions Reconciliation Deck */}
+          {auditResult.transactionsSummary.hasTransactionsSheet && showBankCashoutsPanel && (
+            <div className="px-4 pb-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Receipt className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span className="font-black text-slate-900 dark:text-white">
+                    مطابقة كشف الحساب والتحويلات البنكية (Transactions)
+                  </span>
+                  {auditResult.transactionsSummary.walletIntegrityStatus === 'verified' && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                      <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>تسلسل المحفظة سليم 100%</span>
+                    </span>
+                  )}
+                  {auditResult.transactionsSummary.walletIntegrityStatus === 'mismatch_found' && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{auditResult.transactionsSummary.walletGaps.length} فجوة بالرصيد التراكمي</span>
+                    </span>
+                  )}
+                  {auditResult.transactionsSummary.walletIntegrityStatus === 'partial_filtered' && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      <span>كشف فئة جزئية</span>
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {auditResult.transactionsSummary.unlinkedCashoutTotal > 0 && (
+                    <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 font-mono tabular-nums">
+                      تحويلات عامة غير مربوطة: {formatEgp(auditResult.transactionsSummary.unlinkedCashoutTotal)}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => jumpToAuditTab('transactions_ledger')}
+                    className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    فتح السجل الكامل ({auditResult.transactionsSummary.ledgerRows.length.toLocaleString('en-US')})
+                  </button>
+                </div>
+              </div>
 
-                      const eqParts: string[] = [tx.linkedNetTotal.toLocaleString('en-US')];
-                      if (tx.linkedCompensationsTotal !== 0) {
-                        eqParts.push(
-                          `${tx.linkedCompensationsTotal > 0 ? '+' : '-'} ${Math.abs(tx.linkedCompensationsTotal).toLocaleString('en-US')}`
-                        );
-                      }
-                      if (tx.linkedPackingTotal !== 0) {
-                        eqParts.push(
-                          `${tx.linkedPackingTotal > 0 ? '+' : '-'} ${Math.abs(tx.linkedPackingTotal).toLocaleString('en-US')}`
-                        );
-                      }
-                      if (tx.linkedPickupTotal !== 0) {
-                        eqParts.push(
-                          `${tx.linkedPickupTotal > 0 ? '+' : '-'} ${Math.abs(tx.linkedPickupTotal).toLocaleString('en-US')}`
-                        );
-                      }
-                      if (otherAdj !== 0) {
-                        eqParts.push(
-                          `${otherAdj > 0 ? '+' : '-'} ${Math.abs(otherAdj).toLocaleString('en-US')}`
-                        );
-                      }
-                      if (tx.transferFees !== 0) {
-                        eqParts.push(`- ${tx.transferFees.toLocaleString('en-US')}`);
-                      }
+              {auditResult.transactionsSummary.walletGaps.length > 0 && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/60 text-xs space-y-1">
+                  <div className="font-black text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    <span>تم رصد فجوة أو حذف/تعديل في تسلسل الرصيد التراكمي لملف Transactions:</span>
+                  </div>
+                  {auditResult.transactionsSummary.walletGaps.slice(0, 5).map(g => (
+                    <div key={g.id} className="text-[11px] font-mono tabular-nums text-rose-700 dark:text-rose-200">
+                      • {g.reasonSummary}
+                    </div>
+                  ))}
+                </div>
+              )}
 
-                      return (
-                        <tr key={tx.id}>
-                          <td className="py-2 px-3 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => setInspectedCashout(tx)}
-                              className="font-mono tabular-nums font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5 cursor-pointer"
-                              title="فتح فاتورة السحب النقدي التفصيلية"
-                            >
-                              <span>{tx.cashoutId}</span>
-                              <span className="text-[10px] font-sans font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300">
-                                الفاتورة
-                              </span>
-                            </button>
-                          </td>
-                          <td className="py-2 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
-                            {tx.date || '-'}
-                          </td>
-                          <td className="py-2 px-3 text-left font-mono tabular-nums font-bold text-emerald-600 whitespace-nowrap">
-                            {formatEgp(tx.cashoutAmount)}
-                          </td>
-                          <td className="py-2 px-3 text-left font-mono tabular-nums text-slate-500 whitespace-nowrap">
-                            {tx.transferFees > 0 ? `-${formatEgp(tx.transferFees)}` : '0 ج.م'}
-                          </td>
-                          <td className="py-2 px-3 text-center font-mono tabular-nums font-bold whitespace-nowrap">
-                            {tx.linkedOrderCount > 0 ? (
-                              <div>
-                                <span>{formatEgp(tx.linkedNetTotal)}</span>
-                                <span className="text-[11px] font-normal text-slate-500 block">
-                                  ({tx.linkedDeliveredCount} مسلّم · {tx.linkedReturnedCount} مرتجع)
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">0</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 whitespace-nowrap">
-                            {hasAnyAdj ? (
-                              <div className="space-y-0.5 text-[11px]">
-                                {tx.linkedCompensationsTotal !== 0 && (
-                                  <div className="flex items-center gap-1.5 font-mono tabular-nums">
-                                    <span className="text-slate-500 font-sans">تعويض:</span>
-                                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                      +{formatEgp(tx.linkedCompensationsTotal)}
-                                    </span>
-                                  </div>
-                                )}
-                                {compensationsByCashoutId.get(tx.cashoutId)?.map(comp => (
-                                  <button
-                                    key={comp.id}
-                                    type="button"
-                                    onClick={() => setActiveTab('compensations')}
-                                    className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer"
-                                  >
-                                    بوليصة {comp.orderId} ({comp.customerName || formatEgp(comp.compensationAmount)})
-                                  </button>
-                                ))}
-                                {tx.linkedPackingTotal !== 0 && (
-                                  <div className="flex items-center gap-1.5 font-mono tabular-nums">
-                                    <span className="text-slate-500 font-sans">تغليف:</span>
-                                    <span
-                                      className={`font-bold ${
-                                        tx.linkedPackingTotal < 0
-                                          ? 'text-rose-600 dark:text-rose-400'
-                                          : 'text-emerald-600 dark:text-emerald-400'
-                                      }`}
-                                    >
-                                      {tx.linkedPackingTotal > 0 ? '+' : ''}
-                                      {formatEgp(tx.linkedPackingTotal)}
-                                    </span>
-                                  </div>
-                                )}
-                                {tx.linkedPickupTotal !== 0 && (
-                                  <div className="flex items-center gap-1.5 font-mono tabular-nums">
-                                    <span className="text-slate-500 font-sans">بيك أب:</span>
-                                    <span className="font-bold text-rose-600 dark:text-rose-400">
-                                      {formatEgp(tx.linkedPickupTotal)}
-                                    </span>
-                                  </div>
-                                )}
-                                {otherAdj !== 0 && (
-                                  <div className="flex items-center gap-1.5 font-mono tabular-nums">
-                                    <span className="text-slate-500 font-sans">تسوية:</span>
-                                    <span
-                                      className={`font-bold ${
-                                        otherAdj < 0
-                                          ? 'text-rose-600 dark:text-rose-400'
-                                          : 'text-emerald-600 dark:text-emerald-400'
-                                      }`}
-                                    >
-                                      {otherAdj > 0 ? '+' : ''}
-                                      {formatEgp(otherAdj)}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">لا يوجد</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3">
-                            {tx.isUnlinkedGeneralPayout ? (
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-amber-600 dark:text-amber-400 font-bold">
-                                  تحويل إجمالي غير مربوط بشيت Cash Cycles
-                                </span>
-                                {allowBatchSettlement && matchWithStoreOrders && tx.cashoutId !== '-' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveLinkedCashoutId(tx.cashoutId);
-                                      setActiveTab('untransferred');
-                                      notify(
-                                        `اختر الشحنات المرتبطة بالتحويل ${tx.cashoutId} من التبويب ثم اضغط اعتماد وتحصيل.`
-                                      );
-                                    }}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                                  >
-                                    <Link2 className="w-3 h-3" />
-                                    <span>ربط وتوزيع على شحنات</span>
-                                  </button>
-                                )}
-                              </div>
-                            ) : bankMatched ? (
-                              <div>
-                                <span className="text-emerald-600 dark:text-emerald-400 font-bold block whitespace-nowrap">
-                                  مطابق 100% للبنك (فرق {formatEgp(tx.bankVariance)})
-                                </span>
-                                <span
-                                  dir="ltr"
-                                  className="text-[11px] text-slate-500 font-mono tabular-nums inline-block whitespace-nowrap mt-0.5"
-                                >
-                                  {`${eqParts.join(' ')} = ${tx.cashoutAmount.toLocaleString('en-US')}`}
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-rose-600 dark:text-rose-400 font-bold font-mono tabular-nums whitespace-nowrap">
-                                مربوط بـ {tx.linkedOrderCount} شحنة · فرق بنكي {formatEgp(tx.bankVariance)}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 whitespace-nowrap">
-                            {(() => {
-                              const confirmKey =
-                                tx.cashoutId && tx.cashoutId !== '-' ? tx.cashoutId : tx.id;
-                              const confirmed = bankConfirmedCashouts[confirmKey];
-                              return (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+                <div className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="text-slate-500 text-[11px]">دورات التحصيل</div>
+                  <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white mt-0.5">
+                    {formatEgp(auditResult.transactionsSummary.totalCollectionCycles)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="text-slate-500 text-[11px]">مصاريف بوسطة</div>
+                  <div className="font-mono tabular-nums font-black text-rose-600 mt-0.5">
+                    -{formatEgp(auditResult.transactionsSummary.totalBostaFeesCycles)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="text-slate-500 text-[11px]">صافي الدورات</div>
+                  <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white mt-0.5">
+                    {formatEgp(auditResult.transactionsSummary.netCycleBalance)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="text-slate-500 text-[11px]">إجمالي المحوّل للبنك</div>
+                  <div className="font-mono tabular-nums font-black text-emerald-600 mt-0.5">
+                    {formatEgp(auditResult.transactionsSummary.totalCashouts)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="text-slate-500 text-[11px]">تعويضات بوسطة</div>
+                  <div className="font-mono tabular-nums font-black text-emerald-600 mt-0.5">
+                    +{formatEgp(auditResult.transactionsSummary.totalCompensations)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+                  <div className="text-slate-500 text-[11px]">تحويل + تغليف + بيك أب</div>
+                  <div className="font-mono tabular-nums font-bold text-slate-600 dark:text-slate-300 mt-0.5 text-[11px]">
+                    رسوم {formatEgp(auditResult.transactionsSummary.totalTransferFees)} · تغليف {formatEgp(auditResult.transactionsSummary.packingMaterialNet)} · بيك أب {formatEgp(auditResult.transactionsSummary.pickupFeesTotal)}
+                  </div>
+                  {auditResult.totals.wrongfulPickupFeeCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveTab(
+                          auditResult.pickupRequestsSummary.hasPickupSheet
+                            ? 'pickup_requests'
+                            : 'fee_anomalies'
+                        )
+                      }
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] font-black font-mono tabular-nums text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                    >
+                      <AlertTriangle className="w-3 h-3 shrink-0" />
+                      <span>
+                        منها {formatEgp(auditResult.totals.wrongfulPickupFeeAmount)} خصم خاطئ ({auditResult.totals.wrongfulPickupFeeCount})
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {auditResult.transactionsSummary.entries.filter(e => e.cashoutAmount > 0).length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-800">
+                  <table className="w-full text-right text-xs">
+                    <thead className="text-slate-500">
+                      <tr>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">كود التحويل (Cashout ID)</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">التاريخ</th>
+                        <th className="py-2.5 px-3 font-bold text-left whitespace-nowrap">مبلغ التحويل للبنك</th>
+                        <th className="py-2.5 px-3 font-bold text-left whitespace-nowrap">رسوم التحويل</th>
+                        <th className="py-2.5 px-3 font-bold text-center whitespace-nowrap">أوردرات Cash Cycles</th>
+                        <th className="py-2.5 px-3 font-bold">التعويضات وخصم التغليف</th>
+                        <th className="py-2.5 px-3 font-bold">الحالة والمطابقة البنكية</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">وصول البنك</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {auditResult.transactionsSummary.entries
+                        .filter(e => e.cashoutAmount > 0)
+                        .map(tx => {
+                          const bankMatched =
+                            !tx.isUnlinkedGeneralPayout &&
+                            tx.linkedOrderCount > 0 &&
+                            Math.abs(tx.bankVariance) <= 1;
+                          const otherAdj =
+                            Math.round(
+                              (tx.linkedAdjustmentsTotal -
+                                tx.linkedCompensationsTotal -
+                                tx.linkedPackingTotal -
+                                tx.linkedPickupTotal) *
+                                100
+                            ) / 100;
+                          const hasAnyAdj =
+                            tx.linkedCompensationsTotal !== 0 ||
+                            tx.linkedPackingTotal !== 0 ||
+                            tx.linkedPickupTotal !== 0 ||
+                            otherAdj !== 0;
+
+                          const eqParts: string[] = [tx.linkedNetTotal.toLocaleString('en-US')];
+                          if (tx.linkedCompensationsTotal !== 0) {
+                            eqParts.push(
+                              `${tx.linkedCompensationsTotal > 0 ? '+' : '-'} ${Math.abs(tx.linkedCompensationsTotal).toLocaleString('en-US')}`
+                            );
+                          }
+                          if (tx.linkedPackingTotal !== 0) {
+                            eqParts.push(
+                              `${tx.linkedPackingTotal > 0 ? '+' : '-'} ${Math.abs(tx.linkedPackingTotal).toLocaleString('en-US')}`
+                            );
+                          }
+                          if (tx.linkedPickupTotal !== 0) {
+                            eqParts.push(
+                              `${tx.linkedPickupTotal > 0 ? '+' : '-'} ${Math.abs(tx.linkedPickupTotal).toLocaleString('en-US')}`
+                            );
+                          }
+                          if (otherAdj !== 0) {
+                            eqParts.push(
+                              `${otherAdj > 0 ? '+' : '-'} ${Math.abs(otherAdj).toLocaleString('en-US')}`
+                            );
+                          }
+                          if (tx.transferFees !== 0) {
+                            eqParts.push(`- ${tx.transferFees.toLocaleString('en-US')}`);
+                          }
+
+                          return (
+                            <tr key={tx.id}>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
                                 <button
                                   type="button"
-                                  onClick={() => toggleBankConfirm(tx)}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
-                                    confirmed
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
-                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
-                                  }`}
-                                  title={
-                                    confirmed
-                                      ? `تأكيد بتاريخ ${formatDateShort(confirmed.confirmedAt)} — اضغط للإلغاء`
-                                      : 'اضغط بعد مراجعة كشف حساب البنك وتأكيد دخول المبلغ'
-                                  }
+                                  onClick={() => setInspectedCashout(tx)}
+                                  className="font-mono tabular-nums font-black text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5 cursor-pointer"
+                                  title="فتح فاتورة السحب النقدي التفصيلية"
                                 >
-                                  {confirmed ? (
-                                    <>
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                      <span>وصل البنك</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Landmark className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                      <span>تأكيد دخول البنك</span>
-                                    </>
-                                  )}
+                                  <span>{tx.cashoutId}</span>
+                                  <span className="text-[10px] font-sans font-bold text-indigo-500 dark:text-indigo-300">
+                                    · الفاتورة
+                                  </span>
                                 </button>
-                              );
-                            })()}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
+                              </td>
+                              <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
+                                {tx.date || '-'}
+                              </td>
+                              <td className="py-2.5 px-3 text-left font-mono tabular-nums whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => openCashoutOrdersModal(tx)}
+                                  title="اضغط لعرض الأوردرات والبوالص المرتبطة بمبلغ التحويل"
+                                  className="group inline-flex flex-col items-end font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors cursor-pointer"
+                                >
+                                  <span className="group-hover:underline decoration-emerald-500/60 underline-offset-4">
+                                    {formatEgp(tx.cashoutAmount)}
+                                  </span>
+                                  <span className="text-[10px] font-sans font-semibold text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                                    {tx.linkedOrderCount > 0
+                                      ? `عرض ${tx.linkedOrderCount} أوردر`
+                                      : 'عرض التفاصيل'}
+                                  </span>
+                                </button>
+                              </td>
+                              <td className="py-2.5 px-3 text-left font-mono tabular-nums text-slate-500 whitespace-nowrap">
+                                {tx.transferFees > 0 ? `-${formatEgp(tx.transferFees)}` : '0 ج.م'}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-mono tabular-nums font-bold whitespace-nowrap">
+                                {tx.linkedOrderCount > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openCashoutOrdersModal(tx)}
+                                    title="عرض الأوردرات المرتبطة بهذه الدفعة"
+                                    className="inline-flex flex-col items-center hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                                  >
+                                    <span className="hover:underline">{formatEgp(tx.linkedNetTotal)}</span>
+                                    <span className="text-[11px] font-normal text-slate-500 block">
+                                      ({tx.linkedDeliveredCount} مسلّم · {tx.linkedReturnedCount} مرتجع)
+                                    </span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-400">0</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                {hasAnyAdj ? (
+                                  <div className="space-y-0.5 text-[11px]">
+                                    {tx.linkedCompensationsTotal !== 0 && (
+                                      <div className="flex items-center gap-1.5 font-mono tabular-nums">
+                                        <span className="text-slate-500 font-sans">تعويض:</span>
+                                        <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                          +{formatEgp(tx.linkedCompensationsTotal)}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {compensationsByCashoutId.get(tx.cashoutId)?.map(comp => (
+                                      <button
+                                        key={comp.id}
+                                        type="button"
+                                        onClick={() =>
+                                          setInspectedQuickRef({
+                                            mode: 'waybill',
+                                            trackingCode: comp.orderId,
+                                            cashoutId: tx.cashoutId
+                                          })
+                                        }
+                                        className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer text-right"
+                                        title="عرض تفاصيل البوليصة والتعويض فوراً"
+                                      >
+                                        بوليصة {comp.orderId} ({comp.customerName || formatEgp(comp.compensationAmount)})
+                                      </button>
+                                    ))}
+                                    {tx.linkedPackingTotal !== 0 && (
+                                      <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 font-mono tabular-nums">
+                                          <span className="text-slate-500 font-sans">تغليف:</span>
+                                          <span
+                                            className={`font-bold ${
+                                              tx.linkedPackingTotal < 0
+                                                ? 'text-rose-600 dark:text-rose-400'
+                                                : 'text-emerald-600 dark:text-emerald-400'
+                                            }`}
+                                          >
+                                            {tx.linkedPackingTotal > 0 ? '+' : ''}
+                                            {formatEgp(tx.linkedPackingTotal)}
+                                          </span>
+                                        </div>
+                                        {tx.linkedAdjustmentItems
+                                          ?.filter(item => item.kind === 'packing')
+                                          .map(item => {
+                                            const refCode = item.orderRef || item.transactionId;
+                                            return (
+                                              <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() =>
+                                                  setInspectedQuickRef({
+                                                    mode: 'tx_adjustment',
+                                                    item,
+                                                    cashoutId: tx.cashoutId
+                                                  })
+                                                }
+                                                className="text-[10px] font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer text-right"
+                                                title="عرض تفاصيل طلب التغليف فوراً"
+                                              >
+                                                طلب تغليف #{refCode}
+                                                {item.date ? ` (${item.date})` : ''}
+                                              </button>
+                                            );
+                                          })}
+                                      </div>
+                                    )}
+                                    {tx.linkedPickupTotal !== 0 && (
+                                      <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 font-mono tabular-nums">
+                                          <span className="text-slate-500 font-sans">بيك أب:</span>
+                                          <span className="font-bold text-rose-600 dark:text-rose-400">
+                                            {formatEgp(tx.linkedPickupTotal)}
+                                          </span>
+                                        </div>
+                                        {tx.linkedAdjustmentItems
+                                          ?.filter(item => item.kind === 'pickup')
+                                          .map(item => {
+                                            const refCode = item.orderRef || item.transactionId;
+                                            return (
+                                              <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() =>
+                                                  setInspectedQuickRef({
+                                                    mode: 'tx_adjustment',
+                                                    item,
+                                                    cashoutId: tx.cashoutId
+                                                  })
+                                                }
+                                                className="text-[10px] font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer text-right"
+                                                title="عرض تفاصيل طلب البيك أب فوراً"
+                                              >
+                                                طلب بيك أب #{refCode}
+                                                {item.date ? ` (${item.date})` : ''}
+                                              </button>
+                                            );
+                                          })}
+                                      </div>
+                                    )}
+                                    {otherAdj !== 0 && (
+                                      <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 font-mono tabular-nums">
+                                          <span className="text-slate-500 font-sans">تسوية:</span>
+                                          <span
+                                            className={`font-bold ${
+                                              otherAdj < 0
+                                                ? 'text-rose-600 dark:text-rose-400'
+                                                : 'text-emerald-600 dark:text-emerald-400'
+                                            }`}
+                                          >
+                                            {otherAdj > 0 ? '+' : ''}
+                                            {formatEgp(otherAdj)}
+                                          </span>
+                                        </div>
+                                        {tx.linkedAdjustmentItems
+                                          ?.filter(item => item.kind === 'adjustment')
+                                          .map(item => {
+                                            const refCode = item.orderRef || item.transactionId;
+                                            return (
+                                              <button
+                                                key={item.id}
+                                                type="button"
+                                                onClick={() =>
+                                                  setInspectedQuickRef({
+                                                    mode: 'tx_adjustment',
+                                                    item,
+                                                    cashoutId: tx.cashoutId
+                                                  })
+                                                }
+                                                className="text-[10px] font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer text-right"
+                                                title="عرض تفاصيل التسوية فوراً"
+                                              >
+                                                حركة #{refCode}
+                                                {item.date ? ` (${item.date})` : ''}
+                                              </button>
+                                            );
+                                          })}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400">لا يوجد</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {tx.isUnlinkedGeneralPayout ? (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-amber-600 dark:text-amber-400 font-bold">
+                                      تحويل إجمالي غير مربوط بشيت Cash Cycles
+                                    </span>
+                                    {allowBatchSettlement && matchWithStoreOrders && tx.cashoutId !== '-' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveLinkedCashoutId(tx.cashoutId);
+                                          setActiveTab('untransferred');
+                                          notify(
+                                            `اختر الشحنات المرتبطة بالتحويل ${tx.cashoutId} من التبويب ثم اضغط اعتماد وتحصيل.`
+                                          );
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                      >
+                                        <Link2 className="w-3 h-3" />
+                                        <span>ربط وتوزيع على شحنات</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : bankMatched ? (
+                                  <div>
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold block whitespace-nowrap">
+                                      مطابق 100% للبنك (فرق {formatEgp(tx.bankVariance)})
+                                    </span>
+                                    <span
+                                      dir="ltr"
+                                      className="text-[11px] text-slate-500 font-mono tabular-nums inline-block whitespace-nowrap mt-0.5"
+                                    >
+                                      {`${eqParts.join(' ')} = ${tx.cashoutAmount.toLocaleString('en-US')}`}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-rose-600 dark:text-rose-400 font-bold font-mono tabular-nums whitespace-nowrap">
+                                    مربوط بـ {tx.linkedOrderCount} شحنة · فرق بنكي {formatEgp(tx.bankVariance)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                {(() => {
+                                  const confirmKey =
+                                    tx.cashoutId && tx.cashoutId !== '-' ? tx.cashoutId : tx.id;
+                                  const confirmed = bankConfirmedCashouts[confirmKey];
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleBankConfirm(tx)}
+                                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                                        confirmed
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+                                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                                      }`}
+                                      title={
+                                        confirmed
+                                          ? `تأكيد بتاريخ ${formatDateShort(confirmed.confirmedAt)} — اضغط للإلغاء`
+                                          : 'اضغط بعد مراجعة كشف حساب البنك وتأكيد دخول المبلغ'
+                                      }
+                                    >
+                                      {confirmed ? (
+                                        <>
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                          <span>وصل البنك</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Landmark className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                          <span>تأكيد دخول البنك</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  );
+                                })()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* Multi-Sheet Upload + 4-Sheet Role Classifier + Calculation Mode Panel */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 sm:p-5 space-y-4">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
-          {/* Drag & Drop Upload Box */}
-          <div
-            onDragOver={e => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`lg:col-span-5 cursor-pointer rounded-xl border-2 border-dashed p-4 flex flex-col justify-center items-center text-center transition-all duration-200 ${
-              isDragging
-                ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/30'
-                : 'border-slate-300 dark:border-slate-700 hover:border-emerald-400 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept=".xlsx,.xls,.csv,.tsv,.txt"
-              className="hidden"
-              onChange={e => {
-                if (e.target.files?.length) {
-                  handleFilesProcess(e.target.files);
-                  e.target.value = '';
-                }
+      {/* Multi-Sheet Upload + Settings & Column Mapping Panel (Auto-shown when empty, toggleable when loaded) */}
+      {isUploadExpanded && (
+        <div className="bg-white dark:bg-slate-900/95 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)] p-4 sm:p-5 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+            {/* Drag & Drop Upload Box */}
+            <div
+              onDragOver={e => {
+                e.preventDefault();
+                setIsDragging(true);
               }}
-            />
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2">
-              {isParsing ? (
-                <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Upload className="w-5 h-5" />
-              )}
-            </div>
-            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
-              اسحب وارفع شيتات بوسطة / الشحن معاً (متعدد الملفات)
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              ارفع أي شيت بوسطة وسيتعرف تلقائياً على <strong>Orders</strong> و<strong>Cash Cycles</strong> و<strong>Transactions</strong> و<strong>Compensations</strong> و<strong>Pickup Requests</strong> و<strong>Bosta Credits</strong>
-            </p>
-          </div>
-
-          {/* Right Side: Calculation Mode Switch & Filters */}
-          <div className="lg:col-span-7 flex flex-col justify-between gap-3">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                  نظام احتساب المبالغ (يدعم صافي التحويل وإجمالي التحصيل + الشحن معاً)
-                </label>
-                {allHeaders.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowMappingDrawer(v => !v)}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
-                  >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    <span>تخصيص ربط الأعمدة</span>
-                    {showMappingDrawer ? (
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    )}
-                  </button>
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`lg:col-span-5 cursor-pointer rounded-xl border-2 border-dashed p-5 flex flex-col justify-center items-center text-center transition-all duration-150 ${
+                isDragging
+                  ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/30'
+                  : 'border-slate-200 dark:border-slate-700/80 hover:border-emerald-400 hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-2.5">
+                {isParsing ? (
+                  <div className="w-5 h-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Upload className="w-5 h-5" />
                 )}
               </div>
+              <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                اسحب وارفع شيتات بوسطة / الشحن معاً
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm leading-relaxed">
+                يتعرف تلقائياً على <strong>Orders</strong> و<strong>Cash Cycles</strong> و<strong>Transactions</strong> و<strong>Compensations</strong> و<strong>Pickup Requests</strong> و<strong>Bosta Credits</strong>
+              </p>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl">
-                {(
-                  [
-                    {
-                      id: 'net_payout' as CodSheetAmountMode,
-                      title: 'صافي التحويل مباشرة',
-                      desc: 'الشحن مخصوم مسبقاً بالشيت'
-                    },
-                    {
-                      id: 'gross_and_fees' as CodSheetAmountMode,
-                      title: 'إجمالي التحصيل + الشحن',
-                      desc: 'يدقق COD و Total Fees و Net Value'
-                    },
-                    {
-                      id: 'gross_only' as CodSheetAmountMode,
-                      title: 'إجمالي التحصيل فقط',
-                      desc: 'مقارنة قيمة الكاش المحصّل فقط'
+            {/* Right Side: Calculation Mode Switch & Filters */}
+            <div className="lg:col-span-7 flex flex-col justify-between gap-3.5">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    نظام احتساب المبالغ
+                  </label>
+                  {allHeaders.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowMappingDrawer(v => !v)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      <span>تخصيص ربط الأعمدة</span>
+                      {showMappingDrawer ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 p-1 bg-slate-100/90 dark:bg-slate-800/70 rounded-xl border border-slate-200/60 dark:border-slate-700/50">
+                  {(
+                    [
+                      {
+                        id: 'net_payout' as CodSheetAmountMode,
+                        title: 'صافي التحويل مباشرة',
+                        desc: 'الشحن مخصوم مسبقاً بالشيت'
+                      },
+                      {
+                        id: 'gross_and_fees' as CodSheetAmountMode,
+                        title: 'إجمالي التحصيل + الشحن',
+                        desc: 'يدقق COD و Total Fees و Net Value'
+                      },
+                      {
+                        id: 'gross_only' as CodSheetAmountMode,
+                        title: 'إجمالي التحصيل فقط',
+                        desc: 'مقارنة قيمة الكاش المحصّل فقط'
+                      }
+                    ] as const
+                  ).map(modeOpt => {
+                    const active = mapping.amountMode === modeOpt.id;
+                    return (
+                      <button
+                        key={modeOpt.id}
+                        type="button"
+                        onClick={() => setMapping(prev => ({ ...prev, amountMode: modeOpt.id }))}
+                        className={`text-right px-3 py-2 rounded-lg transition-all duration-150 cursor-pointer ${
+                          active
+                            ? 'bg-white dark:bg-slate-900 shadow-xs text-slate-900 dark:text-white border border-slate-200/80 dark:border-slate-700'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <div className="text-xs font-bold flex items-center justify-between gap-1">
+                          <span>{modeOpt.title}</span>
+                          {active && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                          {modeOpt.desc}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className={`grid grid-cols-1 gap-3 ${auditResult.availableSheetBrands.length > 0 ? 'sm:grid-cols-2 lg:grid-cols-5' : 'sm:grid-cols-2 lg:grid-cols-4'}`}>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                    تصفية شركة الشحن
+                  </label>
+                  <div className="relative">
+                    <Truck className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <select
+                      value={carrierFilter}
+                      onChange={e => setCarrierFilter(e.target.value)}
+                      className="w-full pr-8 pl-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                    >
+                      <option value="all">جميع شركات الشحن</option>
+                      {availableCarriers.map(c => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {auditResult.availableSheetBrands.length > 0 && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                      تصفية البراند / الحساب
+                    </label>
+                    <select
+                      value={sheetBrandFilter}
+                      onChange={e => setSheetBrandFilter(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                    >
+                      <option value="all">كل البراندات ({auditResult.availableSheetBrands.length})</option>
+                      {auditResult.availableSheetBrands.map(b => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                    مهلة الشحنات (أيام)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={graceDays}
+                    onChange={e => handleSaveGraceDays(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                    سماحية الكسور (ج.م)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={toleranceEgp}
+                    onChange={e => setToleranceEgp(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                    حد الشحن المتوقع (ج.م)
+                  </label>
+                  <input
+                    type="number"
+                    min={20}
+                    step={5}
+                    value={maxExpectedShippingFee}
+                    onChange={e =>
+                      setMaxExpectedShippingFee(Math.max(0, Number(e.target.value) || 0))
                     }
-                  ] as const
-                ).map(modeOpt => {
-                  const active = mapping.amountMode === modeOpt.id;
+                    className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
+                    title="أي شحنة تتجاوز مصاريفها هذا الحد تظهر تلقائياً في تبويب مصاريف ووزن زائد"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Uploaded Files List with Role Selector */}
+          {uploadedFiles.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>الشيتات المرفوعة ({uploadedFiles.length}):</span>
+                </span>
+                {uploadedFiles.map(f => (
+                  <div
+                    key={f.id}
+                    className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-800/70 text-xs font-semibold text-slate-700 dark:text-slate-200"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="max-w-[150px] truncate font-bold">{f.fileName}</span>
+                    <span className="text-[11px] font-mono tabular-nums text-slate-500">
+                      ({f.rows.length})
+                    </span>
+                    <select
+                      value={f.role}
+                      onChange={e => handleRoleChange(f.id, e.target.value as UploadedSheetRole)}
+                      className="text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md px-1.5 py-0.5 text-indigo-600 dark:text-indigo-400"
+                      title="تصنيف نوع الشيت"
+                    >
+                      <option value="cash_cycles">Cash Cycles (دورات)</option>
+                      <option value="bosta_orders">أوردرات بوسطة/الشحن</option>
+                      <option value="transactions">Transactions (تحويلات)</option>
+                      <option value="compensations">تعويضات (Compensations)</option>
+                      <option value="pickup_requests">طلبات البيك أب (Pickup)</option>
+                      <option value="bosta_credits">رصيد بوسطة (Bosta Credits)</option>
+                      <option value="warehouse_orders">أوردرات المستودع</option>
+                      <option value="bank_statement">كشف حساب البنك / إنستاباي</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(f.id)}
+                      className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      title="إزالة الملف"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                {Object.keys(manualMatches).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualMatches({});
+                      notify('تم مسح جميع المطابقات اليدوية.');
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 hover:text-amber-700 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Unlink className="w-3.5 h-3.5" />
+                    <span>مسح الربط اليدوي ({Object.keys(manualMatches).length})</span>
+                  </button>
+                )}
+                {Object.keys(manualCreditTrackingMap).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualCreditTrackingMap({});
+                      notify('تم مسح ربط قسائم النقاط اليدوي.');
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <Unlink className="w-3.5 h-3.5" />
+                    <span>مسح ربط النقاط ({Object.keys(manualCreditTrackingMap).length})</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadedFiles([]);
+                    clearCodHunterFiles(storeId);
+                    notify('تم مسح الشيتات المرفوعة مع الاحتفاظ بتأكيدات البنك المحفوظة.');
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>مسح جميع الشيتات</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Collapsible Column Mapping Panel */}
+          {showMappingDrawer && allHeaders.length > 0 && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                  <span>ضبط أعمدة الشيتات يدوياً (شامل أعمدة بوسطة Cash Cycles و Orders)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMapping(autoDetectSheetMapping(allHeaders))}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>كشف تلقائي</span>
+                  </button>
+                  {onSaveCarrierProfile && (
+                    <button
+                      type="button"
+                      onClick={handleSaveCarrierProfile}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <BookmarkCheck className="w-3.5 h-3.5" />
+                      <span>حفظ قالب {carrierFilter === 'all' ? 'عام' : carrierFilter}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود البوليصة / Order Id *
+                  </label>
+                  <select
+                    value={mapping.trackingCol}
+                    onChange={e => setMapping(p => ({ ...p, trackingCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود صافي التحويل (Net Value)
+                  </label>
+                  <select
+                    value={mapping.netAmountCol}
+                    onChange={e => setMapping(p => ({ ...p, netAmountCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود إجمالي التحصيل (COD)
+                  </label>
+                  <select
+                    value={mapping.grossAmountCol}
+                    onChange={e => setMapping(p => ({ ...p, grossAmountCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود مصاريف الشحن (Total Fees)
+                  </label>
+                  <select
+                    value={mapping.feesAmountCol}
+                    onChange={e => setMapping(p => ({ ...p, feesAmountCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود حالة الدفع (Payment Status)
+                  </label>
+                  <select
+                    value={mapping.paymentStatusCol || ''}
+                    onChange={e => setMapping(p => ({ ...p, paymentStatusCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- لا يوجد بالشيت --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود كود التحويل (Cash-out ID)
+                  </label>
+                  <select
+                    value={mapping.cashoutIdCol || ''}
+                    onChange={e => setMapping(p => ({ ...p, cashoutIdCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- لا يوجد بالشيت --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود الحالة (Delivery State)
+                  </label>
+                  <select
+                    value={mapping.statusCol}
+                    onChange={e => setMapping(p => ({ ...p, statusCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود المرجع الداخلي (Business Reference)
+                  </label>
+                  <select
+                    value={mapping.businessRefCol || ''}
+                    onChange={e => setMapping(p => ({ ...p, businessRefCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">
+                    عمود الهاتف للمطابقة الاحتياطية (Phone)
+                  </label>
+                  <select
+                    value={mapping.phoneCol || ''}
+                    onChange={e => setMapping(p => ({ ...p, phoneCol: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  >
+                    <option value="">-- غير محدد --</option>
+                    {allHeaders.map(h => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main Audit Workspace — Modern Master-Detail Financial Console (Desktop Collapsible Audit Rail + Responsive Mobile Tabs) */}
+      <div
+        ref={workspaceTabsRef}
+        className="bg-white dark:bg-[#0b1120] rounded-2xl border border-slate-200/90 dark:border-slate-800/90 shadow-[0_1px_3px_rgba(15,23,42,0.04)] overflow-hidden flex flex-col lg:flex-row scroll-mt-4"
+      >
+        {/* DESKTOP AUDIT NAVIGATION RAIL (RTL Right-Hand Split Pane) */}
+        {isAuditRailOpen && (
+          <aside className="hidden lg:flex flex-col w-[264px] shrink-0 border-l border-slate-200/80 dark:border-slate-800/80 bg-slate-50/75 dark:bg-slate-950/45">
+            {/* Rail Header */}
+            <div className="px-3.5 py-3 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">
+                  أقسام التدقيق
+                </span>
+                <span className="font-mono tabular-nums text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                  {nonEmptyTabs.length}/{visibleAuditTabs.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRailOnlyActive(v => !v)}
+                  className={`px-2 py-1 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
+                    railOnlyActive
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="إظهار الأقسام التي تحتوي على بيانات فقط"
+                >
+                  النشط فقط
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAuditRailOpen(false)}
+                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  title="طي قائمة التدقيق وتوسيع الجدول"
+                >
+                  <PanelRightClose className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Organized 5-Category Rail List */}
+            <nav className="flex-1 overflow-y-auto cod-rail-scroll p-2.5 space-y-4 max-h-[calc(100vh-11rem)]">
+              {auditGroupDefs.map((group, idx) => {
+                const GroupIcon = group.Icon;
+                const railTabs = railOnlyActive
+                  ? group.tabs.filter(t => t.count > 0 || t.id === activeTab)
+                  : group.tabs;
+                if (railTabs.length === 0) return null;
+
+                return (
+                  <div
+                    key={group.id}
+                    className={
+                      idx > 0
+                        ? 'pt-3 border-t border-slate-200/70 dark:border-slate-800/70'
+                        : ''
+                    }
+                  >
+                    <div className="px-2 pb-1.5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <GroupIcon
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            group.hasAlert
+                              ? 'text-rose-500 dark:text-rose-400'
+                              : 'text-slate-400 dark:text-slate-500'
+                          }`}
+                        />
+                        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate">
+                          {group.label}
+                        </span>
+                      </div>
+                      {group.alertCount > 0 && (
+                        <span
+                          className={`font-mono tabular-nums text-[10px] font-bold ${
+                            group.hasAlert
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-slate-400 dark:text-slate-500'
+                          }`}
+                        >
+                          {group.alertCount.toLocaleString('en-US')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-0.5">
+                      {railTabs.map(tab => {
+                        const isActive = activeTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`relative w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-right text-xs transition-all duration-150 cursor-pointer ${
+                              isActive
+                                ? 'bg-white dark:bg-slate-800/90 text-slate-900 dark:text-white font-black shadow-[0_1px_2px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/90 dark:ring-slate-700/80'
+                                : 'text-slate-600 dark:text-slate-400 hover:bg-white/70 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-slate-100 font-semibold'
+                            }`}
+                          >
+                            {isActive && (
+                              <span className="absolute right-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                            )}
+                            <span className="truncate pr-1">{tab.label}</span>
+                            <span
+                              className={`font-mono tabular-nums text-[11px] shrink-0 ${
+                                tab.count === 0
+                                  ? 'text-slate-400 dark:text-slate-600 font-medium'
+                                  : `font-black ${tab.accent}`
+                              }`}
+                            >
+                              {tab.count.toLocaleString('en-US')}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </nav>
+          </aside>
+        )}
+
+        {/* MAIN DATA VIEWPORT */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* MOBILE / TABLET (< lg): Compact 2-Tier Category & Underline Sub-Tabs */}
+          <div className="lg:hidden">
+            <div className="px-3 pt-3 pb-2 bg-slate-50/75 dark:bg-slate-950/40 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+                {auditGroupDefs.map(group => {
+                  const GroupIcon = group.Icon;
+                  const isGroupActive = tabViewMode === 'grouped' && activeGroupId === group.id;
                   return (
                     <button
-                      key={modeOpt.id}
+                      key={group.id}
                       type="button"
-                      onClick={() => setMapping(prev => ({ ...prev, amountMode: modeOpt.id }))}
-                      className={`text-right px-3 py-2 rounded-lg transition-all duration-200 cursor-pointer ${
-                        active
-                          ? 'bg-white dark:bg-slate-900 shadow-sm text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700'
-                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      onClick={() => {
+                        setTabViewMode('grouped');
+                        if (activeGroupId !== group.id) {
+                          const preferred =
+                            group.tabs.find(t => t.isAlert && t.count > 0) ||
+                            group.tabs.find(t => t.count > 0) ||
+                            group.tabs[0];
+                          if (preferred) setActiveTab(preferred.id);
+                        }
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
+                        isGroupActive
+                          ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
                       }`}
                     >
-                      <div className="text-xs font-bold flex items-center justify-between gap-1">
-                        <span>{modeOpt.title}</span>
-                        {active && <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
-                      </div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                        {modeOpt.desc}
-                      </div>
+                      <GroupIcon
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isGroupActive
+                            ? 'text-emerald-400 dark:text-emerald-600'
+                            : group.hasAlert
+                            ? 'text-rose-500'
+                            : 'text-slate-400'
+                        }`}
+                      />
+                      <span>{group.label}</span>
+                      {group.alertCount > 0 && (
+                        <span
+                          className={`font-mono tabular-nums text-[11px] font-black ${
+                            isGroupActive
+                              ? group.hasAlert
+                                ? 'text-rose-300 dark:text-rose-600'
+                                : 'text-emerald-300 dark:text-emerald-600'
+                              : group.hasAlert
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {group.alertCount.toLocaleString('en-US')}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
-            </div>
 
-            <div className={`grid grid-cols-1 gap-3 ${auditResult.availableSheetBrands.length > 0 ? 'sm:grid-cols-2 lg:grid-cols-5' : 'sm:grid-cols-2 lg:grid-cols-4'}`}>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-                  تصفية شركة الشحن
-                </label>
-                <div className="relative">
-                  <Truck className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <select
-                    value={carrierFilter}
-                    onChange={e => setCarrierFilter(e.target.value)}
-                    className="w-full pr-8 pl-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  >
-                    <option value="all">جميع شركات الشحن</option>
-                    {availableCarriers.map(c => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {auditResult.availableSheetBrands.length > 0 && (
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-                    تصفية البراند / الحساب بالشيت
-                  </label>
-                  <select
-                    value={sheetBrandFilter}
-                    onChange={e => setSheetBrandFilter(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  >
-                    <option value="all">كل البراندات ({auditResult.availableSheetBrands.length})</option>
-                    {auditResult.availableSheetBrands.map(b => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-                  مهلة تحذير الشحنات (أيام)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={graceDays}
-                  onChange={e => handleSaveGraceDays(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-                  سماحية فرق الكسور (ج.م)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  value={toleranceEgp}
-                  onChange={e => setToleranceEgp(Math.max(0, Number(e.target.value) || 0))}
-                  className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1">
-                  حد مصاريف الشحن (ج.م)
-                </label>
-                <input
-                  type="number"
-                  min={20}
-                  step={5}
-                  value={maxExpectedShippingFee}
-                  onChange={e =>
-                    setMaxExpectedShippingFee(Math.max(0, Number(e.target.value) || 0))
-                  }
-                  className="w-full px-3 py-2 text-xs font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  title="أي شحنة تتجاوز مصاريفها هذا الحد تظهر تلقائياً في تبويب مصاريف ووزن زائد"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Uploaded Files with Role Selector */}
-        {uploadedFiles.length > 0 && (
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5" />
-                <span>الشيتات المرفوعة ({uploadedFiles.length}):</span>
-              </span>
-              {uploadedFiles.map(f => (
-                <div
-                  key={f.id}
-                  className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="max-w-[150px] truncate font-bold">{f.fileName}</span>
-                  <span className="text-[11px] font-mono tabular-nums text-slate-500">
-                    ({f.rows.length})
-                  </span>
-                  <select
-                    value={f.role}
-                    onChange={e => handleRoleChange(f.id, e.target.value as UploadedSheetRole)}
-                    className="text-[11px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 text-indigo-600 dark:text-indigo-400"
-                    title="تصنيف نوع الشيت"
-                  >
-                    <option value="cash_cycles">Cash Cycles (دورات)</option>
-                    <option value="bosta_orders">أوردرات بوسطة/الشحن</option>
-                    <option value="transactions">Transactions (تحويلات)</option>
-                    <option value="compensations">تعويضات (Compensations)</option>
-                    <option value="pickup_requests">طلبات البيك أب (Pickup)</option>
-                    <option value="bosta_credits">رصيد بوسطة (Bosta Credits)</option>
-                    <option value="warehouse_orders">أوردرات المستودع</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveFile(f.id)}
-                    className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                    title="إزالة الملف"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {Object.keys(manualMatches).length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManualMatches({});
-                    notify('تم مسح جميع المطابقات اليدوية.');
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 hover:text-amber-700 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Unlink className="w-3.5 h-3.5" />
-                  <span>مسح الربط اليدوي ({Object.keys(manualMatches).length})</span>
-                </button>
-              )}
-              {Object.keys(manualCreditTrackingMap).length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setManualCreditTrackingMap({});
-                    notify('تم مسح ربط قسائم النقاط اليدوي.');
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Unlink className="w-3.5 h-3.5" />
-                  <span>مسح ربط النقاط ({Object.keys(manualCreditTrackingMap).length})</span>
-                </button>
-              )}
-              <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold whitespace-nowrap">
-                محفوظ تلقائياً بالمتصفح
-              </span>
               <button
                 type="button"
-                onClick={() => {
-                  setUploadedFiles([]);
-                  clearCodHunterFiles(storeId);
-                  notify('تم مسح الشيتات المرفوعة مع الاحتفاظ بتأكيدات البنك المحفوظة.');
-                }}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 whitespace-nowrap shrink-0 cursor-pointer"
+                onClick={() =>
+                  setTabViewMode(prev => (prev === 'grouped' ? 'alerts_all' : 'grouped'))
+                }
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer ${
+                  tabViewMode === 'alerts_all'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>مسح جميع الشيتات</span>
+                {tabViewMode === 'alerts_all' ? (
+                  <ListFilter className="w-3.5 h-3.5" />
+                ) : (
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                )}
+                <span>{tabViewMode === 'alerts_all' ? 'تصنيفات' : `النشط (${nonEmptyTabs.length})`}</span>
               </button>
             </div>
-          </div>
-        )}
 
-        {/* Collapsible Column Mapping Panel */}
-        {showMappingDrawer && allHeaders.length > 0 && (
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
-                <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-                <span>ضبط أعمدة الشيتات يدوياً (شامل أعمدة بوسطة Cash Cycles و Orders)</span>
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="px-3 border-b border-slate-200/80 dark:border-slate-800 bg-white dark:bg-[#0b1120]">
+              {tabViewMode === 'grouped' ? (
+                <div className="flex items-center gap-1 overflow-x-auto -mb-px">
+                  {activeGroupTabs.map(tab => {
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                          isActive
+                            ? 'border-emerald-600 dark:border-emerald-400 text-slate-900 dark:text-white'
+                            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span
+                          className={`font-mono tabular-nums text-[11px] font-black ${
+                            tab.count === 0 ? 'text-slate-400 dark:text-slate-600 font-medium' : tab.accent
+                          }`}
+                        >
+                          {tab.count.toLocaleString('en-US')}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-2 flex flex-wrap items-center gap-1.5">
+                  {(nonEmptyTabs.length > 0 ? nonEmptyTabs : visibleAuditTabs).map(tab => {
+                    const isActive = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer ${
+                          isActive
+                            ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white'
+                            : 'bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span
+                          className={`font-mono tabular-nums text-[11px] font-black ${
+                            isActive ? 'opacity-90' : tab.accent
+                          }`}
+                        >
+                          {tab.count.toLocaleString('en-US')}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* DEDICATED WORKSPACE VIEWPORT HEADER (Active View Title + Search + Contextual Filters) */}
+          <div className="px-4 sm:px-5 py-3 border-b border-slate-200/80 dark:border-slate-800/80 bg-white dark:bg-[#0b1120] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              {!isAuditRailOpen && (
                 <button
                   type="button"
-                  onClick={() => setMapping(autoDetectSheetMapping(allHeaders))}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
+                  onClick={() => setIsAuditRailOpen(true)}
+                  className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors shrink-0 cursor-pointer"
+                  title="إظهار قائمة أقسام التدقيق"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>كشف تلقائي</span>
+                  <PanelRightOpen className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>الأقسام</span>
                 </button>
-                {onSaveCarrierProfile && (
+              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 font-semibold">
+                  <span className="truncate">{activeGroupMeta?.label}</span>
+                  <span>/</span>
+                  <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                    {(activeTabMeta?.count ?? 0).toLocaleString('en-US')} سجل
+                  </span>
+                </div>
+                <h2 className="text-sm sm:text-[15px] font-black text-slate-900 dark:text-white tracking-tight truncate">
+                  {activeTabMeta?.label}
+                </h2>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Contextual Delay Filter (only when uncollected tab is active) */}
+              {activeTab === 'uncollected' && matchWithStoreOrders && (
+                <div className="flex items-center gap-0.5 bg-slate-100/90 dark:bg-slate-800/80 p-1 rounded-lg shrink-0">
+                  <Filter className="w-3.5 h-3.5 text-slate-400 mx-1" />
+                  {(
+                    [
+                      { id: 'all', label: 'الكل' },
+                      { id: '3', label: '+3 أيام' },
+                      { id: '7', label: '+7 أيام' },
+                      { id: '14', label: '+14 يوم' }
+                    ] as const
+                  ).map(d => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setDelayFilterDays(d.id)}
+                      className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        delayFilterDays === d.id
+                          ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="relative flex-1 sm:w-64 md:w-72">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="بحث بالبوليصة، الأوردر، العميل، Cash-out..."
+                  className="w-full pr-8 pl-7 py-1.5 text-xs bg-slate-50/90 dark:bg-slate-900/90 border border-slate-200/90 dark:border-slate-700/80 rounded-xl transition-all placeholder:text-slate-400"
+                />
+                {searchQuery && (
                   <button
                     type="button"
-                    onClick={handleSaveCarrierProfile}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                    title="مسح البحث"
                   >
-                    <BookmarkCheck className="w-3.5 h-3.5" />
-                    <span>حفظ قالب {carrierFilter === 'all' ? 'عام' : carrierFilter}</span>
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود البوليصة / Order Id *
-                </label>
-                <select
-                  value={mapping.trackingCol}
-                  onChange={e => setMapping(p => ({ ...p, trackingCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
+          {/* Active Linked General Cashout Guidance Banner */}
+          {activeLinkedCashoutId && allowBatchSettlement && matchWithStoreOrders && activeTab !== 'batches' && (
+            <div className="px-4 py-2.5 bg-amber-50/80 dark:bg-amber-950/30 border-b border-amber-200/80 dark:border-amber-900/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold">
+                <Link2 className="w-4 h-4 shrink-0" />
+                <span>
+                  وضع ربط التحويل العام{' '}
+                  <span className="font-mono tabular-nums font-black">{activeLinkedCashoutId}</span>: حدد الشحنات المشمولة ثم اضغط اعتماد.
+                </span>
               </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود صافي التحويل (Net Value)
-                </label>
-                <select
-                  value={mapping.netAmountCol}
-                  onChange={e => setMapping(p => ({ ...p, netAmountCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={selectedRowsList.length === 0}
+                  onClick={() => openSettleModal(activeLinkedCashoutId)}
+                  className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] disabled:opacity-40 cursor-pointer whitespace-nowrap"
                 >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود إجمالي التحصيل (COD)
-                </label>
-                <select
-                  value={mapping.grossAmountCol}
-                  onChange={e => setMapping(p => ({ ...p, grossAmountCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
+                  اعتماد ({selectedRowsList.length}) برقم {activeLinkedCashoutId}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveLinkedCashoutId('')}
+                  className="px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px] cursor-pointer whitespace-nowrap"
                 >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود مصاريف الشحن (Total Fees)
-                </label>
-                <select
-                  value={mapping.feesAmountCol}
-                  onChange={e => setMapping(p => ({ ...p, feesAmountCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود حالة الدفع (Payment Status)
-                </label>
-                <select
-                  value={mapping.paymentStatusCol || ''}
-                  onChange={e => setMapping(p => ({ ...p, paymentStatusCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- لا يوجد بالشيت --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود كود التحويل (Cash-out ID)
-                </label>
-                <select
-                  value={mapping.cashoutIdCol || ''}
-                  onChange={e => setMapping(p => ({ ...p, cashoutIdCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- لا يوجد بالشيت --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود الحالة (Delivery State)
-                </label>
-                <select
-                  value={mapping.statusCol}
-                  onChange={e => setMapping(p => ({ ...p, statusCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود المرجع الداخلي (Business Reference)
-                </label>
-                <select
-                  value={mapping.businessRefCol || ''}
-                  onChange={e => setMapping(p => ({ ...p, businessRefCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">
-                  عمود الهاتف للمطابقة الاحتياطية (Phone)
-                </label>
-                <select
-                  value={mapping.phoneCol || ''}
-                  onChange={e => setMapping(p => ({ ...p, phoneCol: e.target.value }))}
-                  className="w-full px-2.5 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
-                >
-                  <option value="">-- غير محدد --</option>
-                  {allHeaders.map(h => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
+                  إلغاء التوجيه
+                </button>
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* Main Audit Workspace */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        {/* Segmented Navigation Bar & Search */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 xl:pb-0">
-            {(
-              [
-                {
-                  id: 'untransferred' as AuditTabId,
-                  label: 'متحصل ولم يُحوّل',
-                  count: auditResult.collectedUntransferred.length,
-                  accent: 'text-rose-600 dark:text-rose-400',
-                  hidden: false
-                },
-                {
-                  id: 'uncollected' as AuditTabId,
-                  label: 'مسلّمة لم تظهر بالشيت',
-                  count: auditResult.uncollectedDelivered.length,
-                  accent: 'text-rose-600 dark:text-rose-400',
-                  hidden: !matchWithStoreOrders
-                },
-                {
-                  id: 'discrepancy' as AuditTabId,
-                  label: 'عجز وفروقات الشيت',
-                  count: auditResult.shortPaid.length + auditResult.overPaid.length,
-                  accent: 'text-amber-600 dark:text-amber-400',
-                  hidden: false
-                },
-                {
-                  id: 'not_collected' as AuditTabId,
-                  label: 'لم يُحصّل (مرتجع)',
-                  count: auditResult.notCollectedCustomer.length,
-                  accent: 'text-slate-600 dark:text-slate-400',
-                  hidden: false
-                },
-                {
-                  id: 'missing_comp' as AuditTabId,
-                  label: 'تعويضات مفقودة',
-                  count: auditResult.missingCompensations.length,
-                  accent: 'text-rose-600 dark:text-rose-400',
-                  hidden: uploadedFiles.length === 0
-                },
-                {
-                  id: 'fee_anomalies' as AuditTabId,
-                  label: 'مصاريف ووزن وبيك أب',
-                  count: auditResult.feeAnomalies.length + auditResult.totals.wrongfulPickupFeeCount,
-                  accent:
-                    auditResult.totals.wrongfulPickupFeeCount > 0
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-amber-600 dark:text-amber-400',
-                  hidden: uploadedFiles.length === 0
-                },
-                {
-                  id: 'fraud_alerts' as AuditTabId,
-                  label: 'كاشف النصب والتلاعب',
-                  count: auditResult.internalFraudAlerts.length,
-                  accent: 'text-rose-600 dark:text-rose-400',
-                  hidden: uploadedFiles.length === 0 && !matchWithStoreOrders
-                },
-                {
-                  id: 'zero_attempt_returns' as AuditTabId,
-                  label: 'مرتجعات بدون محاولات',
-                  count: auditResult.zeroAttemptReturns.length,
-                  accent: 'text-amber-600 dark:text-amber-400',
-                  hidden: uploadedFiles.length === 0
-                },
-                {
-                  id: 'customer_risk' as AuditTabId,
-                  label: 'العملاء الخطِرين',
-                  count: auditResult.customerRiskAlerts.length,
-                  accent: 'text-rose-600 dark:text-rose-400',
-                  hidden: uploadedFiles.length === 0 && !matchWithStoreOrders
-                },
-                {
-                  id: 'exchange_audits' as AuditTabId,
-                  label: 'الاستبدال والجزئي (Exchange / Pick&Choose)',
-                  count: auditResult.totals.exchangeIssueCount,
-                  accent:
-                    auditResult.totals.exchangeIssueCount > 0
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-emerald-600 dark:text-emerald-400',
-                  hidden: uploadedFiles.length === 0
-                },
-                {
-                  id: 'stuck_returns' as AuditTabId,
-                  label: 'مرتجعات محتجزة بالفروع',
-                  count: auditResult.stuckReturns.length,
-                  accent: 'text-amber-600 dark:text-amber-400',
-                  hidden: uploadedFiles.length === 0
-                },
-                {
-                  id: 'online_flex' as AuditTabId,
-                  label: 'أونلاين و FlexShip',
-                  count: auditResult.onlineAndFlexAlerts.length,
-                  accent: 'text-indigo-600 dark:text-indigo-400',
-                  hidden: uploadedFiles.length === 0
-                },
-                {
-                  id: 'in_transit_sheet' as AuditTabId,
-                  label: 'قيد التشغيل بالشيت',
-                  count: auditResult.inTransitInSheet.length,
-                  accent: 'text-indigo-600 dark:text-indigo-400',
-                  hidden: auditResult.inTransitInSheet.length === 0
-                },
-                {
-                  id: 'overdue' as AuditTabId,
-                  label: 'متأخرة بالشحن',
-                  count: auditResult.inTransitOverdue.length,
-                  accent: 'text-amber-600 dark:text-amber-400',
-                  hidden: !matchWithStoreOrders
-                },
-                {
-                  id: 'matched' as AuditTabId,
-                  label: 'مثبت ومطابق',
-                  count: auditResult.matchedReady.length,
-                  accent: 'text-emerald-600 dark:text-emerald-400',
-                  hidden: false
-                },
-                {
-                  id: 'transactions_ledger' as AuditTabId,
-                  label: 'سجل Transactions',
-                  count: auditResult.transactionsSummary.ledgerRows.length,
-                  accent: 'text-indigo-600 dark:text-indigo-400',
-                  hidden: !auditResult.transactionsSummary.hasTransactionsSheet
-                },
-                {
-                  id: 'compensations' as AuditTabId,
-                  label: 'مركز التعويضات (محفظة + شيت)',
-                  count:
-                    auditResult.compensationsSummary.entries.length +
-                    auditResult.transactionsSummary.walletCompensations.length,
-                  accent:
-                    auditResult.totals.underCompensatedCount > 0 ||
-                    auditResult.totals.undocumentedWalletCompCount > 0
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-emerald-600 dark:text-emerald-400',
-                  hidden:
-                    !auditResult.compensationsSummary.hasCompensationsSheet &&
-                    auditResult.transactionsSummary.walletCompensations.length === 0
-                },
-                {
-                  id: 'pickup_requests' as AuditTabId,
-                  label: 'طلبات البيك أب',
-                  count: auditResult.pickupRequestsSummary.totalPickups,
-                  accent:
-                    auditResult.pickupRequestsSummary.crossBrandSwapCount > 0 ||
-                    auditResult.pickupRequestsSummary.wrongfulPickupFeeCount > 0
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-indigo-600 dark:text-indigo-400',
-                  hidden: !auditResult.pickupRequestsSummary.hasPickupSheet
-                },
-                {
-                  id: 'bosta_credits' as AuditTabId,
-                  label: 'رصيد بوسطة (Credits)',
-                  count: auditResult.bostaCreditsSummary.entries.length,
-                  accent: 'text-emerald-600 dark:text-emerald-400',
-                  hidden: !auditResult.bostaCreditsSummary.hasCreditsSheet
-                },
-                {
-                  id: 'duplicate' as AuditTabId,
-                  label: 'مكرر / محصّل سابقاً',
-                  count: auditResult.duplicates.length,
-                  accent: 'text-amber-600 dark:text-amber-400',
-                  hidden: false
-                },
-                {
-                  id: 'not_found' as AuditTabId,
-                  label: 'غير مسجل',
-                  count: auditResult.notFound.length,
-                  accent: 'text-slate-500',
-                  hidden: false
-                },
-                {
-                  id: 'batches' as AuditTabId,
-                  label: 'أرشيف الدفعات',
-                  count: savedBatches.length,
-                  accent: 'text-indigo-600 dark:text-indigo-400',
-                  hidden: !allowBatchSettlement
-                }
-              ] as const
-            )
-              .filter(t => !t.hidden)
-              .map(tab => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
-                      isActive
-                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-200/80 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>{tab.label}</span>
-                    <span className={`font-mono tabular-nums text-[11px] ${isActive ? 'opacity-90' : tab.accent}`}>
-                      ({tab.count.toLocaleString('en-US')})
-                    </span>
-                  </button>
-                );
-              })}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {activeTab === 'uncollected' && matchWithStoreOrders && (
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
-                <Filter className="w-3.5 h-3.5 text-slate-400 mx-1" />
-                {(
-                  [
-                    { id: 'all', label: 'الكل' },
-                    { id: '3', label: '+3 أيام' },
-                    { id: '7', label: '+7 أيام' },
-                    { id: '14', label: '+14 يوم' }
-                  ] as const
-                ).map(d => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setDelayFilterDays(d.id)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      delayFilterDays === d.id
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
+          {/* Claim Summary Ribbon */}
+          {totalClaimsAmount > 0 && activeTab !== 'batches' && activeTab !== 'net_wallet' && (
+            <div className="px-4 sm:px-5 py-2 bg-rose-50/45 dark:bg-rose-950/20 border-b border-rose-100 dark:border-rose-900/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-bold">
+                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                <span>إجمالي المطالبة المالية المعلّقة أو الناقصة:</span>
+                <span className="font-mono tabular-nums text-sm font-black">
+                  {formatEgp(totalClaimsAmount)}
+                </span>
               </div>
-            )}
-
-            <div className="relative flex-1 sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="بحث بالبوليصة، الأوردر، العميل، Cash-out ID..."
-                className="w-full pr-9 pl-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Active Linked General Cashout Guidance Banner */}
-        {activeLinkedCashoutId && allowBatchSettlement && matchWithStoreOrders && activeTab !== 'batches' && (
-          <div className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900/50 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold">
-              <Link2 className="w-4 h-4 shrink-0" />
-              <span>
-                وضع ربط التحويل العام{' '}
-                <span className="font-mono tabular-nums font-black">{activeLinkedCashoutId}</span>: حدد الشحنات المشمولة ثم اضغط اعتماد.
+              <span className="text-[11px] text-rose-600/80 dark:text-rose-300/80 font-mono tabular-nums">
+                {auditResult.collectedUntransferred.length} متحصل بلا تحويل ·{' '}
+                {auditResult.uncollectedDelivered.length} مسلّم لم يظهر بالشيت ·{' '}
+                {auditResult.shortPaid.length} عجز
+                {forensicAlertsCount > 0 ? ` · ${forensicAlertsCount} تدقيق دفعات وبنك` : ''}
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={selectedRowsList.length === 0}
-                onClick={() => openSettleModal(activeLinkedCashoutId)}
-                className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] disabled:opacity-40 cursor-pointer whitespace-nowrap"
-              >
-                اعتماد ({selectedRowsList.length}) برقم {activeLinkedCashoutId}
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveLinkedCashoutId('')}
-                className="px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px] cursor-pointer whitespace-nowrap"
-              >
-                إلغاء التوجيه
-              </button>
-            </div>
-          </div>
+          )}
+
+        {/* TAB: NET POSITION & RECONCILIATION WALLET */}
+        {activeTab === 'net_wallet' && (
+          <NetPositionWalletPanel
+            storeName={storeName}
+            auditResult={auditResult}
+            sheetBrandFilter={sheetBrandFilter}
+            settings={settings}
+            zoneRates={zoneRates}
+            treasuryAccounts={treasuryAccounts}
+            storeWallet={storeWallet}
+            savedBatches={savedBatches}
+            bankConfirmedCashouts={bankConfirmedCashouts}
+            ledgerEntries={walletLedgerEntries}
+            costConfig={walletCostConfig}
+            onAddLedgerEntry={handleAddWalletLedgerEntry}
+            onDeleteLedgerEntry={handleDeleteWalletLedgerEntry}
+            onUpdateCostConfig={setWalletCostConfig}
+            onNavigateTab={(targetTab, search) =>
+              jumpToAuditTab(targetTab, search ? { search } : undefined)
+            }
+            searchQuery={searchQuery}
+          />
         )}
 
-        {/* Claim Summary Ribbon */}
-        {totalClaimsAmount > 0 && activeTab !== 'batches' && (
-          <div className="px-4 py-2.5 bg-rose-50/70 dark:bg-rose-950/25 border-b border-rose-100 dark:border-rose-900/40 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-bold">
-              <ShieldAlert className="w-4 h-4 shrink-0" />
-              <span>إجمالي المطالبة المالية المعلّقة أو الناقصة:</span>
-              <span className="font-mono tabular-nums text-sm font-black">
-                {formatEgp(totalClaimsAmount)}
-              </span>
-            </div>
-            <span className="text-[11px] text-rose-600/80 dark:text-rose-300/80 font-mono tabular-nums">
-              {auditResult.collectedUntransferred.length} متحصل بلا تحويل ·{' '}
-              {auditResult.uncollectedDelivered.length} مسلّم لم يظهر بالشيت ·{' '}
-              {auditResult.shortPaid.length} عجز
-            </span>
-          </div>
+        {/* TAB: FORENSIC CASHOUT, PHANTOM PAYOUT, DELIVERIES↔CYCLES & BANK STATEMENT AUDIT */}
+        {activeTab === 'cashout_audit' && (
+          <CashoutForensicAuditPanel
+            summary={auditResult.cashoutForensicSummary}
+            searchQuery={searchQuery}
+            onInspectCashoutId={cashoutId => {
+              const found = auditResult.transactionsSummary.entries.find(
+                e => e.cashoutId === cashoutId
+              );
+              if (found) {
+                openCashoutOrdersModal(found);
+              } else {
+                jumpToAuditTab('matched', { search: cashoutId });
+              }
+            }}
+            onJumpToWaybill={trackingKey => {
+              setInspectedQuickRef({ mode: 'waybill', trackingCode: trackingKey });
+            }}
+            onUploadBankStatement={() => fileInputRef.current?.click()}
+          />
         )}
 
         {/* TAB: COLLECTED BY COURIER, NOT TRANSFERRED TO YOU (Bosta Not Paid / Missing Cash-out ID) */}
@@ -4052,144 +5050,176 @@ export default function CodHunterWorkspace({
               )}
             </div>
 
-            {/* Interactive 7-Zone x 6-Size x 5-DeliveryType Bosta Rate Plan */}
-            <div className="mx-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/70 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-xs font-black text-slate-900 dark:text-white block">
-                    خطة الأسعار الحالية حسب المنطقة والحجم ونوع التوصيل (بالجنيه المصري — قبل الضريبة 14%):
+            {/* Collapsible Interactive 7-Zone x 6-Size x 5-DeliveryType Bosta Rate Plan */}
+            <div className="mx-4 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/90 dark:border-slate-700/70 overflow-hidden">
+              <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowRateMatrixPanel(v => !v)}
+                  className="flex items-center gap-2.5 text-right cursor-pointer group"
+                >
+                  <span className="w-7 h-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors shrink-0">
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
                   </span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    مطابقة 100% لجدول أسعار بوسطة (7 مناطق × 6 أحجام × 5 أنواع توصيل) وتُحفظ تلقائياً لكل متجر
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    <span>الحد المجاني للبيك أب (شحنات):</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      step={1}
-                      value={zoneRates.minFreePickupShipments ?? 3}
-                      onChange={e =>
-                        setZoneRates(p => ({
-                          ...p,
-                          minFreePickupShipments: Math.max(1, Number(e.target.value) || 3)
-                        }))
-                      }
-                      className="w-16 px-2 py-1 text-center font-mono tabular-nums font-black bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg"
-                    />
-                  </label>
+                  <div>
+                    <span className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <span>جدول أسعار بوسطة المرجعي (7 مناطق × 6 أحجام × 5 خدمات)</span>
+                      {showRateMatrixPanel ? (
+                        <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                    </span>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                      الأسعار قبل الضريبة 14% · الحد المجاني للبيك أب:{' '}
+                      <strong className="font-mono tabular-nums text-slate-700 dark:text-slate-200">
+                        {zoneRates.minFreePickupShipments ?? 3} شحنات
+                      </strong>
+                    </span>
+                  </div>
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      setZoneRates(DEFAULT_ZONE_RATE_CONFIG);
-                      notify('تمت إعادة ضبط خطة الأسعار الكاملة (7 مناطق × 6 أحجام) للقيم الافتراضية.');
-                    }}
-                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    onClick={() => setShowRateMatrixPanel(v => !v)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100/80 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
                   >
-                    إعادة لخطة بوسطة الافتراضية
+                    <span>{showRateMatrixPanel ? 'إخفاء جدول الأسعار' : 'تعديل جدول الأسعار'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* 7 Bosta Zone Tabs */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5">
-                {BOSTA_ZONE_META.map(z => {
-                  const isActive = activeRatePlanZone === z.id;
-                  return (
+              {showRateMatrixPanel && (
+                <div className="px-4 pb-4 pt-3 border-t border-slate-200/80 dark:border-slate-700/70 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      <span>الحد المجاني للبيك أب (شحنات):</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        step={1}
+                        value={zoneRates.minFreePickupShipments ?? 3}
+                        onChange={e =>
+                          setZoneRates(p => ({
+                            ...p,
+                            minFreePickupShipments: Math.max(1, Number(e.target.value) || 3)
+                          }))
+                        }
+                        className="w-16 px-2 py-1 text-center font-mono tabular-nums font-black bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg"
+                      />
+                    </label>
                     <button
-                      key={z.id}
                       type="button"
-                      onClick={() => setActiveRatePlanZone(z.id)}
-                      className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all duration-200 border text-center cursor-pointer ${
-                        isActive
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
+                      onClick={() => {
+                        setZoneRates(DEFAULT_ZONE_RATE_CONFIG);
+                        notify('تمت إعادة ضبط خطة الأسعار الكاملة (7 مناطق × 6 أحجام) للقيم الافتراضية.');
+                      }}
+                      className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                     >
-                      {z.labelAr}
+                      إعادة لخطة بوسطة الافتراضية
                     </button>
-                  );
-                })}
-              </div>
+                  </div>
 
-              {/* Active Zone Subtitle */}
-              <div className="text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                {BOSTA_ZONE_META.find(z => z.id === activeRatePlanZone)?.subtitleAr}
-              </div>
-
-              {/* 6 Sizes x 5 Service Types Editable Matrix Table */}
-              <div className="overflow-x-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-50 dark:bg-slate-800/70 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      <th className="py-2.5 px-3 font-bold">حجم الشحنة</th>
-                      {BOSTA_SERVICE_TYPE_META.map(srv => (
-                        <th key={srv.id} className="py-2.5 px-3 font-bold text-center whitespace-nowrap">
-                          {srv.labelAr}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {BOSTA_PACKAGE_SIZE_META.map(sz => {
-                      const activeMatrix: BostaRateMatrix =
-                        zoneRates.rateMatrix || DEFAULT_BOSTA_RATE_MATRIX;
-                      const rowRates =
-                        activeMatrix[activeRatePlanZone]?.[sz.id] ||
-                        DEFAULT_BOSTA_RATE_MATRIX[activeRatePlanZone][sz.id];
-
-                      const updateCell = (srvId: BostaServiceTypeId, val: number) => {
-                        setZoneRates(prev => {
-                          const baseMatrix: BostaRateMatrix =
-                            prev.rateMatrix || DEFAULT_BOSTA_RATE_MATRIX;
-                          const nextZoneTable = {
-                            ...baseMatrix[activeRatePlanZone],
-                            [sz.id]: {
-                              ...baseMatrix[activeRatePlanZone][sz.id],
-                              [srvId]: Math.max(0, val)
-                            }
-                          };
-                          return {
-                            ...prev,
-                            rateMatrix: {
-                              ...baseMatrix,
-                              [activeRatePlanZone]: nextZoneTable
-                            }
-                          };
-                        });
-                      };
-
+                  {/* 7 Bosta Zone Tabs */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5">
+                    {BOSTA_ZONE_META.map(z => {
+                      const isActive = activeRatePlanZone === z.id;
                       return (
-                        <tr key={sz.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
-                          <td className="py-2 px-3 whitespace-nowrap">
-                            <div className="font-bold text-slate-800 dark:text-slate-100">
-                              {sz.labelAr}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-400">
-                              {sz.bostaCsvValues}
-                            </div>
-                          </td>
-                          {BOSTA_SERVICE_TYPE_META.map(srv => (
-                            <td key={srv.id} className="py-1.5 px-2 text-center">
-                              <input
-                                type="number"
-                                min={0}
-                                step={1}
-                                value={rowRates[srv.id]}
-                                onChange={e => updateCell(srv.id, Number(e.target.value) || 0)}
-                                className="w-20 px-2 py-1 text-center font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:border-indigo-500 focus:outline-none"
-                              />
-                            </td>
-                          ))}
-                        </tr>
+                        <button
+                          key={z.id}
+                          type="button"
+                          onClick={() => setActiveRatePlanZone(z.id)}
+                          className={`px-2.5 py-2 rounded-lg text-xs font-bold transition-all duration-150 border text-center cursor-pointer ${
+                            isActive
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-xs'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300'
+                          }`}
+                        >
+                          {z.labelAr}
+                        </button>
                       );
                     })}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
+
+                  {/* Active Zone Subtitle */}
+                  <div className="text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    {BOSTA_ZONE_META.find(z => z.id === activeRatePlanZone)?.subtitleAr}
+                  </div>
+
+                  {/* 6 Sizes x 5 Service Types Editable Matrix Table */}
+                  <div className="overflow-x-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/70 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                          <th className="py-2.5 px-3 font-bold">حجم الشحنة</th>
+                          {BOSTA_SERVICE_TYPE_META.map(srv => (
+                            <th key={srv.id} className="py-2.5 px-3 font-bold text-center whitespace-nowrap">
+                              {srv.labelAr}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {BOSTA_PACKAGE_SIZE_META.map(sz => {
+                          const activeMatrix: BostaRateMatrix =
+                            zoneRates.rateMatrix || DEFAULT_BOSTA_RATE_MATRIX;
+                          const rowRates =
+                            activeMatrix[activeRatePlanZone]?.[sz.id] ||
+                            DEFAULT_BOSTA_RATE_MATRIX[activeRatePlanZone][sz.id];
+
+                          const updateCell = (srvId: BostaServiceTypeId, val: number) => {
+                            setZoneRates(prev => {
+                              const baseMatrix: BostaRateMatrix =
+                                prev.rateMatrix || DEFAULT_BOSTA_RATE_MATRIX;
+                              const nextZoneTable = {
+                                ...baseMatrix[activeRatePlanZone],
+                                [sz.id]: {
+                                  ...baseMatrix[activeRatePlanZone][sz.id],
+                                  [srvId]: Math.max(0, val)
+                                }
+                              };
+                              return {
+                                ...prev,
+                                rateMatrix: {
+                                  ...baseMatrix,
+                                  [activeRatePlanZone]: nextZoneTable
+                                }
+                              };
+                            });
+                          };
+
+                          return (
+                            <tr key={sz.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                <div className="font-bold text-slate-800 dark:text-slate-100">
+                                  {sz.labelAr}
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  {sz.bostaCsvValues}
+                                </div>
+                              </td>
+                              {BOSTA_SERVICE_TYPE_META.map(srv => (
+                                <td key={srv.id} className="py-1.5 px-2 text-center">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    value={rowRates[srv.id]}
+                                    onChange={e => updateCell(srv.id, Number(e.target.value) || 0)}
+                                    className="w-20 px-2 py-1 text-center font-mono tabular-nums font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:border-indigo-500 focus:outline-none"
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
 
             {auditResult.pickupFeeAudits.length > 0 && (
@@ -5621,7 +6651,12 @@ export default function CodHunterWorkspace({
                           }
                         >
                           <td className="py-2.5 px-4 font-mono tabular-nums font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                            {tx.transactionId}
+                            <div>{tx.transactionId}</div>
+                            {tx.orderRef && tx.orderRef !== tx.transactionId && (
+                              <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
+                                طلب #{tx.orderRef}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap">
                             {tx.date || '-'}
@@ -5633,6 +6668,11 @@ export default function CodHunterWorkspace({
                             <span className="text-[11px] text-slate-400 mr-1.5 font-mono">
                               ({tx.category})
                             </span>
+                            {tx.description && (
+                              <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                {tx.description}
+                              </span>
+                            )}
                             {pickupAudit && (
                               <span
                                 className={`mr-2 inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-black font-mono tabular-nums ${
@@ -5666,8 +6706,34 @@ export default function CodHunterWorkspace({
                             {tx.balance !== null ? formatEgp(tx.balance) : '-'}
                           </td>
                           <td className="py-2.5 px-4 font-mono tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
-                            {tx.cashoutId || '-'}
-                            {tx.cashoutAmount ? ` (${formatEgp(tx.cashoutAmount)})` : ''}
+                            {(() => {
+                              const linkedCashout = tx.cashoutId
+                                ? auditResult.transactionsSummary.entries.find(
+                                    e =>
+                                      e.cashoutId.trim().toUpperCase() ===
+                                      tx.cashoutId!.trim().toUpperCase()
+                                  )
+                                : undefined;
+                              if (linkedCashout) {
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => openCashoutOrdersModal(linkedCashout)}
+                                    title="اضغط لعرض الأوردرات المرتبطة بمبلغ التحويل"
+                                    className="text-emerald-700 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
+                                  >
+                                    {tx.cashoutId}
+                                    {tx.cashoutAmount ? ` (${formatEgp(tx.cashoutAmount)})` : ''}
+                                  </button>
+                                );
+                              }
+                              return (
+                                <>
+                                  {tx.cashoutId || '-'}
+                                  {tx.cashoutAmount ? ` (${formatEgp(tx.cashoutAmount)})` : ''}
+                                </>
+                              );
+                            })()}
                           </td>
                         </tr>
                       );
@@ -7433,7 +8499,10 @@ export default function CodHunterWorkspace({
             )}
           </div>
         )}
+        </div>
       </div>
+        </>
+      )}
 
       {/* Modal 1: Approve & Settle Batch */}
       {showSettleModal && (
@@ -7741,7 +8810,7 @@ export default function CodHunterWorkspace({
             )}
 
             <div className="space-y-2.5 text-xs">
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+              <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
                 <div>
                   <div className="font-bold text-slate-800 dark:text-slate-100">دورات المبالغ المجمعة (COD)</div>
                   <div className="text-[11px] text-slate-500 mt-0.5 font-mono tabular-nums">
@@ -7749,6 +8818,20 @@ export default function CodHunterWorkspace({
                       ? `مقابل ${inspectedCashout.linkedOrderCount} شحنة في Cash Cycles (${inspectedCashout.linkedDeliveredCount} مسلّم · ${inspectedCashout.linkedReturnedCount} مرتجع)`
                       : 'ارفع شيت Cash Cycles الخاص بهذه الدفعة لعرض الشحنات'}
                   </div>
+                  {inspectedCashout.linkedOrderCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = inspectedCashout;
+                        setInspectedCashout(null);
+                        openCashoutOrdersModal(target);
+                      }}
+                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      <span>عرض قائمة الأوردرات المرتبطة ({inspectedCashout.linkedOrderCount})</span>
+                    </button>
+                  )}
                 </div>
                 <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
                   {inspectedCashout.linkedOrderCount > 0
@@ -7778,11 +8861,24 @@ export default function CodHunterWorkspace({
                   <div>
                     <div className="font-bold text-slate-800 dark:text-slate-100">تعويض</div>
                     {compensationsByCashoutId.get(inspectedCashout.cashoutId)?.length ? (
-                      <div className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5 font-mono tabular-nums">
-                        {compensationsByCashoutId
-                          .get(inspectedCashout.cashoutId)!
-                          .map(c => `بوليصة ${c.orderId} (${c.customerName || c.orderType})`)
-                          .join(' · ')}
+                      <div className="mt-1 space-y-0.5">
+                        {compensationsByCashoutId.get(inspectedCashout.cashoutId)!.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setInspectedCashout(null);
+                              setInspectedQuickRef({
+                                mode: 'waybill',
+                                trackingCode: c.orderId,
+                                cashoutId: inspectedCashout.cashoutId
+                              });
+                            }}
+                            className="text-[11px] font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-300 hover:underline block cursor-pointer text-right"
+                          >
+                            بوليصة {c.orderId} ({c.customerName || c.orderType})
+                          </button>
+                        ))}
                       </div>
                     ) : (
                       <div className="text-[11px] text-slate-500 mt-0.5">مقابل شحنات تمت مراجعتها</div>
@@ -7803,33 +8899,94 @@ export default function CodHunterWorkspace({
                 </div>
               )}
 
-              {inspectedCashout.linkedPackingTotal !== 0 && (
-                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                  <div>
-                    <div className="font-bold text-slate-800 dark:text-slate-100">طلبات مواد التغليف</div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">مقابل خامات تغليف</div>
+              {inspectedCashout.linkedPackingTotal !== 0 && (() => {
+                const packingItems =
+                  inspectedCashout.linkedAdjustmentItems?.filter(i => i.kind === 'packing') || [];
+                return (
+                  <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 dark:text-slate-100">طلبات مواد التغليف</div>
+                      {packingItems.length > 0 ? (
+                        <div className="mt-1 space-y-0.5">
+                          {packingItems.map(item => {
+                            const refCode = item.orderRef || item.transactionId;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setInspectedCashout(null);
+                                  setInspectedQuickRef({
+                                    mode: 'tx_adjustment',
+                                    item,
+                                    cashoutId: inspectedCashout.cashoutId
+                                  });
+                                }}
+                                className="text-[11px] font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer text-right"
+                              >
+                                طلب تغليف #{refCode}
+                                {item.date ? ` · ${item.date}` : ''} ({formatEgp(item.amount)})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-500 mt-0.5">مقابل خامات تغليف</div>
+                      )}
+                    </div>
+                    <div
+                      className={`font-mono tabular-nums font-black shrink-0 ${
+                        inspectedCashout.linkedPackingTotal < 0
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {inspectedCashout.linkedPackingTotal > 0 ? '+' : ''}
+                      {formatEgp(inspectedCashout.linkedPackingTotal)}
+                    </div>
                   </div>
-                  <div
-                    className={`font-mono tabular-nums font-black ${
-                      inspectedCashout.linkedPackingTotal < 0
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : 'text-emerald-600 dark:text-emerald-400'
-                    }`}
-                  >
-                    {inspectedCashout.linkedPackingTotal > 0 ? '+' : ''}
-                    {formatEgp(inspectedCashout.linkedPackingTotal)}
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
-              {inspectedCashout.linkedPickupTotal !== 0 && (
-                <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                  <div className="font-bold text-slate-800 dark:text-slate-100">رسوم البيك أب</div>
-                  <div className="font-mono tabular-nums font-black text-rose-600 dark:text-rose-400">
-                    {formatEgp(inspectedCashout.linkedPickupTotal)}
+              {inspectedCashout.linkedPickupTotal !== 0 && (() => {
+                const pickupItems =
+                  inspectedCashout.linkedAdjustmentItems?.filter(i => i.kind === 'pickup') || [];
+                return (
+                  <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 dark:text-slate-100">رسوم البيك أب</div>
+                      {pickupItems.length > 0 && (
+                        <div className="mt-1 space-y-0.5">
+                          {pickupItems.map(item => {
+                            const refCode = item.orderRef || item.transactionId;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setInspectedCashout(null);
+                                  setInspectedQuickRef({
+                                    mode: 'tx_adjustment',
+                                    item,
+                                    cashoutId: inspectedCashout.cashoutId
+                                  });
+                                }}
+                                className="text-[11px] font-bold font-mono tabular-nums text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer text-right"
+                              >
+                                طلب بيك أب #{refCode}
+                                {item.date ? ` · ${item.date}` : ''} ({formatEgp(item.amount)})
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    <div className="font-mono tabular-nums font-black text-rose-600 dark:text-rose-400 shrink-0">
+                      {formatEgp(inspectedCashout.linkedPickupTotal)}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               <div className="flex items-center justify-between p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/35 border border-emerald-200 dark:border-emerald-800/60">
                 <div>
@@ -7888,6 +9045,834 @@ export default function CodHunterWorkspace({
           </div>
         </div>
       )}
+
+      {/* CASHOUT LINKED ORDERS MODAL (triggered by clicking Bank Transfer Amount) */}
+      {inspectedCashoutOrders && (() => {
+        const cashoutIdUpper = inspectedCashoutOrders.cashoutId.trim().toUpperCase();
+        const allLinkedRows = auditResult.sheetRows.filter(
+          r =>
+            r.category !== 'duplicate' &&
+            (r.sheetCashoutId || '').trim().toUpperCase() === cashoutIdUpper
+        );
+        const isRowReturned = (r: SheetAuditRow) => {
+          const s = (r.sheetStatus || '').toLowerCase();
+          return (
+            r.category === 'not_collected_customer' ||
+            s.includes('return') ||
+            s.includes('cancel') ||
+            s.includes('fail') ||
+            s.includes('مرتجع') ||
+            s.includes('ملغي') ||
+            (r.sheetGrossAmount === 0 && r.sheetNetPayout <= 0)
+          );
+        };
+        const deliveredCount = allLinkedRows.filter(r => !isRowReturned(r)).length;
+        const returnedCount = allLinkedRows.filter(r => isRowReturned(r)).length;
+        const linkedStoreCount = allLinkedRows.filter(r => Boolean(r.matchedOrder)).length;
+        const unlinkedStoreCount = allLinkedRows.length - linkedStoreCount;
+
+        const q = cashoutOrdersSearch.trim().toLowerCase();
+        const filteredRows = allLinkedRows.filter(r => {
+          if (cashoutOrdersFilter === 'delivered' && isRowReturned(r)) return false;
+          if (cashoutOrdersFilter === 'returned' && !isRowReturned(r)) return false;
+          if (cashoutOrdersFilter === 'linked_store' && !r.matchedOrder) return false;
+          if (cashoutOrdersFilter === 'unlinked_store' && r.matchedOrder) return false;
+          if (!q) return true;
+          return (
+            r.trackingKey.toLowerCase().includes(q) ||
+            (r.businessRefKey || '').toLowerCase().includes(q) ||
+            (r.matchedOrder?.orderNumber || '').toLowerCase().includes(q) ||
+            (r.matchedOrder?.customerName || r.customerName || '').toLowerCase().includes(q) ||
+            (r.matchedOrder?.customerPhone || r.phoneRaw || '').toLowerCase().includes(q) ||
+            (r.brandName || '').toLowerCase().includes(q)
+          );
+        });
+
+        const sumGross = Math.round(
+          filteredRows.reduce((s, r) => s + r.sheetGrossAmount, 0) * 100
+        ) / 100;
+        const sumFees = Math.round(
+          filteredRows.reduce((s, r) => s + r.sheetFeesAmount, 0) * 100
+        ) / 100;
+        const sumNet = Math.round(
+          filteredRows.reduce((s, r) => s + r.sheetNetPayout, 0) * 100
+        ) / 100;
+
+        const linkedComps = compensationsByCashoutId.get(inspectedCashoutOrders.cashoutId) || [];
+        const linkedAdjItems = inspectedCashoutOrders.linkedAdjustmentItems || [];
+        const bankMatched = Math.abs(inspectedCashoutOrders.bankVariance) < 0.05;
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+            onClick={() => setInspectedCashoutOrders(null)}
+          >
+            <div
+              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-5xl w-full max-h-[90vh] flex flex-col shadow-xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      <Landmark className="w-4 h-4" />
+                      <span>الأوردرات المرتبطة بمبلغ التحويل للبنك</span>
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono tabular-nums text-xs font-black">
+                      {inspectedCashoutOrders.cashoutId}
+                    </span>
+                    {inspectedCashoutOrders.date && (
+                      <span className="text-xs font-mono tabular-nums text-slate-500">
+                        {inspectedCashoutOrders.date}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>المحوّل للبنك فعلياً:</span>
+                    <span className="font-mono tabular-nums font-black text-base text-emerald-600 dark:text-emerald-400">
+                      {formatEgp(inspectedCashoutOrders.cashoutAmount)}
+                    </span>
+                    {bankMatched ? (
+                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                        · مطابق 100% للبنك
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400">
+                        · فرق بنكي {formatEgp(inspectedCashoutOrders.bankVariance)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = inspectedCashoutOrders;
+                      setInspectedCashoutOrders(null);
+                      setInspectedCashout(target);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>فاتورة التحويل</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectedCashoutOrders(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Mini KPI Strip */}
+              <div className="px-5 py-3 bg-slate-50/70 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 grid grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs shrink-0">
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-500">الأوردرات المرتبطة</div>
+                  <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white text-sm mt-0.5">
+                    {allLinkedRows.length} أوردر
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5 font-mono tabular-nums">
+                    {deliveredCount} مسلّم · {returnedCount} مرتجع ({linkedStoreCount} بالمتجر)
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-500">إجمالي تحصيل الـ COD</div>
+                  <div className="font-mono tabular-nums font-black text-slate-900 dark:text-white text-sm mt-0.5">
+                    {formatEgp(inspectedCashoutOrders.linkedGrossTotal)}
+                  </div>
+                  <div className="text-[10px] text-rose-600 dark:text-rose-400 mt-0.5 font-mono tabular-nums">
+                    مصاريف بوسطة: -{formatEgp(inspectedCashoutOrders.linkedFeesTotal)}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-500">صافي الأوردرات (Net)</div>
+                  <div className="font-mono tabular-nums font-black text-emerald-600 dark:text-emerald-400 text-sm mt-0.5">
+                    {formatEgp(inspectedCashoutOrders.linkedNetTotal)}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5 font-mono tabular-nums">
+                    رسوم التحويل: -{formatEgp(inspectedCashoutOrders.transferFees)}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800">
+                  <div className="text-[11px] text-slate-500">التعويضات / التغليف / البيك أب</div>
+                  <div
+                    className={`font-mono tabular-nums font-black text-sm mt-0.5 ${
+                      inspectedCashoutOrders.linkedAdjustmentsTotal < 0
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : inspectedCashoutOrders.linkedAdjustmentsTotal > 0
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-slate-400'
+                    }`}
+                  >
+                    {inspectedCashoutOrders.linkedAdjustmentsTotal > 0 ? '+' : ''}
+                    {formatEgp(inspectedCashoutOrders.linkedAdjustmentsTotal)}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5 truncate">
+                    {linkedComps.length + linkedAdjItems.length > 0
+                      ? `${linkedComps.length + linkedAdjItems.length} حركة تسوية مرتبطة`
+                      : 'لا توجد تسويات إضافية'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Filter Controls */}
+              {allLinkedRows.length > 0 && (
+                <div className="px-5 py-2.5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={cashoutOrdersSearch}
+                      onChange={e => setCashoutOrdersSearch(e.target.value)}
+                      placeholder="بحث برقم البوليصة، الأوردر، العميل، الهاتف..."
+                      className="w-full pr-8 pl-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    {(
+                      [
+                        { id: 'all', label: `الكل (${allLinkedRows.length})` },
+                        { id: 'delivered', label: `مسلّم (${deliveredCount})` },
+                        { id: 'returned', label: `مرتجع (${returnedCount})` },
+                        { id: 'linked_store', label: `بالمتجر (${linkedStoreCount})` },
+                        ...(unlinkedStoreCount > 0
+                          ? [{ id: 'unlinked_store' as const, label: `غير مربوط (${unlinkedStoreCount})` }]
+                          : [])
+                      ] as const
+                    ).map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setCashoutOrdersFilter(tab.id)}
+                        className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                          cashoutOrdersFilter === tab.id
+                            ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Orders Table Body */}
+              <div className="flex-1 overflow-auto">
+                {allLinkedRows.length === 0 ? (
+                  <div className="py-12 px-6 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+                      <Package className="w-6 h-6" />
+                    </div>
+                    <div className="text-sm font-black text-slate-900 dark:text-white">
+                      لا توجد بوالص محمّلة من شيت Cash Cycles مرتبطة بالكود {inspectedCashoutOrders.cashoutId}
+                    </div>
+                    <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                      ارفع شيت <strong>Cash Cycles</strong> الخاص بفترة هذا التحويل ليظهر كل أوردر وبوليصة بالتفصيل، أو راجع فاتورة السحب النقدي.
+                    </p>
+                    <div className="flex items-center justify-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = inspectedCashoutOrders;
+                          setInspectedCashoutOrders(null);
+                          setInspectedCashout(target);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:opacity-90 cursor-pointer"
+                      >
+                        فتح فاتورة التحويل
+                      </button>
+                      {inspectedCashoutOrders.isUnlinkedGeneralPayout && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cid = inspectedCashoutOrders.cashoutId;
+                            setInspectedCashoutOrders(null);
+                            setActiveLinkedCashoutId(cid);
+                            jumpToAuditTab('untransferred');
+                          }}
+                          className="px-4 py-2 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 text-xs font-bold hover:bg-amber-100 cursor-pointer"
+                        >
+                          عرض الشحنات غير المحوّلة للربط
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : filteredRows.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-slate-500">
+                    لا توجد أوردرات تطابق البحث أو الفلتر المحدد.
+                  </div>
+                ) : (
+                  <table className="w-full text-right text-xs border-collapse">
+                    <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800/95 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="py-2.5 px-3 font-bold w-10">#</th>
+                        <th className="py-2.5 px-3 font-bold">البوليصة والأوردر</th>
+                        <th className="py-2.5 px-3 font-bold">العميل</th>
+                        <th className="py-2.5 px-3 font-bold">الحالة</th>
+                        <th className="py-2.5 px-3 font-bold text-left">تحصيل COD</th>
+                        <th className="py-2.5 px-3 font-bold text-left">مصاريف بوسطة</th>
+                        <th className="py-2.5 px-3 font-bold text-left">الصافي (Net)</th>
+                        <th className="py-2.5 px-3 font-bold text-center">إجراء</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredRows.map((row, idx) => {
+                        const returned = isRowReturned(row);
+                        const orderNum = row.matchedOrder?.orderNumber || row.businessRefKey;
+                        const custName = row.matchedOrder?.customerName || row.customerName || '-';
+                        const custPhone = row.matchedOrder?.customerPhone || row.phoneRaw || '';
+                        return (
+                          <tr
+                            key={row.id}
+                            className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
+                          >
+                            <td className="py-2.5 px-3 font-mono tabular-nums text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInspectedQuickRef({
+                                    mode: 'waybill',
+                                    trackingCode: row.trackingKey,
+                                    cashoutId: inspectedCashoutOrders.cashoutId
+                                  })
+                                }
+                                title="فحص تفاصيل البوليصة"
+                                className="font-mono tabular-nums font-black text-indigo-600 dark:text-indigo-400 hover:underline block cursor-pointer"
+                              >
+                                {row.trackingKey}
+                              </button>
+                              <div className="flex items-center gap-1.5 mt-0.5 text-[11px]">
+                                {row.matchedOrder ? (
+                                  <Link
+                                    to={`${orderBasePath}/${row.matchedOrder.id}`}
+                                    className="font-mono tabular-nums font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
+                                  >
+                                    أوردر #{row.matchedOrder.orderNumber}
+                                  </Link>
+                                ) : orderNum ? (
+                                  <span className="font-mono tabular-nums text-slate-500">
+                                    مرجع: {orderNum}
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-600 dark:text-amber-400 text-[10px]">
+                                    غير مربوط بأوردر متجر
+                                  </span>
+                                )}
+                                {row.brandName && (
+                                  <span className="text-[10px] text-slate-400">· {row.brandName}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 max-w-[180px]">
+                              <div className="font-bold text-slate-800 dark:text-slate-100 truncate">
+                                {custName}
+                              </div>
+                              {custPhone && (
+                                <div className="text-[10px] font-mono tabular-nums text-slate-400">
+                                  {custPhone}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                  returned
+                                    ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300'
+                                    : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300'
+                                }`}
+                              >
+                                {returned ? 'مرتجع / غير محصّل' : 'تم التسليم'}
+                              </span>
+                              {row.sheetDeliveredAt && (
+                                <div className="text-[10px] font-mono tabular-nums text-slate-400 mt-0.5">
+                                  {row.sheetDeliveredAt}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-left font-mono tabular-nums font-bold text-slate-800 dark:text-slate-100 whitespace-nowrap">
+                              {formatEgp(row.sheetGrossAmount)}
+                            </td>
+                            <td className="py-2.5 px-3 text-left font-mono tabular-nums font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                              {row.sheetFeesAmount > 0 ? `-${formatEgp(row.sheetFeesAmount)}` : '0 ج.م'}
+                            </td>
+                            <td
+                              className={`py-2.5 px-3 text-left font-mono tabular-nums font-black whitespace-nowrap ${
+                                row.sheetNetPayout < 0
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : 'text-emerald-600 dark:text-emerald-400'
+                              }`}
+                            >
+                              {formatEgp(row.sheetNetPayout)}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                {row.matchedOrder && (
+                                  <Link
+                                    to={`${orderBasePath}/${row.matchedOrder.id}`}
+                                    className="px-2 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-[10px] font-bold transition-colors"
+                                  >
+                                    فتح الأوردر
+                                  </Link>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setInspectedQuickRef({
+                                      mode: 'waybill',
+                                      trackingCode: row.trackingKey,
+                                      cashoutId: inspectedCashoutOrders.cashoutId
+                                    })
+                                  }
+                                  className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[10px] font-bold cursor-pointer"
+                                >
+                                  فحص
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Linked Adjustments + Footer Totals */}
+              <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-800/60 space-y-2 shrink-0">
+                {(linkedComps.length > 0 || linkedAdjItems.length > 0) && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="font-bold text-slate-500">تسويات مرتبطة بنفس الدفعة:</span>
+                    {linkedComps.map(comp => (
+                      <button
+                        key={comp.id}
+                        type="button"
+                        onClick={() =>
+                          setInspectedQuickRef({
+                            mode: 'waybill',
+                            trackingCode: comp.orderId,
+                            cashoutId: inspectedCashoutOrders.cashoutId
+                          })
+                        }
+                        className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono tabular-nums font-bold hover:underline cursor-pointer"
+                      >
+                        تعويض بوليصة {comp.orderId} (+{formatEgp(comp.compensationAmount)})
+                      </button>
+                    ))}
+                    {linkedAdjItems.map(item => {
+                      const refCode = item.orderRef || item.transactionId;
+                      const prefix =
+                        item.kind === 'packing'
+                          ? 'تغليف'
+                          : item.kind === 'pickup'
+                          ? 'بيك أب'
+                          : 'تسوية';
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() =>
+                            setInspectedQuickRef({
+                              mode: 'tx_adjustment',
+                              item,
+                              cashoutId: inspectedCashoutOrders.cashoutId
+                            })
+                          }
+                          className={`px-2 py-0.5 rounded-lg border font-mono tabular-nums font-bold hover:underline cursor-pointer ${
+                            item.amount < 0
+                              ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                          }`}
+                        >
+                          {prefix} #{refCode} ({item.amount > 0 ? '+' : ''}
+                          {formatEgp(item.amount)})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums">
+                    <div>
+                      <span className="text-slate-500 font-sans ml-1">إجمالي المعروض ({filteredRows.length}):</span>
+                      <span className="font-bold text-slate-900 dark:text-white">{formatEgp(sumGross)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans ml-1">مصاريف:</span>
+                      <span className="font-bold text-rose-600 dark:text-rose-400">-{formatEgp(sumFees)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-sans ml-1">صافي:</span>
+                      <span className="font-black text-emerald-600 dark:text-emerald-400">{formatEgp(sumNet)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cid = inspectedCashoutOrders.cashoutId;
+                        setInspectedCashoutOrders(null);
+                        jumpToAuditTab('matched', { search: cid });
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      عرضها بالجدول الرئيسي
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInspectedCashoutOrders(null)}
+                      className="px-4 py-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:opacity-90 cursor-pointer"
+                    >
+                      إغلاق
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* INSTANT WAYBILL / PACKING / PICKUP QUICK-INSPECTOR MODAL */}
+      {inspectedQuickRef && (() => {
+        if (inspectedQuickRef.mode === 'tx_adjustment') {
+          const { item, cashoutId } = inspectedQuickRef;
+          const refCode = item.orderRef || item.transactionId;
+          const ledgerHit = auditResult.transactionsSummary.ledgerRows.find(
+            r => r.id === item.id || r.transactionId === item.transactionId
+          );
+          const kindLabel =
+            item.kind === 'packing'
+              ? 'طلب مستلزمات تغليف'
+              : item.kind === 'pickup'
+              ? 'طلب بيك أب (Pickup)'
+              : item.kind === 'compensation'
+              ? 'تعويض شحنة'
+              : 'تسوية رصيد';
+          return (
+            <div
+              className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+              onClick={() => setInspectedQuickRef(null)}
+            >
+              <div
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-5 space-y-4 shadow-xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <div>
+                    <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                      {kindLabel}
+                    </div>
+                    <h3 className="text-base font-black text-slate-900 dark:text-white font-mono tabular-nums mt-0.5">
+                      #{refCode}
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInspectedQuickRef(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                    <div className="text-[11px] text-slate-500">قيمة الحركة</div>
+                    <div
+                      className={`font-mono tabular-nums font-black text-base mt-0.5 ${
+                        item.amount < 0
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : 'text-emerald-600 dark:text-emerald-400'
+                      }`}
+                    >
+                      {item.amount > 0 ? '+' : ''}
+                      {formatEgp(item.amount)}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                    <div className="text-[11px] text-slate-500">التاريخ</div>
+                    <div className="font-mono tabular-nums font-bold text-slate-900 dark:text-white mt-0.5">
+                      {item.date || '-'}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                    <div className="text-[11px] text-slate-500">معرف الحركة في Transactions</div>
+                    <div className="font-mono tabular-nums font-bold text-slate-900 dark:text-white mt-0.5 break-all">
+                      {item.transactionId}
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                    <div className="text-[11px] text-slate-500">دفعة التحويل المرتبطة</div>
+                    <div className="font-mono tabular-nums font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">
+                      {cashoutId || ledgerHit?.cashoutId || '-'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-slate-500">التصنيف بالشيت:</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-100">
+                      {item.categoryAr} ({item.category})
+                    </span>
+                  </div>
+                  {ledgerHit?.balance !== null && ledgerHit?.balance !== undefined && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">رصيد محفظة بوسطة بعد الحركة:</span>
+                      <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                        {formatEgp(ledgerHit.balance)}
+                      </span>
+                    </div>
+                  )}
+                  {item.description && (
+                    <div className="pt-1 border-t border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                      {item.description}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setInspectedQuickRef(null)}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    إغلاق
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInspectedQuickRef(null);
+                      setInspectedCashoutOrders(null);
+                      jumpToAuditTab('transactions_ledger', {
+                        search: item.transactionId,
+                        txCategory: 'all'
+                      });
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:opacity-90 cursor-pointer"
+                  >
+                    عرض السطر في سجل Transactions
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Mode === 'waybill'
+        const code = inspectedQuickRef.trackingCode;
+        const codeLower = code.trim().toLowerCase();
+        const sheetRow = auditResult.sheetRows.find(
+          r =>
+            r.trackingKey.toLowerCase() === codeLower ||
+            (r.businessRefKey || '').toLowerCase() === codeLower
+        );
+        const compEntry = auditResult.compensationsSummary.entries.find(
+          c => c.orderId.toLowerCase() === codeLower
+        );
+        const creditEntry = auditResult.bostaCreditsSummary.entries.find(
+          cr => (cr.trackingNumber || '').toLowerCase() === codeLower
+        );
+        const matchedOrder =
+          sheetRow?.matchedOrder ||
+          compEntry?.matchedOrder ||
+          orders.find(
+            o =>
+              (o.waybillNumber || '').trim().toLowerCase() === codeLower ||
+              (o.orderNumber || '').trim().toLowerCase() === codeLower
+          ) ||
+          null;
+
+        const targetTabForWaybill: AuditTabId = compEntry
+          ? 'compensations'
+          : sheetRow
+          ? sheetRow.category === 'collected_untransferred'
+            ? 'untransferred'
+            : sheetRow.category === 'short_paid' || sheetRow.category === 'over_paid'
+            ? 'discrepancy'
+            : sheetRow.category === 'not_collected_customer'
+            ? 'not_collected'
+            : sheetRow.category === 'not_found'
+            ? 'not_found'
+            : sheetRow.category === 'in_transit_sheet'
+            ? 'in_transit_sheet'
+            : sheetRow.category === 'duplicate'
+            ? 'duplicate'
+            : 'matched'
+          : creditEntry
+          ? 'bosta_credits'
+          : 'matched';
+
+        return (
+          <div
+            className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+            onClick={() => setInspectedQuickRef(null)}
+          >
+            <div
+              className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-xl w-full p-5 space-y-4 shadow-xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                    بطاقة فحص البوليصة السريعة
+                  </div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white font-mono tabular-nums mt-0.5">
+                    بوليصة {code}
+                  </h3>
+                  {(matchedOrder?.orderNumber || sheetRow?.businessRefKey) && (
+                    <div className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
+                      رقم الأوردر: {matchedOrder?.orderNumber || sheetRow?.businessRefKey}
+                      {sheetRow?.brandName ? ` · ${sheetRow.brandName}` : ''}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectedQuickRef(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                  <div className="text-[11px] text-slate-500">العميل</div>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5 truncate">
+                    {matchedOrder?.customerName ||
+                      compEntry?.customerName ||
+                      sheetRow?.customerName ||
+                      '-'}
+                  </div>
+                  {(matchedOrder?.customerPhone || sheetRow?.phoneRaw) && (
+                    <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                      {matchedOrder?.customerPhone || sheetRow?.phoneRaw}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                  <div className="text-[11px] text-slate-500">الحالة بالشيت</div>
+                  <div className="font-bold text-slate-900 dark:text-white mt-0.5">
+                    {sheetRow?.moneyStatusLabel ||
+                      compEntry?.orderStatusLabel ||
+                      sheetRow?.sheetStatus ||
+                      'مسجّلة بالشيت'}
+                  </div>
+                  <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 mt-0.5">
+                    {sheetRow?.sheetCashoutId ||
+                      compEntry?.cashoutId ||
+                      inspectedQuickRef.cashoutId ||
+                      'بلا كود دفعة'}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                  <div className="text-[11px] text-slate-500">
+                    {compEntry ? 'قيمة التعويض' : 'صافي البوليصة'}
+                  </div>
+                  <div className="font-mono tabular-nums font-black text-emerald-600 dark:text-emerald-400 text-sm mt-0.5">
+                    {compEntry
+                      ? `+${formatEgp(compEntry.compensationAmount)}`
+                      : sheetRow
+                      ? formatEgp(sheetRow.sheetNetPayout)
+                      : creditEntry
+                      ? formatEgp(creditEntry.amount)
+                      : '-'}
+                  </div>
+                </div>
+              </div>
+
+              {sheetRow && (
+                <div className="p-3 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs space-y-1.5">
+                  <div className="grid grid-cols-3 gap-2 font-mono tabular-nums">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-sans">تحصيل COD</span>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {formatEgp(sheetRow.sheetGrossAmount)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-sans">مصاريف الشحن</span>
+                      <span className="font-bold text-rose-600 dark:text-rose-400">
+                        -{formatEgp(sheetRow.sheetFeesAmount)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-sans">الصافي (Net)</span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                        {formatEgp(sheetRow.sheetNetPayout)}
+                      </span>
+                    </div>
+                  </div>
+                  {sheetRow.reasonSummary && (
+                    <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300">
+                      {sheetRow.reasonSummary}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {compEntry && (
+                <div className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-900/50 text-xs space-y-1">
+                  <div className="font-bold text-emerald-800 dark:text-emerald-200">
+                    تفاصيل التعويض ({compEntry.compensationDate || '-'})
+                  </div>
+                  <div className="text-slate-700 dark:text-slate-300">
+                    {compEntry.packageDescription || compEntry.orderStatusLabel || compEntry.orderType || 'تعويض معتمد من بوسطة'}
+                    {compEntry.compensationId ? ` · كود التعويض: ${compEntry.compensationId}` : ''}
+                  </div>
+                </div>
+              )}
+
+              {!sheetRow && !compEntry && !creditEntry && !matchedOrder && (
+                <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-200">
+                  هذه البوليصة غير موجودة في شيتات الدورات المرفوعة حالياً — يمكنك البحث عنها في الجدول أو رفع شيت Deliveries_Export / Cash Cycles الخاص بفترتها.
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                {matchedOrder && (
+                  <Link
+                    to={`${orderBasePath}/${matchedOrder.id}`}
+                    className="px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+                  >
+                    فتح صفحة الأوردر بالمتجر
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInspectedQuickRef(null);
+                    setInspectedCashoutOrders(null);
+                    jumpToAuditTab(targetTabForWaybill, { search: code });
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold hover:opacity-90 cursor-pointer"
+                >
+                  عرضها في الجدول وتصفيتها
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectedQuickRef(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

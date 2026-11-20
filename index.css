@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 @variant dark (&:where(.dark, .dark *));
 
@@ -13,10 +13,10 @@
   --color-error: #f43f5e; /* Rose-500 */
   --color-inactive: #64748b; /* Slate-500 */
 
-  --font-sans: "Cairo", "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Cairo", "Plus Jakarta Sans", sans-serif;
-  --font-store: "Plus Jakarta Sans", "Cairo", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --font-store: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Cairo", ui-sans-serif, system-ui, sans-serif;
 
   --radius-xl: 0.875rem;
   --radius-2xl: 1.25rem;
@@ -99,23 +99,27 @@
 }
 
 @layer base {
+  html,
+  body,
+  button,
+  input,
+  select,
+  textarea,
+  code,
+  pre {
+    font-family: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  }
+
   body {
-    @apply bg-[#f8faf9] text-zinc-900 font-sans antialiased selection:bg-emerald-500/20 selection:text-emerald-700 transition-colors duration-300;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(0, 171, 132, 0.02) 0px, transparent 40%),
-      radial-gradient(at 100% 0%, rgba(6, 45, 36, 0.02) 0px, transparent 40%);
-    background-attachment: fixed;
+    @apply bg-[#f8fafc] text-slate-900 font-sans antialiased selection:bg-emerald-500/20 selection:text-emerald-800 transition-colors duration-200;
   }
 
   .dark body {
-    @apply bg-[#030711] text-slate-50;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%);
+    @apply bg-[#060a12] text-slate-50;
   }
 
   * {
-    @apply border-slate-200 dark:border-slate-800/60;
+    @apply border-slate-200/90 dark:border-slate-800/70;
   }
 }
 
@@ -173,8 +177,10 @@
   .badge-pending-v3 { @apply text-amber-600 dark:text-amber-400; }
   .badge-error-v3 { @apply text-rose-600 dark:text-rose-400; }
 
-  /* Tabular Numerals Everywhere for Financials */
-  .tabular-nums {
+  /* Tabular Numerals Everywhere for Financials (using Cairo) */
+  .tabular-nums,
+  .font-mono {
+    font-family: "Cairo", ui-sans-serif, system-ui, sans-serif;
     font-variant-numeric: tabular-nums;
   }
 
@@ -483,4 +489,93 @@
     }
     [data-partners-page="true"] [class*="sticky"] { position: static !important; }
   }
+
+  /* -------------------------------------------------------------------------
+     COD Reconciliation Workspace — Modern Enterprise Financial SaaS Layer
+     ------------------------------------------------------------------------- */
+  [data-cod-workspace="true"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-cod-workspace="true"] table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  [data-cod-workspace="true"] table thead th {
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: -0.005em;
+    color: #475569;
+    background-color: rgba(248, 250, 252, 0.96);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+  }
+
+  .dark [data-cod-workspace="true"] table thead th {
+    color: #94a3b8;
+    background-color: rgba(15, 23, 42, 0.92);
+    border-bottom: 1px solid rgba(30, 41, 59, 0.95);
+  }
+
+  [data-cod-workspace="true"] table tbody tr {
+    transition: background-color 140ms ease;
+  }
+
+  [data-cod-workspace="true"] table tbody tr:hover {
+    background-color: rgba(241, 245, 249, 0.72);
+  }
+
+  .dark [data-cod-workspace="true"] table tbody tr:hover {
+    background-color: rgba(30, 41, 59, 0.48);
+  }
+
+  [data-cod-workspace="true"] table tbody td {
+    vertical-align: middle;
+  }
+
+  [data-cod-workspace="true"] input:focus,
+  [data-cod-workspace="true"] select:focus,
+  [data-cod-workspace="true"] textarea:focus {
+    outline: none;
+    border-color: rgba(16, 185, 129, 0.55);
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+  }
+
+  /* Subtle discoverable scrollbars for wide audit tables & audit navigation rail */
+  [data-cod-workspace="true"] .overflow-x-auto,
+  [data-cod-workspace="true"] .cod-rail-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.32) transparent;
+  }
+
+  [data-cod-workspace="true"] .overflow-x-auto::-webkit-scrollbar,
+  [data-cod-workspace="true"] .cod-rail-scroll::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+    width: 5px;
+  }
+
+  [data-cod-workspace="true"] .overflow-x-auto::-webkit-scrollbar-track,
+  [data-cod-workspace="true"] .cod-rail-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  [data-cod-workspace="true"] .overflow-x-auto::-webkit-scrollbar-thumb,
+  [data-cod-workspace="true"] .cod-rail-scroll::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.3);
+    border-radius: 9999px;
+  }
+
+  [data-cod-workspace="true"] .overflow-x-auto::-webkit-scrollbar-thumb:hover,
+  [data-cod-workspace="true"] .cod-rail-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(100, 116, 139, 0.55);
+  }
+
+  .dark [data-cod-workspace="true"] .overflow-x-auto::-webkit-scrollbar-thumb,
+  .dark [data-cod-workspace="true"] .cod-rail-scroll::-webkit-scrollbar-thumb {
+    background-color: rgba(71, 85, 105, 0.5);
+  }
 }
+

@@ -82,6 +82,12 @@ const PATH_TITLES: { [key: string]: string } = {
     '/shipping': 'الشحن واللوجستيات',
     '/wallet': 'المحفظة الماليّة المركزيّة',
     '/treasury': 'الخزائن وصناديق السيولة',
+    '/expenses': 'المصروفات والتكاليف العامة',
+    '/employees-payroll': 'كشوف المرتبات والأجور',
+    '/reconciliation': 'مركز مطابقة التحصيلات (COD)',
+    '/cash-management': 'إدارة العهد النقدية',
+    '/agency-hub': 'منظومة الموكلين الشاملة',
+    '/partners': 'الشركاء والمسوقين',
     '/collections-report': 'التحصيلات النقدية',
     '/customize-store': 'تخصيص المظهر',
     '/pages': 'الصفحات الثابتة',
@@ -371,16 +377,16 @@ const Header: React.FC<HeaderProps> = ({
 
     return (
         <>
-            <header className="h-14 sm:h-16 bg-white/90 dark:bg-[#070b12]/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-white/[0.08] flex items-center justify-between px-3 sm:px-5 lg:px-6 sticky top-0 z-40 flex-shrink-0 transition-colors duration-200 shadow-2xs">
+            <header className="h-14 sm:h-15 bg-white/90 dark:bg-[#080d17]/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-white/[0.07] flex items-center justify-between px-3 sm:px-5 lg:px-6 sticky top-0 z-40 flex-shrink-0 transition-colors duration-200">
                 
-                {/* Right Zone (RTL Start): Context & Architectural Breadcrumbs */}
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                {/* Right Zone (RTL Start): Sidebar Toggle & Clean Breadcrumbs */}
+                <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
                     {!isStoreManagementOrCreationPage && (
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                             {/* Mobile Drawer Toggle */}
                             <button 
                                 onClick={onToggleSidebar} 
-                                className="md:hidden p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
+                                className="md:hidden p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
                                 title="فتح القائمة الجانبية"
                                 aria-label="فتح القائمة الجانبية"
                             >
@@ -391,27 +397,19 @@ const Header: React.FC<HeaderProps> = ({
                             {onToggleDesktopSidebar && (
                                 <button
                                     onClick={onToggleDesktopSidebar}
-                                    className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                                    className={`hidden md:inline-flex items-center justify-center p-2 rounded-lg transition-all duration-150 cursor-pointer ${
                                         isDesktopSidebarCollapsed 
-                                            ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30 shadow-2xs' 
-                                            : 'bg-slate-100/70 text-slate-600 border-slate-200/80 hover:bg-slate-200/60 hover:text-slate-900 dark:bg-white/[0.04] dark:text-slate-300 dark:border-white/[0.08] dark:hover:bg-white/[0.08] dark:hover:text-white'
+                                            ? 'bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' 
+                                            : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06]'
                                     }`}
                                     title={isDesktopSidebarCollapsed ? "إظهار الشريط الجانبي (Ctrl + B)" : "طي الشريط وتوسيع الشاشة (Ctrl + B)"}
+                                    aria-label={isDesktopSidebarCollapsed ? "إظهار الشريط الجانبي" : "طي الشريط الجانبي"}
                                 >
                                     {isDesktopSidebarCollapsed ? (
-                                        <>
-                                            <PanelLeftOpen size={14} className="text-emerald-600 dark:text-emerald-400" />
-                                            <span className="text-[11px] font-bold">توسيع القائمة</span>
-                                        </>
+                                        <PanelLeftOpen size={17} />
                                     ) : (
-                                        <>
-                                            <PanelLeftClose size={14} />
-                                            <span className="text-[11px]">طي القائمة</span>
-                                        </>
+                                        <PanelLeftClose size={17} />
                                     )}
-                                    <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[9px] font-mono bg-white dark:bg-slate-900 text-slate-400 dark:text-slate-500 rounded-md border border-slate-200 dark:border-white/10 shadow-xs">
-                                        ⌘B
-                                    </kbd>
                                 </button>
                             )}
                         </div>
@@ -423,13 +421,13 @@ const Header: React.FC<HeaderProps> = ({
                             <div className="flex items-center gap-1.5 text-xs truncate">
                                 <button
                                     onClick={handleManageStoresClick}
-                                    className="hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.06] text-slate-700 dark:text-slate-200 font-bold transition-all group cursor-pointer border border-transparent hover:border-slate-200/60 dark:hover:border-white/[0.06]"
+                                    className="hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.05] text-slate-600 dark:text-slate-300 font-bold transition-colors group cursor-pointer"
                                     title="انقر لتغيير المتجر"
                                 >
-                                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center font-black text-[10px] group-hover:scale-105 transition-transform shadow-2xs">
+                                    <div className="w-5 h-5 rounded-md bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 flex items-center justify-center shrink-0">
                                         <StoreIcon size={11} />
                                     </div>
-                                    <span className="max-w-[120px] md:max-w-[150px] truncate text-xs font-black">
+                                    <span className="max-w-[120px] md:max-w-[150px] truncate text-xs font-bold">
                                         {activeStore.name}
                                     </span>
                                     <VerifiedStoreBadge verified={isStoreVerified} tier={verificationTier} size="xs" />
@@ -437,36 +435,28 @@ const Header: React.FC<HeaderProps> = ({
 
                                 <span className="hidden sm:inline-block text-slate-300 dark:text-slate-700 font-light select-none">/</span>
 
-                                <h1 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight truncate">
+                                <h1 className="text-xs sm:text-[13px] font-black text-slate-900 dark:text-white tracking-tight truncate">
                                     {pageTitle}
                                 </h1>
                             </div>
                         ) : (
-                            <h1 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight truncate">
+                            <h1 className="text-xs sm:text-[13px] font-black text-slate-900 dark:text-white tracking-tight truncate">
                                 {pageTitle}
                             </h1>
                         )}
 
-                        {/* Live Sync Status Indicator (Architectural Telemetry) */}
-                        {activeStore && !isStoreManagementOrCreationPage && (
+                        {/* Quiet Actionable Sync Status (only surfaces when saving or offline) */}
+                        {activeStore && !isStoreManagementOrCreationPage && (saveStatus === 'saving' || !isOnline) && (
                             <div className="hidden xl:flex items-center gap-1.5 select-none">
                                 {saveStatus === 'saving' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-500/10 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300 border border-indigo-500/20">
-                                        <Loader2 size={10} className="animate-spin text-indigo-600 dark:text-indigo-400" />
+                                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                                        <Loader2 size={12} className="animate-spin" />
                                         <span>جاري الحفظ...</span>
                                     </span>
-                                ) : !isOnline ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-rose-500/10 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300 border border-rose-500/20">
-                                        <WifiOff size={10} />
-                                        <span>غير متصل</span>
-                                    </span>
                                 ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 border border-emerald-500/20" title="المتجر متصل بقاعدة بيانات Cloudflare D1 السحابية">
-                                        <span className="relative flex h-1.5 w-1.5">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                                        </span>
-                                        <span>Cloudflare D1</span>
+                                    <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                                        <WifiOff size={12} />
+                                        <span>غير متصل</span>
                                     </span>
                                 )}
                             </div>
@@ -475,37 +465,37 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 {!isStoreManagementOrCreationPage && (
-                    <div className="hidden md:flex items-center justify-center flex-1 max-w-sm px-4">
+                    <div className="hidden md:flex items-center justify-center flex-1 max-w-md px-4">
                         <button
                             onClick={() => setIsCommandPaletteOpen(true)}
-                            className="w-full flex items-center justify-between gap-3 px-4 py-2 rounded-[1.25rem] bg-slate-100/50 hover:bg-slate-100 dark:bg-white/[0.03] dark:hover:bg-white/[0.06] border border-slate-200/50 dark:border-white/5 text-slate-400 transition-all text-xs cursor-pointer shadow-sm"
+                            className="group w-full flex items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl bg-slate-100/80 hover:bg-slate-100 dark:bg-white/[0.04] dark:hover:bg-white/[0.07] border border-slate-200/80 dark:border-white/[0.07] text-slate-500 dark:text-slate-400 transition-all text-xs cursor-pointer"
                             title="البحث السريع والتنقل (Ctrl+K)"
                         >
-                            <div className="flex items-center gap-2">
-                                <Search size={13} className="text-slate-400 group-hover:text-emerald-500 transition-colors" />
-                                <span className="font-medium text-xs text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200">
-                                    بحث سريع أو أمر...
+                            <div className="flex items-center gap-2 min-w-0">
+                                <Search size={14} className="text-slate-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors shrink-0" />
+                                <span className="font-medium text-xs text-slate-500 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-200 truncate">
+                                    بحث سريع في الصفحات والأوامر...
                                 </span>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <kbd className="font-mono text-[10px] font-black opacity-40">⌘K</kbd>
-                            </div>
+                            <kbd className="px-1.5 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-white/10 font-mono text-[10px] font-bold text-slate-400 dark:text-slate-500 shrink-0">
+                                ⌘K
+                            </kbd>
                         </button>
                     </div>
                 )}
 
                 {/* Left Zone (RTL End): Actions & Profile */}
-                <div className="flex items-center gap-1.5 sm:gap-2.5">
+                <div className="flex items-center gap-1 sm:gap-1.5">
                     {!isStoreManagementOrCreationPage && (
                         <>
                             {/* Mobile Search Button */}
                             <button
                                 onClick={() => setIsCommandPaletteOpen(true)}
-                                className="md:hidden p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
+                                className="md:hidden p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
                                 title="البحث السريع"
                                 aria-label="البحث السريع"
                             >
-                                <Search size={18} />
+                                <Search size={17} />
                             </button>
 
                             {/* Live Storefront Preview Link */}
@@ -514,11 +504,11 @@ const Header: React.FC<HeaderProps> = ({
                                     href={storefrontUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-600 hover:text-emerald-600 hover:bg-emerald-50/70 dark:text-slate-300 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/30 transition-all border border-transparent hover:border-emerald-200/60 dark:hover:border-emerald-800/40 cursor-pointer"
+                                    className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/70 dark:text-slate-300 dark:hover:text-emerald-400 dark:hover:bg-emerald-950/30 transition-colors cursor-pointer"
                                     title="معاينة المتجر المباشر في تبويب جديد"
                                 >
-                                    <StoreIcon size={14} className="text-emerald-500" />
-                                    <span>زيارة المتجر</span>
+                                    <StoreIcon size={14} className="text-emerald-600 dark:text-emerald-400" />
+                                    <span>المتجر</span>
                                     <ArrowUpRight size={12} className="opacity-60" />
                                 </a>
                             )}
@@ -529,21 +519,21 @@ const Header: React.FC<HeaderProps> = ({
                                     onClick={onOpenShippingCalculator}
                                     title="حاسبة الشحن التفاعلية"
                                     aria-label="حاسبة الشحن التفاعلية"
-                                    className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
+                                    className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06] transition-colors cursor-pointer"
                                 >
-                                    <Calculator size={18} />
+                                    <Calculator size={17} />
                                 </button>
                             )}
 
-                            {/* Quick Web Notifications Permission Pill */}
+                            {/* Quick Web Notifications Permission Trigger */}
                             {webNotifPermission === 'default' && (
                                 <button
                                     onClick={handleEnableWebNotifications}
-                                    className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/25 text-[11px] font-black transition-colors cursor-pointer"
+                                    className="hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/80 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-200/80 dark:border-amber-500/25 text-[11px] font-bold transition-colors cursor-pointer"
                                     title="تفعيل إشعارات المتصفح الفورية للأوردرات الجديدة"
                                 >
-                                    <BellRing size={13} className="text-amber-600 dark:text-amber-400 animate-pulse" />
-                                    <span>تفعيل إشعارات الأوردرات</span>
+                                    <BellRing size={13} className="text-amber-600 dark:text-amber-400" />
+                                    <span>تفعيل الإشعارات</span>
                                 </button>
                             )}
 
@@ -552,15 +542,15 @@ const Header: React.FC<HeaderProps> = ({
                                 <button 
                                     onClick={() => setIsAlertsOpen(!isAlertsOpen)}
                                     aria-label="مركز التنبيهات"
-                                    className={`p-2 rounded-xl transition-all relative cursor-pointer ${
+                                    className={`p-2 rounded-lg transition-colors relative cursor-pointer ${
                                         isAlertsOpen 
-                                            ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' 
+                                            ? 'bg-slate-100 text-slate-900 dark:bg-white/[0.08] dark:text-white' 
                                             : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/[0.06]'
                                     }`}
                                 >
-                                    <Bell size={18} className={visibleAlerts.length > 0 ? "animate-swing" : ""} />
+                                    <Bell size={17} />
                                     {visibleAlerts.length > 0 && (
-                                        <span className="absolute top-1 right-1 min-w-[17px] h-[17px] px-1 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-[#0c131a] shadow-xs">
+                                        <span className="absolute top-1 right-1 min-w-[16px] h-[16px] px-1 bg-rose-500 text-white text-[9px] font-mono tabular-nums font-black rounded-full flex items-center justify-center ring-2 ring-white dark:ring-[#080d17]">
                                             {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
                                         </span>
                                     )}
