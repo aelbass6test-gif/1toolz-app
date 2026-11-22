@@ -409,7 +409,11 @@ function escapePrintHtml(value?: string | number | null): string {
     .replace(/'/g, '&#39;');
 }
 
-function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: string) {
+function printCrossBrandSwapReport(
+  sw: CrossBrandPickupSwapAlert,
+  storeName?: string,
+  fitSinglePage = false
+) {
   const isPaired = sw.kind === 'paired_two_way_swap';
   const printedAt = new Date().toLocaleString('ar-EG', {
     year: 'numeric',
@@ -548,17 +552,20 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
   <title>تقرير تبديل المرتجعات بين المخازن - ${escapePrintHtml(sw.date)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
-    @page { size: A4 landscape; margin: 10mm; }
+    @page { size: A4 landscape; margin: ${fitSinglePage ? '5mm' : '10mm'}; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
       direction: rtl;
       background: #ffffff;
       color: #0f172a;
-      font-size: 11px;
-      line-height: 1.45;
+      font-size: ${fitSinglePage ? '9.5px' : '11px'};
+      line-height: ${fitSinglePage ? '1.3' : '1.45'};
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
+    }
+    #print-sheet-root {
+      width: 100%;
     }
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -569,23 +576,23 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
     .top-banner {
       background: linear-gradient(135deg, #1e1b4b 0%, #312e81 55%, #0f172a 100%);
       color: #ffffff;
-      padding: 14px 18px;
+      padding: ${fitSinglePage ? '9px 14px' : '14px 18px'};
       border-radius: 10px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 14px;
-      margin-bottom: 12px;
+      gap: 12px;
+      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
     }
-    .top-title { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
-    .top-sub { font-size: 11px; color: #c7d2fe; font-weight: 600; }
+    .top-title { font-size: ${fitSinglePage ? '14px' : '17px'}; font-weight: 900; margin-bottom: 2px; }
+    .top-sub { font-size: ${fitSinglePage ? '9.5px' : '11px'}; color: #c7d2fe; font-weight: 600; }
     .verify-badge {
       background: rgba(16, 185, 129, 0.16);
       border: 1px solid rgba(52, 211, 153, 0.55);
       color: #a7f3d0;
-      padding: 7px 12px;
+      padding: ${fitSinglePage ? '5px 10px' : '7px 12px'};
       border-radius: 8px;
-      font-size: 11px;
+      font-size: ${fitSinglePage ? '9.5px' : '11px'};
       font-weight: 800;
       text-align: left;
       white-space: nowrap;
@@ -595,26 +602,26 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
       flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
-      gap: 10px;
-      padding: 8px 14px;
+      gap: 8px;
+      padding: ${fitSinglePage ? '5px 10px' : '8px 14px'};
       background: #f8fafc;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
-      margin-bottom: 12px;
-      font-size: 11px;
+      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
+      font-size: ${fitSinglePage ? '9.5px' : '11px'};
       font-weight: 700;
       color: #334155;
     }
     .pickup-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 12px;
+      gap: ${fitSinglePage ? '7px' : '10px'};
+      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
     }
     .pickup-card {
       border: 1px solid #cbd5e1;
       border-radius: 9px;
-      padding: 10px 13px;
+      padding: ${fitSinglePage ? '6px 10px' : '10px 13px'};
       background: #ffffff;
       border-top: 4px solid #4f46e5;
     }
@@ -623,26 +630,26 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 6px;
-      padding-bottom: 5px;
+      margin-bottom: ${fitSinglePage ? '4px' : '6px'};
+      padding-bottom: ${fitSinglePage ? '3px' : '5px'};
       border-bottom: 1px solid #e2e8f0;
     }
     .count-chip {
       background: #ffe4e6;
       color: #be123c;
       font-weight: 800;
-      font-size: 10px;
+      font-size: ${fitSinglePage ? '9px' : '10px'};
       padding: 2px 7px;
       border-radius: 5px;
     }
-    .pickup-line { color: #334155; margin-bottom: 5px; font-size: 10.5px; }
+    .pickup-line { color: #334155; margin-bottom: ${fitSinglePage ? '3px' : '5px'}; font-size: ${fitSinglePage ? '9.5px' : '10.5px'}; }
     .pickup-alert {
       background: #fff1f2;
       border: 1px solid #fecdd3;
       color: #9f1239;
       font-weight: 700;
-      font-size: 10.5px;
-      padding: 5px 8px;
+      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
+      padding: ${fitSinglePage ? '3px 7px' : '5px 8px'};
       border-radius: 6px;
     }
     .single-alert {
@@ -650,9 +657,9 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
       border: 1px solid #fde68a;
       color: #92400e;
       font-weight: 700;
-      padding: 10px 14px;
+      padding: ${fitSinglePage ? '7px 10px' : '10px 14px'};
       border-radius: 8px;
-      margin-bottom: 12px;
+      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
     }
     table {
       width: 100%;
@@ -660,24 +667,24 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
       border: 1px solid #cbd5e1;
       border-radius: 8px;
       overflow: hidden;
-      margin-bottom: 12px;
+      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
     }
     thead { display: table-header-group; }
     th {
       background: #1e293b;
       color: #ffffff;
-      padding: 8px 9px;
+      padding: ${fitSinglePage ? '5px 7px' : '8px 9px'};
       text-align: right;
-      font-size: 10.5px;
+      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
       font-weight: 800;
       border-left: 1px solid #334155;
     }
     td {
-      padding: 8px 9px;
+      padding: ${fitSinglePage ? '4px 7px' : '8px 9px'};
       border-bottom: 1px solid #e2e8f0;
       border-left: 1px solid #e2e8f0;
       vertical-align: top;
-      font-size: 10.5px;
+      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
     }
     tr { break-inside: avoid; page-break-inside: avoid; }
     tbody tr:nth-child(even) { background: #f8fafc; }
@@ -685,9 +692,9 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
     .right-cell { background: #ecfdf5 !important; }
     .state-chip {
       display: inline-block;
-      padding: 2px 6px;
+      padding: 1px 6px;
       border-radius: 4px;
-      font-size: 10px;
+      font-size: ${fitSinglePage ? '9px' : '10px'};
       font-weight: 800;
     }
     .state-rose { background: #ffe4e6; color: #be123c; }
@@ -696,28 +703,28 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
       background: #f8fafc;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
-      padding: 10px 14px;
-      margin-bottom: 10px;
+      padding: ${fitSinglePage ? '6px 10px' : '10px 14px'};
+      margin-bottom: ${fitSinglePage ? '6px' : '10px'};
     }
     .dispatch-title {
-      font-size: 11px;
+      font-size: ${fitSinglePage ? '10px' : '11px'};
       font-weight: 900;
       color: #1e293b;
-      margin-bottom: 6px;
+      margin-bottom: ${fitSinglePage ? '3px' : '6px'};
     }
     .dispatch-item {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 4px 0;
-      font-size: 10.5px;
+      gap: 8px;
+      padding: ${fitSinglePage ? '2px 0' : '4px 0'};
+      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
     }
     .dispatch-count {
       background: #4f46e5;
       color: #ffffff;
       font-weight: 800;
-      font-size: 10px;
-      padding: 2px 8px;
+      font-size: ${fitSinglePage ? '9px' : '10px'};
+      padding: 2px 7px;
       border-radius: 5px;
       white-space: nowrap;
     }
@@ -725,15 +732,16 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-top: 8px;
+      padding-top: ${fitSinglePage ? '5px' : '8px'};
       border-top: 2px solid #e2e8f0;
-      font-size: 10.5px;
+      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
       color: #475569;
       font-weight: 700;
     }
   </style>
 </head>
 <body>
+<div id="print-sheet-root">
   <div class="top-banner">
     <div>
       <div class="top-title">${isPaired ? 'تقرير تبديل مرتجعات متبادل بين مخزنين' : 'تقرير تداخل براند أو مخزن عند البيك أب'}</div>
@@ -792,15 +800,16 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
     <span>تم الفحص والمطابقة آلياً بنظام منصة عبده ميديا بدون تدخل بشري</span>
     <span>إجمالي البوالص بالتقرير: ${sw.affectedReturnedShipments.length} بوليصة</span>
   </div>
+</div>
 </body>
 </html>`;
 
   const iframe = document.createElement('iframe');
   iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
+  iframe.style.left = '-10000px';
+  iframe.style.top = '0';
+  iframe.style.width = '1082px';
+  iframe.style.height = '760px';
   iframe.style.border = '0';
   iframe.style.opacity = '0';
   iframe.style.pointerEvents = 'none';
@@ -812,13 +821,36 @@ function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: st
     doc.write(html);
     doc.close();
     setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      setTimeout(() => {
-        if (iframe.parentNode) {
-          iframe.parentNode.removeChild(iframe);
+      if (fitSinglePage) {
+        const rootEl = doc.getElementById('print-sheet-root');
+        if (rootEl) {
+          const contentW = Math.max(1, rootEl.scrollWidth);
+          const contentH = Math.max(1, rootEl.scrollHeight);
+          // A4 landscape at 5mm margins -> ~1085 x 755px at 96dpi; keep a safe buffer so it never spills to page 2
+          const scale = Math.max(0.4, Math.min(1, 1075 / contentW, 715 / contentH));
+          if (scale < 1) {
+            const rootStyle = rootEl.style;
+            const hasZoomSupport = typeof (rootStyle as unknown as Record<string, unknown>).zoom === 'string';
+            if (hasZoomSupport) {
+              rootStyle.setProperty('zoom', scale.toFixed(4));
+            } else {
+              rootStyle.setProperty('transform-origin', 'top right');
+              rootStyle.setProperty('transform', `scale(${scale.toFixed(4)})`);
+            }
+          }
+          doc.documentElement.style.overflow = 'hidden';
+          doc.body.style.overflow = 'hidden';
         }
-      }, 2500);
+      }
+      setTimeout(() => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          if (iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe);
+          }
+        }, 2500);
+      }, 90);
     }, 450);
   }
 }
@@ -7923,7 +7955,16 @@ export default function CodHunterWorkspace({
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={() => printCrossBrandSwapReport(sw, storeName)}
+                            onClick={() => printCrossBrandSwapReport(sw, storeName, true)}
+                            className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-semibold shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                          >
+                            <Printer className="w-4 h-4 shrink-0" />
+                            <span>طباعة في ورقة واحدة</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => printCrossBrandSwapReport(sw, storeName, false)}
                             className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                           >
                             <Printer className="w-4 h-4 shrink-0" />
