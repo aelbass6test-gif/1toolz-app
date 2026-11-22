@@ -27,6 +27,7 @@ import {
   Pencil,
   Plus,
   Power,
+  Printer,
   Receipt,
   RotateCcw,
   Scale,
@@ -64,6 +65,7 @@ import {
   BostaZoneId,
   buildWhatsappClaimMessage,
   ColumnMappingConfig,
+  CrossBrandPickupSwapAlert,
   DEFAULT_BOSTA_RATE_MATRIX,
   DEFAULT_ZONE_RATE_CONFIG,
   exportCodClaimWorkbook,
@@ -318,6 +320,509 @@ function parseBostaCreditsUiPaste(
   }));
 }
 
+function splitPackageDescriptionItems(rawDesc?: string): string[] {
+  const clean = String(rawDesc || '').trim();
+  if (!clean) return [];
+
+  const result: string[] = [];
+  const lines = clean
+    .split(/\n+/)
+    .map(l => l.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    // Only split between distinct items on Bosta quantity boundaries (e.g. "X 1" or "1 X"),
+    // NOT on "+" inside a single product's own accessory title (e.g. "دريل + شاحن + شنطه X 1").
+    const tokenRegex = /(?:^|\s)([x×*]\s*\d+|\d+\s*[x×*])(?=\s|$|[+،,])/gi;
+    const splitEndIndices: number[] = [];
+    let match: RegExpExecArray | null;
+
+    while ((match = tokenRegex.exec(line)) !== null) {
+      const token = match[1];
+      const matchStart = match.index;
+      const tokenStart = matchStart + (match[0].length - token.length);
+      const tokenEnd = matchStart + match[0].length;
+      const beforeText = line.slice(0, tokenStart).trimEnd();
+      const afterText = line.slice(tokenEnd).trimStart();
+
+      // Ignore dimension expressions such as "10 x 20" that have numbers on both sides
+      const startsWithX = /^[x×*]/i.test(token);
+      if (startsWithX && /\d$/.test(beforeText)) continue;
+      const endsWithX = /[x×*]$/i.test(token);
+      if (endsWithX && /^\d/.test(afterText)) continue;
+
+      if (afterText.length > 0) {
+        splitEndIndices.push(tokenEnd);
+      }
+    }
+
+    if (splitEndIndices.length === 0) {
+      result.push(line);
+    } else {
+      let cursor = 0;
+      for (const endIdx of splitEndIndices) {
+        const part = line.slice(cursor, endIdx).replace(/^[+\s،,]+|[+\s،,]+$/g, '').trim();
+        if (part) result.push(part);
+        cursor = endIdx;
+      }
+      const tail = line.slice(cursor).replace(/^[+\s،,]+|[+\s،,]+$/g, '').trim();
+      if (tail) result.push(tail);
+    }
+  }
+
+  return result.length > 0 ? result : [clean];
+}
+
+function renderFullProductLines(rawDesc?: string, fallbackText?: string) {
+  const clean = String(rawDesc || '').trim();
+  if (!clean) {
+    return fallbackText ? (
+      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">{fallbackText}</span>
+    ) : null;
+  }
+  const parts = splitPackageDescriptionItems(clean);
+  if (parts.length <= 1) {
+    return (
+      <div className="text-[11.5px] font-bold text-slate-800 dark:text-slate-100 whitespace-normal break-words leading-relaxed">
+        {parts[0] || clean}
+      </div>
+    );
+  }
+  return (
+    <ul className="space-y-1 text-[11.5px] font-bold text-slate-800 dark:text-slate-100 whitespace-normal break-words leading-relaxed">
+      {parts.map((part, idx) => (
+        <li key={idx} className="flex items-start gap-1.5">
+          <span className="text-indigo-500 dark:text-indigo-400 font-black mt-0.5 shrink-0">•</span>
+          <span>{part}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function escapePrintHtml(value?: string | number | null): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function printCrossBrandSwapReport(sw: CrossBrandPickupSwapAlert, storeName?: string) {
+  const isPaired = sw.kind === 'paired_two_way_swap';
+  const printedAt = new Date().toLocaleString('ar-EG', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const formatProductHtml = (rawDesc?: string) => {
+    const clean = String(rawDesc || '').trim();
+    if (!clean) return '<span style="color:#64748b;">—</span>';
+    const parts = splitPackageDescriptionItems(clean);
+    if (parts.length <= 1) {
+      return `<div style="font-weight:700;color:#0f172a;line-height:1.5;">${escapePrintHtml(parts[0] || clean)}</div>`;
+    }
+    return `<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;">
+      ${parts
+        .map(
+          part =>
+            `<li style="display:flex;align-items:flex-start;gap:5px;font-weight:700;color:#0f172a;line-height:1.45;"><span style="color:#4f46e5;font-weight:900;">•</span><span>${escapePrintHtml(part)}</span></li>`
+        )
+        .join('')}
+    </ul>`;
+  };
+
+  const warehouseGroupsMap = new Map<
+    string,
+    { warehouse: string; contact?: string; expectedTarget: string; count: number }
+  >();
+  sw.affectedReturnedShipments.forEach(ret => {
+    const key = `${ret.routedReturnWarehouse}||${ret.expectedReturnWarehouse}`;
+    const existing = warehouseGroupsMap.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      warehouseGroupsMap.set(key, {
+        warehouse: ret.routedReturnWarehouse,
+        contact: ret.routedReturnContact,
+        expectedTarget: ret.expectedReturnWarehouse,
+        count: 1
+      });
+    }
+  });
+
+  const dispatchSummaryHtml = Array.from(warehouseGroupsMap.values())
+    .map(
+      grp => `
+        <div class="dispatch-item">
+          <div class="dispatch-count">${grp.count} بوليصة</div>
+          <div class="dispatch-text">
+            <strong>موجّهة خطأً إلى:</strong> ${escapePrintHtml(grp.warehouse)}
+            ${grp.contact ? `<span class="mono" style="color:#be123c;margin-right:6px;">(${escapePrintHtml(grp.contact)})</span>` : ''}
+            <span style="margin:0 6px;color:#64748b;">←</span>
+            <strong style="color:#047857;">تُسلَّم إلى:</strong> <span style="color:#047857;font-weight:800;">${escapePrintHtml(grp.expectedTarget)}</span>
+          </div>
+        </div>
+      `
+    )
+    .join('');
+
+  const rowsHtml =
+    sw.affectedReturnedShipments.length === 0
+      ? `<tr><td colspan="8" style="text-align:center;padding:24px;color:#64748b;font-weight:700;">لا توجد بوالص مرتجعة مسجلة في هذا البيك أب حتى الآن</td></tr>`
+      : sw.affectedReturnedShipments
+          .map(
+            (ret, idx) => `
+            <tr>
+              <td class="mono" style="text-align:center;font-weight:700;color:#64748b;">${idx + 1}</td>
+              <td class="mono" style="font-weight:900;color:#0f172a;white-space:nowrap;">${escapePrintHtml(ret.trackingKey)}</td>
+              <td style="font-weight:800;color:#4338ca;white-space:nowrap;">${escapePrintHtml(ret.actualBrandName)}</td>
+              <td style="white-space:nowrap;">
+                <div style="font-weight:800;color:#0f172a;">${escapePrintHtml(ret.customerName || '—')}</div>
+                ${ret.dropoffCity ? `<div style="font-size:10px;color:#64748b;margin-top:2px;">${escapePrintHtml(ret.dropoffCity)}</div>` : ''}
+              </td>
+              <td style="min-width:210px;">${formatProductHtml(ret.packageDescription)}</td>
+              <td style="white-space:nowrap;">
+                <span class="state-chip ${ret.isAlreadyReturnedToOrigin ? 'state-rose' : 'state-amber'}">
+                  ${escapePrintHtml(ret.deliveryState)}
+                </span>
+                ${ret.currentHub ? `<div style="font-size:10px;color:#64748b;margin-top:3px;">${escapePrintHtml(ret.currentHub)}</div>` : ''}
+              </td>
+              <td class="wrong-cell">
+                <div style="font-weight:800;color:#be123c;">${escapePrintHtml(ret.routedReturnWarehouse)}</div>
+                ${ret.routedReturnContact ? `<div class="mono" style="font-size:10px;color:#9f1239;margin-top:2px;">${escapePrintHtml(ret.routedReturnContact)}</div>` : ''}
+              </td>
+              <td class="right-cell">
+                <div style="font-weight:800;color:#047857;">${escapePrintHtml(ret.expectedReturnWarehouse)}</div>
+                ${ret.expectedReturnContact ? `<div class="mono" style="font-size:10px;color:#065f46;margin-top:2px;">${escapePrintHtml(ret.expectedReturnContact)}</div>` : ''}
+              </td>
+            </tr>
+          `
+          )
+          .join('');
+
+  const pickupsHtml = isPaired
+    ? `
+      <div class="pickup-grid">
+        <div class="pickup-card pickup-a">
+          <div class="pickup-head">
+            <span class="mono" style="font-weight:900;font-size:13px;color:#0f172a;">بيك أب #${escapePrintHtml(sw.pickupId)}</span>
+            <span class="mono count-chip">سحب ${sw.pickedUpCount} / مؤكد ${sw.confirmedCount ?? '—'}</span>
+          </div>
+          <div class="pickup-line">
+            <strong>عنوان المخزن المسجل:</strong> ${escapePrintHtml(sw.warehouseAddress)}
+            ${sw.warehouseContact ? ` (<span class="mono">${escapePrintHtml(sw.warehouseContact)}</span>)` : ''}
+            · <strong style="color:#4338ca;">مخزن ${escapePrintHtml(sw.warehouseHomeBrand)}</strong>
+          </div>
+          <div class="pickup-alert">
+            البوالص المسحوبة تخص «${escapePrintHtml(sw.actualShipmentsBrand)}» (عينة: <span class="mono">${escapePrintHtml(sw.sampleTrackingNumber || '—')}</span>) — أي مرتجع منها سيعود خطأً إلى مخزن «${escapePrintHtml(sw.warehouseHomeBrand)}»
+          </div>
+        </div>
+
+        <div class="pickup-card pickup-b">
+          <div class="pickup-head">
+            <span class="mono" style="font-weight:900;font-size:13px;color:#0f172a;">بيك أب #${escapePrintHtml(sw.partnerPickupId)}</span>
+            <span class="mono count-chip">سحب ${sw.partnerPickedUpCount ?? 0} / مؤكد ${sw.partnerConfirmedCount ?? '—'}</span>
+          </div>
+          <div class="pickup-line">
+            <strong>عنوان المخزن المسجل:</strong> ${escapePrintHtml(sw.partnerWarehouseAddress)}
+            ${sw.partnerWarehouseContact ? ` (<span class="mono">${escapePrintHtml(sw.partnerWarehouseContact)}</span>)` : ''}
+            · <strong style="color:#4338ca;">مخزن ${escapePrintHtml(sw.partnerWarehouseHomeBrand)}</strong>
+          </div>
+          <div class="pickup-alert">
+            البوالص المسحوبة تخص «${escapePrintHtml(sw.partnerActualShipmentsBrand)}» (عينة: <span class="mono">${escapePrintHtml(sw.partnerSampleTrackingNumber || '—')}</span>) — أي مرتجع منها سيعود خطأً إلى مخزن «${escapePrintHtml(sw.partnerWarehouseHomeBrand)}»
+          </div>
+        </div>
+      </div>
+    `
+    : `<div class="single-alert">${escapePrintHtml(sw.reasonSummary)}</div>`;
+
+  const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <title>تقرير تبديل المرتجعات بين المخازن - ${escapePrintHtml(sw.date)}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
+    @page { size: A4 landscape; margin: 10mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+      direction: rtl;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 11px;
+      line-height: 1.45;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+      display: inline-block;
+    }
+    .top-banner {
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 55%, #0f172a 100%);
+      color: #ffffff;
+      padding: 14px 18px;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .top-title { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
+    .top-sub { font-size: 11px; color: #c7d2fe; font-weight: 600; }
+    .verify-badge {
+      background: rgba(16, 185, 129, 0.16);
+      border: 1px solid rgba(52, 211, 153, 0.55);
+      color: #a7f3d0;
+      padding: 7px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .meta-strip {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #334155;
+    }
+    .pickup-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .pickup-card {
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      padding: 10px 13px;
+      background: #ffffff;
+      border-top: 4px solid #4f46e5;
+    }
+    .pickup-card.pickup-b { border-top-color: #e11d48; }
+    .pickup-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .count-chip {
+      background: #ffe4e6;
+      color: #be123c;
+      font-weight: 800;
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 5px;
+    }
+    .pickup-line { color: #334155; margin-bottom: 5px; font-size: 10.5px; }
+    .pickup-alert {
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      color: #9f1239;
+      font-weight: 700;
+      font-size: 10.5px;
+      padding: 5px 8px;
+      border-radius: 6px;
+    }
+    .single-alert {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      font-weight: 700;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    thead { display: table-header-group; }
+    th {
+      background: #1e293b;
+      color: #ffffff;
+      padding: 8px 9px;
+      text-align: right;
+      font-size: 10.5px;
+      font-weight: 800;
+      border-left: 1px solid #334155;
+    }
+    td {
+      padding: 8px 9px;
+      border-bottom: 1px solid #e2e8f0;
+      border-left: 1px solid #e2e8f0;
+      vertical-align: top;
+      font-size: 10.5px;
+    }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    .wrong-cell { background: #fff1f2 !important; }
+    .right-cell { background: #ecfdf5 !important; }
+    .state-chip {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .state-rose { background: #ffe4e6; color: #be123c; }
+    .state-amber { background: #fef3c7; color: #92400e; }
+    .dispatch-box {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 10px;
+    }
+    .dispatch-title {
+      font-size: 11px;
+      font-weight: 900;
+      color: #1e293b;
+      margin-bottom: 6px;
+    }
+    .dispatch-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+      font-size: 10.5px;
+    }
+    .dispatch-count {
+      background: #4f46e5;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 5px;
+      white-space: nowrap;
+    }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 8px;
+      border-top: 2px solid #e2e8f0;
+      font-size: 10.5px;
+      color: #475569;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="top-banner">
+    <div>
+      <div class="top-title">${isPaired ? 'تقرير تبديل مرتجعات متبادل بين مخزنين' : 'تقرير تداخل براند أو مخزن عند البيك أب'}</div>
+      <div class="top-sub">
+        ${storeName ? `${escapePrintHtml(storeName)} · ` : ''}توجيه رسمي للمخازن لتسليم واستلام البوالص المتبادلة
+      </div>
+    </div>
+    <div class="verify-badge">
+      ✓ تم الفحص والمطابقة آلياً بنظام منصة عبده ميديا بدون تدخل بشري
+    </div>
+  </div>
+
+  <div class="meta-strip">
+    <div>
+      التاريخ: <span class="mono">${escapePrintHtml(sw.date)}</span>
+      &nbsp;|&nbsp;
+      رقم البيك أب: <span class="mono">${sw.partnerPickupId ? `#${escapePrintHtml(sw.pickupId)} ↔ #${escapePrintHtml(sw.partnerPickupId)}` : `#${escapePrintHtml(sw.pickupId)}`}</span>
+      &nbsp;|&nbsp;
+      إجمالي الشحنات المسحوبة: <span class="mono">${sw.affectedTotalShipmentsCount}</span>
+      &nbsp;|&nbsp;
+      المرتجعات المتأثرة: <span class="mono" style="color:#be123c;">${sw.affectedReturnedShipments.length}</span>
+    </div>
+    <div>تاريخ الطباعة: <span class="mono">${escapePrintHtml(printedAt)}</span></div>
+  </div>
+
+  ${pickupsHtml}
+
+  <table>
+    <thead>
+      <tr>
+        <th style="text-align:center;width:32px;">#</th>
+        <th>رقم البوليصة</th>
+        <th>البراند الفعلي</th>
+        <th>العميل والمحافظة</th>
+        <th>المنتجات بالكامل</th>
+        <th>الحالة في شركة الشحن</th>
+        <th style="background:#9f1239;">رجعت خطأ لمخزن</th>
+        <th style="background:#065f46;">المفروض ترجع لمخزن</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+  </table>
+
+  ${
+    dispatchSummaryHtml
+      ? `<div class="dispatch-box">
+          <div class="dispatch-title">ملخص التوجيه والتسليم المتبادل للمخازن:</div>
+          ${dispatchSummaryHtml}
+        </div>`
+      : ''
+  }
+
+  <div class="footer">
+    <span>تم الفحص والمطابقة آلياً بنظام منصة عبده ميديا بدون تدخل بشري</span>
+    <span>إجمالي البوالص بالتقرير: ${sw.affectedReturnedShipments.length} بوليصة</span>
+  </div>
+</body>
+</html>`;
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document;
+  if (doc) {
+    doc.open();
+    doc.write(html);
+    doc.close();
+    setTimeout(() => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(() => {
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      }, 2500);
+    }, 450);
+  }
+}
+
 export default function CodHunterWorkspace({
   storeId,
   storeName,
@@ -426,6 +931,7 @@ export default function CodHunterWorkspace({
   const [showSlaDelayedTable, setShowSlaDelayedTable] = useState(false);
   const [showDeliverySlaTable, setShowDeliverySlaTable] = useState(false);
   const [collapsedSwapIds, setCollapsedSwapIds] = useState<Set<string>>(new Set());
+  const [copiedSwapTrackingKey, setCopiedSwapTrackingKey] = useState<string | null>(null);
   const [txCategoryFilter, setTxCategoryFilter] = useState<
     'all' | 'cashout_fees' | 'compensations' | 'packing_pickup' | 'cycles'
   >('all');
@@ -5730,8 +6236,8 @@ export default function CodHunterWorkspace({
                             {item.dominantProductSize ? ` (المعتاد: ${item.dominantProductSize})` : ''}
                           </div>
                           {item.packageDescription && (
-                            <div className="text-[10px] text-slate-400 truncate max-w-[240px]" title={item.packageDescription}>
-                              {item.packageDescription}
+                            <div className="mt-1 min-w-[200px] max-w-[360px]">
+                              {renderFullProductLines(item.packageDescription)}
                             </div>
                           )}
                           {(item.exceptionReason || typeof item.forwardAttempts === 'number') && (
@@ -6418,8 +6924,8 @@ export default function CodHunterWorkspace({
                           <div className="font-bold text-slate-800 dark:text-slate-100">
                             {item.customerName || '-'}
                           </div>
-                          <div className="text-[11px] text-slate-500 truncate max-w-[200px]" title={item.packageDescription}>
-                            {item.packageDescription || item.customerPhone || '-'}
+                          <div className="mt-1 min-w-[200px] max-w-[340px]">
+                            {renderFullProductLines(item.packageDescription, item.customerPhone || '-')}
                           </div>
                         </td>
                         <td className="py-3 px-3">
@@ -7047,13 +7553,8 @@ export default function CodHunterWorkspace({
                                   </div>
                                 )}
                               </td>
-                              <td className="py-3 px-3 max-w-[260px]">
-                                <div
-                                  className="font-semibold text-slate-700 dark:text-slate-200 truncate"
-                                  title={comp.packageDescription}
-                                >
-                                  {comp.packageDescription || '-'}
-                                </div>
+                              <td className="py-3 px-3 min-w-[230px] max-w-[380px]">
+                                {renderFullProductLines(comp.packageDescription, '-')}
                                 <div className="text-[11px] font-mono tabular-nums text-slate-500 mt-0.5">
                                   {comp.packageSize ? `الحجم: ${comp.packageSize}` : ''}
                                   {comp.expectedProductValue
@@ -7352,7 +7853,7 @@ export default function CodHunterWorkspace({
             </div>
 
             {auditResult.pickupRequestsSummary.crossBrandSwaps.length > 0 && (
-              <div className="mx-4 space-y-3">
+              <div className="mx-4 space-y-4">
                 {auditResult.pickupRequestsSummary.crossBrandSwaps.map(sw => {
                   const isPaired = sw.kind === 'paired_two_way_swap';
                   const isExpanded = !collapsedSwapIds.has(sw.id);
@@ -7364,176 +7865,270 @@ export default function CodHunterWorkspace({
                       return next;
                     });
                   };
+                  const handleCopyTracking = (tracking: string) => {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      navigator.clipboard.writeText(tracking).catch(() => {});
+                    }
+                    setCopiedSwapTrackingKey(tracking);
+                    setTimeout(() => {
+                      setCopiedSwapTrackingKey(prev => (prev === tracking ? null : prev));
+                    }, 1800);
+                  };
                   return (
                     <div
                       key={sw.id}
-                      className={`p-4 rounded-xl border space-y-3 text-xs ${
-                        isPaired
-                          ? 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/80'
-                          : 'bg-amber-50/70 dark:bg-amber-950/25 border-amber-300 dark:border-amber-800/70'
-                      }`}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden text-xs"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                              isPaired
-                                ? 'bg-rose-600 text-white'
-                                : 'bg-amber-600 text-white'
-                            }`}
-                          >
-                            {isPaired ? 'تبديل متبادل بين مخزنين 🚨' : 'تداخل براند/حساب عند البيك أب ⚠️'}
-                          </span>
-                          <span className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
-                            {sw.date} ·{' '}
-                            {sw.partnerPickupId ? `#${sw.pickupId} ↔ #${sw.partnerPickupId}` : `#${sw.pickupId}`}
-                          </span>
-                          <span className="font-mono tabular-nums text-[11px] font-bold text-rose-700 dark:text-rose-300">
-                            ({sw.affectedTotalShipmentsCount} شحنة إجمالاً · {sw.affectedReturnsCount} مرتجع متأثر بالعنوان العكسي)
-                          </span>
+                      {/* Unified Top Header */}
+                      <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex flex-wrap items-start justify-between gap-4">
+                        <div className="space-y-1.5 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            <span
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border shrink-0 ${
+                                isPaired
+                                  ? 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800/80 text-rose-600 dark:text-rose-400'
+                                  : 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800/80 text-amber-600 dark:text-amber-400'
+                              }`}
+                            >
+                              {isPaired ? (
+                                <RotateCcw className="w-4 h-4" />
+                              ) : (
+                                <AlertTriangle className="w-4 h-4" />
+                              )}
+                            </span>
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
+                              {isPaired ? 'تبديل متبادل بين مخزنين' : 'تداخل براند أو حساب عند البيك أب'}
+                            </h4>
+                            <span className="text-slate-300 dark:text-slate-700">|</span>
+                            <span className="font-mono tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">
+                              {sw.date} ·{' '}
+                              {sw.partnerPickupId
+                                ? `#${sw.pickupId} ↔ #${sw.partnerPickupId}`
+                                : `#${sw.pickupId}`}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-600 dark:text-slate-400">
+                            <span className="font-mono tabular-nums font-semibold text-rose-600 dark:text-rose-400">
+                              {sw.affectedTotalShipmentsCount} شحنة مسحوبة · {sw.affectedReturnsCount} مرتجع متأثر بالعنوان العكسي
+                            </span>
+                            <span className="text-slate-300 dark:text-slate-700">·</span>
+                            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-400">
+                              <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                              <span>تم الفحص والمطابقة آلياً بنظام منصة عبده ميديا بدون تدخل بشري</span>
+                            </span>
+                          </div>
                         </div>
-                        {sw.affectedReturnedShipments.length > 0 && (
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <button
                             type="button"
-                            onClick={toggleExpand}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer"
+                            onClick={() => printCrossBrandSwapReport(sw, storeName)}
+                            className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                           >
-                            <span>
-                              {isExpanded
-                                ? 'إخفاء بوالص المرتجعات المتأثرة'
-                                : `عرض بوالص المرتجعات (${sw.affectedReturnedShipments.length})`}
-                            </span>
-                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            <Printer className="w-4 h-4 shrink-0" />
+                            <span>{isPaired ? 'طباعة تقرير ملون للمخزنين' : 'طباعة تقرير ملون'}</span>
                           </button>
-                        )}
+
+                          {sw.affectedReturnedShipments.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={toggleExpand}
+                              className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                            >
+                              <span>
+                                {isExpanded
+                                  ? 'إخفاء بوالص المرتجعات'
+                                  : `عرض البوالص المتأثرة (${sw.affectedReturnedShipments.length})`}
+                              </span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </div>
 
+                      {/* Hairline-Divided Comparison Strip (No Nested Cards) */}
                       {isPaired ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                          <div className="p-3 rounded-lg bg-white dark:bg-slate-900/90 border border-rose-200 dark:border-rose-800/60 space-y-1">
+                        <div className="grid grid-cols-1 md:grid-cols-2 border-b border-slate-200 dark:border-slate-800 divide-y md:divide-y-0 md:divide-x md:divide-x-reverse divide-slate-200 dark:divide-slate-800">
+                          <div className="px-5 py-3.5 space-y-1.5">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
+                              <span className="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white">
                                 بيك أب #{sw.pickupId}
                               </span>
-                              <span className="font-mono tabular-nums text-[11px] font-black text-rose-600 dark:text-rose-400">
+                              <span className="font-mono tabular-nums text-[11px] font-semibold text-rose-600 dark:text-rose-400">
                                 سحب {sw.pickedUpCount} / مؤكد {sw.confirmedCount ?? '-'}
                               </span>
                             </div>
-                            <div className="text-[11px] text-slate-600 dark:text-slate-300">
-                              <span className="font-bold">عنوان المخزن:</span> {sw.warehouseAddress}
+                            <div className="text-[11.5px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                              <span className="font-semibold text-slate-800 dark:text-slate-200">عنوان المخزن:</span>{' '}
+                              {sw.warehouseAddress}
                               {sw.warehouseContact ? ` (${sw.warehouseContact})` : ''} ·{' '}
-                              <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
                                 مخزن {sw.warehouseHomeBrand}
                               </span>
                             </div>
-                            <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
-                              البوالص المسحوبة تخص: «{sw.actualShipmentsBrand}» (عينة:{' '}
-                              <span className="font-mono tabular-nums">{sw.sampleTrackingNumber || '-'}</span>) ← أي
-                              مرتجع منها هيرجع بالغلط لمخزن «{sw.warehouseHomeBrand}»!
+                            <div className="text-[11.5px] font-medium text-rose-700 dark:text-rose-300 leading-relaxed">
+                              البوالص المسحوبة تخص «{sw.actualShipmentsBrand}» (عينة:{' '}
+                              <span className="font-mono tabular-nums font-semibold">
+                                {sw.sampleTrackingNumber || '-'}
+                              </span>
+                              ) — أي مرتجع منها سيعود خطأ إلى مخزن «{sw.warehouseHomeBrand}»
                             </div>
                           </div>
 
-                          <div className="p-3 rounded-lg bg-white dark:bg-slate-900/90 border border-rose-200 dark:border-rose-800/60 space-y-1">
+                          <div className="px-5 py-3.5 space-y-1.5">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono tabular-nums font-black text-slate-900 dark:text-white">
+                              <span className="font-mono tabular-nums text-xs font-bold text-slate-900 dark:text-white">
                                 بيك أب #{sw.partnerPickupId}
                               </span>
-                              <span className="font-mono tabular-nums text-[11px] font-black text-rose-600 dark:text-rose-400">
+                              <span className="font-mono tabular-nums text-[11px] font-semibold text-rose-600 dark:text-rose-400">
                                 سحب {sw.partnerPickedUpCount} / مؤكد {sw.partnerConfirmedCount ?? '-'}
                               </span>
                             </div>
-                            <div className="text-[11px] text-slate-600 dark:text-slate-300">
-                              <span className="font-bold">عنوان المخزن:</span> {sw.partnerWarehouseAddress}
+                            <div className="text-[11.5px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                              <span className="font-semibold text-slate-800 dark:text-slate-200">عنوان المخزن:</span>{' '}
+                              {sw.partnerWarehouseAddress}
                               {sw.partnerWarehouseContact ? ` (${sw.partnerWarehouseContact})` : ''} ·{' '}
-                              <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
                                 مخزن {sw.partnerWarehouseHomeBrand}
                               </span>
                             </div>
-                            <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
-                              البوالص المسحوبة تخص: «{sw.partnerActualShipmentsBrand}» (عينة:{' '}
-                              <span className="font-mono tabular-nums">{sw.partnerSampleTrackingNumber || '-'}</span>) ← أي
-                              مرتجع منها هيرجع بالغلط لمخزن «{sw.partnerWarehouseHomeBrand}»!
+                            <div className="text-[11.5px] font-medium text-rose-700 dark:text-rose-300 leading-relaxed">
+                              البوالص المسحوبة تخص «{sw.partnerActualShipmentsBrand}» (عينة:{' '}
+                              <span className="font-mono tabular-nums font-semibold">
+                                {sw.partnerSampleTrackingNumber || '-'}
+                              </span>
+                              ) — أي مرتجع منها سيعود خطأ إلى مخزن «{sw.partnerWarehouseHomeBrand}»
                             </div>
                           </div>
                         </div>
                       ) : (
-                        <div className="text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+                        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-amber-50/40 dark:bg-amber-950/20 text-[11.5px] font-medium text-amber-900 dark:text-amber-200">
                           {sw.reasonSummary}
                         </div>
                       )}
 
+                      {/* Modern High-Density Data Table */}
                       {isExpanded && sw.affectedReturnedShipments.length > 0 && (
-                        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-                          <table className="w-full text-right text-[11px]">
-                            <thead className="bg-slate-50 dark:bg-slate-800/70 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
-                              <tr>
-                                <th className="py-2 px-3 font-bold">رقم البوليصة</th>
-                                <th className="py-2 px-3 font-bold">البراند الفعلي</th>
-                                <th className="py-2 px-3 font-bold">العميل والمنتج</th>
-                                <th className="py-2 px-3 font-bold">الحالة بالـ Deliveries</th>
-                                <th className="py-2 px-3 font-bold text-rose-600 dark:text-rose-400">
-                                  رجعت خطأ لمخزن
-                                </th>
-                                <th className="py-2 px-3 font-bold text-emerald-600 dark:text-emerald-400">
-                                  المفروض ترجع لمخزن
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {sw.affectedReturnedShipments.map(ret => (
-                                <tr key={`${sw.id}_${ret.trackingKey}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                                  <td className="py-2 px-3 font-mono tabular-nums font-black text-slate-900 dark:text-white whitespace-nowrap">
-                                    {ret.trackingKey}
-                                  </td>
-                                  <td className="py-2 px-3 font-bold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
-                                    {ret.actualBrandName}
-                                  </td>
-                                  <td className="py-2 px-3">
-                                    <div className="font-bold text-slate-800 dark:text-slate-100">
-                                      {ret.customerName || '-'}
-                                      {ret.dropoffCity ? ` · ${ret.dropoffCity}` : ''}
-                                    </div>
-                                    {ret.packageDescription && (
-                                      <div className="text-[10px] text-slate-500 truncate max-w-[200px]" title={ret.packageDescription}>
-                                        {ret.packageDescription}
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="py-2 px-3 whitespace-nowrap">
-                                    <span
-                                      className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
-                                        ret.isAlreadyReturnedToOrigin
-                                          ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'
-                                          : 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
-                                      }`}
-                                    >
-                                      {ret.deliveryState}
-                                    </span>
-                                    {ret.currentHub && (
-                                      <div className="text-[10px] text-slate-400 mt-0.5">{ret.currentHub}</div>
-                                    )}
-                                  </td>
-                                  <td className="py-2 px-3 font-bold text-rose-600 dark:text-rose-400">
-                                    <div>{ret.routedReturnWarehouse}</div>
-                                    {ret.routedReturnContact && (
-                                      <div className="text-[10px] text-rose-500/80 font-mono tabular-nums">
-                                        {ret.routedReturnContact}
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="py-2 px-3 font-bold text-emerald-700 dark:text-emerald-300">
-                                    <div>{ret.expectedReturnWarehouse}</div>
-                                    {ret.expectedReturnContact && (
-                                      <div className="text-[10px] text-emerald-600/80 font-mono tabular-nums">
-                                        {ret.expectedReturnContact}
-                                      </div>
-                                    )}
-                                  </td>
+                        <>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-right text-xs border-collapse">
+                              <thead className="bg-slate-50/90 dark:bg-slate-950/60 text-[11px] font-semibold text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                                <tr>
+                                  <th className="py-3 px-4 whitespace-nowrap">رقم البوليصة</th>
+                                  <th className="py-3 px-4 whitespace-nowrap">البراند الفعلي</th>
+                                  <th className="py-3 px-4 whitespace-nowrap">العميل</th>
+                                  <th className="py-3 px-4 min-w-[260px]">المنتجات بالكامل</th>
+                                  <th className="py-3 px-4 whitespace-nowrap">الحالة في شركة الشحن</th>
+                                  <th className="py-3 px-4 whitespace-nowrap text-rose-600 dark:text-rose-400">
+                                    رجعت خطأ لمخزن
+                                  </th>
+                                  <th className="py-3 px-4 whitespace-nowrap text-emerald-600 dark:text-emerald-400">
+                                    المفروض ترجع لمخزن
+                                  </th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                                {sw.affectedReturnedShipments.map(ret => {
+                                  const isCopied = copiedSwapTrackingKey === ret.trackingKey;
+                                  return (
+                                    <tr
+                                      key={`${sw.id}_${ret.trackingKey}`}
+                                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors align-top"
+                                    >
+                                      <td className="py-3.5 px-4 whitespace-nowrap">
+                                        <div className="inline-flex items-center gap-1.5">
+                                          <span className="font-mono tabular-nums font-bold text-slate-900 dark:text-white">
+                                            {ret.trackingKey}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCopyTracking(ret.trackingKey)}
+                                            title="نسخ رقم البوليصة"
+                                            className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                          >
+                                            {isCopied ? (
+                                              <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                            ) : (
+                                              <Clipboard className="w-3.5 h-3.5" />
+                                            )}
+                                          </button>
+                                        </div>
+                                      </td>
+                                      <td className="py-3.5 px-4 font-semibold text-indigo-700 dark:text-indigo-300 whitespace-nowrap">
+                                        {ret.actualBrandName}
+                                      </td>
+                                      <td className="py-3.5 px-4 whitespace-nowrap">
+                                        <div className="font-semibold text-slate-800 dark:text-slate-100">
+                                          {ret.customerName || '-'}
+                                        </div>
+                                        {ret.dropoffCity && (
+                                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            {ret.dropoffCity}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-3.5 px-4 min-w-[260px] max-w-[440px]">
+                                        {renderFullProductLines(ret.packageDescription, '-')}
+                                      </td>
+                                      <td className="py-3.5 px-4 whitespace-nowrap">
+                                        <div
+                                          className={`font-semibold text-[11.5px] ${
+                                            ret.isAlreadyReturnedToOrigin
+                                              ? 'text-rose-600 dark:text-rose-400'
+                                              : 'text-amber-600 dark:text-amber-400'
+                                          }`}
+                                        >
+                                          {ret.deliveryState}
+                                        </div>
+                                        {ret.currentHub && (
+                                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            {ret.currentHub}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-3.5 px-4">
+                                        <div className="font-semibold text-rose-600 dark:text-rose-400 leading-snug">
+                                          {ret.routedReturnWarehouse}
+                                        </div>
+                                        {ret.routedReturnContact && (
+                                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5">
+                                            {ret.routedReturnContact}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-3.5 px-4">
+                                        <div className="font-semibold text-emerald-700 dark:text-emerald-300 leading-snug">
+                                          {ret.expectedReturnWarehouse}
+                                        </div>
+                                        {ret.expectedReturnContact && (
+                                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5">
+                                            {ret.expectedReturnContact}
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Quiet Verification Footer */}
+                          <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/30 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span className="font-mono tabular-nums font-medium">
+                              إجمالي البوالص المتأثرة في هذا الفحص: {sw.affectedReturnedShipments.length} بوليصة
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 font-medium text-slate-600 dark:text-slate-300">
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>تم الفحص والمطابقة آلياً بنظام منصة عبده ميديا بدون تدخل بشري</span>
+                            </span>
+                          </div>
+                        </>
                       )}
                     </div>
                   );
@@ -8154,11 +8749,8 @@ export default function CodHunterWorkspace({
                                   </div>
                                 )}
                                 {cr.matchedAnomalyProduct && (
-                                  <div
-                                    className="text-[10px] text-slate-400 truncate max-w-[240px]"
-                                    title={cr.matchedAnomalyProduct}
-                                  >
-                                    {cr.matchedAnomalyProduct}
+                                  <div className="mt-1 min-w-[200px] max-w-[340px]">
+                                    {renderFullProductLines(cr.matchedAnomalyProduct)}
                                   </div>
                                 )}
                               </div>

@@ -2170,7 +2170,7 @@ export const AppComponent = () => {
                 try {
                     console.log('[STOREFRONT-LOOKUP] Attempting Cloudflare D1 stores_data query for:', host);
                     const hostSub = host.endsWith('.abdomedi.com') ? host.split('.')[0].toLowerCase() : '';
-                    const subParam = (hostSub && hostSub !== 'www' && hostSub !== 'app' && hostSub !== 'fallback') ? hostSub : '';
+                    const subParam = (hostSub && !['www', 'app', 'api', 'fallback', 'shipping'].includes(hostSub)) ? hostSub : '';
                     const lookupRes = await cfFetch<any>(
                         `/api/db/stores/resolve-domain?host=${encodeURIComponent(host)}&subdomain=${encodeURIComponent(subParam)}`,
                         { timeoutMs: 5000 }

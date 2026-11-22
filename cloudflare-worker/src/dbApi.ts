@@ -908,10 +908,25 @@ async function dispatchDbRequest(
   if (path === "/api/db/stores/resolve-domain" && request.method === "GET") {
     const host = String(url.searchParams.get("host") || "").trim().toLowerCase();
     const rawSubdomain = String(url.searchParams.get("subdomain") || "").trim().toLowerCase();
-    const normalizedSub = normalizeValidSubdomain(rawSubdomain);
-    const digitsOnlySub = rawSubdomain.replace(/^store-/, "").replace(/^-+/, "");
-    const legacyHyphenSub = digitsOnlySub ? `---${digitsOnlySub}` : "";
     const hostNoWww = host.replace(/^www\./, "");
+    const hostAbdoSub = hostNoWww.endsWith(".abdomedi.com")
+      ? hostNoWww.slice(0, -".abdomedi.com".length)
+      : "";
+
+    const effectiveSub = RESERVED_SUBDOMAINS.has(rawSubdomain) ? "" : rawSubdomain;
+    const isReservedSystemHost =
+      hostNoWww === "abdomedi.com" ||
+      (hostAbdoSub !== "" && RESERVED_SUBDOMAINS.has(hostAbdoSub));
+    const effectiveHost = isReservedSystemHost ? "" : host;
+    const effectiveHostNoWww = isReservedSystemHost ? "" : hostNoWww;
+
+    if (!effectiveSub && !effectiveHost) {
+      return json(request, env, { success: true, found: false });
+    }
+
+    const normalizedSub = effectiveSub ? normalizeValidSubdomain(effectiveSub) : "";
+    const digitsOnlySub = effectiveSub.replace(/^store-/, "").replace(/^-+/, "");
+    const legacyHyphenSub = digitsOnlySub ? `---${digitsOnlySub}` : "";
 
     const row = await db
       .prepare(
@@ -921,16 +936,16 @@ async function dispatchDbRequest(
          LIMIT 1`
       )
       .bind(
-        rawSubdomain,
-        rawSubdomain,
-        normalizedSub || rawSubdomain,
-        legacyHyphenSub || rawSubdomain,
-        rawSubdomain,
-        host,
-        host,
-        hostNoWww,
-        host,
-        hostNoWww
+        effectiveSub,
+        effectiveSub,
+        normalizedSub || effectiveSub,
+        legacyHyphenSub || effectiveSub,
+        effectiveSub,
+        effectiveHost,
+        effectiveHost,
+        effectiveHostNoWww,
+        effectiveHost,
+        effectiveHostNoWww
       )
       .first<any>();
 

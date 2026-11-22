@@ -430,9 +430,32 @@ const AdminSupportCenter: React.FC<AdminSupportCenterProps> = ({
     e.preventDefault();
     if (!selectedStore || !selectedOwner) return;
 
+    const reservedSubdomains = ['app', 'api', 'www', 'fallback', 'shipping'];
     const cleanSub = domainForm.subdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-    const cleanCustom = domainForm.customDomain.trim().replace(/^https?:\/\//i, '').replace(/\/$/, '');
+    const cleanCustom = domainForm.customDomain.trim().replace(/^https?:\/\//i, '').replace(/\/$/, '').toLowerCase();
     const cleanAppCustom = domainForm.customAppDomain.trim().replace(/\/$/, '');
+
+    if (cleanSub && reservedSubdomains.includes(cleanSub)) {
+      notify(
+        'error',
+        cleanSub === 'shipping'
+          ? 'اسم shipping محجوز لنظام الشحن المنفصل ولا يمكن تعيينه لمتجر.'
+          : `الاسم "${cleanSub}" محجوز للنظام ولا يمكن تعيينه كرابط متجر.`
+      );
+      return;
+    }
+
+    const extractHost = (val: string) =>
+      val.replace(/^https?:\/\//i, '').split('/')[0].trim().toLowerCase().replace(/^www\./, '');
+    const reservedHosts = new Set(reservedSubdomains.map(s => `${s}.abdomedi.com`).concat('abdomedi.com'));
+    if (
+      (cleanCustom && reservedHosts.has(extractHost(cleanCustom))) ||
+      (cleanAppCustom && reservedHosts.has(extractHost(cleanAppCustom)))
+    ) {
+      notify('error', 'لا يمكن ربط نطاق نظام محجوز (مثل shipping.abdomedi.com أو app.abdomedi.com) كدومين مخصص لمتجر.');
+      return;
+    }
+
     const computedUrl =
       domainForm.url.trim() ||
       (cleanCustom ? cleanCustom : cleanSub ? `${cleanSub}.abdomedi.com` : selectedStore.url);

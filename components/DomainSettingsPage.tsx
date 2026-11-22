@@ -380,6 +380,17 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
       return;
     }
 
+    if (cleanDomain === 'abdomedi.com' || cleanDomain.endsWith('.abdomedi.com')) {
+      showAlert(
+        "تنبيه",
+        cleanDomain === 'shipping.abdomedi.com'
+          ? "نطاق shipping.abdomedi.com محجوز لنظام الشحن المنفصل ولا يمكن ربطه كدومين مخصص لمتجر."
+          : "نطاقات abdomedi.com محجوزة للنظام والروابط الفرعية المجانية ولا تُضاف كدومين مخصص.",
+        "warning"
+      );
+      return;
+    }
+
     if (isCustomDomainTaken(cleanDomain)) {
       showAlert("تنبيه", "⚠️ هذا النطاق المخصص مستخدم بالفعل بواسطة متجر آخر على النظام. يرجى مراجعة الدعم الفني أو التأكد من النطاق لضمان حظر التداخل.", "error");
       return;
