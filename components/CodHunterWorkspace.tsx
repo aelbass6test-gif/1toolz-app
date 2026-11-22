@@ -412,9 +412,11 @@ function escapePrintHtml(value?: string | number | null): string {
 function printCrossBrandSwapReport(
   sw: CrossBrandPickupSwapAlert,
   storeName?: string,
-  fitSinglePage = false
+  fitSinglePage = false,
+  orientation: 'landscape' | 'portrait' = 'landscape'
 ) {
   const isPaired = sw.kind === 'paired_two_way_swap';
+  const isPortrait = orientation === 'portrait';
   const printedAt = new Date().toLocaleString('ar-EG', {
     year: 'numeric',
     month: '2-digit',
@@ -428,13 +430,13 @@ function printCrossBrandSwapReport(
     if (!clean) return '<span style="color:#64748b;">—</span>';
     const parts = splitPackageDescriptionItems(clean);
     if (parts.length <= 1) {
-      return `<div style="font-weight:700;color:#0f172a;line-height:1.5;">${escapePrintHtml(parts[0] || clean)}</div>`;
+      return `<div style="font-weight:700;color:#0f172a;line-height:1.45;word-break:break-word;">${escapePrintHtml(parts[0] || clean)}</div>`;
     }
-    return `<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px;">
+    return `<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px;">
       ${parts
         .map(
           part =>
-            `<li style="display:flex;align-items:flex-start;gap:5px;font-weight:700;color:#0f172a;line-height:1.45;"><span style="color:#4f46e5;font-weight:900;">•</span><span>${escapePrintHtml(part)}</span></li>`
+            `<li style="display:flex;align-items:flex-start;gap:4px;font-weight:700;color:#0f172a;line-height:1.4;word-break:break-word;"><span style="color:#4f46e5;font-weight:900;">•</span><span>${escapePrintHtml(part)}</span></li>`
         )
         .join('')}
     </ul>`;
@@ -463,11 +465,11 @@ function printCrossBrandSwapReport(
     .map(
       grp => `
         <div class="dispatch-item">
-          <div class="dispatch-count">${grp.count} بوليصة</div>
+          <span class="dispatch-count">${grp.count} بوليصة</span>
           <div class="dispatch-text">
             <strong>موجّهة خطأً إلى:</strong> ${escapePrintHtml(grp.warehouse)}
-            ${grp.contact ? `<span class="mono" style="color:#be123c;margin-right:6px;">(${escapePrintHtml(grp.contact)})</span>` : ''}
-            <span style="margin:0 6px;color:#64748b;">←</span>
+            ${grp.contact ? ` <span class="num-ltr" style="color:#be123c;font-weight:700;">(${escapePrintHtml(grp.contact)})</span>` : ''}
+            <span style="margin:0 6px;color:#64748b;font-weight:800;">←</span>
             <strong style="color:#047857;">تُسلَّم إلى:</strong> <span style="color:#047857;font-weight:800;">${escapePrintHtml(grp.expectedTarget)}</span>
           </div>
         </div>
@@ -482,27 +484,27 @@ function printCrossBrandSwapReport(
           .map(
             (ret, idx) => `
             <tr>
-              <td class="mono" style="text-align:center;font-weight:700;color:#64748b;">${idx + 1}</td>
-              <td class="mono" style="font-weight:900;color:#0f172a;white-space:nowrap;">${escapePrintHtml(ret.trackingKey)}</td>
-              <td style="font-weight:800;color:#4338ca;white-space:nowrap;">${escapePrintHtml(ret.actualBrandName)}</td>
-              <td style="white-space:nowrap;">
+              <td style="text-align:center;font-weight:700;color:#64748b;"><span class="num-ltr">${idx + 1}</span></td>
+              <td style="font-weight:900;color:#0f172a;"><span class="num-ltr">${escapePrintHtml(ret.trackingKey)}</span></td>
+              <td style="font-weight:800;color:#4338ca;">${escapePrintHtml(ret.actualBrandName)}</td>
+              <td>
                 <div style="font-weight:800;color:#0f172a;">${escapePrintHtml(ret.customerName || '—')}</div>
-                ${ret.dropoffCity ? `<div style="font-size:10px;color:#64748b;margin-top:2px;">${escapePrintHtml(ret.dropoffCity)}</div>` : ''}
+                ${ret.dropoffCity ? `<div style="font-size:0.9em;color:#64748b;margin-top:2px;">${escapePrintHtml(ret.dropoffCity)}</div>` : ''}
               </td>
-              <td style="min-width:210px;">${formatProductHtml(ret.packageDescription)}</td>
-              <td style="white-space:nowrap;">
+              <td>${formatProductHtml(ret.packageDescription)}</td>
+              <td>
                 <span class="state-chip ${ret.isAlreadyReturnedToOrigin ? 'state-rose' : 'state-amber'}">
                   ${escapePrintHtml(ret.deliveryState)}
                 </span>
-                ${ret.currentHub ? `<div style="font-size:10px;color:#64748b;margin-top:3px;">${escapePrintHtml(ret.currentHub)}</div>` : ''}
+                ${ret.currentHub ? `<div style="font-size:0.9em;color:#64748b;margin-top:2px;">${escapePrintHtml(ret.currentHub)}</div>` : ''}
               </td>
               <td class="wrong-cell">
-                <div style="font-weight:800;color:#be123c;">${escapePrintHtml(ret.routedReturnWarehouse)}</div>
-                ${ret.routedReturnContact ? `<div class="mono" style="font-size:10px;color:#9f1239;margin-top:2px;">${escapePrintHtml(ret.routedReturnContact)}</div>` : ''}
+                <div style="font-weight:800;color:#9f1239;line-height:1.35;">${escapePrintHtml(ret.routedReturnWarehouse)}</div>
+                ${ret.routedReturnContact ? `<div style="margin-top:2px;"><span class="num-ltr" style="font-size:0.92em;font-weight:700;color:#be123c;">${escapePrintHtml(ret.routedReturnContact)}</span></div>` : ''}
               </td>
               <td class="right-cell">
-                <div style="font-weight:800;color:#047857;">${escapePrintHtml(ret.expectedReturnWarehouse)}</div>
-                ${ret.expectedReturnContact ? `<div class="mono" style="font-size:10px;color:#065f46;margin-top:2px;">${escapePrintHtml(ret.expectedReturnContact)}</div>` : ''}
+                <div style="font-weight:800;color:#065f46;line-height:1.35;">${escapePrintHtml(ret.expectedReturnWarehouse)}</div>
+                ${ret.expectedReturnContact ? `<div style="margin-top:2px;"><span class="num-ltr" style="font-size:0.92em;font-weight:700;color:#047857;">${escapePrintHtml(ret.expectedReturnContact)}</span></div>` : ''}
               </td>
             </tr>
           `
@@ -514,31 +516,31 @@ function printCrossBrandSwapReport(
       <div class="pickup-grid">
         <div class="pickup-card pickup-a">
           <div class="pickup-head">
-            <span class="mono" style="font-weight:900;font-size:13px;color:#0f172a;">بيك أب #${escapePrintHtml(sw.pickupId)}</span>
-            <span class="mono count-chip">سحب ${sw.pickedUpCount} / مؤكد ${sw.confirmedCount ?? '—'}</span>
+            <span style="font-weight:900;font-size:1.12em;color:#0f172a;">بيك أب <span class="num-ltr">#${escapePrintHtml(sw.pickupId)}</span></span>
+            <span class="count-chip">سحب <span class="num-ltr">${sw.pickedUpCount}</span> / مؤكد <span class="num-ltr">${sw.confirmedCount ?? '—'}</span></span>
           </div>
           <div class="pickup-line">
             <strong>عنوان المخزن المسجل:</strong> ${escapePrintHtml(sw.warehouseAddress)}
-            ${sw.warehouseContact ? ` (<span class="mono">${escapePrintHtml(sw.warehouseContact)}</span>)` : ''}
+            ${sw.warehouseContact ? ` (<span class="num-ltr">${escapePrintHtml(sw.warehouseContact)}</span>)` : ''}
             · <strong style="color:#4338ca;">مخزن ${escapePrintHtml(sw.warehouseHomeBrand)}</strong>
           </div>
           <div class="pickup-alert">
-            البوالص المسحوبة تخص «${escapePrintHtml(sw.actualShipmentsBrand)}» (عينة: <span class="mono">${escapePrintHtml(sw.sampleTrackingNumber || '—')}</span>) — أي مرتجع منها سيعود خطأً إلى مخزن «${escapePrintHtml(sw.warehouseHomeBrand)}»
+            البوالص المسحوبة تخص «${escapePrintHtml(sw.actualShipmentsBrand)}» (عينة: <span class="num-ltr">${escapePrintHtml(sw.sampleTrackingNumber || '—')}</span>) — أي مرتجع منها سيعود خطأً إلى مخزن «${escapePrintHtml(sw.warehouseHomeBrand)}»
           </div>
         </div>
 
         <div class="pickup-card pickup-b">
           <div class="pickup-head">
-            <span class="mono" style="font-weight:900;font-size:13px;color:#0f172a;">بيك أب #${escapePrintHtml(sw.partnerPickupId)}</span>
-            <span class="mono count-chip">سحب ${sw.partnerPickedUpCount ?? 0} / مؤكد ${sw.partnerConfirmedCount ?? '—'}</span>
+            <span style="font-weight:900;font-size:1.12em;color:#0f172a;">بيك أب <span class="num-ltr">#${escapePrintHtml(sw.partnerPickupId)}</span></span>
+            <span class="count-chip">سحب <span class="num-ltr">${sw.partnerPickedUpCount ?? 0}</span> / مؤكد <span class="num-ltr">${sw.partnerConfirmedCount ?? '—'}</span></span>
           </div>
           <div class="pickup-line">
             <strong>عنوان المخزن المسجل:</strong> ${escapePrintHtml(sw.partnerWarehouseAddress)}
-            ${sw.partnerWarehouseContact ? ` (<span class="mono">${escapePrintHtml(sw.partnerWarehouseContact)}</span>)` : ''}
+            ${sw.partnerWarehouseContact ? ` (<span class="num-ltr">${escapePrintHtml(sw.partnerWarehouseContact)}</span>)` : ''}
             · <strong style="color:#4338ca;">مخزن ${escapePrintHtml(sw.partnerWarehouseHomeBrand)}</strong>
           </div>
           <div class="pickup-alert">
-            البوالص المسحوبة تخص «${escapePrintHtml(sw.partnerActualShipmentsBrand)}» (عينة: <span class="mono">${escapePrintHtml(sw.partnerSampleTrackingNumber || '—')}</span>) — أي مرتجع منها سيعود خطأً إلى مخزن «${escapePrintHtml(sw.partnerWarehouseHomeBrand)}»
+            البوالص المسحوبة تخص «${escapePrintHtml(sw.partnerActualShipmentsBrand)}» (عينة: <span class="num-ltr">${escapePrintHtml(sw.partnerSampleTrackingNumber || '—')}</span>) — أي مرتجع منها سيعود خطأً إلى مخزن «${escapePrintHtml(sw.partnerWarehouseHomeBrand)}»
           </div>
         </div>
       </div>
@@ -552,49 +554,50 @@ function printCrossBrandSwapReport(
   <title>تقرير تبديل المرتجعات بين المخازن - ${escapePrintHtml(sw.date)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
-    @page { size: A4 landscape; margin: ${fitSinglePage ? '5mm' : '10mm'}; }
+    @page { size: A4 ${orientation}; margin: ${fitSinglePage ? '6mm' : '10mm'}; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+      font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif;
       direction: rtl;
       background: #ffffff;
       color: #0f172a;
-      font-size: ${fitSinglePage ? '9.5px' : '11px'};
-      line-height: ${fitSinglePage ? '1.3' : '1.45'};
+      font-size: ${fitSinglePage ? (isPortrait ? '9.2px' : '10px') : isPortrait ? '10.2px' : '11px'};
+      line-height: ${fitSinglePage ? '1.32' : '1.45'};
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
     #print-sheet-root {
       width: 100%;
     }
-    .mono {
+    .num-ltr {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-variant-numeric: tabular-nums;
       direction: ltr;
+      unicode-bidi: isolate;
       display: inline-block;
     }
     .top-banner {
       background: linear-gradient(135deg, #1e1b4b 0%, #312e81 55%, #0f172a 100%);
       color: #ffffff;
-      padding: ${fitSinglePage ? '9px 14px' : '14px 18px'};
-      border-radius: 10px;
+      padding: ${fitSinglePage ? '9px 13px' : '14px 18px'};
+      border-radius: 9px;
       display: flex;
+      flex-wrap: ${isPortrait ? 'wrap' : 'nowrap'};
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
-      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
+      gap: 10px;
+      margin-bottom: ${fitSinglePage ? '7px' : '11px'};
     }
-    .top-title { font-size: ${fitSinglePage ? '14px' : '17px'}; font-weight: 900; margin-bottom: 2px; }
-    .top-sub { font-size: ${fitSinglePage ? '9.5px' : '11px'}; color: #c7d2fe; font-weight: 600; }
+    .top-title { font-size: ${fitSinglePage ? '15px' : '17px'}; font-weight: 900; margin-bottom: 2px; }
+    .top-sub { font-size: ${fitSinglePage ? '10px' : '11px'}; color: #c7d2fe; font-weight: 600; }
     .verify-badge {
       background: rgba(16, 185, 129, 0.16);
       border: 1px solid rgba(52, 211, 153, 0.55);
       color: #a7f3d0;
       padding: ${fitSinglePage ? '5px 10px' : '7px 12px'};
-      border-radius: 8px;
-      font-size: ${fitSinglePage ? '9.5px' : '11px'};
+      border-radius: 7px;
+      font-size: ${fitSinglePage ? '10px' : '11px'};
       font-weight: 800;
-      text-align: left;
       white-space: nowrap;
     }
     .meta-strip {
@@ -603,27 +606,27 @@ function printCrossBrandSwapReport(
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      padding: ${fitSinglePage ? '5px 10px' : '8px 14px'};
+      padding: ${fitSinglePage ? '6px 12px' : '8px 14px'};
       background: #f8fafc;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
-      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
-      font-size: ${fitSinglePage ? '9.5px' : '11px'};
+      margin-bottom: ${fitSinglePage ? '7px' : '11px'};
+      font-size: ${fitSinglePage ? '10px' : '11px'};
       font-weight: 700;
       color: #334155;
     }
     .pickup-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: ${fitSinglePage ? '7px' : '10px'};
-      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
+      gap: ${fitSinglePage ? '8px' : '10px'};
+      margin-bottom: ${fitSinglePage ? '7px' : '11px'};
     }
     .pickup-card {
       border: 1px solid #cbd5e1;
-      border-radius: 9px;
-      padding: ${fitSinglePage ? '6px 10px' : '10px 13px'};
+      border-radius: 8px;
+      padding: ${fitSinglePage ? '7px 10px' : '10px 13px'};
       background: #ffffff;
-      border-top: 4px solid #4f46e5;
+      border-top: 3px solid #4f46e5;
     }
     .pickup-card.pickup-b { border-top-color: #e11d48; }
     .pickup-head {
@@ -638,18 +641,19 @@ function printCrossBrandSwapReport(
       background: #ffe4e6;
       color: #be123c;
       font-weight: 800;
-      font-size: ${fitSinglePage ? '9px' : '10px'};
-      padding: 2px 7px;
+      font-size: ${fitSinglePage ? '9.5px' : '10px'};
+      padding: 2px 8px;
       border-radius: 5px;
+      white-space: nowrap;
     }
-    .pickup-line { color: #334155; margin-bottom: ${fitSinglePage ? '3px' : '5px'}; font-size: ${fitSinglePage ? '9.5px' : '10.5px'}; }
+    .pickup-line { color: #334155; margin-bottom: ${fitSinglePage ? '4px' : '5px'}; font-size: ${fitSinglePage ? '9.8px' : '10.5px'}; }
     .pickup-alert {
       background: #fff1f2;
       border: 1px solid #fecdd3;
       color: #9f1239;
       font-weight: 700;
-      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
-      padding: ${fitSinglePage ? '3px 7px' : '5px 8px'};
+      font-size: ${fitSinglePage ? '9.6px' : '10.5px'};
+      padding: ${fitSinglePage ? '4px 7px' : '5px 8px'};
       border-radius: 6px;
     }
     .single-alert {
@@ -659,32 +663,34 @@ function printCrossBrandSwapReport(
       font-weight: 700;
       padding: ${fitSinglePage ? '7px 10px' : '10px 14px'};
       border-radius: 8px;
-      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
+      margin-bottom: ${fitSinglePage ? '7px' : '11px'};
     }
     table {
       width: 100%;
+      table-layout: fixed;
       border-collapse: collapse;
       border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      overflow: hidden;
-      margin-bottom: ${fitSinglePage ? '7px' : '12px'};
+      margin-bottom: ${fitSinglePage ? '7px' : '11px'};
     }
     thead { display: table-header-group; }
     th {
       background: #1e293b;
       color: #ffffff;
-      padding: ${fitSinglePage ? '5px 7px' : '8px 9px'};
+      padding: ${fitSinglePage ? '6px 6px' : '8px 8px'};
       text-align: right;
-      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
+      font-size: ${fitSinglePage ? '9.8px' : '10.5px'};
       font-weight: 800;
-      border-left: 1px solid #334155;
+      border: 1px solid #334155;
+      vertical-align: middle;
     }
     td {
-      padding: ${fitSinglePage ? '4px 7px' : '8px 9px'};
-      border-bottom: 1px solid #e2e8f0;
-      border-left: 1px solid #e2e8f0;
+      display: table-cell;
+      padding: ${fitSinglePage ? '4px 6px' : '7px 8px'};
+      border: 1px solid #e2e8f0;
       vertical-align: top;
-      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
+      font-size: ${fitSinglePage ? '9.6px' : '10.5px'};
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
     tr { break-inside: avoid; page-break-inside: avoid; }
     tbody tr:nth-child(even) { background: #f8fafc; }
@@ -694,8 +700,9 @@ function printCrossBrandSwapReport(
       display: inline-block;
       padding: 1px 6px;
       border-radius: 4px;
-      font-size: ${fitSinglePage ? '9px' : '10px'};
+      font-size: ${fitSinglePage ? '9px' : '9.8px'};
       font-weight: 800;
+      white-space: nowrap;
     }
     .state-rose { background: #ffe4e6; color: #be123c; }
     .state-amber { background: #fef3c7; color: #92400e; }
@@ -703,36 +710,37 @@ function printCrossBrandSwapReport(
       background: #f8fafc;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
-      padding: ${fitSinglePage ? '6px 10px' : '10px 14px'};
-      margin-bottom: ${fitSinglePage ? '6px' : '10px'};
+      padding: ${fitSinglePage ? '6px 10px' : '9px 14px'};
+      margin-bottom: ${fitSinglePage ? '6px' : '9px'};
     }
     .dispatch-title {
       font-size: ${fitSinglePage ? '10px' : '11px'};
       font-weight: 900;
       color: #1e293b;
-      margin-bottom: ${fitSinglePage ? '3px' : '6px'};
+      margin-bottom: ${fitSinglePage ? '3px' : '5px'};
     }
     .dispatch-item {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: ${fitSinglePage ? '2px 0' : '4px 0'};
-      font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
+      padding: ${fitSinglePage ? '2px 0' : '3px 0'};
+      font-size: ${fitSinglePage ? '9.8px' : '10.5px'};
     }
     .dispatch-count {
       background: #4f46e5;
       color: #ffffff;
       font-weight: 800;
-      font-size: ${fitSinglePage ? '9px' : '10px'};
-      padding: 2px 7px;
+      font-size: ${fitSinglePage ? '9.2px' : '10px'};
+      padding: 2px 8px;
       border-radius: 5px;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     .footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-top: ${fitSinglePage ? '5px' : '8px'};
+      padding-top: ${fitSinglePage ? '5px' : '7px'};
       border-top: 2px solid #e2e8f0;
       font-size: ${fitSinglePage ? '9.5px' : '10.5px'};
       color: #475569;
@@ -756,30 +764,55 @@ function printCrossBrandSwapReport(
 
   <div class="meta-strip">
     <div>
-      التاريخ: <span class="mono">${escapePrintHtml(sw.date)}</span>
+      التاريخ: <span class="num-ltr">${escapePrintHtml(sw.date)}</span>
       &nbsp;|&nbsp;
-      رقم البيك أب: <span class="mono">${sw.partnerPickupId ? `#${escapePrintHtml(sw.pickupId)} ↔ #${escapePrintHtml(sw.partnerPickupId)}` : `#${escapePrintHtml(sw.pickupId)}`}</span>
+      رقم البيك أب: ${
+        sw.partnerPickupId
+          ? `<span class="num-ltr">#${escapePrintHtml(sw.pickupId)}</span> ↔ <span class="num-ltr">#${escapePrintHtml(sw.partnerPickupId)}</span>`
+          : `<span class="num-ltr">#${escapePrintHtml(sw.pickupId)}</span>`
+      }
       &nbsp;|&nbsp;
-      إجمالي الشحنات المسحوبة: <span class="mono">${sw.affectedTotalShipmentsCount}</span>
+      إجمالي الشحنات المسحوبة: <span class="num-ltr">${sw.affectedTotalShipmentsCount}</span>
       &nbsp;|&nbsp;
-      المرتجعات المتأثرة: <span class="mono" style="color:#be123c;">${sw.affectedReturnedShipments.length}</span>
+      المرتجعات المتأثرة: <span class="num-ltr" style="color:#be123c;font-weight:800;">${sw.affectedReturnedShipments.length}</span>
     </div>
-    <div>تاريخ الطباعة: <span class="mono">${escapePrintHtml(printedAt)}</span></div>
+    <div>تاريخ الطباعة: <span class="num-ltr">${escapePrintHtml(printedAt)}</span></div>
   </div>
 
   ${pickupsHtml}
 
   <table>
+    <colgroup>
+      ${
+        isPortrait
+          ? `<col style="width: 3.5%;" />
+      <col style="width: 11%;" />
+      <col style="width: 10%;" />
+      <col style="width: 12.5%;" />
+      <col style="width: 21%;" />
+      <col style="width: 12%;" />
+      <col style="width: 15%;" />
+      <col style="width: 15%;" />`
+          : `<col style="width: 3%;" />
+      <col style="width: 9%;" />
+      <col style="width: 9%;" />
+      <col style="width: 12%;" />
+      <col style="width: 23%;" />
+      <col style="width: 12%;" />
+      <col style="width: 16%;" />
+      <col style="width: 16%;" />`
+      }
+    </colgroup>
     <thead>
       <tr>
-        <th style="text-align:center;width:32px;">#</th>
+        <th style="text-align:center;">#</th>
         <th>رقم البوليصة</th>
         <th>البراند الفعلي</th>
         <th>العميل والمحافظة</th>
         <th>المنتجات بالكامل</th>
-        <th>الحالة في شركة الشحن</th>
-        <th style="background:#9f1239;">رجعت خطأ لمخزن</th>
-        <th style="background:#065f46;">المفروض ترجع لمخزن</th>
+        <th>الحالة في الشحن</th>
+        <th style="background:#9f1239;border-color:#be123c;">رجعت خطأ لمخزن</th>
+        <th style="background:#065f46;border-color:#047857;">المفروض ترجع لمخزن</th>
       </tr>
     </thead>
     <tbody>
@@ -798,7 +831,7 @@ function printCrossBrandSwapReport(
 
   <div class="footer">
     <span>تم الفحص والمطابقة آلياً بنظام منصة عبده ميديا بدون تدخل بشري</span>
-    <span>إجمالي البوالص بالتقرير: ${sw.affectedReturnedShipments.length} بوليصة</span>
+    <span>إجمالي البوالص بالتقرير: <span class="num-ltr">${sw.affectedReturnedShipments.length}</span> بوليصة</span>
   </div>
 </div>
 </body>
@@ -808,8 +841,8 @@ function printCrossBrandSwapReport(
   iframe.style.position = 'fixed';
   iframe.style.left = '-10000px';
   iframe.style.top = '0';
-  iframe.style.width = '1082px';
-  iframe.style.height = '760px';
+  iframe.style.width = isPortrait ? '746px' : '1076px';
+  iframe.style.height = isPortrait ? '1076px' : '760px';
   iframe.style.border = '0';
   iframe.style.opacity = '0';
   iframe.style.pointerEvents = 'none';
@@ -820,17 +853,21 @@ function printCrossBrandSwapReport(
     doc.open();
     doc.write(html);
     doc.close();
-    setTimeout(() => {
+
+    const triggerPrint = () => {
       if (fitSinglePage) {
         const rootEl = doc.getElementById('print-sheet-root');
         if (rootEl) {
           const contentW = Math.max(1, rootEl.scrollWidth);
           const contentH = Math.max(1, rootEl.scrollHeight);
-          // A4 landscape at 5mm margins -> ~1085 x 755px at 96dpi; keep a safe buffer so it never spills to page 2
-          const scale = Math.max(0.4, Math.min(1, 1075 / contentW, 715 / contentH));
-          if (scale < 1) {
+          // A4 at 6mm margins: landscape ~1077x748px, portrait ~748x1077px at 96dpi
+          const maxW = isPortrait ? 742 : 1072;
+          const maxH = isPortrait ? 1038 : 718;
+          const scale = Math.max(0.45, Math.min(1, maxW / contentW, maxH / contentH));
+          if (scale < 0.995) {
             const rootStyle = rootEl.style;
-            const hasZoomSupport = typeof (rootStyle as unknown as Record<string, unknown>).zoom === 'string';
+            const hasZoomSupport =
+              typeof (rootStyle as unknown as Record<string, unknown>).zoom === 'string';
             if (hasZoomSupport) {
               rootStyle.setProperty('zoom', scale.toFixed(4));
             } else {
@@ -851,7 +888,16 @@ function printCrossBrandSwapReport(
           }
         }, 2500);
       }, 90);
-    }, 450);
+    };
+
+    const fontsReady = (doc as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts?.ready;
+    if (fontsReady) {
+      Promise.race([fontsReady, new Promise(res => setTimeout(res, 750))]).then(() => {
+        setTimeout(triggerPrint, 80);
+      });
+    } else {
+      setTimeout(triggerPrint, 550);
+    }
   }
 }
 
@@ -964,6 +1010,8 @@ export default function CodHunterWorkspace({
   const [showDeliverySlaTable, setShowDeliverySlaTable] = useState(false);
   const [collapsedSwapIds, setCollapsedSwapIds] = useState<Set<string>>(new Set());
   const [copiedSwapTrackingKey, setCopiedSwapTrackingKey] = useState<string | null>(null);
+  const [swapPrintOrientation, setSwapPrintOrientation] = useState<'landscape' | 'portrait'>('landscape');
+  const [swapPrintSinglePage, setSwapPrintSinglePage] = useState<boolean>(true);
   const [txCategoryFilter, setTxCategoryFilter] = useState<
     'all' | 'cashout_fees' | 'compensations' | 'packing_pickup' | 'cycles'
   >('all');
@@ -7953,22 +8001,64 @@ export default function CodHunterWorkspace({
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => printCrossBrandSwapReport(sw, storeName, true)}
-                            className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-semibold shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                          {/* Orientation Selector (Landscape / Portrait) */}
+                          <div
+                            className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-0.5 shrink-0"
+                            role="group"
+                            aria-label="اتجاه ورقة الطباعة"
                           >
-                            <Printer className="w-4 h-4 shrink-0" />
-                            <span>طباعة في ورقة واحدة</span>
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => setSwapPrintOrientation('landscape')}
+                              className={`py-1.5 px-2.5 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                                swapPrintOrientation === 'landscape'
+                                  ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              عرض
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSwapPrintOrientation('portrait')}
+                              className={`py-1.5 px-2.5 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                                swapPrintOrientation === 'portrait'
+                                  ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                              }`}
+                            >
+                              طول
+                            </button>
+                          </div>
 
+                          {/* Single-Page Fit Toggle */}
+                          <label className="inline-flex items-center gap-1.5 py-2 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none whitespace-nowrap shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={swapPrintSinglePage}
+                              onChange={e => setSwapPrintSinglePage(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded accent-emerald-600 cursor-pointer"
+                            />
+                            <span>ورقة واحدة</span>
+                          </label>
+
+                          {/* Primary Colored Print Button */}
                           <button
                             type="button"
-                            onClick={() => printCrossBrandSwapReport(sw, storeName, false)}
+                            onClick={() =>
+                              printCrossBrandSwapReport(
+                                sw,
+                                storeName,
+                                swapPrintSinglePage,
+                                swapPrintOrientation
+                              )
+                            }
                             className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
                           >
                             <Printer className="w-4 h-4 shrink-0" />
-                            <span>{isPaired ? 'طباعة تقرير ملون للمخزنين' : 'طباعة تقرير ملون'}</span>
+                            <span>
+                              {isPaired ? 'طباعة تقرير ملون للمخزنين' : 'طباعة تقرير ملون'}
+                            </span>
                           </button>
 
                           {sw.affectedReturnedShipments.length > 0 && (
