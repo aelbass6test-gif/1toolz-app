@@ -30,6 +30,9 @@ const STORE_COLLECTION_KEYS: Array<{ settingsKey?: string; storeKey?: string; ta
   { storeKey: "customers", tableCollection: "customers" }
 ];
 
+// Hostnames owned by platform-level applications, never tenant stores.
+const RESERVED_SUBDOMAINS = new Set(['app', 'api', 'www', 'fallback', 'shipping']);
+
 function safeJsonParse<T>(raw: any, fallback: T): T {
   if (raw === null || raw === undefined) return fallback;
   if (typeof raw !== "string") return raw as T;
@@ -54,6 +57,11 @@ export function normalizeValidSubdomain(raw: unknown, storeId?: string): string 
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (!cleaned) {
+    if (!storeId) return "";
+    const suffix = String(storeId).replace(/[^a-z0-9]/gi, "").slice(-6).toLowerCase() || "1000";
+    return `store-${suffix}`;
+  }
+  if (RESERVED_SUBDOMAINS.has(cleaned)) {
     if (!storeId) return "";
     const suffix = String(storeId).replace(/[^a-z0-9]/gi, "").slice(-6).toLowerCase() || "1000";
     return `store-${suffix}`;
@@ -2418,4 +2426,3 @@ async function dispatchDbRequest(
 
   return json(request, env, { success: false, error: `مسار قاعدة البيانات غير معروف: ${path}` }, 404);
 }
-

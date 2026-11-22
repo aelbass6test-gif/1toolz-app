@@ -292,6 +292,7 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
   // Validate subdomain format (lowercase letters, numbers, hyphens)
   const isSubdomainFormatValid = (sub: string) => {
     if (!sub) return true; // empty is allowed for removing
+    if (['app', 'api', 'www', 'fallback', 'shipping'].includes(sub.toLowerCase())) return false;
     return /^[a-z0-9]([a-z0-9-]{1,28}[a-z0-9])?$/.test(sub);
   };
 
@@ -317,7 +318,10 @@ export const DomainSettingsPage: React.FC<DomainSettingsPageProps> = ({
     }
 
     if (!isSubdomainFormatValid(cleanSub)) {
-      showAlert("تنبيه", "صيغة النطاق غير صالحة. يرجى استخدام الأحرف والأرقام الإنجليزية والشرطات فقط (-) بدون رموز خاصة أو مسافات.", "warning");
+      const message = cleanSub === 'shipping'
+        ? 'اسم shipping محجوز لنظام الشحن ولا يمكن استخدامه كمتجر.'
+        : "صيغة النطاق غير صالحة. يرجى استخدام الأحرف والأرقام الإنجليزية والشرطات فقط (-) بدون رموز خاصة أو مسافات.";
+      showAlert("تنبيه", message, "warning");
       return;
     }
 

@@ -2134,7 +2134,8 @@ export const AppComponent = () => {
 
             const host = window.location.hostname.toLowerCase();
             const hostNoWww = host.replace(/^www\./, '');
-            const mainDomains = ['app.abdomedi.com', 'abdomedi.com', 'fallback.abdomedi.com', 'localhost', '127.0.0.1'];
+            // Reserved system hostname: shipping is a separate app, not a tenant storefront.
+            const mainDomains = ['app.abdomedi.com', 'abdomedi.com', 'fallback.abdomedi.com', 'shipping.abdomedi.com', 'localhost', '127.0.0.1'];
             
             // Refined isMainDomain check: exact match for root domains or the dev/preview pages
             const isExactMainDomain = mainDomains.includes(hostNoWww) || hostNoWww.includes('run.app') || hostNoWww.includes('pages.dev') || hostNoWww.includes('aistudio.google') || hostNoWww.includes('web-preview');
