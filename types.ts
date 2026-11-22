@@ -1172,6 +1172,18 @@ export interface MoneyHashConfig {
   testModeNotes?: string;
 }
 
+export interface ConfirmItIntegrationConfig {
+  isActive: boolean;
+  storeKey?: string;
+  endpointUrl?: string;
+  autoSendOnNewOrder?: boolean;
+  sendOnlinePaidOrders?: boolean;
+  includeShippingLines?: boolean;
+  lastSentAt?: string;
+  lastError?: string;
+  sentOrdersCount?: number;
+}
+
 export interface Settings {
   id?: string;
   storeName?: string;
@@ -1184,6 +1196,7 @@ export interface Settings {
   companyNames?: string[];
   enableGlobalFinancials: boolean; 
   akkedIntegration?: AkkedIntegrationConfig;
+  confirmItConfig?: ConfirmItIntegrationConfig;
   moneyHashConfig?: MoneyHashConfig;
   webhookIntegrations?: WebhookIntegration[];
   storeWebhooks?: WebhookSubscription[];
@@ -2060,6 +2073,17 @@ export interface Order {
   codPayoutDiff?: number;
   codPayoutSheetRef?: string;
   sheetFeeBillingMode?: 'carrier_all_inclusive' | 'store_company_fees';
+  confirmItSync?: {
+    status: 'sent' | 'already_exists' | 'failed';
+    sentAt: string;
+    orderNumberSent?: string;
+    error?: string;
+    statusCode?: number;
+    remoteStatus?: 'pending' | 'confirmed' | 'cancelled' | 'unreachable' | string;
+    remoteUpdatedAt?: string;
+    confirmItOrderId?: number;
+    helpRequested?: boolean;
+  };
 }
 
 export interface MerchantSettlement {
@@ -2692,6 +2716,7 @@ export interface CodSettlementBatch {
   totalDiscrepancyAmount: number;
   treasuryAccountId?: string;
   treasuryTxId?: string;
+  walletTxIds?: string[];
   notes?: string;
 }
 

@@ -143,6 +143,14 @@ export const getEffectiveFlexShipConfig = (
     if (!settings || isPosOrDirectOrder(order) || isAllInclusiveSheetOrder(order)) {
         return { enabled: false, flexShipFee: 0, flexShipCompanyFee: 0 };
     }
+    if (
+        order.platform === 'bosta_sheet_import' &&
+        !order.flexShipFeePaidByCustomer &&
+        !order.flexShipTransactionAdded &&
+        order.enableFlexShip !== true
+    ) {
+        return { enabled: false, flexShipFee: 0, flexShipCompanyFee: 0 };
+    }
     const compFees = getCompanySpecificFees(settings, order.shippingCompany);
     const useCustom = compFees?.useCustomFees ?? false;
     const defaultEnabled = useCustom
@@ -1567,4 +1575,43 @@ export const isSheetReconciledOrder = (order: Order | null | undefined): boolean
   }
   return false;
 };
+
+/**
+ * Strips confidential reconciliation text (shipping profit spread, actual carrier cost, and
+ * internal sheet markers) from order notes before rendering in store-facing views.
+ * Leaves customer & operational notes untouched.
+ */
+export const stripConfidentialSheetDetailsFromNote = (text?: string | null): string => {
+  if (!text || typeof text !== 'string') return '';
+  const isConfidentialSegment = (seg: string): boolean => {
+    const s = seg.trim();
+    if (!s) return true;
+    return (
+      /تسوية\s*الشحن\s*[:(]/.test(s) ||
+      /شحن\s*بوسطة\s*الفعلي/.test(s) ||
+      /فرق\s*التسوية/.test(s) ||
+      /فرق\s*الشحن/.test(s) ||
+      /تكلفة\s*بوسطة\s*[\d.,]+/.test(s) ||
+      /تم\s*التنزيل\s*من\s*شيت/.test(s) ||
+      /شيت\s*(?:بوسطة|التسوية)/.test(s) ||
+      /تبع\s*الشيت/.test(s) ||
+      (/بوليصة:\s*[A-Za-z0-9_-]+/.test(s) && /تحصيل\s*COD/.test(s)) ||
+      /^شحن\s*العميل:\s*[\d.,]+/.test(s)
+    );
+  };
+
+  const cleanedLines = text
+    .split(/\r?\n/)
+    .map(line => {
+      const parts = line
+        .split(/\s*\|\s*/)
+        .map(p => p.trim())
+        .filter(p => p && !isConfidentialSegment(p));
+      return parts.join(' | ').trim();
+    })
+    .filter(Boolean);
+
+  return cleanedLines.join('\n').trim();
+};
+
 

@@ -28,6 +28,14 @@ import {
 } from "./services/orderQuotaLedgerService";
 import { hashPasswordSecure } from "./utils/syncIntegrity";
 import { ensureMysqlTables, query as mysqlQuery, getMysqlPool } from "./services/mysqlAdapter";
+import {
+  buildConfirmItOrderPayload,
+  isConfirmItEnabled,
+  isOrderPaidOnlineForConfirmIt,
+  maskConfirmItTarget,
+  resolveConfirmItConfigFromSettings,
+  resolveConfirmItTarget
+} from "./utils/confirmit";
 
 let _geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI {
@@ -2425,6 +2433,15 @@ async function startServer() {
           "newOrder", 
           `🛒 *طلب جديد عبر الـ API*\nالعميل: ${newOrder.customerName}\nالهاتف: ${newOrder.customerPhone}\nرقم الطلب: ${newOrder.orderNumber}\nالمبلغ: ${newOrder.totalPrice} ج.م`
         ).catch(e => console.error("Admin Alert Error:", e));
+
+        if (isConfirmItEnabled(auth.storeData?.settings)) {
+          void dispatchOrderToConfirmIt({
+            storeId: auth.storeId!,
+            order: newOrder,
+            settings: auth.storeData?.settings,
+            persistOrderStatus: true
+          }).catch((err) => console.error("[CONFIRMIT] API v1 order dispatch error:", err));
+        }
       }
 
       return c.json({
@@ -2723,6 +2740,13 @@ async function startServer() {
         idempotencyKey,
         enforceStockAvailability: body.enforceStockAvailability !== false
       });
+      if (res?.success && !res?.alreadyExisted && res?.order) {
+        void dispatchOrderToConfirmIt({
+          storeId,
+          order: res.order,
+          persistOrderStatus: true
+        }).catch((err) => console.error("[CONFIRMIT] atomic-create dispatch error:", err));
+      }
       return c.json(res, res.success ? 200 : 400);
     } catch (err: any) {
       return c.json({ success: false, error: err.message }, 500);
@@ -3725,6 +3749,330 @@ async function startServer() {
   });
 
   // =========================================================================
+  // --- CONFIRM IT ORDER API INTEGRATION (Server-Side Private URL Dispatch) -
+  // =========================================================================
+  const dispatchOrderToConfirmIt = async (params: {
+    storeId?: string;
+    order: any;
+    settings?: any;
+    targetKeyOrUrlOverride?: string;
+    bypassAutoToggle?: boolean;
+    persistOrderStatus?: boolean;
+  }) => {
+    const startTime = Date.now();
+    let settings = params.settings;
+    let storeData: any = null;
+
+    if (!settings && params.storeId) {
+      storeData = await getStoreDataFromD1(cfD1, params.storeId);
+      settings = storeData?.settings;
+    }
+
+    let resolvedTarget = params.targetKeyOrUrlOverride
+      ? resolveConfirmItTarget(params.targetKeyOrUrlOverride)
+      : resolveConfirmItConfigFromSettings(settings).resolved;
+
+    if (!params.targetKeyOrUrlOverride) {
+      const cfg = resolveConfirmItConfigFromSettings(settings);
+      if (!cfg.isActive || !cfg.resolved.valid) {
+        return {
+          success: false,
+          skipped: true,
+          statusCode: 400,
+          maskedUrl: maskConfirmItTarget(),
+          error: "تكامل Confirm It غير مفعل أو معرّف المتجر السري غير مضبوط."
+        };
+      }
+      if (!params.bypassAutoToggle && !cfg.autoSendOnNewOrder) {
+        return {
+          success: false,
+          skipped: true,
+          statusCode: 200,
+          maskedUrl: cfg.resolved.maskedUrl,
+          error: "الإرسال التلقائي عند الطلب الجديد معطل في إعدادات Confirm It."
+        };
+      }
+      if (!params.bypassAutoToggle && !cfg.sendOnlinePaidOrders && isOrderPaidOnlineForConfirmIt(params.order || {})) {
+        return {
+          success: false,
+          skipped: true,
+          statusCode: 200,
+          maskedUrl: cfg.resolved.maskedUrl,
+          error: "تم تخطي الإرسال لأن الطلب مدفوع أونلاين والخيار معطل."
+        };
+      }
+      resolvedTarget = cfg.resolved;
+    }
+
+    if (!resolvedTarget.valid || !resolvedTarget.url) {
+      return {
+        success: false,
+        statusCode: 400,
+        maskedUrl: maskConfirmItTarget(params.targetKeyOrUrlOverride),
+        error: resolvedTarget.error || "رابط أو معرف Confirm It غير صالح."
+      };
+    }
+
+    const buildRes = buildConfirmItOrderPayload(params.order || {}, {
+      includeShippingLines: settings?.confirmItConfig?.includeShippingLines !== false
+    });
+
+    if (!buildRes.ok || !buildRes.payload) {
+      return {
+        success: false,
+        statusCode: 400,
+        maskedUrl: resolvedTarget.maskedUrl,
+        error: buildRes.error || "تعذر تجهيز بيانات الطلب لإرسالها إلى Confirm It."
+      };
+    }
+
+    const retryDelaysMs = [0, 600, 1800];
+    let lastStatus = 500;
+    let lastText = "";
+    let lastError = "";
+
+    for (let attempt = 0; attempt < retryDelaysMs.length; attempt++) {
+      if (retryDelaysMs[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, retryDelaysMs[attempt]));
+      }
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch(resolvedTarget.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildRes.payload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        lastStatus = res.status;
+        lastText = await res.text();
+        let parsedBody: any = null;
+        try {
+          parsedBody = JSON.parse(lastText);
+        } catch {
+          parsedBody = lastText;
+        }
+
+        const rawStr = typeof parsedBody === "string" ? parsedBody : JSON.stringify(parsedBody || "");
+        const lowerStr = rawStr.toLowerCase();
+
+        if (lastStatus === 201 || (lastStatus === 200 && lowerStr.includes("order already exists"))) {
+          const alreadyExists = lastStatus === 200 && lowerStr.includes("order already exists");
+          const syncRecord = {
+            status: alreadyExists ? ("already_exists" as const) : ("sent" as const),
+            sentAt: new Date().toISOString(),
+            orderNumberSent: String(buildRes.payload.order_number),
+            statusCode: lastStatus
+          };
+
+          if (params.persistOrderStatus && params.storeId && params.order?.id) {
+            try {
+              const latestStore = storeData || (await getStoreDataFromD1(cfD1, params.storeId));
+              if (latestStore && Array.isArray(latestStore.orders)) {
+                const idx = latestStore.orders.findIndex((o: any) => o.id === params.order.id);
+                if (idx >= 0) {
+                  latestStore.orders[idx] = { ...latestStore.orders[idx], confirmItSync: syncRecord };
+                  await saveStoreDataToD1(cfD1, params.storeId, cleanUndefined(latestStore));
+                }
+              }
+            } catch (persistErr) {
+              console.warn("[CONFIRMIT] Failed persisting confirmItSync on order:", persistErr);
+            }
+          }
+
+          return {
+            success: true,
+            alreadyExists,
+            statusCode: lastStatus,
+            durationMs: Date.now() - startTime,
+            maskedUrl: resolvedTarget.maskedUrl,
+            orderNumberSent: buildRes.payload.order_number,
+            provinceResolved: buildRes.provinceResolved,
+            message: alreadyExists
+              ? `الطلب #${buildRes.payload.order_number} مسجل مسبقاً في Confirm It (Order already exists)`
+              : `تم إرسال الطلب #${buildRes.payload.order_number} إلى Confirm It بنجاح (201 Created)`,
+            syncRecord
+          };
+        }
+
+        if (lastStatus === 200 && lowerStr.includes("missing order id")) {
+          lastError = "لم يتم حفظ الطلب في Confirm It: رقم الطلب (order_number) مفقود (Missing order ID).";
+          break;
+        }
+
+        if (lastStatus >= 400 && lastStatus < 500) {
+          lastError = typeof parsedBody === "object" && (parsedBody?.error || parsedBody?.message || parsedBody?.detail)
+            ? String(parsedBody.error || parsedBody.message || parsedBody.detail)
+            : (rawStr || `خطأ من Confirm It (${lastStatus})`);
+          break;
+        }
+
+        lastError = `استجابة غير متوقعة من Confirm It (${lastStatus}): ${rawStr.slice(0, 200)}`;
+      } catch (err: any) {
+        lastStatus = err?.name === "AbortError" ? 504 : 500;
+        lastError = err?.name === "AbortError"
+          ? "انتهت مهلة الاتصال بخادم Confirm It."
+          : (err?.message || "تعذر الاتصال بخادم Confirm It.");
+      }
+    }
+
+    const failedRecord = {
+      status: "failed" as const,
+      sentAt: new Date().toISOString(),
+      orderNumberSent: String(buildRes.payload.order_number),
+      error: lastError,
+      statusCode: lastStatus
+    };
+
+    if (params.persistOrderStatus && params.storeId && params.order?.id) {
+      try {
+        const latestStore = storeData || (await getStoreDataFromD1(cfD1, params.storeId));
+        if (latestStore && Array.isArray(latestStore.orders)) {
+          const idx = latestStore.orders.findIndex((o: any) => o.id === params.order.id);
+          if (idx >= 0) {
+            latestStore.orders[idx] = { ...latestStore.orders[idx], confirmItSync: failedRecord };
+            await saveStoreDataToD1(cfD1, params.storeId, cleanUndefined(latestStore));
+          }
+        }
+      } catch {}
+    }
+
+    return {
+      success: false,
+      statusCode: lastStatus,
+      durationMs: Date.now() - startTime,
+      maskedUrl: resolvedTarget.maskedUrl,
+      orderNumberSent: buildRes.payload.order_number,
+      provinceResolved: buildRes.provinceResolved,
+      error: lastError,
+      syncRecord: failedRecord
+    };
+  };
+
+  // Endpoint: Dispatch an order to Confirm It using store credentials stored on server
+  app.post("/api/v1/confirmit/send-order", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { storeId, order, manual = false, persistOrderStatus = true } = body || {};
+      if (!storeId || !order) {
+        return c.json({ success: false, error: "storeId وبيانات الطلب مطلوبة" }, 400);
+      }
+
+      const result = await dispatchOrderToConfirmIt({
+        storeId: String(storeId),
+        order,
+        bypassAutoToggle: Boolean(manual),
+        persistOrderStatus: Boolean(persistOrderStatus)
+      });
+
+      return c.json(result, result.success || result.skipped ? 200 : (result.statusCode >= 400 && result.statusCode < 500 ? 400 : 502));
+    } catch (err: any) {
+      return c.json({ success: false, error: err?.message || "خطأ داخلي أثناء الإرسال إلى Confirm It" }, 500);
+    }
+  });
+
+  // Endpoint: Verify Confirm It configuration or send a safe test order
+  app.post("/api/v1/confirmit/test", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { storeId, targetKeyOrUrl, testPhone, sendTestOrder = false } = body || {};
+
+      let candidateTarget = targetKeyOrUrl;
+      if (!candidateTarget && storeId) {
+        const sData = await getStoreDataFromD1(cfD1, String(storeId));
+        candidateTarget = resolveConfirmItConfigFromSettings(sData?.settings).resolved.url;
+      }
+
+      const resolved = resolveConfirmItTarget(candidateTarget);
+      if (!resolved.valid) {
+        return c.json({ success: false, error: resolved.error || "رابط أو معرف Confirm It غير صالح" }, 400);
+      }
+
+      if (!sendTestOrder) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          const verifyRes = await fetch(resolved.url!, {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (!verifyRes.ok) {
+            return c.json({
+              success: false,
+              statusCode: verifyRes.status,
+              maskedUrl: resolved.maskedUrl,
+              error:
+                verifyRes.status === 404 || verifyRes.status === 403
+                  ? `معرّف المتجر (Store ID) غير صحيح أو غير مفعل في Confirm It (${verifyRes.status}). تأكد من الكود المستلم من الدعم.`
+                  : `فشل الاتصال بخادم Confirm It (${verifyRes.status}).`
+            }, 400);
+          }
+
+          const verifyData = await verifyRes.json().catch(() => null);
+          const itemsCount = Array.isArray(verifyData)
+            ? verifyData.length
+            : Array.isArray(verifyData?.results)
+            ? verifyData.results.length
+            : 0;
+
+          return c.json({
+            success: true,
+            statusCode: 200,
+            ordersCount: itemsCount,
+            maskedUrl: resolved.maskedUrl,
+            message: `تم الاتصال والتحقق من حساب Confirm It بنجاح! معرّف المتجر سليم ويعمل (الطلبات المسجلة حالياً: ${itemsCount}).`
+          });
+        } catch (verifyErr: any) {
+          return c.json({
+            success: false,
+            statusCode: 504,
+            maskedUrl: resolved.maskedUrl,
+            error: verifyErr?.name === "AbortError"
+              ? "انتهت مهلة الاتصال بخادم Confirm It أثناء التحقق."
+              : (verifyErr?.message || "تعذر الاتصال بخادم Confirm It.")
+          }, 502);
+        }
+      }
+
+      if (!testPhone || typeof testPhone !== "string" || !testPhone.trim()) {
+        return c.json({ success: false, error: "يرجى إدخال رقم موبايل مصري (01XXXXXXXXX) لإرسال الطلب التجريبي." }, 400);
+      }
+
+      const testOrderNumber = `TEST-${Date.now().toString().slice(-6)}`;
+      const result = await dispatchOrderToConfirmIt({
+        targetKeyOrUrlOverride: resolved.url,
+        bypassAutoToggle: true,
+        persistOrderStatus: false,
+        order: {
+          id: testOrderNumber,
+          orderNumber: testOrderNumber,
+          customerName: "Test Order",
+          customerPhone: testPhone.trim(),
+          customerAddress: "12 El Nasr Street",
+          city: "Nasr City",
+          governorate: "Cairo",
+          paymentMethod: "COD",
+          paymentStatus: "بانتظار الدفع",
+          productName: "Test product",
+          productPrice: 400,
+          shippingFee: 50,
+          totalPrice: 450,
+          items: [{ productId: "test", name: "Test product", quantity: 1, price: 400 }]
+        }
+      });
+
+      return c.json(result, result.success ? 200 : 400);
+    } catch (err: any) {
+      return c.json({ success: false, error: err?.message || "تعذر إجراء اختبار Confirm It" }, 500);
+    }
+  });
+
+  // =========================================================================
   // --- AKKED INBOUND WEBHOOK / CALLBACK (منصة أكد -> متجرك لتحديث الحالات) ---
   // =========================================================================
   // Endpoint: Inbound Callback from Akked (POST /api/v1/akked/callback & /api/v1/webhooks/akked)
@@ -3942,6 +4290,640 @@ async function startServer() {
 
   app.post("/api/v1/akked/callback", handleAkkedInboundCallback);
   app.post("/api/v1/webhooks/akked", handleAkkedInboundCallback);
+
+  // =========================================================================
+  // --- CONFIRM IT INBOUND WEBHOOK / CALLBACK (Confirm It -> متجرك) ---------
+  // =========================================================================
+  const handleConfirmItInboundCallback = async (c: any) => {
+    try {
+      let body: any = {};
+      try {
+        const contentType = (c.req.header("content-type") || "").toLowerCase();
+        if (contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data")) {
+          body = await c.req.parseBody();
+        } else {
+          body = await c.req.json();
+        }
+      } catch {
+        body = {};
+      }
+
+      const rawOrderRef =
+        body.order_number ||
+        body.orderNumber ||
+        body.name ||
+        body.order_id ||
+        body.orderId ||
+        body.id ||
+        body.reference ||
+        body.data?.order_number ||
+        body.data?.order_id ||
+        c.req.query("order_number") ||
+        c.req.query("order_id");
+
+      const orderRefClean = rawOrderRef ? String(rawOrderRef).replace(/^#/, "").trim() : "";
+
+      const rawPhone =
+        body.customer_phone ||
+        body.phone ||
+        body.customerPhone ||
+        body.shipping_address?.phone ||
+        body.data?.phone ||
+        body.data?.shipping_address?.phone;
+
+      const rawEvent = String(body.event || body.type || body.action || c.req.query("event") || "").toLowerCase();
+      const rawStatus = String(
+        body.status || body.confirmation_status || body.order_status || body.data?.status || c.req.query("status") || ""
+      ).toLowerCase();
+      const rawFinancial = String(body.financial_status || body.data?.financial_status || "").toLowerCase();
+      const cancelReason =
+        body.cancellation_reason || body.cancel_reason || body.reason || body.data?.reason || "";
+      const newAddress =
+        body.new_address ||
+        body.address ||
+        body.customer_address ||
+        body.shipping_address?.address1 ||
+        body.data?.address;
+      const newGovernorate =
+        body.new_governorate ||
+        body.governorate ||
+        body.shipping_address?.province ||
+        body.data?.governorate;
+
+      const storeIdParam = c.req.query("storeId") || c.req.header("X-Store-Id") || body.store_id || "";
+      let targetStoreDoc: any = null;
+      let targetStoreId = "";
+
+      if (storeIdParam) {
+        const sData = await getStoreDataFromD1(cfD1, String(storeIdParam));
+        if (sData) {
+          targetStoreDoc = sData;
+          targetStoreId = String(storeIdParam);
+        }
+      }
+
+      if (!targetStoreDoc && (orderRefClean || rawPhone)) {
+        const ordRes = await cfD1
+          .prepare("SELECT store_id, id, order_number, customer_phone FROM orders ORDER BY updated_at DESC LIMIT 300")
+          .all<any>();
+        const foundRow = (ordRes.results || []).find((o: any) => {
+          const oNum = String(o.order_number || "").replace(/^#/, "").trim();
+          if (orderRefClean && (oNum === orderRefClean || String(o.id) === orderRefClean)) {
+            return true;
+          }
+          if (rawPhone && o.customer_phone) {
+            const p1 = String(o.customer_phone).replace(/\D/g, "");
+            const p2 = String(rawPhone).replace(/\D/g, "");
+            return p1.length >= 9 && p2.length >= 9 && p1.slice(-9) === p2.slice(-9);
+          }
+          return false;
+        });
+        if (foundRow?.store_id) {
+          targetStoreDoc = await getStoreDataFromD1(cfD1, foundRow.store_id);
+          targetStoreId = foundRow.store_id;
+        }
+      }
+
+      if (!targetStoreDoc) {
+        return c.json(
+          {
+            success: false,
+            error: "تعذر العثور على المتجر أو الطلب المرتبط. تأكد من تمرير ?storeId=STORE_ID في رابط الـ Callback."
+          },
+          404
+        );
+      }
+
+      const orders: any[] = targetStoreDoc.orders || [];
+      let orderIndex = -1;
+
+      if (orderRefClean) {
+        orderIndex = orders.findIndex((o: any) => {
+          const oNum = String(o.orderNumber || "").replace(/^#/, "").trim();
+          const sentNum = String(o.confirmItSync?.orderNumberSent || "").replace(/^#/, "").trim();
+          return oNum === orderRefClean || o.id === orderRefClean || (sentNum && sentNum === orderRefClean);
+        });
+      }
+
+      if (orderIndex === -1 && rawPhone) {
+        const p2 = String(rawPhone).replace(/\D/g, "");
+        if (p2.length >= 9) {
+          orderIndex = orders.findIndex((o: any) => {
+            const p1 = String(o.customerPhone || "").replace(/\D/g, "");
+            return p1.length >= 9 && p1.slice(-9) === p2.slice(-9);
+          });
+        }
+      }
+
+      if (orderIndex === -1) {
+        return c.json(
+          {
+            success: false,
+            error: `لم يتم العثور على الطلب رقم [${orderRefClean || rawPhone || "غير محدد"}] في المتجر.`
+          },
+          404
+        );
+      }
+
+      const currentOrder = orders[orderIndex];
+      const updatedOrder = { ...currentOrder };
+      const nowIso = new Date().toISOString();
+
+      // Do not overwrite orders already handed over to or reconciled with shipping carrier
+      const SHIPPING_PROGRESSED_STATUSES = new Set([
+        "قيد_التنفيذ",
+        "تم_الارسال",
+        "قيد_الشحن",
+        "تم_توصيلها",
+        "تم_التوصيل",
+        "تم_التحصيل",
+        "مدفوعة",
+        "مرتجع",
+        "مرتجع_جزئي",
+        "فشل_التوصيل",
+        "مرتجع_بعد_الاستلام",
+        "تم_الاستبدال",
+        "تمت_الاعادة_لشركة_الشحن"
+      ]);
+      const alreadyWithCarrier = SHIPPING_PROGRESSED_STATUSES.has(String(currentOrder.status || ""));
+
+      const isConfirm =
+        rawEvent.includes("confirm") ||
+        rawStatus.includes("confirm") ||
+        rawStatus.includes("مؤكد") ||
+        rawStatus.includes("اتأكد") ||
+        rawStatus.includes("تاكد") ||
+        rawStatus.includes("approved") ||
+        body.confirmed === true;
+
+      const isCancel =
+        rawEvent.includes("cancel") ||
+        rawStatus.includes("cancel") ||
+        rawStatus.includes("ملغي") ||
+        rawStatus.includes("اتلغى") ||
+        rawStatus.includes("رفض") ||
+        body.cancelled === true;
+
+      const isUnreachable =
+        rawEvent.includes("unreachable") ||
+        rawStatus.includes("unreachable") ||
+        rawStatus.includes("no_answer") ||
+        rawStatus.includes("no_reply") ||
+        rawStatus.includes("ميردش") ||
+        rawStatus.includes("لم يرد");
+
+      const isSupportRequest =
+        rawEvent.includes("support") ||
+        rawEvent.includes("help") ||
+        rawStatus.includes("support") ||
+        rawStatus.includes("help") ||
+        rawStatus.includes("طلب مساعدة") ||
+        rawStatus.includes("طلب الدعم") ||
+        body.help_requested === true ||
+        body.support_requested === true ||
+        body.needs_support === true ||
+        String(body.support || "").toLowerCase().includes("help") ||
+        String(body.support || "").includes("مساعدة");
+
+      const isPaidOnline = rawFinancial === "paid" || rawEvent.includes("paid");
+
+      let appliedAction = "updated";
+      const existingLogs = Array.isArray(updatedOrder.confirmationLogs) ? [...updatedOrder.confirmationLogs] : [];
+      const appendNote = (line: string) => {
+        updatedOrder.notes = updatedOrder.notes ? `${updatedOrder.notes}\n${line}` : line;
+      };
+
+      if (isConfirm) {
+        if (!alreadyWithCarrier) {
+          updatedOrder.status = "مؤكد";
+          updatedOrder.confirmedAt = nowIso;
+        }
+        updatedOrder.confirmedVia = "Confirm It";
+        appendNote(
+          alreadyWithCarrier
+            ? `[Confirm It] تم استلام تأكيد العميل (الطلب مسلّم بالفعل لشركة الشحن بحالة ${currentOrder.status})`
+            : `[Confirm It] تم تأكيد الطلب آلياً من قِبل العميل`
+        );
+        existingLogs.push({
+          id: `ci_log_${Date.now()}`,
+          timestamp: nowIso,
+          action: "confirmed",
+          note: "تأكيد آلي عبر Confirm It",
+          performedBy: "Confirm It"
+        });
+        appliedAction = "order.confirmed";
+      } else if (isCancel) {
+        const reasonText = cancelReason || "ألغى العميل الطلب عبر Confirm It";
+        if (!alreadyWithCarrier) {
+          updatedOrder.status = "ملغي";
+          updatedOrder.cancelledAt = nowIso;
+          updatedOrder.cancellationReason = reasonText;
+        }
+        updatedOrder.cancelledVia = "Confirm It";
+        appendNote(
+          alreadyWithCarrier
+            ? `[Confirm It] وصل طلب إلغاء (${reasonText}) لكن الطلب قيد الشحن/مغلق (${currentOrder.status})`
+            : `[Confirm It] تم إلغاء الطلب آلياً بواسطة العميل: ${reasonText}`
+        );
+        existingLogs.push({
+          id: `ci_log_${Date.now()}`,
+          timestamp: nowIso,
+          action: "cancelled",
+          note: reasonText,
+          performedBy: "Confirm It"
+        });
+        appliedAction = "order.cancelled";
+      } else if (isUnreachable) {
+        if (!alreadyWithCarrier && ["جاري_المراجعة", "مؤجل", "مجدول"].includes(String(currentOrder.status || ""))) {
+          updatedOrder.status = "في_انتظار_المكالمة";
+        }
+        appendNote("[Confirm It] لم يرد العميل على رسائل الواتساب والمكالمات الآلية (Unreachable)");
+        existingLogs.push({
+          id: `ci_log_${Date.now()}`,
+          timestamp: nowIso,
+          action: "unreachable",
+          note: "لم يرد العميل عبر Confirm It",
+          performedBy: "Confirm It"
+        });
+        appliedAction = "order.unreachable";
+      }
+
+      if (isSupportRequest) {
+        if (!alreadyWithCarrier && updatedOrder.status !== "ملغي") {
+          updatedOrder.status = "في_انتظار_المكالمة";
+        }
+        updatedOrder.confirmItSync = {
+          ...(updatedOrder.confirmItSync || { status: "sent", sentAt: nowIso }),
+          helpRequested: true,
+          remoteUpdatedAt: nowIso
+        };
+        appendNote("[Confirm It] ضغط العميل «طلب الدعم» على واتساب — يرجى التواصل معه قبل الشحن");
+        existingLogs.push({
+          id: `ci_log_sup_${Date.now()}`,
+          timestamp: nowIso,
+          action: "support_requested",
+          note: "طلب العميل مساعدة / تواصل مع الدعم عبر Confirm It",
+          performedBy: "Confirm It"
+        });
+        appliedAction = isConfirm ? "order.confirmed_with_support_request" : "order.support_requested";
+      }
+
+      if (isPaidOnline) {
+        updatedOrder.paymentStatus = "مدفوع";
+        updatedOrder.paymentMethod = body.gateway || "Confirm It Online Payment";
+        appendNote("[Confirm It] قام العميل بالدفع أونلاين عبر رابط الدفع");
+        if (appliedAction === "updated") appliedAction = "order.paid_online";
+      }
+
+      if (newAddress && !alreadyWithCarrier) {
+        updatedOrder.customerAddress = String(newAddress).trim();
+        if (newGovernorate) {
+          updatedOrder.governorate = String(newGovernorate).trim();
+        }
+        appendNote(`[Confirm It] تم تحديث العنوان: ${updatedOrder.customerAddress}`);
+      }
+
+      updatedOrder.confirmationLogs = existingLogs;
+      updatedOrder.updatedAt = nowIso;
+      orders[orderIndex] = updatedOrder;
+
+      targetStoreDoc.orders = cleanUndefined(orders);
+      await saveStoreDataToD1(cfD1, targetStoreId, targetStoreDoc);
+      storeCache.delete(targetStoreId);
+
+      console.log(
+        `[CONFIRMIT-CALLBACK] Order ${updatedOrder.orderNumber} processed (${appliedAction}) -> status: ${updatedOrder.status}`
+      );
+
+      return c.json({
+        success: true,
+        action: appliedAction,
+        preservedCarrierStatus: alreadyWithCarrier,
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        newStatus: updatedOrder.status,
+        paymentStatus: updatedOrder.paymentStatus,
+        updatedAt: nowIso
+      });
+    } catch (err: any) {
+      console.error("[CONFIRMIT-CALLBACK-ERROR]", err);
+      return c.json(
+        { success: false, error: err?.message || "حدث خطأ أثناء معالجة Callback من Confirm It" },
+        500
+      );
+    }
+  };
+
+  const handleConfirmItCallbackPing = async (c: any) => {
+    const hasUpdateParams = Boolean(
+      c.req.query("order_number") ||
+      c.req.query("order_id") ||
+      c.req.query("status") ||
+      c.req.query("event")
+    );
+    if (hasUpdateParams) {
+      return handleConfirmItInboundCallback(c);
+    }
+    const storeIdParam = c.req.query("storeId") || c.req.header("X-Store-Id") || "";
+    const storeFound = storeIdParam ? Boolean(await getStoreDataFromD1(cfD1, String(storeIdParam))) : false;
+    return c.json({
+      success: true,
+      ready: true,
+      service: "Confirm It Inbound Callback",
+      methodExpected: "POST (application/json)",
+      storeId: storeIdParam || null,
+      storeVerified: storeFound,
+      message: "رابط استقبال ردود Confirm It يعمل وجاهز لاستقبال التحديثات (التأكيد / الإلغاء / الدفع)."
+    });
+  };
+
+  app.get("/api/v1/confirmit/callback", handleConfirmItCallbackPing);
+  app.get("/api/v1/webhooks/confirmit", handleConfirmItCallbackPing);
+  app.post("/api/v1/confirmit/callback", handleConfirmItInboundCallback);
+  app.post("/api/v1/webhooks/confirmit", handleConfirmItInboundCallback);
+
+  // =========================================================================
+  // --- CONFIRM IT LIVE STATUS PULL SYNC (GET /brands/:id/orders/ -> المتجر) -
+  // =========================================================================
+  const syncConfirmItStatusesForStore = async (storeId: string) => {
+    const targetStoreDoc = await getStoreDataFromD1(cfD1, storeId);
+    if (!targetStoreDoc) {
+      return { success: false, statusCode: 404, error: "المتجر غير موجود" };
+    }
+
+    const cfg = resolveConfirmItConfigFromSettings(targetStoreDoc.settings);
+    if (!cfg.isActive || !cfg.resolved.valid || !cfg.resolved.url) {
+      return {
+        success: false,
+        skipped: true,
+        statusCode: 400,
+        error: "تطبيق Confirm It غير مفعل أو معرّف المتجر غير مضبوط."
+      };
+    }
+
+    const remoteOrders: any[] = [];
+    let nextUrl: string | null = cfg.resolved.url;
+    let pageGuard = 0;
+
+    while (nextUrl && pageGuard < 5) {
+      pageGuard++;
+      let parsedNext: URL;
+      try {
+        parsedNext = new URL(nextUrl);
+      } catch {
+        break;
+      }
+      if (!["www.confirmit-eg.com", "confirmit-eg.com"].includes(parsedNext.hostname.toLowerCase())) {
+        break;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      let res: Response;
+      try {
+        res = await fetch(parsedNext.toString(), {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!res.ok) {
+        return {
+          success: false,
+          statusCode: res.status,
+          error: `تعذر سحب الحالات من Confirm It (${res.status})`
+        };
+      }
+
+      const payload = await res.json().catch(() => null);
+      if (Array.isArray(payload)) {
+        remoteOrders.push(...payload);
+        nextUrl = null;
+      } else if (payload && Array.isArray(payload.results)) {
+        remoteOrders.push(...payload.results);
+        nextUrl = typeof payload.next === "string" && payload.next.startsWith("http") ? payload.next : null;
+      } else {
+        nextUrl = null;
+      }
+    }
+
+    const SHIPPING_PROGRESSED_STATUSES = new Set([
+      "قيد_التنفيذ",
+      "تم_الارسال",
+      "قيد_الشحن",
+      "تم_توصيلها",
+      "تم_التوصيل",
+      "تم_التحصيل",
+      "مدفوعة",
+      "مرتجع",
+      "مرتجع_جزئي",
+      "فشل_التوصيل",
+      "مرتجع_بعد_الاستلام",
+      "تم_الاستبدال",
+      "تمت_الاعادة_لشركة_الشحن"
+    ]);
+
+    const orders: any[] = Array.isArray(targetStoreDoc.orders) ? [...targetStoreDoc.orders] : [];
+    const orderIndexByRef = new Map<string, number>();
+    orders.forEach((o: any, idx: number) => {
+      const numClean = String(o.orderNumber || "").replace(/^#/, "").trim();
+      const sentClean = String(o.confirmItSync?.orderNumberSent || "").replace(/^#/, "").trim();
+      if (numClean && !orderIndexByRef.has(numClean)) orderIndexByRef.set(numClean, idx);
+      if (sentClean && !orderIndexByRef.has(sentClean)) orderIndexByRef.set(sentClean, idx);
+      if (o.id && !orderIndexByRef.has(String(o.id))) orderIndexByRef.set(String(o.id), idx);
+    });
+
+    const nowIso = new Date().toISOString();
+    let updatedCount = 0;
+    let confirmedCount = 0;
+    let cancelledCount = 0;
+    let unreachableCount = 0;
+    let preservedCarrierCount = 0;
+
+    for (const remote of remoteOrders) {
+      const extRef = String(remote?.external_id || "").replace(/^#/, "").trim();
+      if (!extRef) continue;
+      const idx = orderIndexByRef.get(extRef);
+      if (idx === undefined) continue;
+
+      const remoteStatus = String(remote?.status || "").toLowerCase().trim();
+      const remoteHelpRequested = Boolean(
+        remote?.help_requested ||
+        remote?.support_requested ||
+        remote?.needs_support ||
+        remoteStatus.includes("help") ||
+        remoteStatus.includes("support") ||
+        String(remote?.support || "").includes("مساعدة")
+      );
+      if (!remoteStatus && !remoteHelpRequested) continue;
+
+      const currentOrder = orders[idx];
+      const prevSync = currentOrder.confirmItSync || {};
+      if (
+        prevSync.remoteStatus === remoteStatus &&
+        Boolean(prevSync.helpRequested) === remoteHelpRequested &&
+        prevSync.confirmItOrderId === remote?.id
+      ) {
+        continue;
+      }
+
+      const updatedOrder = { ...currentOrder };
+      const existingLogs = Array.isArray(updatedOrder.confirmationLogs) ? [...updatedOrder.confirmationLogs] : [];
+      const appendNote = (line: string) => {
+        updatedOrder.notes = updatedOrder.notes ? `${updatedOrder.notes}\n${line}` : line;
+      };
+
+      const alreadyWithCarrier = SHIPPING_PROGRESSED_STATUSES.has(String(currentOrder.status || ""));
+      let statusTransitioned = false;
+
+      if (prevSync.remoteStatus !== remoteStatus) {
+        if (remoteStatus === "confirmed") {
+          if (!alreadyWithCarrier) {
+            if (updatedOrder.status !== "مؤكد") {
+              updatedOrder.status = "مؤكد";
+              updatedOrder.confirmedAt = remote?.responded_at || nowIso;
+              updatedOrder.confirmedVia = "Confirm It";
+              appendNote("[Confirm It] تم تأكيد الطلب آلياً عبر Confirm It");
+              existingLogs.push({
+                id: `ci_sync_${Date.now()}_${idx}`,
+                timestamp: remote?.responded_at || nowIso,
+                action: "confirmed",
+                note: "تأكيد آلي عبر Confirm It",
+                performedBy: "Confirm It"
+              });
+              confirmedCount++;
+              statusTransitioned = true;
+            }
+          } else {
+            preservedCarrierCount++;
+          }
+        } else if (remoteStatus === "cancelled") {
+          if (!alreadyWithCarrier) {
+            if (updatedOrder.status !== "ملغي") {
+              updatedOrder.status = "ملغي";
+              updatedOrder.cancelledAt = remote?.responded_at || nowIso;
+              updatedOrder.cancelledVia = "Confirm It";
+              updatedOrder.cancellationReason = updatedOrder.cancellationReason || "ألغى العميل الطلب عبر Confirm It";
+              appendNote("[Confirm It] تم إلغاء الطلب آلياً عبر Confirm It");
+              existingLogs.push({
+                id: `ci_sync_${Date.now()}_${idx}`,
+                timestamp: remote?.responded_at || nowIso,
+                action: "cancelled",
+                note: "إلغاء آلي عبر Confirm It",
+                performedBy: "Confirm It"
+              });
+              cancelledCount++;
+              statusTransitioned = true;
+            }
+          } else {
+            preservedCarrierCount++;
+          }
+        } else if (remoteStatus === "unreachable") {
+          if (!alreadyWithCarrier && ["جاري_المراجعة", "مؤجل", "مجدول"].includes(String(currentOrder.status || ""))) {
+            updatedOrder.status = "في_انتظار_المكالمة";
+            appendNote("[Confirm It] لم يرد العميل على رسائل ومكالمات Confirm It (Unreachable)");
+            existingLogs.push({
+              id: `ci_sync_${Date.now()}_${idx}`,
+              timestamp: nowIso,
+              action: "unreachable",
+              note: "لم يرد العميل عبر Confirm It",
+              performedBy: "Confirm It"
+            });
+            unreachableCount++;
+            statusTransitioned = true;
+          }
+        }
+      }
+
+      if (remoteHelpRequested && !prevSync.helpRequested) {
+        if (!alreadyWithCarrier && updatedOrder.status !== "ملغي") {
+          updatedOrder.status = "في_انتظار_المكالمة";
+          statusTransitioned = true;
+        }
+        appendNote("[Confirm It] العميل ضغط «طلب الدعم» على واتساب (طلب مساعدة)");
+        existingLogs.push({
+          id: `ci_sync_sup_${Date.now()}_${idx}`,
+          timestamp: nowIso,
+          action: "support_requested",
+          note: "طلب العميل مساعدة / تواصل مع الدعم عبر Confirm It",
+          performedBy: "Confirm It"
+        });
+      }
+
+      updatedOrder.confirmationLogs = existingLogs;
+      updatedOrder.confirmItSync = {
+        status: prevSync.status || "sent",
+        sentAt: prevSync.sentAt || remote?.created_at || nowIso,
+        orderNumberSent: prevSync.orderNumberSent || extRef,
+        statusCode: prevSync.statusCode || 201,
+        remoteStatus,
+        remoteUpdatedAt: remote?.responded_at || nowIso,
+        confirmItOrderId: typeof remote?.id === "number" ? remote.id : prevSync.confirmItOrderId,
+        helpRequested: remoteHelpRequested || Boolean(prevSync.helpRequested)
+      };
+      if (statusTransitioned) {
+        updatedOrder.updatedAt = nowIso;
+      }
+
+      orders[idx] = updatedOrder;
+      updatedCount++;
+    }
+
+    if (updatedCount > 0) {
+      targetStoreDoc.orders = cleanUndefined(orders);
+      if (targetStoreDoc.settings?.platformConfigs?.confirmit) {
+        targetStoreDoc.settings.platformConfigs.confirmit.lastSync = new Date().toLocaleString("ar-EG");
+      }
+      await saveStoreDataToD1(cfD1, storeId, targetStoreDoc);
+      storeCache.delete(storeId);
+      console.log(
+        `[CONFIRMIT-SYNC] Store ${storeId}: synced ${updatedCount} order(s) (confirmed=${confirmedCount}, cancelled=${cancelledCount}, unreachable=${unreachableCount}, carrierPreserved=${preservedCarrierCount})`
+      );
+    }
+
+    return {
+      success: true,
+      remoteCount: remoteOrders.length,
+      updatedCount,
+      confirmedCount,
+      cancelledCount,
+      unreachableCount,
+      preservedCarrierCount,
+      maskedUrl: cfg.resolved.maskedUrl
+    };
+  };
+
+  app.post("/api/v1/confirmit/sync-statuses", async (c) => {
+    try {
+      const body = await c.req.json().catch(() => ({}));
+      const storeId = String(body?.storeId || c.req.query("storeId") || "").trim();
+      if (!storeId) {
+        return c.json({ success: false, error: "storeId مطلوب" }, 400);
+      }
+      const res = await syncConfirmItStatusesForStore(storeId);
+      const httpStatus = res.success || res.skipped ? 200 : res.statusCode === 404 ? 404 : (res.statusCode && res.statusCode >= 400 && res.statusCode < 500 ? 400 : 502);
+      return c.json(res, httpStatus);
+    } catch (err: any) {
+      return c.json({ success: false, error: err?.message || "فشل مزامنة حالات Confirm It" }, 500);
+    }
+  });
+
+  app.get("/api/v1/confirmit/sync-statuses", async (c) => {
+    try {
+      const storeId = String(c.req.query("storeId") || "").trim();
+      if (!storeId) {
+        return c.json({ success: false, error: "storeId مطلوب" }, 400);
+      }
+      const res = await syncConfirmItStatusesForStore(storeId);
+      const httpStatus = res.success || res.skipped ? 200 : res.statusCode === 404 ? 404 : (res.statusCode && res.statusCode >= 400 && res.statusCode < 500 ? 400 : 502);
+      return c.json(res, httpStatus);
+    } catch (err: any) {
+      return c.json({ success: false, error: err?.message || "فشل مزامنة حالات Confirm It" }, 500);
+    }
+  });
 
   // Endpoint: Test Webhook Dispatch (POST /api/v1/webhooks/test)
   app.post("/api/v1/webhooks/test", async (c) => {

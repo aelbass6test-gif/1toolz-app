@@ -6,17 +6,34 @@ import {
   CodSheetColumnProfile,
   Order,
   OrderItem,
+  OrderStatus,
+  PaymentStatus,
   StoreData,
+  Transaction,
   TreasuryTransaction
 } from '../types';
 import CodHunterWorkspace from './CodHunterWorkspace';
-import { SheetAuditRow } from '../utils/codReconciliation';
+import { normalizeTrackingCode, SheetAuditRow } from '../utils/codReconciliation';
 import {
+  detectInventoryProductsForSheetRow,
+  PickedInventoryItem,
+  resolveBostaShippingQuote,
   SheetOrderImportPayload,
   SheetOrderLinkUpdatePayload,
   SheetOrderUpdatePayload
 } from './SheetOrderLinkAndImportModal';
 import { deleteStoreItem, deleteStoreItems } from '../services/databaseService';
+import {
+  calculateBostaVat,
+  calculateCodFee,
+  calculateInsuranceFee,
+  getCompanySpecificFees,
+  getEffectiveInspectionFee,
+  getEffectiveInsuranceRate,
+  getEffectiveReturnShippingFee,
+  isAllInclusiveSheetOrder,
+  stripConfidentialSheetDetailsFromNote
+} from '../utils/financials';
 
 interface ExcelReconciliationPageProps {
   allStoresData: Record<string, StoreData>;
@@ -90,10 +107,23 @@ export default function ExcelReconciliationPage({
     let treasuryTxId: string | undefined;
 
     updateStoreData(storeId, draft => {
+      const preExistingTxs = draft.wallet?.transactions || [];
+      if (!draft.wallet) {
+        draft.wallet = { balance: 0, transactions: [] };
+      }
+      if (!Array.isArray(draft.wallet.transactions)) {
+        draft.wallet.transactions = [];
+      }
+
+      const createdWalletTxIds: string[] = [];
+      const walletTxsToAdd: Transaction[] = [];
+      let walletBalanceDelta = 0;
+
       draft.orders = (draft.orders || []).map(order => {
         const row = settleByOrderId.get(order.id);
         if (!row) return order;
-        return {
+
+        const updatedOrder: Order = {
           ...order,
           status: 'تم_التحصيل',
           paymentStatus: 'مدفوع',
@@ -105,7 +135,68 @@ export default function ExcelReconciliationPage({
           codPayoutDiff: row.netVariance,
           codPayoutSheetRef: params.batchNumber
         };
+
+        // Stamp store wallet collection deposit + COD fee idempotently using store tariff rules
+        // (never leak courier margin or sheet spread into store wallet).
+        const sheetGrossCod = Math.round(Math.max(0, Number(row.sheetGrossAmount) || 0) * 100) / 100;
+        const hasCollectTx = preExistingTxs.some(
+          t =>
+            t.id === `collect_${order.id}` ||
+            t.id === `collect_heal_${order.id}` ||
+            (t.orderId === order.id && t.type === 'إيداع' && (t.category === 'collection' || !t.category))
+        ) || walletTxsToAdd.some(t => t.id === `collect_${order.id}`);
+
+        if (sheetGrossCod > 0 && !hasCollectTx) {
+          const collectTxId = `collect_${order.id}`;
+          walletTxsToAdd.push({
+            id: collectTxId,
+            type: 'إيداع',
+            amount: sheetGrossCod,
+            date: nowIso,
+            note: `رصيد من الدفع عند الاستلام أوردر #${order.orderNumber}`,
+            category: 'collection',
+            status: 'completed',
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            details: { codBatchId: batchId }
+          });
+          createdWalletTxIds.push(collectTxId);
+          walletBalanceDelta += sheetGrossCod;
+        }
+
+        if (sheetGrossCod > 0 && !isAllInclusiveSheetOrder(updatedOrder)) {
+          const codTxId = `cod_${order.id}`;
+          const hasCodTx =
+            preExistingTxs.some(
+              t => t.id === codTxId || (t.orderId === order.id && t.category === 'cod')
+            ) || walletTxsToAdd.some(t => t.id === codTxId);
+          const codFee = Math.round(Math.max(0, calculateCodFee(updatedOrder, draft.settings)) * 100) / 100;
+          if (!hasCodTx && codFee > 0) {
+            walletTxsToAdd.push({
+              id: codTxId,
+              type: 'سحب',
+              amount: codFee,
+              date: nowIso,
+              note: `خصم رسوم COD أوردر #${order.orderNumber}`,
+              category: 'cod',
+              status: 'completed',
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              details: { codBatchId: batchId }
+            });
+            createdWalletTxIds.push(codTxId);
+            walletBalanceDelta -= codFee;
+          }
+        }
+
+        return updatedOrder;
       });
+
+      if (walletTxsToAdd.length > 0) {
+        draft.wallet.transactions = [...walletTxsToAdd, ...draft.wallet.transactions];
+        draft.wallet.balance =
+          Math.round(((Number(draft.wallet.balance) || 0) + walletBalanceDelta) * 100) / 100;
+      }
 
       if (params.treasuryAccountId && params.totalSheetNet > 0 && draft.treasury?.accounts) {
         const accIdx = draft.treasury.accounts.findIndex(a => a.id === params.treasuryAccountId);
@@ -147,6 +238,7 @@ export default function ExcelReconciliationPage({
         totalDiscrepancyAmount: params.totalDiscrepancy,
         treasuryAccountId: params.treasuryAccountId || undefined,
         treasuryTxId,
+        walletTxIds: createdWalletTxIds.length > 0 ? createdWalletTxIds : undefined,
         notes: params.notes || undefined
       };
 
@@ -160,7 +252,7 @@ export default function ExcelReconciliationPage({
         id: `log_cod_${Date.now()}`,
         user: operator,
         action: 'اعتماد دفعة تحصيل COD',
-        details: `اعتماد الدفعة ${params.batchNumber}: تحصيل ${settledOrderIds.length} أوردر بإجمالي صافي ${params.totalSheetNet.toLocaleString('en-US')} ج.م`,
+        details: `اعتماد الدفعة ${params.batchNumber}: تحصيل ${settledOrderIds.length} أوردر`,
         date: nowIso,
         timestamp: Date.now()
       });
@@ -170,7 +262,13 @@ export default function ExcelReconciliationPage({
 
   const handleReverseBatch = (batch: CodSettlementBatch) => {
     const settledSet = new Set(batch.settledOrderIds || []);
+    const batchWalletIdSet = new Set(batch.walletTxIds || []);
     const nowIso = new Date().toISOString();
+
+    const removedWalletTxIds = (storeData.wallet?.transactions || [])
+      .filter(t => Boolean(t && (batchWalletIdSet.has(t.id) || t.details?.codBatchId === batch.id)))
+      .map(t => t.id)
+      .filter(Boolean);
 
     updateStoreData(storeId, draft => {
       draft.orders = (draft.orders || []).map(order => {
@@ -188,6 +286,24 @@ export default function ExcelReconciliationPage({
         delete reverted.codPayoutSheetRef;
         return reverted;
       });
+
+      if (draft.wallet && Array.isArray(draft.wallet.transactions)) {
+        let balanceDelta = 0;
+        const remaining = draft.wallet.transactions.filter(t => {
+          const belongsToBatch =
+            batchWalletIdSet.has(t.id) || t.details?.codBatchId === batch.id;
+          if (!belongsToBatch) return true;
+          const amt = Number(t.amount) || 0;
+          if (t.type === 'إيداع' && t.status === 'completed') balanceDelta -= amt;
+          else if (t.type === 'سحب' && t.status !== 'cancelled') balanceDelta += amt;
+          return false;
+        });
+        if (remaining.length !== draft.wallet.transactions.length) {
+          draft.wallet.transactions = remaining;
+          draft.wallet.balance =
+            Math.round(((Number(draft.wallet.balance) || 0) + balanceDelta) * 100) / 100;
+        }
+      }
 
       if (batch.treasuryTxId && batch.treasuryAccountId && draft.treasury) {
         const txExists = (draft.treasury.transactions || []).some(t => t.id === batch.treasuryTxId);
@@ -222,6 +338,10 @@ export default function ExcelReconciliationPage({
       });
       draft.settings.activityLogs = logs.slice(0, 400);
     });
+
+    if (removedWalletTxIds.length > 0) {
+      void deleteStoreItems(storeId, 'transactions', removedWalletTxIds);
+    }
   };
 
   const deductItemsFromUnifiedInventory = (
@@ -431,8 +551,8 @@ export default function ExcelReconciliationPage({
       totalAmountOverride: safeCodAmount,
       totalAmountOverrideReason:
         safeCodAmount === 0
-          ? 'تحصيل 0 من شيت بوسطة (خصم الشحن فقط من المحفظة)'
-          : 'مبلغ التحصيل الفعلي من شيت بوسطة',
+          ? 'تحصيل 0 (تسوية شركة الشحن — خصم الشحن فقط من المحفظة)'
+          : 'مبلغ التحصيل المعتمد من شركة الشحن',
       includeInspectionFee: isStoreCompanyMode ? payload.includeInspectionFee : false,
       inspectionFee: safeInspFee,
       inspectionFeeDeducted: isStoreCompanyMode && safeInspFee > 0 && isActiveShipment,
@@ -451,8 +571,8 @@ export default function ExcelReconciliationPage({
       preparationStatus: 'جاهز',
       stockDeducted: payload.deductFromInventory,
       warehouseId: payload.warehouseId,
-      notes: payload.notes,
-      internalNotes: `بوليصة: ${payload.sheetRow.trackingKey} | تحصيل COD: ${safeCodAmount} ج.م | شحن العميل: ${payload.customerShippingFee} ج.م | شحن بوسطة الفعلي: ${payload.actualCarrierFee} ج.م | فرق التسوية: ${payload.shippingSpread >= 0 ? '+' : ''}${payload.shippingSpread} ج.م`,
+      notes: stripConfidentialSheetDetailsFromNote(payload.notes),
+      internalNotes: `بوليصة معتمدة: ${payload.sheetRow.trackingKey}`,
       codPayoutNetReceived: payload.sheetRow.sheetNetPayout,
       codPayoutExpectedNet: Math.round((safeCodAmount - payload.customerShippingFee) * 100) / 100,
       codPayoutDiff: payload.shippingSpread,
@@ -623,14 +743,14 @@ export default function ExcelReconciliationPage({
       logs.unshift({
         id: `log_imp_${Date.now()}`,
         user: operator,
-        action: 'تنزيل أوردر من شيت بوسطة وتسوية الشحن',
-        details: `تنزيل الأوردر #${payload.orderNumber} (بوليصة ${payload.sheetRow.trackingKey}) · تحصيل ${safeCodAmount} ج.م${
+        action: 'إضافة أوردر وتسوية شركة الشحن',
+        details: `إضافة الأوردر #${payload.orderNumber} (بوليصة ${payload.sheetRow.trackingKey}) · تحصيل ${safeCodAmount} ج.م${
           isStoreCompanyMode
             ? ` · مصاريف شركة الشحن بالمتجر -${payload.totalStoreCarrierFees} ج.م`
             : shouldDeductShipping
-            ? ` · خصم شحن بوسطة -${walletShippingFee} ج.م`
+            ? ` · خصم مصاريف الشحن -${walletShippingFee} ج.م`
             : ''
-        } · فرق التسوية ${payload.shippingSpread >= 0 ? '+' : ''}${payload.shippingSpread} ج.م${payload.deductFromInventory ? ` · تم خصم ${deductedUnits} قطعة من المخزون الموحّد` : ''}`,
+        }${payload.deductFromInventory ? ` · تم خصم ${deductedUnits} قطعة من المخزون الموحّد` : ''}`,
         date: nowIso,
         timestamp: Date.now()
       });
@@ -644,7 +764,8 @@ export default function ExcelReconciliationPage({
     updateStoreData(storeId, draft => {
       draft.orders = (draft.orders || []).map(order => {
         if (order.id !== payload.orderId) return order;
-        const spreadNote = `تسوية الشحن (${payload.sheetRow.trackingKey}): شحن العميل ${payload.customerShippingFee} ج.م vs بوسطة ${payload.actualCarrierFee} ج.م (فرق ${payload.shippingSpread >= 0 ? '+' : ''}${payload.shippingSpread} ج.م)`;
+        const cleanExistingInternal = stripConfidentialSheetDetailsFromNote(order.internalNotes);
+        const cleanUserNote = stripConfidentialSheetDetailsFromNote(payload.notes);
         return {
           ...order,
           waybillNumber: order.waybillNumber || payload.sheetRow.trackingKey,
@@ -656,7 +777,7 @@ export default function ExcelReconciliationPage({
           stockDeducted: payload.deductFromInventory ? true : order.stockDeducted,
           warehouseId: payload.deductFromInventory ? (payload.warehouseId || order.warehouseId) : order.warehouseId,
           updatedAt: nowIso,
-          internalNotes: [order.internalNotes, spreadNote, payload.notes]
+          internalNotes: [cleanExistingInternal, cleanUserNote]
             .filter(Boolean)
             .join(' | ')
         };
@@ -674,8 +795,8 @@ export default function ExcelReconciliationPage({
       logs.unshift({
         id: `log_lnk_${Date.now()}`,
         user: operator,
-        action: 'ربط بوليصة بأوردر وتسوية فرق الشحن',
-        details: `ربط البوليصة ${payload.sheetRow.trackingKey} · شحن العميل ${payload.customerShippingFee} ج.م vs بوسطة ${payload.actualCarrierFee} ج.م (فرق ${payload.shippingSpread >= 0 ? '+' : ''}${payload.shippingSpread} ج.م)${payload.deductFromInventory ? ` · خصم ${deductedUnits} قطعة من المخزون` : ''}`,
+        action: 'ربط بوليصة الشحن بالأوردر',
+        details: `ربط البوليصة ${payload.sheetRow.trackingKey} · شحن العميل ${payload.customerShippingFee} ج.م${payload.deductFromInventory ? ` · خصم ${deductedUnits} قطعة من المخزون` : ''}`,
         date: nowIso,
         timestamp: Date.now()
       });
@@ -789,8 +910,8 @@ export default function ExcelReconciliationPage({
           totalAmountOverride: safeCodAmount,
           totalAmountOverrideReason:
             safeCodAmount === 0
-              ? 'تحصيل 0 من شيت بوسطة (خصم الشحن فقط من المحفظة)'
-              : 'تعديل مبلغ التحصيل من شيت بوسطة',
+              ? 'تحصيل 0 (تسوية شركة الشحن — خصم الشحن فقط من المحفظة)'
+              : 'قيمة التحصيل المعتمدة من شركة الشحن',
           productPrice: updatedProductPrice,
           netRevenue: safeCodAmount,
           paymentMethod:
@@ -811,7 +932,8 @@ export default function ExcelReconciliationPage({
           returnFeeDeducted: isStoreCompanyMode && safeReturnFee > 0 && isActiveShipment,
           shippingAndInsuranceDeducted:
             shouldDeductShipping || safeInsFee > 0 || safeVatVal > 0 || safeInspFee > 0 || order.shippingAndInsuranceDeducted,
-          notes: payload.notes,
+          notes: stripConfidentialSheetDetailsFromNote(payload.notes),
+          internalNotes: stripConfidentialSheetDetailsFromNote(order.internalNotes),
           codPayoutNetReceived: payload.sheetRow.sheetNetPayout,
           codPayoutExpectedNet: Math.round((safeCodAmount - payload.customerShippingFee) * 100) / 100,
           codPayoutDiff: payload.shippingSpread,
@@ -917,8 +1039,8 @@ export default function ExcelReconciliationPage({
       logs.unshift({
         id: `log_upd_sheet_${Date.now()}`,
         user: operator,
-        action: 'تعديل بيانات أوردر من شيت بوسطة',
-        details: `تعديل الأوردر #${payload.orderNumber} (بوليصة ${payload.sheetRow.trackingKey}) · التحصيل ${safeCodAmount} ج.م · الشحن ${payload.customerShippingFee} ج.م${
+        action: 'تحديث بيانات أوردر من شركة الشحن',
+        details: `تحديث الأوردر #${payload.orderNumber} (بوليصة ${payload.sheetRow.trackingKey}) · التحصيل ${safeCodAmount} ج.م · الشحن ${payload.customerShippingFee} ج.م${
           isStoreCompanyMode ? ` · إجمالي مصاريف الشركة -${payload.totalStoreCarrierFees} ج.م` : ''
         } · الحالة: ${payload.status}`,
         date: nowIso,
@@ -1051,6 +1173,537 @@ export default function ExcelReconciliationPage({
     return result;
   };
 
+  const handleBulkSyncSheetStatuses = (
+    items: Array<{
+      orderId: string;
+      targetStatus: 'مرتجع' | 'تم_توصيلها';
+      row: SheetAuditRow;
+    }>
+  ) => {
+    if (!items || items.length === 0) {
+      return { updatedCount: 0, restoredUnits: 0, returnFeesCount: 0 };
+    }
+    const nowIso = new Date().toISOString();
+    const byOrderId = new Map(items.map(it => [it.orderId, it]));
+    let updatedCount = 0;
+    let restoredUnits = 0;
+    let returnFeesCount = 0;
+
+    updateStoreData(storeId, draft => {
+      if (!draft.wallet) {
+        draft.wallet = { balance: 0, transactions: [] };
+      }
+      if (!Array.isArray(draft.wallet.transactions)) {
+        draft.wallet.transactions = [];
+      }
+
+      const walletTxsToAdd: Transaction[] = [];
+      let walletDelta = 0;
+
+      draft.orders = (draft.orders || []).map(order => {
+        const entry = byOrderId.get(order.id);
+        if (!entry) return order;
+
+        const { targetStatus, row } = entry;
+        if (targetStatus === 'مرتجع') {
+          if (order.status === 'مرتجع') return order;
+          updatedCount += 1;
+
+          let nextStockDeducted = order.stockDeducted;
+          if (order.stockDeducted && order.items?.length) {
+            restoredUnits += restoreItemsToUnifiedInventory(
+              draft,
+              order.items,
+              order.warehouseId
+            );
+            nextStockDeducted = false;
+          }
+
+          const updatedOrder: Order = {
+            ...order,
+            status: 'مرتجع',
+            paymentStatus: 'مرتجع',
+            collectionProcessed: false,
+            stockDeducted: nextStockDeducted,
+            codPayoutNetReceived: row.sheetNetPayout,
+            codPayoutSheetRef: row.sheetCashoutId || order.codPayoutSheetRef,
+            updatedAt: nowIso
+          };
+
+          const { applyReturnFee, returnFeeAmount } = getEffectiveReturnShippingFee(
+            updatedOrder,
+            draft.settings
+          );
+          const returnTxId = `return_${order.id}`;
+          const hasReturnTx =
+            draft.wallet!.transactions.some(
+              t => t.id === returnTxId || (t.orderId === order.id && t.category === 'return')
+            ) || walletTxsToAdd.some(t => t.id === returnTxId);
+
+          if (
+            applyReturnFee &&
+            returnFeeAmount > 0 &&
+            !isAllInclusiveSheetOrder(updatedOrder) &&
+            !hasReturnTx
+          ) {
+            walletTxsToAdd.push({
+              id: returnTxId,
+              type: 'سحب',
+              amount: returnFeeAmount,
+              date: nowIso,
+              note: `خصم مصاريف مرتجع أوردر #${order.orderNumber}`,
+              category: 'return',
+              status: 'completed',
+              orderId: order.id,
+              orderNumber: order.orderNumber
+            });
+            walletDelta -= returnFeeAmount;
+            returnFeesCount += 1;
+            updatedOrder.returnFeeDeducted = true;
+          }
+
+          return updatedOrder;
+        }
+
+        // Delivered status sync
+        if (
+          order.status === 'تم_توصيلها' ||
+          order.status === 'تم_التوصيل' ||
+          order.status === 'تم_التحصيل' ||
+          order.status === 'مدفوعة'
+        ) {
+          return order;
+        }
+        updatedCount += 1;
+        return {
+          ...order,
+          status: 'تم_توصيلها',
+          codPayoutNetReceived: row.sheetNetPayout,
+          codPayoutSheetRef: row.sheetCashoutId || order.codPayoutSheetRef,
+          updatedAt: nowIso
+        };
+      });
+
+      if (walletTxsToAdd.length > 0) {
+        draft.wallet.transactions = [...walletTxsToAdd, ...draft.wallet.transactions];
+        draft.wallet.balance =
+          Math.round(((Number(draft.wallet.balance) || 0) + walletDelta) * 100) / 100;
+      }
+
+      if (updatedCount > 0) {
+        const logs = draft.settings.activityLogs || [];
+        logs.unshift({
+          id: `log_bulk_sync_${Date.now()}`,
+          user: operator,
+          action: 'تحديث جماعي لحالات الشحنات من الناقل',
+          details: `تحديث حالة ${updatedCount} أوردر تلقائياً${
+            restoredUnits > 0 ? ` · رد ${restoredUnits} قطعة للمخزون الموحّد` : ''
+          }${returnFeesCount > 0 ? ` · تسجيل رسوم مرتجع لـ ${returnFeesCount} أوردر` : ''}`,
+          date: nowIso,
+          timestamp: Date.now()
+        });
+        draft.settings.activityLogs = logs.slice(0, 400);
+      }
+    });
+
+    return { updatedCount, restoredUnits, returnFeesCount };
+  };
+
+  const handleBulkCreateOrdersFromSheet = (params: {
+    rows: SheetAuditRow[];
+    billingMode: 'store_company_fees' | 'carrier_all_inclusive';
+    deductInventory: boolean;
+  }) => {
+    const nowIso = new Date().toISOString();
+    const defaultWhId =
+      (storeData.settings as unknown as { defaultWarehouseId?: string }).defaultWarehouseId ||
+      storeData.settings.warehouses?.find(w => w.isDefault)?.id ||
+      storeData.settings.warehouses?.[0]?.id ||
+      'wh_main';
+
+    let importedCount = 0;
+    let skippedNoMatch = 0;
+    let skippedDuplicate = 0;
+    let totalDeductedUnits = 0;
+
+    updateStoreData(storeId, draft => {
+      if (!draft.wallet) {
+        draft.wallet = { balance: 0, transactions: [] };
+      }
+      if (!Array.isArray(draft.wallet.transactions)) {
+        draft.wallet.transactions = [];
+      }
+
+      const existingKeys = new Set<string>();
+      for (const o of draft.orders || []) {
+        [
+          o.waybillNumber,
+          o.bostaTrackingNumber,
+          o.turboTrackingNumber,
+          o.referenceNumber,
+          o.orderNumber
+        ].forEach(k => {
+          const norm = normalizeTrackingCode(k);
+          if (norm) existingKeys.add(norm);
+        });
+      }
+
+      const existingTxIds = new Set(draft.wallet.transactions.map(t => t.id));
+      const newOrders: Order[] = [];
+      const walletTxsToAdd: Transaction[] = [];
+      let walletDelta = 0;
+      const isStoreCompanyMode = params.billingMode === 'store_company_fees';
+      const compFees = getCompanySpecificFees(draft.settings, 'بوسطة');
+      const useCustomFees = compFees?.useCustomFees ?? false;
+      const vatRate = useCustomFees
+        ? (compFees?.shippingVatRate ?? 0.14)
+        : (draft.settings?.shippingVatRate ?? 0.14);
+
+      params.rows.forEach((row, idx) => {
+        const trackNorm = normalizeTrackingCode(row.trackingKey);
+        const refNorm = normalizeTrackingCode(row.businessRefKey);
+        if (
+          (trackNorm && existingKeys.has(trackNorm)) ||
+          (refNorm && existingKeys.has(refNorm))
+        ) {
+          skippedDuplicate += 1;
+          return;
+        }
+
+        const safeCod = Math.round(Math.max(0, Number(row.sheetGrossAmount) || 0) * 100) / 100;
+        const quote = resolveBostaShippingQuote(
+          row.dropoffCity || '',
+          row.dropoffCity || '',
+          draft.settings
+        );
+        const customerShippingFee = quote.price;
+        const expectedProductPrice = Math.max(0, Math.round((safeCod - customerShippingFee) * 100) / 100);
+
+        const detection = detectInventoryProductsForSheetRow(
+          row,
+          draft.settings.products || [],
+          defaultWhId,
+          expectedProductPrice,
+          draft.settings
+        );
+
+        if (detection.autoPicked.length === 0) {
+          skippedNoMatch += 1;
+          return;
+        }
+
+        const pickedItems: PickedInventoryItem[] = detection.autoPicked;
+        const orderItems: OrderItem[] = pickedItems.map(it => ({
+          productId: it.productId,
+          ...(it.variantId ? { variantId: it.variantId } : {}),
+          name: it.variantName ? `${it.name} (${it.variantName})` : it.name,
+          quantity: it.quantity,
+          price: it.price,
+          cost: it.cost,
+          weight: it.weight,
+          ...(it.sku ? { sku: it.sku } : {}),
+          variantDescription: it.variantName
+        }));
+
+        const totalCost =
+          Math.round(
+            pickedItems.reduce((s, i) => s + (i.cost || 0) * (i.quantity || 1), 0) * 100
+          ) / 100;
+        const totalWeight =
+          pickedItems.reduce((s, i) => s + (i.weight || 1) * (i.quantity || 1), 0) || 1;
+        const computedItemsPrice =
+          Math.round(
+            pickedItems.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0) * 100
+          ) / 100;
+        const productPrice = computedItemsPrice > 0 ? computedItemsPrice : expectedProductPrice;
+
+        const actualCarrierFee =
+          Math.round(
+            Math.max(
+              0,
+              Math.abs(row.sheetFeesAmount) ||
+                (row.sheetGrossAmount > 0
+                  ? Math.max(0, row.sheetGrossAmount - row.sheetNetPayout)
+                  : Math.abs(row.sheetNetPayout))
+            ) * 100
+          ) / 100;
+
+        // Determine order status from sheet row
+        const stLower = (row.sheetStatus || '').toLowerCase();
+        let targetStatus: OrderStatus = 'تم_الارسال';
+        let targetPayment: PaymentStatus = 'بانتظار الدفع';
+        if (
+          row.category === 'not_collected_customer' ||
+          stLower.includes('return') ||
+          stLower.includes('cancel') ||
+          stLower.includes('fail') ||
+          stLower.includes('مرتجع') ||
+          stLower.includes('ملغي') ||
+          stLower.includes('مرفوض')
+        ) {
+          targetStatus = 'مرتجع';
+          targetPayment = 'مرتجع';
+        } else if (
+          row.sheetCashoutId ||
+          (row.sheetPaymentStatus || '').toLowerCase().includes('paid')
+        ) {
+          targetStatus = 'تم_التحصيل';
+          targetPayment = 'مدفوع';
+        } else if (
+          stLower.includes('deliver') ||
+          stLower.includes('تم التسليم') ||
+          row.sheetDeliveredAt ||
+          safeCod > 0
+        ) {
+          targetStatus = 'تم_توصيلها';
+          targetPayment = 'بانتظار الدفع';
+        }
+
+        const isActiveShipment = (targetStatus as OrderStatus) !== 'قيد_التنفيذ';
+        const isReturnedStatus = targetStatus === 'مرتجع';
+        const isCollectedStatus = targetStatus === 'تم_التحصيل';
+        const newId = `ord_sheet_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`;
+        const orderNumber = row.businessRefKey || `BST-${row.trackingKey.slice(-6)}`;
+        const shippingSpread = Math.round((customerShippingFee - actualCarrierFee) * 100) / 100;
+
+        const baseDraftOrder: Order = {
+          id: newId,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          store_id: storeId,
+          source: 'synced',
+          platform: 'bosta_sheet_import',
+          sheetFeeBillingMode: params.billingMode,
+          orderNumber,
+          referenceNumber: row.businessRefKey || row.trackingKey,
+          waybillNumber: row.trackingKey,
+          bostaTrackingNumber: row.trackingKey,
+          date: row.sheetDeliveredAt || row.sheetDate || nowIso.slice(0, 10),
+          shippingCompany: 'بوسطة',
+          shippingArea: row.dropoffCity || 'غير محدد',
+          customerName: row.customerName || `عميل #${row.trackingKey.slice(-4)}`,
+          customerPhone: row.phoneRaw || '',
+          customerAddress: row.dropoffCity || '',
+          city: row.dropoffCity || '',
+          governorate: row.dropoffCity || '',
+          merchantBrandName: row.brandName || storeDisplayName,
+          storeName: storeDisplayName,
+          items: orderItems,
+          shippingFee: customerShippingFee,
+          isManualShippingOverride: true,
+          status: targetStatus,
+          paymentStatus: targetPayment,
+          paymentMethod: safeCod === 0 ? 'مدفوع مسبقاً (تحصيل 0)' : 'COD',
+          productName:
+            orderItems.map(i => `${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ''}`).join(' + ') ||
+            row.packageDescription ||
+            `شحنة #${row.trackingKey}`,
+          productPrice,
+          productCost: totalCost,
+          totalPrice: safeCod,
+          totalAmountOverride: safeCod,
+          totalAmountOverrideReason:
+            safeCod === 0
+              ? 'تحصيل 0 (تسوية شركة الشحن — خصم الشحن فقط من المحفظة)'
+              : 'مبلغ التحصيل المعتمد من شركة الشحن',
+          isInsured: isStoreCompanyMode ? getEffectiveInsuranceRate({ shippingCompany: 'بوسطة' } as Order, draft.settings) > 0 : false,
+          includeInspectionFee: isStoreCompanyMode ? getEffectiveInspectionFee({ shippingCompany: 'بوسطة' } as Order, draft.settings) > 0 : false,
+          inspectionFeePaidByCustomer: false,
+          weight: totalWeight,
+          discount: 0,
+          netRevenue: safeCod,
+          collectionProcessed: isCollectedStatus,
+          preparationStatus: 'جاهز',
+          stockDeducted: params.deductInventory && !isReturnedStatus,
+          warehouseId: defaultWhId,
+          notes: '',
+          internalNotes: `بوليصة معتمدة: ${row.trackingKey}`,
+          codPayoutNetReceived: row.sheetNetPayout,
+          codPayoutExpectedNet: Math.round((safeCod - customerShippingFee) * 100) / 100,
+          codPayoutDiff: shippingSpread,
+          codPayoutSheetRef: row.sheetCashoutId || row.fileName
+        };
+
+        const insRate = isStoreCompanyMode ? getEffectiveInsuranceRate(baseDraftOrder, draft.settings) : 0;
+        const safeInsFee =
+          isStoreCompanyMode && baseDraftOrder.isInsured
+            ? Math.round(calculateInsuranceFee(baseDraftOrder, insRate, draft.settings) * 100) / 100
+            : 0;
+        const safeVatVal = isStoreCompanyMode
+          ? Math.round(calculateBostaVat(baseDraftOrder, safeInsFee, draft.settings) * 100) / 100
+          : 0;
+        const safeInspFee =
+          isStoreCompanyMode && baseDraftOrder.includeInspectionFee
+            ? Math.round(getEffectiveInspectionFee(baseDraftOrder, draft.settings) * 100) / 100
+            : 0;
+        const safeCodFee =
+          isStoreCompanyMode && isCollectedStatus && safeCod > 0
+            ? Math.round(calculateCodFee(baseDraftOrder, draft.settings) * 100) / 100
+            : 0;
+        const retCfg = isStoreCompanyMode && isReturnedStatus
+          ? getEffectiveReturnShippingFee(baseDraftOrder, draft.settings)
+          : { applyReturnFee: false, returnFeeAmount: 0 };
+        const safeReturnFee = retCfg.applyReturnFee
+          ? Math.round(Math.max(0, retCfg.returnFeeAmount) * 100) / 100
+          : 0;
+
+        const walletShipFee = isStoreCompanyMode
+          ? Math.round(Math.max(0, customerShippingFee) * 100) / 100
+          : actualCarrierFee;
+
+        baseDraftOrder.insuranceFee = safeInsFee;
+        baseDraftOrder.vatValue = safeVatVal;
+        baseDraftOrder.shippingVatRate = isStoreCompanyMode ? vatRate : 0;
+        baseDraftOrder.inspectionFee = safeInspFee;
+        baseDraftOrder.inspectionFeeDeducted = isStoreCompanyMode && safeInspFee > 0 && isActiveShipment;
+        baseDraftOrder.codFee = safeCodFee;
+        baseDraftOrder.returnFeeDeducted = isStoreCompanyMode && safeReturnFee > 0 && isActiveShipment;
+        baseDraftOrder.shippingAndInsuranceDeducted =
+          isActiveShipment &&
+          (walletShipFee > 0 || safeInsFee > 0 || safeVatVal > 0 || safeInspFee > 0 || safeReturnFee > 0);
+
+        newOrders.push(baseDraftOrder);
+        if (trackNorm) existingKeys.add(trackNorm);
+        if (refNorm) existingKeys.add(refNorm);
+        importedCount += 1;
+
+        if (params.deductInventory && !isReturnedStatus) {
+          totalDeductedUnits += deductItemsFromUnifiedInventory(draft, orderItems, defaultWhId);
+        }
+
+        const pushTx = (tx: Transaction) => {
+          if (existingTxIds.has(tx.id)) return;
+          existingTxIds.add(tx.id);
+          walletTxsToAdd.push(tx);
+          walletDelta += tx.type === 'إيداع' ? tx.amount : -tx.amount;
+        };
+
+        if (isActiveShipment && walletShipFee > 0) {
+          pushTx({
+            id: `ship_${newId}`,
+            type: 'سحب',
+            amount: walletShipFee,
+            date: nowIso,
+            note: `مصاريف شحن أوردر #${orderNumber}${safeCod === 0 ? ' (تحصيل 0 - بوسطة)' : ' (بوسطة)'}`,
+            category: 'shipping',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+        if (isActiveShipment && safeInsFee > 0) {
+          pushTx({
+            id: `insure_${newId}`,
+            type: 'سحب',
+            amount: safeInsFee,
+            date: nowIso,
+            note: `خصم رسوم تأمين أوردر #${orderNumber}`,
+            category: 'insurance',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+        if (isActiveShipment && safeVatVal > 0) {
+          pushTx({
+            id: `vat_${newId}`,
+            type: 'سحب',
+            amount: safeVatVal,
+            date: nowIso,
+            note: `خصم ضريبة القيمة المضافة لطلب شحن (${Math.round(vatRate * 100)}%) #${orderNumber}`,
+            category: 'vat',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+        if (isActiveShipment && safeInspFee > 0) {
+          pushTx({
+            id: `insp_expense_${newId}`,
+            type: 'سحب',
+            amount: safeInspFee,
+            date: nowIso,
+            note: `خصم رسوم معاينة أوردر #${orderNumber}`,
+            category: 'inspection',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+        if (isActiveShipment && safeReturnFee > 0) {
+          pushTx({
+            id: `return_${newId}`,
+            type: 'سحب',
+            amount: safeReturnFee,
+            date: nowIso,
+            note: `خصم مصاريف مرتجع أوردر #${orderNumber}`,
+            category: 'return',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+        if (isCollectedStatus && safeCod > 0 && safeCodFee > 0) {
+          pushTx({
+            id: `cod_${newId}`,
+            type: 'سحب',
+            amount: safeCodFee,
+            date: nowIso,
+            note: `خصم رسوم COD أوردر #${orderNumber}`,
+            category: 'cod',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+        if (isCollectedStatus && safeCod > 0) {
+          pushTx({
+            id: `collect_${newId}`,
+            type: 'إيداع',
+            amount: safeCod,
+            date: nowIso,
+            note: `رصيد من الدفع عند الاستلام أوردر #${orderNumber}`,
+            category: 'collection',
+            status: 'completed',
+            orderId: newId,
+            orderNumber
+          });
+        }
+      });
+
+      if (newOrders.length > 0) {
+        draft.orders = [...newOrders, ...(draft.orders || [])];
+      }
+      if (walletTxsToAdd.length > 0) {
+        draft.wallet.transactions = [...walletTxsToAdd, ...draft.wallet.transactions];
+        draft.wallet.balance =
+          Math.round(((Number(draft.wallet.balance) || 0) + walletDelta) * 100) / 100;
+      }
+
+      if (importedCount > 0) {
+        const logs = draft.settings.activityLogs || [];
+        logs.unshift({
+          id: `log_bulk_imp_${Date.now()}`,
+          user: operator,
+          action: 'تنزيل جماعي للأوردرات المطابقة للمخزون',
+          details: `إضافة ${importedCount} أوردر تلقائياً${
+            totalDeductedUnits > 0 ? ` · خصم ${totalDeductedUnits} قطعة من المخزون الموحّد` : ''
+          }`,
+          date: nowIso,
+          timestamp: Date.now()
+        });
+        draft.settings.activityLogs = logs.slice(0, 400);
+      }
+    });
+
+    return {
+      importedCount,
+      skippedNoMatch,
+      skippedDuplicate,
+      totalDeductedUnits
+    };
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] dark:bg-[#060a12] px-3 sm:px-5 lg:px-7 py-4 sm:py-6">
       <CodHunterWorkspace
@@ -1071,6 +1724,8 @@ export default function ExcelReconciliationPage({
         onLinkOrderWithSettlement={handleLinkOrderWithSettlement}
         onUpdateOrderFromSheet={handleUpdateOrderFromSheet}
         onDeleteOrderFromStore={handleDeleteOrderFromStore}
+        onBulkSyncSheetStatuses={handleBulkSyncSheetStatuses}
+        onBulkCreateOrdersFromSheet={handleBulkCreateOrdersFromSheet}
         onNotify={(msg, type) => {
           if (showToast) {
             try {

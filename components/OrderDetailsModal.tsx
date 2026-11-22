@@ -16,7 +16,8 @@ import {
   resolveCashHolderName, getCompanySpecificFees,
   getEffectiveInsuranceRate, getEffectiveInspectionFee,
   getEffectiveReturnShippingFee, getEffectiveFlexShipConfig,
-  isAllInclusiveSheetOrder, getBostaSheetActualCarrierFee
+  isAllInclusiveSheetOrder, getBostaSheetActualCarrierFee,
+  stripConfidentialSheetDetailsFromNote
 } from '../utils/financials';
 import { generateInvoiceHTML } from '../utils/invoiceGenerator';
 import { printHTMLDirectly } from '../utils/printHelper';
@@ -807,12 +808,16 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       <span className="text-indigo-600 dark:text-indigo-400">{order.shippingCompany || 'غير محدد'}</span>
                     </div>
                   </div>
-                  {order.notes && (
-                    <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
-                      <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest block mb-1">ملاحظات العميل والتوصيل:</span>
-                      <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-relaxed">{order.notes}</p>
-                    </div>
-                  )}
+                  {(() => {
+                    const visibleNotes = stripConfidentialSheetDetailsFromNote(order.notes);
+                    if (!visibleNotes) return null;
+                    return (
+                      <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl">
+                        <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest block mb-1">ملاحظات العميل والتوصيل:</span>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line">{visibleNotes}</p>
+                      </div>
+                    );
+                  })()}
                 </div>
 
               </div>
@@ -1097,7 +1102,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
                     <div className="flex justify-between items-center flex-row-reverse text-sm font-bold p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl">
                       <span className="text-slate-600 dark:text-slate-300">
-                        {isAllInclusiveSheet ? 'تكلفة بوسطة الفعلية الشاملة (بالشيت)' : 'تكلفة بوليصة الشحن (مستحقات شركة الشحن)'}
+                        {isAllInclusiveSheet ? 'تكلفة شركة الشحن المعتمدة (شامل الرسوم والضريبة)' : 'تكلفة بوليصة الشحن (مستحقات شركة الشحن)'}
                       </span>
                       <span className="font-black text-rose-500 tabular-nums">
                         -{(standardShippingFee ?? 0).toLocaleString()} <span className="text-xs font-normal">ج.م</span>

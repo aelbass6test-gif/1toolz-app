@@ -133,6 +133,8 @@ import {
 } from "../utils/financials";
 import { generateOrdersReportHTML } from "../utils/reportGenerator";
 import { triggerWebhooks } from "../utils/webhook";
+import { isConfirmItEnabled, maskConfirmItTarget, buildConfirmItOrderPayload } from "../utils/confirmit";
+import { recordWebhookDeliveryLog } from "../services/webhookDispatcherService";
 import { printHTMLDirectly, printPdfBlob } from "../utils/printHelper";
 import { exportHTMLToPDF } from "../utils/pdfHelper";
 import { OrderDetailsModal } from "./OrderDetailsModal";
@@ -613,8 +615,9 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       if (activeStore?.id) {
         const connectedPlatforms = settings?.connectedPlatforms || [];
         const platformConfigs = settings?.platformConfigs || {};
+        const PULL_SYNC_PLATFORMS = new Set(["wuilt", "shopify", "salla", "zid", "taager"]);
         const activePlatforms = connectedPlatforms.filter(
-          (p: string) => platformConfigs[p]?.isActive,
+          (p: string) => PULL_SYNC_PLATFORMS.has(p) && platformConfigs[p]?.isActive,
         );
 
         if (activePlatforms.length === 0) {
@@ -707,6 +710,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const [bostaTrackingOrder, setBostaTrackingOrder] = useState<Order | null>(null);
   const [bostaTrackingNumber, setBostaTrackingNumber] = useState<string | null>(null);
   const [isBostaLoading, setIsBostaLoading] = useState<string | null>(null);
+  const [confirmItLoadingId, setConfirmItLoadingId] = useState<string | null>(null);
   const [sentWhatsAppOrders, setSentWhatsAppOrders] = useState<Set<string>>(new Set());
   const [isBulkSendingBosta, setIsBulkSendingBosta] = useState(false);
   const [isBulkPrintingBosta, setIsBulkPrintingBosta] = useState(false);
@@ -813,6 +817,79 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
   const handleEditOrder = (order: Order) => {
     navigate(`${storePrefix}/orders/edit/${order.id}`);
+  };
+
+  const handleSendToConfirmIt = async (order: Order) => {
+    if (!activeStore?.id) {
+      inAppToast("تعذر تحديد المتجر الحالي.", "error");
+      return;
+    }
+    if (!isConfirmItEnabled(settings)) {
+      inAppToast("تطبيق Confirm It غير مفعل في المتجر حالياً.", "warning");
+      return;
+    }
+    setConfirmItLoadingId(order.id);
+    try {
+      const res = await fetch("/api/v1/confirmit/send-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId: activeStore.id,
+          order,
+          manual: true,
+          persistOrderStatus: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const preview = buildConfirmItOrderPayload(order, {
+        includeShippingLines: settings.confirmItConfig?.includeShippingLines !== false,
+      });
+
+      recordWebhookDeliveryLog(
+        {
+          id: `confirmit_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          storeId: activeStore.id,
+          eventId: `confirmit_${order.id}`,
+          event: "order.completed",
+          url: data.maskedUrl || maskConfirmItTarget(),
+          statusCode: data.statusCode || res.status,
+          statusText: data.success
+            ? data.alreadyExists
+              ? "Confirm It: Order already exists"
+              : "Confirm It: 201 Created"
+            : "Confirm It: Failed",
+          success: Boolean(data.success),
+          durationMs: data.durationMs,
+          error: data.success ? undefined : data.error || "Confirm It dispatch failed",
+          timestamp: new Date().toISOString(),
+          payloadSummary: {
+            orderNumber: order.orderNumber || order.id,
+            customerName: order.customerName,
+            customerPhone: order.customerPhone,
+            totalPrice: order.totalPrice ?? order.productPrice,
+            productName: order.productName,
+          },
+          fullPayload: preview.payload || undefined,
+        },
+        activeStore.id,
+      );
+
+      if (data.syncRecord) {
+        setOrders((prev) =>
+          prev.map((o) => (o.id === order.id ? { ...o, confirmItSync: data.syncRecord } : o)),
+        );
+      }
+
+      if (data.success) {
+        inAppToast(data.message || "تم إرسال الطلب إلى Confirm It بنجاح!", "success");
+      } else {
+        inAppToast(data.error || "فشل إرسال الطلب إلى Confirm It.", "error");
+      }
+    } catch (err: any) {
+      inAppToast(err?.message || "تعذر الاتصال بخادم Confirm It.", "error");
+    } finally {
+      setConfirmItLoadingId(null);
+    }
   };
 
   const handleSendWhatsAppAPI = async (order: Order, templateId: string, silent = false) => {
@@ -1032,7 +1109,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const handleCancelShipping = async (order: Order) => {
     if (isSheetReconciledOrder(order)) {
       inAppToast(
-        "هذا الطلب منزّل أو مرتبط بشيت التسوية وحالته مقفولة — التعديل متاح من صفحة الشيت فقط",
+        "هذا الطلب معتمد آلياً من شركة الشحن وحالته مقفولة ولا يمكن إلغاء البوليصة يدوياً من هنا",
         "warning"
       );
       return;
@@ -1157,7 +1234,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const handleSyncShippingStatus = async (order: Order) => {
     if (isSheetReconciledOrder(order)) {
       inAppToast(
-        "هذا الطلب منزّل أو مرتبط بشيت التسوية وحالته معتمدة ومقفولة — التعديل متاح من صفحة الشيت فقط",
+        "هذا الطلب حالته معتمدة ومقفولة آلياً من شركة الشحن ولا يمكن تعديلها يدوياً",
         "warning"
       );
       return;
@@ -2178,7 +2255,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     if (isSheetReconciledOrder(orderToDelete)) {
       inAppToast(
-        "لا يمكن حذف أوردر منزّل أو مرتبط بشيت التسوية من صفحة الطلبات — يتم فك الربط والحذف من صفحة شيت التسوية فقط.",
+        "لا يمكن حذف أوردر معتمد ومقفل من شركة الشحن من صفحة الطلبات مباشرة.",
         "warning"
       );
       setOrderToDelete(null);
@@ -3228,7 +3305,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
     if (!orderToUpdate) return;
     if (isSheetReconciledOrder(orderToUpdate)) {
       inAppToast(
-        "لا يمكن تعديل حالة طلب منزّل أو مرتبط بشيت التسوية يدوياً — التعديل متاح من صفحة الشيت فقط",
+        "لا يمكن تعديل حالة طلب معتمد ومقفل من شركة الشحن يدوياً",
         "warning"
       );
       return;
@@ -3612,7 +3689,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   ) => {
     if (isSheetReconciledOrder(order)) {
       inAppToast(
-        "لا يمكن تعديل تحصيل أو حالة طلب مرتبط بشيت التسوية يدوياً — التعديل متاح من صفحة الشيت فقط",
+        "لا يمكن تعديل تحصيل أو حالة طلب معتمد ومقفل من شركة الشحن يدوياً",
         "warning"
       );
       return;
@@ -3714,7 +3791,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   ) => {
     if (isSheetReconciledOrder(order)) {
       inAppToast(
-        "لا يمكن تعديل حالة الدفع لطلب منزّل أو مرتبط بشيت التسوية يدوياً — التعديل متاح من صفحة الشيت فقط",
+        "لا يمكن تعديل حالة الدفع لطلب معتمد ومقفل من شركة الشحن يدوياً",
         "warning"
       );
       return;
@@ -3758,7 +3835,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
   const handlePostCollectionReturn = (order: Order) => {
     if (isSheetReconciledOrder(order)) {
       inAppToast(
-        "لا يمكن تنفيذ مرتجع يدوي لطلب منزّل أو مرتبط بشيت التسوية — التعديل متاح من صفحة الشيت فقط",
+        "لا يمكن تنفيذ مرتجع يدوي لطلب معتمد ومقفل من شركة الشحن",
         "warning"
       );
       return;
@@ -3962,7 +4039,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     if (deletableOrders.length === 0) {
       inAppToast(
-        "جميع الطلبات المحددة منزّلة أو مرتبطة بشيت التسوية ولا يمكن حذفها من صفحة الطلبات — يتم فك الربط والحذف من صفحة الشيت فقط.",
+        "جميع الطلبات المحددة معتمدة من شركة الشحن ومقفولة ولا يمكن حذفها من صفحة الطلبات مباشرة.",
         "warning"
       );
       return;
@@ -3974,7 +4051,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       title: "حذف جماعي",
       message:
         protectedCount > 0
-          ? `هل أنت متأكد من حذف ${deletableOrders.length} طلبات نهائياً؟ (سيتم تخطي ${protectedCount} طلبات محمية بشيت التسوية ولن تُحذف من هنا).`
+          ? `هل أنت متأكد من حذف ${deletableOrders.length} طلبات نهائياً؟ (سيتم تخطي ${protectedCount} طلبات معتمدة ومحمية من شركة الشحن ولن تُحذف).`
           : `هل أنت متأكد من حذف ${deletableOrders.length} طلبات نهائياً؟ هذا الإجراء سيقوم بإزالة بياناتهم وعكس حركات المحفظة ورد المخزون.`,
       type: "danger",
       confirmText: "حذف نهائي",
@@ -4242,7 +4319,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
 
     if (editableOrders.length === 0) {
       inAppToast(
-        "جميع الطلبات المحددة منزّلة أو مرتبطة بشيت التسوية وحالتها مقفولة ولا يمكن تعديلها يدوياً.",
+        "جميع الطلبات المحددة معتمدة ومقفولة من شركة الشحن ولا يمكن تعديلها يدوياً.",
         "warning"
       );
       if (selectElement) selectElement.value = "default";
@@ -4255,7 +4332,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
       title: "تغيير الحالة جماعياً",
       message:
         protectedCount > 0
-          ? `هل أنت متأكد من تغيير حالة ${editableOrders.length} طلبات إلى "${newStatus.replace(/_/g, " ")}"؟ (سيتم تخطي ${protectedCount} طلبات مرتبطة بشيت التسوية لأن حالتها مقفولة).`
+          ? `هل أنت متأكد من تغيير حالة ${editableOrders.length} طلبات إلى "${newStatus.replace(/_/g, " ")}"؟ (سيتم تخطي ${protectedCount} طلبات معتمدة ومقفولة من شركة الشحن).`
           : `هل أنت متأكد من تغيير حالة ${editableOrders.length} طلبات إلى "${newStatus.replace(/_/g, " ")}"?`,
       type: "warning",
       confirmText: "تأكيد التغيير",
@@ -4821,7 +4898,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black transition-all shadow-xs whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     <FileSpreadsheet size={13} />
-                    <span>فحص ومطابقة شيتات بوسطة (COD)</span>
+                    <span>مراجعة ومطابقة تحصيل بوسطة (COD)</span>
                   </button>
                   {smartActionFilter !== 'all' && (
                     <button 
@@ -6236,6 +6313,8 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
                     }}
                     onSyncBosta={() => handleSyncShippingStatus(order)}
                     isBostaLoading={isBostaLoading === order.id}
+                    onSendToConfirmIt={() => handleSendToConfirmIt(order)}
+                    isConfirmItLoading={confirmItLoadingId === order.id}
                     displayDensity={displayDensity}
                   />
                 ))}
@@ -6763,7 +6842,7 @@ const OrdersList: React.FC<OrdersListProps & { onRefresh?: () => void }> = ({
           }
           deleteLockedReason={
             isSheetReconciledOrder(quickViewOrder)
-              ? "هذا الأوردر منزّل أو مرتبط بشيت التسوية — فك الربط والحذف متاح من صفحة الشيت فقط"
+              ? "هذا الأوردر معتمد ومقفل من شركة الشحن ومقفول ضد الحذف المباشر"
               : undefined
           }
           settings={settings}
@@ -7550,7 +7629,7 @@ const OrderCard = ({
           className={`inline-flex items-center gap-2 px-4 py-2 rounded-2xl ${statusInfo.color} text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-md`}
           title={
             isSheetReconciledOrder(order)
-              ? "الحالة مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية ولا يمكن تعديل حالته يدوياً"
+              ? "الحالة مقفولة — هذا الأوردر معتمد آلياً من شركة الشحن ولا يمكن تعديل حالته يدوياً"
               : undefined
           }
         >
@@ -8021,9 +8100,9 @@ const OrderCard = ({
             {isSheetReconciledOrder(order) ? (
               <div
                 className="w-full text-right px-4 py-2.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/30 rounded-2xl flex items-center justify-end gap-2.5 cursor-not-allowed"
-                title="هذا الأوردر منزّل أو مرتبط بشيت التسوية — فك الربط والحذف يتم من صفحة الشيت فقط"
+                title="هذا الأوردر معتمد من شركة الشحن ومقفول ضد الحذف المباشر"
               >
-                <span>مرتبط بشيت التسوية (الحذف من الشيت)</span>
+                <span>معتمد من الناقل (محمي)</span>
                 <Lock size={14} className="shrink-0" />
               </div>
             ) : (
@@ -8204,7 +8283,7 @@ const ProfitBreakdown: React.FC<{
 
   const profitLabel = isReturnedOrFailed
     ? netProfit >= 0
-      ? "صافي ربح تسوية الشحن"
+      ? "صافي تسوية الشحن"
       : "الخسارة الفعلية الموقعة"
     : order.status === "تم_التحصيل"
       ? "الربح الصافي المحقق"
@@ -8360,7 +8439,7 @@ const ProfitBreakdown: React.FC<{
                 </div>
 
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                  <span>{isAllInclusiveSheet ? "تكلفة بوسطة الفعلية الشاملة (بالشيت):" : "تكلفة بوليصة الشحن (للشركة):"}</span>
+                  <span>{isAllInclusiveSheet ? "تكلفة شركة الشحن المعتمدة (شامل الرسوم):" : "تكلفة بوليصة الشحن (للشركة):"}</span>
                   <span className="font-mono font-bold text-rose-500 tabular-nums">
                     -{standardShippingFee.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م
                   </span>
@@ -8473,7 +8552,7 @@ const ProfitBreakdown: React.FC<{
               <div className="flex justify-between items-center flex-row-reverse text-sm">
                 <span className="text-slate-500 font-semibold">
                   {isAllInclusiveSheet
-                    ? "تكلفة بوسطة الفعلية الشاملة (بالشيت):"
+                    ? "تكلفة شركة الشحن المعتمدة (شامل الرسوم):"
                     : "بوليصة الشحن (الذهاب):"}
                 </span>
                 <span className="font-black text-rose-500 tabular-nums">
@@ -9081,6 +9160,8 @@ const OrderRow = ({
   onTrackBosta,
   onSyncBosta,
   isBostaLoading,
+  onSendToConfirmIt,
+  isConfirmItLoading,
   displayDensity = "comfortable",
   isWhatsAppSent,
 }: {
@@ -9123,6 +9204,8 @@ const OrderRow = ({
   onTrackBosta?: () => void;
   onSyncBosta?: () => void;
   isBostaLoading?: boolean;
+  onSendToConfirmIt?: () => void;
+  isConfirmItLoading?: boolean;
   displayDensity?: "comfortable" | "compact";
   isWhatsAppSent?: boolean;
 }) => {
@@ -9389,6 +9472,15 @@ const OrderRow = ({
                     <ShipmentTypeBadge type={order.shipmentType} />
                   )}
                 <PosSourceBadge order={order} />
+                {order.confirmItSync?.helpRequested && (
+                  <div
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 whitespace-nowrap"
+                    title="طلب العميل التواصل مع الدعم عبر رسالة Confirm It على واتساب"
+                  >
+                    <AlertTriangle size={10} className="text-amber-600 dark:text-amber-400" />
+                    <span>طلب مساعدة (Confirm It)</span>
+                  </div>
+                )}
                 <div
                   className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10px] font-black bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-200/80 dark:border-amber-800/60 shadow-2xs whitespace-nowrap cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/80 transition-colors"
                   title="العلامة التجارية / اسم المتجر"
@@ -9444,7 +9536,7 @@ const OrderRow = ({
                     );
                   }
 
-                  if (['مرتجع', 'فشل_التوصيل', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي', 'جاري_الاسترجاع'].includes(order.status) && (order as any).compensationStatus !== 'compensated' && !isFlexShip) {
+                  if (['مرتجع', 'فشل_التوصيل', 'فشل_التوصيل_معالجة', 'مرتجع_بعد_الاستلام', 'مرتجع_جزئي', 'ملغي', 'جاري_الاسترجاع'].includes(order.status) && (order as any).compensationStatus !== 'compensated' && !isFlexShip && !isBostaSheetImport) {
                     return (
                       <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-black bg-rose-100 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 animate-pulse whitespace-nowrap">
                         <AlertTriangle size={10} className="text-rose-600 dark:text-rose-400" />
@@ -9806,7 +9898,7 @@ const OrderRow = ({
             {isSheetReconciledOrder(order) ? (
               <div
                 className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black border cursor-not-allowed ${getStatusBadgeStyle(order.status)}`}
-                title="الحالة مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية ولا يمكن تعديل حالته يدوياً (التعديل من صفحة الشيت فقط)"
+                title="الحالة مقفولة — معتمدة آلياً من شركة الشحن ولا يمكن تعديلها يدوياً"
               >
                 <span>{statusInfo.label}</span>
                 {order.status === "تم_التحصيل" ? (
@@ -9959,22 +10051,32 @@ const OrderRow = ({
           <div className="flex items-center gap-2 justify-end">
             {order.bostaTrackingNumber && (
               <>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSyncBosta?.();
-                  }}
-                  disabled={isBostaLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all shadow-xs active:scale-95 cursor-pointer"
-                  title="مزامنة الحالة اللحظية للطلب من بوسطة"
-                >
-                  {isBostaLoading ? (
-                    <Loader2 size={12} className="animate-spin text-emerald-500" />
-                  ) : (
-                    <RefreshCcw size={12} />
-                  )}
-                  <span>مزامنة</span>
-                </button>
+                {isSheetReconciledOrder(order) ? (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 cursor-default whitespace-nowrap"
+                    title="حالة الطلب معتمدة ومحدثة آلياً من شركة الشحن"
+                  >
+                    <Lock size={11} className="text-slate-500 dark:text-slate-400" />
+                    <span>موثق آلياً</span>
+                  </span>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSyncBosta?.();
+                    }}
+                    disabled={isBostaLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl font-black text-[10px] bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all shadow-xs active:scale-95 cursor-pointer"
+                    title="مزامنة الحالة اللحظية للطلب من بوسطة"
+                  >
+                    {isBostaLoading ? (
+                      <Loader2 size={12} className="animate-spin text-emerald-500" />
+                    ) : (
+                      <RefreshCcw size={12} />
+                    )}
+                    <span>مزامنة</span>
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -10064,14 +10166,14 @@ const OrderRow = ({
                       {isSheetReconciledOrder(order) ? (
                         <div
                           className="w-full text-right p-2.5 bg-amber-50/60 dark:bg-amber-950/20 rounded-xl flex items-center justify-end gap-3 cursor-not-allowed opacity-85"
-                          title="حالة الدفع والتحصيل مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية"
+                          title="حالة الدفع والتحصيل مقفولة — معتمدة آلياً من شركة الشحن"
                         >
                           <div className="text-right flex-1">
                             <span className="text-xs font-black text-amber-800 dark:text-amber-300 block">
-                              حالة الدفع مقفولة (تبع الشيت)
+                              حالة الدفع مقفولة (موثق)
                             </span>
                             <span className="text-[10px] font-bold text-amber-700/80 dark:text-amber-400/80 block">
-                              تعديل الحالة والتحصيل من صفحة الشيت فقط
+                              معتمدة تلقائياً من شركة الشحن
                             </span>
                           </div>
                           <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
@@ -10225,6 +10327,55 @@ const OrderRow = ({
                           </div>
                           <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
                             <Truck size={15} />
+                          </div>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* SECTION 3B: CONFIRM IT ORDER API */}
+                    {isConfirmItEnabled(settings) && (
+                      <div className="py-2 space-y-0.5 border-t border-slate-200 dark:border-white/5">
+                        <div className="px-3 py-1.5 flex items-center justify-between">
+                          {order.confirmItSync?.status === "sent" || order.confirmItSync?.status === "already_exists" ? (
+                            <span className="text-[9px] font-black bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                              تم الإرسال ✓
+                            </span>
+                          ) : order.confirmItSync?.status === "failed" ? (
+                            <span className="text-[9px] font-black bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                              فشل سابقاً
+                            </span>
+                          ) : null}
+                          <span className="text-[10px] font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-widest block text-right">
+                            ✅ Confirm It
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowOps(false);
+                            onSendToConfirmIt?.();
+                          }}
+                          disabled={isConfirmItLoading}
+                          className="w-full text-right p-2.5 hover:bg-emerald-50/80 dark:hover:bg-emerald-500/10 rounded-xl flex items-center justify-end gap-3 transition-all group disabled:opacity-50"
+                        >
+                          <div className="text-right flex-1">
+                            <span className="text-xs font-black text-slate-800 dark:text-white block group-hover:text-emerald-700 dark:group-hover:text-emerald-400">
+                              {isConfirmItLoading
+                                ? "جاري الإرسال لـ Confirm It..."
+                                : order.confirmItSync?.status === "sent" || order.confirmItSync?.status === "already_exists"
+                                ? "إعادة الفحص / الإرسال لـ Confirm It"
+                                : "إرسال إلى Confirm It (تأكيد آلي)"}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 block">
+                              إرسال بيانات الطلب لتأكيد العميل عبر واتساب
+                            </span>
+                          </div>
+                          <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                            {isConfirmItLoading ? (
+                              <Loader2 size={15} className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 size={15} />
+                            )}
                           </div>
                         </button>
                       </div>
@@ -10387,14 +10538,14 @@ const OrderRow = ({
                       {isSheetReconciledOrder(order) ? (
                         <div
                           className="w-full text-right p-2.5 bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200/70 dark:border-amber-800/50 rounded-xl flex items-center justify-end gap-3 cursor-not-allowed"
-                          title="هذا الأوردر منزّل أو مرتبط بشيت التسوية — فك الربط والحذف متاح فقط من صفحة شيت التسوية"
+                          title="هذا الأوردر معتمد من شركة الشحن ومقفول ضد الحذف المباشر"
                         >
                           <div className="text-right flex-1">
                             <span className="text-xs font-black text-amber-800 dark:text-amber-300 block">
-                              مرتبط بشيت التسوية
+                              معتمد من شركة الشحن
                             </span>
                             <span className="text-[10px] font-bold text-amber-700/80 dark:text-amber-400/80 block">
-                              فك الربط أو الحذف يتم من صفحة الشيت فقط
+                              السجل محمي ضد الحذف اليدوي
                             </span>
                           </div>
                           <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center justify-center flex-shrink-0">
@@ -10612,10 +10763,10 @@ const KanbanView: React.FC<{
                       {isSheetLocked && (
                         <span
                           className="inline-flex items-center gap-1 text-[9px] font-black bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/50"
-                          title="الحالة مقفولة — منزّل أو مرتبط بشيت التسوية"
+                          title="الحالة مقفولة — معتمدة آلياً من شركة الشحن"
                         >
                           <Lock size={9} />
-                          تبع الشيت
+                          موثق من الناقل
                         </span>
                       )}
                       {order.paymentStatus === "مدفوع" ? (

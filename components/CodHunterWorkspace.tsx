@@ -131,6 +131,23 @@ export interface CodHunterWorkspaceProps {
     removedWalletTxs: number;
     restoredUnits: number;
   } | null | void;
+  onBulkSyncSheetStatuses?: (
+    items: Array<{
+      orderId: string;
+      targetStatus: 'مرتجع' | 'تم_توصيلها';
+      row: SheetAuditRow;
+    }>
+  ) => { updatedCount: number; restoredUnits: number; returnFeesCount: number };
+  onBulkCreateOrdersFromSheet?: (params: {
+    rows: SheetAuditRow[];
+    billingMode: 'store_company_fees' | 'carrier_all_inclusive';
+    deductInventory: boolean;
+  }) => {
+    importedCount: number;
+    skippedNoMatch: number;
+    skippedDuplicate: number;
+    totalDeductedUnits: number;
+  };
   onOpenOrder?: (order: Order) => void;
   onNotify?: (msg: string, type?: 'success' | 'error') => void;
 }
@@ -320,6 +337,8 @@ export default function CodHunterWorkspace({
   onLinkOrderWithSettlement,
   onUpdateOrderFromSheet,
   onDeleteOrderFromStore,
+  onBulkSyncSheetStatuses,
+  onBulkCreateOrdersFromSheet,
   onOpenOrder,
   onNotify
 }: CodHunterWorkspaceProps) {
@@ -2308,6 +2327,7 @@ export default function CodHunterWorkspace({
         <OrdersLifecycleHub
           storeName={storeName}
           orders={orders}
+          settings={settings}
           auditResult={auditResult}
           uploadedFilesCount={uploadedFiles.length}
           matchWithStoreOrders={matchWithStoreOrders}
@@ -2362,6 +2382,8 @@ export default function CodHunterWorkspace({
           }}
           onOpenErrorsCenter={() => setWorkspaceView('errors_center')}
           errorsCount={unifiedErrorsCount}
+          onBulkSyncSheetStatuses={onBulkSyncSheetStatuses}
+          onBulkCreateOrdersFromSheet={onBulkCreateOrdersFromSheet}
           onNotify={notify}
         />
       ) : workspaceView === 'errors_center' ? (

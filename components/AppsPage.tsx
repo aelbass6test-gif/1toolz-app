@@ -13,6 +13,13 @@ import * as XLSX from 'xlsx';
 import confetti from 'canvas-confetti';
 import ApiKeysManager from './ApiKeysManager';
 import WebhooksManager from './WebhooksManager';
+import { isConfirmItEnabled, resolveConfirmItTarget } from '../utils/confirmit';
+
+const CONFIRMIT_LOGO_SVG =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#ECFDF5"/><circle cx="32" cy="32" r="20" fill="none" stroke="#15803D" stroke-width="5"/><path d="M23 32.5l6.2 6.2L42 25.5" fill="none" stroke="#15803D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  );
 
 const getCloudflareWhatsappWebhookUrl = () =>
   typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/whatsapp` : '/api/webhook/whatsapp';
@@ -85,6 +92,17 @@ const AVAILABLE_APPS = [
     tags: ['تأكيد الطلبات', 'مكالمات آلية', 'OTP'],
     needsApi: true,
     supportedFeatures: ['calls', 'orders']
+  },
+  {
+    id: 'confirmit',
+    name: 'Confirm It (تأكيد الطلبات)',
+    description: 'إرسال كل طلب جديد تلقائياً عبر رابط آمن لتأكيد العميل على واتساب ومكالمات المتابعة الآلية، وشحن المؤكد فقط.',
+    logo: CONFIRMIT_LOGO_SVG,
+    type: 'confirmation',
+    category: 'confirmation',
+    tags: ['تأكيد الطلبات', 'واتساب آلي', 'مكالمات متابعة', 'COD'],
+    needsApi: true,
+    supportedFeatures: ['orders', 'whatsapp']
   },
   // 4. E-commerce Store Platforms
   {
@@ -180,6 +198,11 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
   const [syncingProducts, setSyncingProducts] = useState<string | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [confirmItAutoSend, setConfirmItAutoSend] = useState(true);
+  const [confirmItSendOnlinePaid, setConfirmItSendOnlinePaid] = useState(false);
+  const [confirmItIncludeShipping, setConfirmItIncludeShipping] = useState(true);
+  const [confirmItTestPhone, setConfirmItTestPhone] = useState('');
+  const [showConfirmItSecret, setShowConfirmItSecret] = useState(false);
 
   // Selective Sync State
   const [showSelectiveModal, setShowSelectiveModal] = useState(false);
@@ -254,6 +277,9 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
     }
     if (appId === 'akked') {
       return Boolean(platformConfigs['akked']?.apiKey || connectedPlatforms.includes('akked'));
+    }
+    if (appId === 'confirmit') {
+      return isConfirmItEnabled(storeData?.settings);
     }
     if (appId === 'paymob') {
       return Boolean(platformConfigs['paymob']?.apiKey || connectedPlatforms.includes('paymob'));
@@ -649,6 +675,54 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
 
   const handleInstallApp = () => {
     if (!storeData || !selectedApp) return;
+
+    if (selectedApp.id === 'confirmit') {
+      const resolved = resolveConfirmItTarget(config.apiKey || config.shopUrl || '');
+      if (!resolved.valid) {
+        setTestResult({
+          success: false,
+          message: resolved.error || 'يرجى إدخال معرّف المتجر السري أو الرابط الخاص بـ Confirm It أولاً.'
+        });
+        return;
+      }
+
+      const currentPlatforms = storeData.settings.connectedPlatforms || [];
+      const currentConfigs = (storeData.settings as any).platformConfigs || {};
+      const nextIsActive = config.isActive !== false;
+
+      const updatedSettings: any = {
+        ...storeData.settings,
+        connectedPlatforms: nextIsActive
+          ? currentPlatforms.includes('confirmit')
+            ? currentPlatforms
+            : [...currentPlatforms, 'confirmit']
+          : currentPlatforms.filter((id: string) => id !== 'confirmit'),
+        platformConfigs: {
+          ...currentConfigs,
+          confirmit: {
+            appId: 'confirmit',
+            shopId: 'secured-on-server',
+            isActive: nextIsActive,
+            lastSync: currentConfigs?.confirmit?.lastSync
+          }
+        },
+        confirmItConfig: {
+          ...(storeData.settings.confirmItConfig || {}),
+          isActive: nextIsActive,
+          storeKey: resolved.storeKey,
+          endpointUrl: resolved.url,
+          autoSendOnNewOrder: confirmItAutoSend,
+          sendOnlinePaidOrders: confirmItSendOnlinePaid,
+          includeShippingLines: confirmItIncludeShipping
+        }
+      };
+
+      onUpdateSettings(updatedSettings);
+      setIsModalOpen(false);
+      setConfig({});
+      setTestResult(null);
+      return;
+    }
     
     let currentPlatforms = storeData.settings.connectedPlatforms || [];
     const currentConfigs = (storeData.settings as any).platformConfigs || {};
@@ -722,6 +796,9 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
       if (appToUninstall === 'whatsapp' && updatedSettings.metaWhatsAppConfig) {
         updatedSettings.metaWhatsAppConfig = { ...updatedSettings.metaWhatsAppConfig, accessToken: '', isActive: false };
       }
+      if (appToUninstall === 'confirmit' && updatedSettings.confirmItConfig) {
+        updatedSettings.confirmItConfig = { ...updatedSettings.confirmItConfig, isActive: false };
+      }
 
       onUpdateSettings(updatedSettings);
       setAppToUninstall(null);
@@ -756,6 +833,25 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
   const handleSyncOrders = async (appId: string) => {
     setSyncing(appId);
     try {
+        if (appId === 'confirmit') {
+            const response = await fetch('/api/v1/confirmit/sync-statuses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ storeId })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (response.ok && data.success) {
+                if (onRefresh) onRefresh();
+                const details = data.updatedCount > 0
+                  ? `تم تحديث ${data.updatedCount} طلب (مؤكد: ${data.confirmedCount || 0}، ملغي: ${data.cancelledCount || 0}، لم يرد: ${data.unreachableCount || 0}).`
+                  : `كل حالات Confirm It محدثة بالفعل (إجمالي الطلبات المقروءة: ${data.remoteCount || 0}).`;
+                alert(details);
+            } else {
+                alert(`تعذرت مزامنة Confirm It: ${data.error || 'خطأ غير متوقع'}`);
+            }
+            return;
+        }
+
         const response = await fetch(`/api/sync/platform/${appId}/${storeId}?type=orders`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
@@ -876,6 +972,18 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
           shopId: wa?.phoneNumberId || existingCfg.shopId || '',
           apiSecret: wa?.appId || existingCfg.apiSecret || ''
         };
+      } else if (app.id === 'confirmit') {
+        const ci = storeData?.settings?.confirmItConfig;
+        existingCfg = {
+          ...existingCfg,
+          apiKey: ci?.endpointUrl || ci?.storeKey || existingCfg.apiKey || '',
+          isActive: ci?.isActive ?? existingCfg.isActive ?? true
+        };
+        setConfirmItAutoSend(ci?.autoSendOnNewOrder !== false);
+        setConfirmItSendOnlinePaid(Boolean(ci?.sendOnlinePaidOrders));
+        setConfirmItIncludeShipping(ci?.includeShippingLines !== false);
+        setConfirmItTestPhone('');
+        setShowConfirmItSecret(false);
       }
       setConfig(existingCfg);
       setIsModalOpen(true);
@@ -953,6 +1061,34 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
           setTestResult({ success: true, message: data.message || 'تم الاتصال بنجاح بمنصة أكد لتأكيد الطلبات!' });
         } else {
           setTestResult({ success: false, message: data.error || 'فشل التحقق من مفتاح أكد.' });
+        }
+      } else if (selectedApp.id === 'confirmit') {
+        const targetInput = (config.apiKey || config.shopUrl || '').trim();
+        if (!targetInput) {
+          setTestResult({ success: false, message: 'يرجى إدخال معرّف المتجر السري أو رابط Confirm It أولاً.' });
+          return;
+        }
+        const res = await fetch('/api/v1/confirmit/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storeId,
+            targetKeyOrUrl: targetInput,
+            testPhone: confirmItTestPhone.trim(),
+            sendTestOrder: Boolean(confirmItTestPhone.trim())
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          setTestResult({
+            success: true,
+            message: data.message || 'تم فحص الاتصال مع Confirm It بنجاح!'
+          });
+        } else {
+          setTestResult({
+            success: false,
+            message: data.error || 'تعذر التحقق من رابط Confirm It أو معرّف المتجر.'
+          });
         }
       } else if (selectedApp.id === 'paymob') {
         const apiKey = config.apiKey || '';
@@ -1131,7 +1267,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                     <div className="p-5 pb-4">
                        <div className="flex items-start justify-between">
                            <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center p-2 shadow-sm border border-slate-200">
-                               {app.logo.endsWith('svg') || app.logo.endsWith('png') ? (
+                               {app.logo.startsWith('data:image/') || app.logo.endsWith('svg') || app.logo.endsWith('png') ? (
                                   <img src={app.logo} alt={app.name} className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
                                ) : (
                                   <div className="font-bold text-xl text-indigo-600">{app.name[0]}</div>
@@ -1220,6 +1356,34 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                                       <Sliders className="w-3.5 h-3.5" />
                                       إعدادات الـ API
                                   </button>
+                                </div>
+                              ) : app.type === 'confirmation' ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button 
+                                      onClick={() => setActiveTab('webhooks')}
+                                      className="py-2 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                                   >
+                                      <Activity className="w-3.5 h-3.5" />
+                                      سجل الإرسال
+                                  </button>
+                                  {app.id === 'confirmit' ? (
+                                    <button 
+                                        onClick={() => handleSyncOrders('confirmit')}
+                                        disabled={syncing === 'confirmit'}
+                                        className="py-2 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800/50 rounded-lg transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
+                                    >
+                                        <RefreshCw className={`w-3.5 h-3.5 ${syncing === 'confirmit' ? 'animate-spin' : ''}`} />
+                                        {syncing === 'confirmit' ? 'جاري...' : 'مزامنة الحالات'}
+                                    </button>
+                                  ) : (
+                                    <button 
+                                        onClick={() => openSettings(app)}
+                                        className="py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                                    >
+                                        <Sliders className="w-3.5 h-3.5" />
+                                        إعدادات التأكيد
+                                    </button>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="grid grid-cols-2 gap-2">
@@ -2087,6 +2251,89 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                              </>
                            )}
 
+                           {/* 4B. CONFIRM IT CONFIG */}
+                           {selectedApp.id === 'confirmit' && (
+                             <>
+                               <div className="space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">
+                                      رابط متجرك السري أو Store ID في Confirm It *
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowConfirmItSecret(prev => !prev)}
+                                      className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      {showConfirmItSecret ? 'إخفاء' : 'إظهار'}
+                                    </button>
+                                  </div>
+                                  <input 
+                                    type={showConfirmItSecret ? 'text' : 'password'}
+                                    placeholder="https://www.confirmit-eg.com/api/brands/YOUR-STORE-ID/orders/ أو YOUR-STORE-ID"
+                                    value={config.apiKey || ''}
+                                    onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                    className="w-full px-4 py-2.5 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono"
+                                    dir="ltr"
+                                  />
+                                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium leading-relaxed">
+                                    ملاحظة أمنية: يتم حفظ الرابط السري ومعرّف المتجر واستدعاء خادم Confirm It عبر الخادم السحابي فقط دون إرساله لمتصفح العملاء أو التجار.
+                                  </p>
+                               </div>
+
+                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                 <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                                   <div className="pl-2">
+                                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">إرسال الطلبات الجديدة تلقائياً</span>
+                                     <span className="text-[10px] text-slate-500">إرسال كل طلب فور إنشائه مباشرة إلى Confirm It</span>
+                                   </div>
+                                   <ToggleButton active={confirmItAutoSend} onToggle={() => setConfirmItAutoSend(v => !v)} variant="emerald" />
+                                 </div>
+
+                                 <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                                   <div className="pl-2">
+                                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">إرسال الطلبات المدفوعة أونلاين</span>
+                                     <span className="text-[10px] text-slate-500">إرسالها بحالة مدفوع لتسجيلها دون رسالة تأكيد</span>
+                                   </div>
+                                   <ToggleButton active={confirmItSendOnlinePaid} onToggle={() => setConfirmItSendOnlinePaid(v => !v)} variant="blue" />
+                                 </div>
+                               </div>
+
+                               <div className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
+                                 <div className="pl-2">
+                                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">تضمين تفصيل مصاريف الشحن (shipping_lines)</span>
+                                   <span className="text-[10px] text-slate-500">يرسل قيمة الشحن منفصلة مع الإجمالي الشامل للشحن</span>
+                                 </div>
+                                 <ToggleButton active={confirmItIncludeShipping} onToggle={() => setConfirmItIncludeShipping(v => !v)} variant="emerald" />
+                               </div>
+
+                               <div className="space-y-1.5 pt-1 border-t border-slate-200 dark:border-slate-700">
+                                  <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">
+                                    رقم هاتف لإرسال طلب تجريبي حقيقي (اختياري)
+                                  </label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="text"
+                                      placeholder="01000000000"
+                                      value={confirmItTestPhone}
+                                      onChange={(e) => setConfirmItTestPhone(e.target.value)}
+                                      className="flex-1 px-4 py-2 text-sm bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-mono"
+                                      dir="ltr"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={handleTestConnection}
+                                      disabled={testingConnection}
+                                      className="px-4 py-2 text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all disabled:opacity-50 whitespace-nowrap"
+                                    >
+                                      {testingConnection ? 'جاري...' : (confirmItTestPhone.trim() ? 'إرسال طلب تجريبي' : 'فحص الاتصال')}
+                                    </button>
+                                  </div>
+                                  <p className="text-[10px] text-slate-400">اترك الرقم فارغاً للتحقق الفوري من صحة الـ Store ID، أو أدخل رقمك لإرسال طلب تجريبي حقيقي على واتساب.</p>
+                               </div>
+                             </>
+                           )}
+
                            {/* 5. PAYMOB CONFIG */}
                            {selectedApp.id === 'paymob' && (
                              <>
@@ -2155,7 +2402,7 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                            )}
 
                            {/* 7. E-COMMERCE STORES (Shopify, Wuilt, Salla, Zid, Taager) */}
-                           {!['bosta', 'turbo', 'whatsapp', 'akked', 'paymob', 'fawry'].includes(selectedApp.id) && (
+                           {!['bosta', 'turbo', 'whatsapp', 'akked', 'confirmit', 'paymob', 'fawry'].includes(selectedApp.id) && (
                              <>
                                <div className="space-y-1.5">
                                   <label className="text-xs font-black text-slate-700 dark:text-slate-300 block mr-1">معرف المتجر (Store ID / Shop Name)</label>
@@ -2196,35 +2443,66 @@ export default function AppsPage({ storeId, storeData, onUpdateSettings, onUpdat
                      </div>
 
                      {/* Webhook Configuration Section */}
-                     <div className={`space-y-4 pt-2 border-t border-slate-200 dark:border-slate-700 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
-                        <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 ">
-                           <Webhook className="w-4 h-4" />
-                           <h4 className="font-bold text-sm uppercase tracking-wider">رابط استقبال الإشعارات (Webhook URL)</h4>
-                        </div>
-                        
-                        <div className="space-y-3">
-                           <p className="text-[11px] text-slate-500 mr-1 leading-relaxed">
-                             {selectedApp.id === 'whatsapp' 
-                               ? 'انسخ الرابط التالي وضعه في Webhooks داخل لوحة مطوري Meta مع التحقق من الرمز: 123456'
-                               : `انسخ هذا الرابط وضعه في إعدادات الـ Webhooks في لوحة ${selectedApp.name} لاستقبال التحديثات والطلبات لحظياً فور حدوثها.`}
-                           </p>
-                           <div className="flex border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-900 group">
-                             <input 
-                               type="text"
-                               readOnly 
-                               value={selectedApp.id === 'whatsapp' ? getCloudflareWhatsappWebhookUrl() : getWebhookUrl(selectedApp.id)}
-                               className="w-full px-4 py-3 text-xs font-mono bg-transparent text-left focus:outline-none"
-                               dir="ltr"
-                             />
-                             <button 
-                               onClick={() => copyToClipboard(selectedApp.id === 'whatsapp' ? getCloudflareWhatsappWebhookUrl() : getWebhookUrl(selectedApp.id))}
-                               className={`px-6 flex items-center justify-center transition-all border-r dark:border-slate-700 min-w-[80px] font-bold text-xs ${copied ? 'bg-green-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}
-                             >
-                               {copied ? 'تم النسخ!' : 'نسخ الرابط'}
-                             </button>
-                           </div>
-                        </div>
-                     </div>
+                     {selectedApp.id === 'confirmit' ? (
+                       <div className={`space-y-4 pt-2 border-t border-slate-200 dark:border-slate-700 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                          <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                             <Webhook className="w-4 h-4" />
+                             <h4 className="font-bold text-sm uppercase tracking-wider">رابط استقبال ردود التأكيد والإلغاء (Callback URL)</h4>
+                          </div>
+                          
+                          <div className="space-y-2.5">
+                             <p className="text-[11px] text-slate-500 mr-1 leading-relaxed">
+                               أعطِ هذا الرابط لدعم Confirm It لتحديث حالة الطلب في المتجر تلقائياً إلى <strong>«مؤكد»</strong> أو <strong>«ملغي»</strong> أو <strong>«مدفوع أونلاين»</strong> بمجرد رد العميل (مع الحفاظ على تحديثات شركة الشحن اللاحقة تلقائياً دون استبدال).
+                             </p>
+                             <div className="flex border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-900 group">
+                               <input 
+                                 type="text"
+                                 readOnly 
+                                 value={`${hostUrl}/api/v1/confirmit/callback?storeId=${encodeURIComponent(storeId)}`}
+                                 className="w-full px-4 py-3 text-xs font-mono bg-transparent text-left focus:outline-none"
+                                 dir="ltr"
+                               />
+                               <button 
+                                 type="button"
+                                 onClick={() => copyToClipboard(`${hostUrl}/api/v1/confirmit/callback?storeId=${encodeURIComponent(storeId)}`)}
+                                 className={`px-6 flex items-center justify-center transition-all border-r dark:border-slate-700 min-w-[80px] font-bold text-xs ${copied ? 'bg-green-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                               >
+                                 {copied ? 'تم النسخ!' : 'نسخ الرابط'}
+                               </button>
+                             </div>
+                          </div>
+                       </div>
+                     ) : (
+                       <div className={`space-y-4 pt-2 border-t border-slate-200 dark:border-slate-700 ${config.isActive === false ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                          <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 ">
+                             <Webhook className="w-4 h-4" />
+                             <h4 className="font-bold text-sm uppercase tracking-wider">رابط استقبال الإشعارات (Webhook URL)</h4>
+                          </div>
+                          
+                          <div className="space-y-3">
+                             <p className="text-[11px] text-slate-500 mr-1 leading-relaxed">
+                               {selectedApp.id === 'whatsapp' 
+                                 ? 'انسخ الرابط التالي وضعه في Webhooks داخل لوحة مطوري Meta مع التحقق من الرمز: 123456'
+                                 : `انسخ هذا الرابط وضعه في إعدادات الـ Webhooks في لوحة ${selectedApp.name} لاستقبال التحديثات والطلبات لحظياً فور حدوثها.`}
+                             </p>
+                             <div className="flex border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-slate-50 dark:bg-slate-900 group">
+                               <input 
+                                 type="text"
+                                 readOnly 
+                                 value={selectedApp.id === 'whatsapp' ? getCloudflareWhatsappWebhookUrl() : getWebhookUrl(selectedApp.id)}
+                                 className="w-full px-4 py-3 text-xs font-mono bg-transparent text-left focus:outline-none"
+                                 dir="ltr"
+                               />
+                               <button 
+                                 onClick={() => copyToClipboard(selectedApp.id === 'whatsapp' ? getCloudflareWhatsappWebhookUrl() : getWebhookUrl(selectedApp.id))}
+                                 className={`px-6 flex items-center justify-center transition-all border-r dark:border-slate-700 min-w-[80px] font-bold text-xs ${copied ? 'bg-green-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'}`}
+                               >
+                                 {copied ? 'تم النسخ!' : 'نسخ الرابط'}
+                               </button>
+                             </div>
+                          </div>
+                       </div>
+                     )}
 
                      <div className="bg-indigo-50/60 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300 p-4 rounded-xl text-xs leading-relaxed border border-indigo-100 dark:border-indigo-900/30 flex items-start gap-2.5">
                          <Info className="w-4 h-4 flex-shrink-0 text-indigo-600 dark:text-indigo-400 mt-0.5" />

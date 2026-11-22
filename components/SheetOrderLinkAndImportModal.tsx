@@ -195,7 +195,7 @@ const buildLocationTokens = (text: string): string[] => {
   return Array.from(tokens).filter(Boolean);
 };
 
-const resolveBostaShippingQuote = (
+export const resolveBostaShippingQuote = (
   cityText: string,
   addressText: string,
   settings: Settings
@@ -274,7 +274,7 @@ const resolveBostaShippingQuote = (
   };
 };
 
-interface PickedInventoryItem {
+export interface PickedInventoryItem {
   key: string;
   productId: string;
   variantId?: string;
@@ -337,7 +337,7 @@ const extractQuantityFromSheetText = (text: string): number => {
   return 1;
 };
 
-interface InventoryDetectionResult {
+export interface InventoryDetectionResult {
   autoPicked: PickedInventoryItem[];
   autoReason: string | null;
   suggestions: Array<{
@@ -350,7 +350,7 @@ interface InventoryDetectionResult {
   }>;
 }
 
-const detectInventoryProductsForSheetRow = (
+export const detectInventoryProductsForSheetRow = (
   sheetRow: SheetAuditRow,
   products: Product[],
   warehouseId: string,

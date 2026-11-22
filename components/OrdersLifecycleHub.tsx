@@ -17,15 +17,18 @@ import {
   Link2,
   Package,
   Pencil,
+  RefreshCw,
   RotateCcw,
   Search,
+  Sparkles,
   Trash2,
   Truck,
   Unlink,
   Upload,
-  Wallet
+  Wallet,
+  X
 } from 'lucide-react';
-import { Order } from '../types';
+import { Order, Settings } from '../types';
 import {
   TwoWayCodAuditResult,
   SheetAuditRow,
@@ -33,10 +36,15 @@ import {
   normalizeTrackingCode
 } from '../utils/codReconciliation';
 import { BankConfirmationRecord } from '../utils/codStorage';
+import {
+  detectInventoryProductsForSheetRow,
+  resolveBostaShippingQuote
+} from './SheetOrderLinkAndImportModal';
 
 export interface OrdersLifecycleHubProps {
   storeName: string;
   orders: Order[];
+  settings?: Settings;
   auditResult: TwoWayCodAuditResult;
   uploadedFilesCount: number;
   matchWithStoreOrders: boolean;
@@ -53,6 +61,23 @@ export interface OrdersLifecycleHubProps {
   onOpenWallet: () => void;
   onOpenErrorsCenter: () => void;
   errorsCount: number;
+  onBulkSyncSheetStatuses?: (
+    items: Array<{
+      orderId: string;
+      targetStatus: 'مرتجع' | 'تم_توصيلها';
+      row: SheetAuditRow;
+    }>
+  ) => { updatedCount: number; restoredUnits: number; returnFeesCount: number };
+  onBulkCreateOrdersFromSheet?: (params: {
+    rows: SheetAuditRow[];
+    billingMode: 'store_company_fees' | 'carrier_all_inclusive';
+    deductInventory: boolean;
+  }) => {
+    importedCount: number;
+    skippedNoMatch: number;
+    skippedDuplicate: number;
+    totalDeductedUnits: number;
+  };
   onNotify?: (msg: string, type?: 'success' | 'error') => void;
 }
 
@@ -179,6 +204,7 @@ const inferSheetDeliveryStage = (row: SheetAuditRow): { stage: DeliveryStage; la
 export default function OrdersLifecycleHub({
   storeName,
   orders,
+  settings,
   auditResult,
   uploadedFilesCount,
   matchWithStoreOrders,
@@ -195,6 +221,8 @@ export default function OrdersLifecycleHub({
   onOpenWallet,
   onOpenErrorsCenter,
   errorsCount,
+  onBulkSyncSheetStatuses,
+  onBulkCreateOrdersFromSheet,
   onNotify
 }: OrdersLifecycleHubProps) {
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
@@ -205,6 +233,13 @@ export default function OrdersLifecycleHub({
   const [sortBy, setSortBy] = useState<'newest' | 'highest_cod' | 'highest_net' | 'brand'>('newest');
   const [page, setPage] = useState(1);
   const [pendingDeleteItem, setPendingDeleteItem] = useState<UnifiedOrderRecord | null>(null);
+  const [bulkActionModal, setBulkActionModal] = useState<
+    'sync_returns' | 'sync_delivered' | 'bulk_import' | null
+  >(null);
+  const [bulkImportBillingMode, setBulkImportBillingMode] = useState<
+    'store_company_fees' | 'carrier_all_inclusive'
+  >('store_company_fees');
+  const [bulkImportDeductStock, setBulkImportDeductStock] = useState<boolean>(true);
 
   // Build lookup map for cashouts by normalized ID
   const cashoutById = useMemo(() => {
@@ -591,6 +626,87 @@ export default function OrdersLifecycleHub({
     return { synced, unsynced };
   }, [brandOrders]);
 
+  const bulkCandidates = useMemo(() => {
+    const syncableReturns: Array<{ orderId: string; targetStatus: 'مرتجع'; row: SheetAuditRow; order: Order }> = [];
+    const syncableDelivered: Array<{ orderId: string; targetStatus: 'تم_توصيلها'; row: SheetAuditRow; order: Order }> = [];
+    const readyAutoImportRows: SheetAuditRow[] = [];
+    let manualNeededCount = 0;
+
+    if (uploadedFilesCount === 0) {
+      return { syncableReturns, syncableDelivered, readyAutoImportRows, manualNeededCount };
+    }
+
+    const defaultWhId =
+      (settings as unknown as { defaultWarehouseId?: string } | undefined)?.defaultWarehouseId ||
+      settings?.warehouses?.find(w => w.isDefault)?.id ||
+      settings?.warehouses?.[0]?.id ||
+      'wh_main';
+
+    const returnedStatuses = new Set([
+      'مرتجع',
+      'مرتجع_جزئي',
+      'فشل_التوصيل',
+      'ملغي',
+      'مرتجع_بعد_الاستلام',
+      'تمت_الاعادة_لشركة_الشحن'
+    ]);
+    const deliveredStatuses = new Set([
+      'تم_التوصيل',
+      'تم_توصيلها',
+      'تم_التحصيل',
+      'مدفوعة',
+      'مرتجع',
+      'ملغي'
+    ]);
+
+    for (const item of brandOrders) {
+      if (item.sheetRow && item.orderId && item.matchedOrder) {
+        if (item.deliveryStage === 'returned' && !returnedStatuses.has(item.matchedOrder.status)) {
+          syncableReturns.push({
+            orderId: item.orderId,
+            targetStatus: 'مرتجع',
+            row: item.sheetRow,
+            order: item.matchedOrder
+          });
+        } else if (
+          item.deliveryStage === 'delivered' &&
+          !deliveredStatuses.has(item.matchedOrder.status)
+        ) {
+          syncableDelivered.push({
+            orderId: item.orderId,
+            targetStatus: 'تم_توصيلها',
+            row: item.sheetRow,
+            order: item.matchedOrder
+          });
+        }
+      } else if (item.sheetRow && !item.orderId && settings) {
+        const quote = resolveBostaShippingQuote(
+          item.sheetRow.dropoffCity || '',
+          item.sheetRow.dropoffCity || '',
+          settings
+        );
+        const expectedProductPrice = Math.max(
+          0,
+          Math.round(((Number(item.sheetRow.sheetGrossAmount) || 0) - quote.price) * 100) / 100
+        );
+        const detection = detectInventoryProductsForSheetRow(
+          item.sheetRow,
+          settings.products || [],
+          defaultWhId,
+          expectedProductPrice,
+          settings
+        );
+        if (detection.autoPicked.length > 0) {
+          readyAutoImportRows.push(item.sheetRow);
+        } else {
+          manualNeededCount += 1;
+        }
+      }
+    }
+
+    return { syncableReturns, syncableDelivered, readyAutoImportRows, manualNeededCount };
+  }, [brandOrders, uploadedFilesCount, settings]);
+
   // Apply delivery filter, cashout filter, store sync filter, search & sort
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -773,6 +889,69 @@ export default function OrdersLifecycleHub({
           )}
         </div>
       </section>
+
+      {/* Smart Bulk Actions Bar (Sheet-only safe actions) */}
+      {uploadedFilesCount > 0 &&
+        (bulkCandidates.syncableReturns.length > 0 ||
+          bulkCandidates.syncableDelivered.length > 0 ||
+          bulkCandidates.readyAutoImportRows.length > 0) && (
+          <section className="bg-gradient-to-l from-indigo-50/80 via-white to-emerald-50/70 dark:from-indigo-950/30 dark:via-[#0b1120] dark:to-emerald-950/20 rounded-2xl border border-indigo-200/80 dark:border-indigo-900/50 p-3.5 sm:px-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white">
+                  إجراءات المزامنة والتنزيل الجماعي الذكية
+                </h3>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                  تحديث حالات الشحنات الموجودة أو تنزيل صفوف الشيت المطابقة للمخزون الموحّد بضغطة واحدة دون التأثير على أي أوردرات يدوية.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {bulkCandidates.syncableReturns.length > 0 && onBulkSyncSheetStatuses && (
+                <button
+                  type="button"
+                  onClick={() => setBulkActionModal('sync_returns')}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>
+                    تأكيد المرتجعات ({bulkCandidates.syncableReturns.length.toLocaleString('en-US')})
+                  </span>
+                </button>
+              )}
+
+              {bulkCandidates.syncableDelivered.length > 0 && onBulkSyncSheetStatuses && (
+                <button
+                  type="button"
+                  onClick={() => setBulkActionModal('sync_delivered')}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-bold transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>
+                    تحديث المسلّم ({bulkCandidates.syncableDelivered.length.toLocaleString('en-US')})
+                  </span>
+                </button>
+              )}
+
+              {bulkCandidates.readyAutoImportRows.length > 0 && onBulkCreateOrdersFromSheet && (
+                <button
+                  type="button"
+                  onClick={() => setBulkActionModal('bulk_import')}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 text-xs font-bold transition-opacity whitespace-nowrap cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5" />
+                  <span>
+                    تنزيل جماعي للجاهز ({bulkCandidates.readyAutoImportRows.length.toLocaleString('en-US')})
+                  </span>
+                </button>
+              )}
+            </div>
+          </section>
+        )}
 
       {/* 2. Executive 4-KPI Strip (Live for Selected Brand) */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
@@ -1569,6 +1748,254 @@ export default function OrdersLifecycleHub({
           </div>
         );
       })()}
+
+      {/* Bulk Sync Returns / Delivered Confirmation Modal */}
+      {(bulkActionModal === 'sync_returns' || bulkActionModal === 'sync_delivered') &&
+        onBulkSyncSheetStatuses && (() => {
+          const isReturns = bulkActionModal === 'sync_returns';
+          const list = isReturns ? bulkCandidates.syncableReturns : bulkCandidates.syncableDelivered;
+          const stockRestoreEstimate = isReturns
+            ? list.reduce(
+                (sum, it) =>
+                  sum +
+                  (it.order.stockDeducted
+                    ? (it.order.items || []).reduce((s, p) => s + (Number(p.quantity) || 0), 0)
+                    : 0),
+                0
+              )
+            : 0;
+          return (
+            <div
+              className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm"
+              onClick={() => setBulkActionModal(null)}
+            >
+              <div
+                className="bg-white dark:bg-[#0b1120] w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 text-right space-y-4"
+                dir="rtl"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                        isReturns
+                          ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border-rose-200/70 dark:border-rose-800/60'
+                          : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border-emerald-200/70 dark:border-emerald-800/60'
+                      }`}
+                    >
+                      {isReturns ? <RotateCcw className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                        {isReturns
+                          ? `تأكيد تحويل ${list.length} أوردر إلى مرتجع`
+                          : `تحديث ${list.length} أوردر إلى تم التوصيل`}
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        تطبيق الحالة الفعلية الواردة من شركة الشحن على الطلبات المفتوحة بالمتجر.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBulkActionModal(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 p-3.5 text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
+                  {isReturns ? (
+                    <>
+                      <p>• تحويل حالة الأوردر والدفع إلى <strong>مرتجع</strong>.</p>
+                      <p>
+                        • رد الكميات للمخزون الموحّد:{' '}
+                        <strong className="font-mono tabular-nums">
+                          {stockRestoreEstimate > 0 ? `${stockRestoreEstimate} قطعة` : 'لا توجد كميات مخصومة لردها'}
+                        </strong>
+                        .
+                      </p>
+                      <p>• تطبيق رسوم المرتجع تلقائياً حسب إعدادات المتجر (دون تكرار إن وُجدت).</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>• تحديث حالة الأوردرات من في الطريق إلى <strong>تم توصيلها</strong>.</p>
+                      <p>• تجهيزها لاعتماد التحصيل وإغلاق دورة المحفظة عند تسوية الدفعة.</p>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setBulkActionModal(null)}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const payload = list.map(it => ({
+                        orderId: it.orderId,
+                        targetStatus: it.targetStatus,
+                        row: it.row
+                      }));
+                      setBulkActionModal(null);
+                      const res = onBulkSyncSheetStatuses(payload);
+                      onNotify?.(
+                        isReturns
+                          ? `تم تحديث ${res.updatedCount} أوردر كمرتجع${
+                              res.restoredUnits > 0 ? ` · رد ${res.restoredUnits} قطعة للمخزون` : ''
+                            }${res.returnFeesCount > 0 ? ` · تطبيق رسوم مرتجع على ${res.returnFeesCount} أوردر` : ''}.`
+                          : `تم تحديث حالة ${res.updatedCount} أوردر إلى تم توصيلها بنجاح.`
+                      );
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-white text-xs font-black transition-colors cursor-pointer ${
+                      isReturns ? 'bg-rose-600 hover:bg-rose-700' : 'bg-[#008060] hover:bg-[#006e52]'
+                    }`}
+                  >
+                    <span>{isReturns ? 'تأكيد المرتجعات' : 'تحديث الآن'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {/* Bulk Auto-Import Ready Sheet Rows Modal */}
+      {bulkActionModal === 'bulk_import' && onBulkCreateOrdersFromSheet && (
+        <div
+          className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm"
+          onClick={() => setBulkActionModal(null)}
+        >
+          <div
+            className="bg-white dark:bg-[#0b1120] w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl p-5 text-right space-y-4"
+            dir="rtl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-200/70 dark:border-indigo-800/60">
+                  <Package className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                    تنزيل جماعي للأوردرات المطابقة للمخزون ({bulkCandidates.readyAutoImportRows.length})
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    سيتم إنشاء أوردرات المتجر آلياً للصفوف التي تم التعرّف على منتجها من وصف الشيت أو السعر.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBulkActionModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 text-xs">
+              <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/50 p-3">
+                <div className="text-emerald-700 dark:text-emerald-300 font-bold">جاهز للتنزيل الآلي</div>
+                <div className="mt-1 font-mono tabular-nums text-lg font-black text-emerald-800 dark:text-emerald-200">
+                  {bulkCandidates.readyAutoImportRows.length.toLocaleString('en-US')}
+                </div>
+              </div>
+              <div className="rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/50 p-3">
+                <div className="text-amber-700 dark:text-amber-300 font-bold">يتطلب مطابقة يدوية</div>
+                <div className="mt-1 font-mono tabular-nums text-lg font-black text-amber-800 dark:text-amber-200">
+                  {bulkCandidates.manualNeededCount.toLocaleString('en-US')}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                أسلوب احتساب مصاريف الشحن للمتجر:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBulkImportBillingMode('store_company_fees')}
+                  className={`p-3 rounded-xl border text-right transition-all cursor-pointer ${
+                    bulkImportBillingMode === 'store_company_fees'
+                      ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-700 text-indigo-900 dark:text-indigo-200'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-black">تسعيرة المتجر + الرسوم القياسية</div>
+                  <div className="text-[11px] opacity-80 mt-0.5">
+                    يعتمد سعر شحن المحافظة بالمتجر + الضريبة والرسوم دون كشف تكلفة الناقل الداخلية.
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkImportBillingMode('carrier_all_inclusive')}
+                  className={`p-3 rounded-xl border text-right transition-all cursor-pointer ${
+                    bulkImportBillingMode === 'carrier_all_inclusive'
+                      ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-700 text-indigo-900 dark:text-indigo-200'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-black">خصم إجمالي مصاريف بوسطة</div>
+                  <div className="text-[11px] opacity-80 mt-0.5">
+                    خصم صافي مصاريف الشحن المعتمدة كما وردت في تسوية شركة الشحن.
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bulkImportDeductStock}
+                onChange={e => setBulkImportDeductStock(e.target.checked)}
+                className="w-4 h-4 rounded accent-[#008060]"
+              />
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                خصم الكميات تلقائياً من المخزون الموحّد للأوردرات غير المرتجعة
+              </span>
+            </label>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setBulkActionModal(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const rowsToImport = bulkCandidates.readyAutoImportRows;
+                  const mode = bulkImportBillingMode;
+                  const deduct = bulkImportDeductStock;
+                  setBulkActionModal(null);
+                  const res = onBulkCreateOrdersFromSheet({
+                    rows: rowsToImport,
+                    billingMode: mode,
+                    deductInventory: deduct
+                  });
+                  onNotify?.(
+                    `تم تنزيل ${res.importedCount} أوردر تلقائياً${
+                      res.totalDeductedUnits > 0 ? ` · خصم ${res.totalDeductedUnits} قطعة من المخزون` : ''
+                    }${res.skippedDuplicate > 0 ? ` · تخطي ${res.skippedDuplicate} مكرر` : ''}.`
+                  );
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#008060] hover:bg-[#006e52] text-white text-xs font-black transition-colors cursor-pointer"
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>تأكيد التنزيل الجماعي</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,7 +21,11 @@ import {
   calculateCodFee, 
   isBosta, 
   getOrderProductCost,
-  isSheetReconciledOrder
+  isSheetReconciledOrder,
+  getCompanySpecificFees,
+  getEffectiveInsuranceRate,
+  getEffectiveInspectionFee,
+  stripConfidentialSheetDetailsFromNote
 } from '../utils/financials';
 
 interface OrderSlideOverDrawerProps {
@@ -131,12 +135,10 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                 order.shippingArea === 'نقطة البيع' ||
                 (order.id && order.id.startsWith('POS-'));
 
-  const compFees = settings?.companySpecificFees?.[order.shippingCompany];
+  const compFees = getCompanySpecificFees(settings, order.shippingCompany);
   const useCustom = compFees?.useCustomFees ?? false;
 
-  const insuranceRate = isPos ? 0 : (useCustom 
-    ? (compFees?.insuranceFeePercent ?? 0) 
-    : (settings?.enableInsurance ? settings.insuranceFeePercent : 0));
+  const insuranceRate = getEffectiveInsuranceRate(order, settings);
 
   const isBostaSheetImport = order.platform === 'bosta_sheet_import';
   const isAllInclusiveSheet = isBostaSheetImport && order.sheetFeeBillingMode !== 'store_company_fees';
@@ -152,9 +154,7 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
     ? (compFees?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0)) 
     : (settings?.shippingVatRate ?? (isBosta(order.shippingCompany) ? 0.14 : 0));
 
-  const configInspectionCost = useCustom 
-    ? (compFees?.inspectionFee ?? 0) 
-    : (settings?.enableInspection ? settings.inspectionFee : 0);
+  const configInspectionCost = getEffectiveInspectionFee(order, settings);
 
   const effectiveInspectionCost = isPos || isAllInclusiveSheet || !(order.includeInspectionFee ?? true) 
     ? 0 
@@ -329,11 +329,11 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
                 {isSheetReconciledOrder(order) ? (
                   <div
                     className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-amber-200/80 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs font-black text-amber-800 dark:text-amber-300 cursor-not-allowed"
-                    title="الحالة مقفولة — هذا الأوردر منزّل أو مرتبط بشيت التسوية ولا يمكن تعديل حالته يدوياً"
+                    title="الحالة مقفولة — هذا الأوردر معتمد آلياً من شركة الشحن ولا يمكن تعديل حالته يدوياً"
                   >
                     <Lock size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
                     <span>{statusMeta.label}</span>
-                    <span className="text-[10px] font-bold opacity-80">(تبع الشيت)</span>
+                    <span className="text-[10px] font-bold opacity-80">(موثق من الناقل)</span>
                   </div>
                 ) : (
                   <div className="relative">
@@ -658,32 +658,14 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
 
                   <div className="space-y-2">
                     {isAllInclusiveSheet ? (
-                      <>
-                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
-                          <span>إجمالي مصاريف بوسطة الفعلية من الشيت (شاملة 14% ضريبة والرسوم):</span>
-                          <div className="font-mono font-bold text-rose-500">
-                            <span>-</span>
-                            <span className="tabular-nums">{sheetActualCarrierFee.toFixed(2)}</span>
-                            <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
-                          </div>
+                      <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                        <span>إجمالي مصاريف شركة الشحن المعتمدة (شامل الضريبة والرسوم):</span>
+                        <div className="font-mono font-bold text-rose-500">
+                          <span>-</span>
+                          <span className="tabular-nums">{sheetActualCarrierFee.toFixed(2)}</span>
+                          <span className="text-[10px] text-slate-400 mr-1">ج.م</span>
                         </div>
-                        {Math.abs(safeShipping - sheetActualCarrierFee) > 0.01 && (
-                          <div className="flex justify-between items-center text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-dashed border-slate-200 dark:border-white/[0.06]">
-                            <span>فرق الشحن (شحن العميل {safeShipping.toLocaleString()} − تكلفة بوسطة {sheetActualCarrierFee.toFixed(2)}):</span>
-                            <span
-                              dir="ltr"
-                              className={`font-mono font-bold tabular-nums ${
-                                safeShipping - sheetActualCarrierFee >= 0
-                                  ? 'text-emerald-600 dark:text-emerald-400'
-                                  : 'text-rose-500'
-                              }`}
-                            >
-                              {safeShipping - sheetActualCarrierFee >= 0 ? '+' : ''}
-                              {(safeShipping - sheetActualCarrierFee).toFixed(2)} ج.م
-                            </span>
-                          </div>
-                        )}
-                      </>
+                      </div>
                     ) : (
                       <>
                         {/* 1. Basic Shipping Waybill Fee */}
@@ -828,12 +810,16 @@ export const OrderSlideOverDrawer: React.FC<OrderSlideOverDrawerProps> = ({
               )}
 
               {/* Notes */}
-              {order.notes && (
-                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30 rounded-xl text-xs text-amber-800 dark:text-amber-300 space-y-1">
-                  <span className="font-black text-[11px] block">ملاحظات الطلب:</span>
-                  <p className="leading-relaxed">{order.notes}</p>
-                </div>
-              )}
+              {(() => {
+                const visibleOrderNotes = stripConfidentialSheetDetailsFromNote(order.notes);
+                if (!visibleOrderNotes) return null;
+                return (
+                  <div className="p-3 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30 rounded-xl text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                    <span className="font-black text-[11px] block">ملاحظات الطلب:</span>
+                    <p className="leading-relaxed whitespace-pre-line">{visibleOrderNotes}</p>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Footer Action Buttons */}

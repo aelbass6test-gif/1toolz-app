@@ -621,7 +621,7 @@ const CreateDropshippingOrderPage: React.FC<CreateDropshippingOrderPageProps> = 
         }
         // ----------------------------------
 
-        triggerWebhooks(orderWithId, settings);
+        triggerWebhooks(orderWithId, settings, activeStore?.id);
         
         // Sync with forceSync using complete updated state to bypass React async delay
         const currentStoreId = activeStore?.id;

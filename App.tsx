@@ -14,6 +14,7 @@ import { oneToolzProducts } from './data/one-toolz-products';
 import { migrateLegacyProductMerchantLinks, isDummyMockSupplier, sanitizeSuppliersList } from './utils/merchantProducts';
 
 import { triggerWebhooks } from './utils/webhook';
+import { isConfirmItEnabled } from './utils/confirmit';
 import { audioSynth } from './utils/audioSynth';
 import { setFraudShieldStoreContext, fetchCloudBlacklist } from './utils/fraudShield';
 import { setWebhookStoreContext } from './services/webhookDispatcherService';
@@ -3045,7 +3046,9 @@ export const AppComponent = () => {
                 const connectedPlatforms = allStoresDataRef.current[activeStoreId]?.settings?.connectedPlatforms || [];
                 const platformConfigs = (allStoresDataRef.current[activeStoreId]?.settings as any)?.platformConfigs || {};
 
+                const PULL_SYNC_PLATFORMS = new Set(['wuilt', 'shopify', 'salla', 'zid', 'taager']);
                 for (const platformId of connectedPlatforms) {
+                    if (!PULL_SYNC_PLATFORMS.has(platformId)) continue;
                     const config = platformConfigs[platformId];
                     if (config?.isActive) {
                         console.log(`[AUTO-SYNC] Triggering background sync for ${platformId}...`);
@@ -3065,6 +3068,28 @@ export const AppComponent = () => {
                             console.error(`[AUTO-SYNC] Failed to sync ${platformId}:`, err);
                             isRefreshing.current = false;
                         }
+                    }
+                }
+
+                // Background Status Pull Sync for Confirm It (updates confirmed / cancelled / unreachable without overwriting shipping carrier statuses)
+                const storeSettings = allStoresDataRef.current[activeStoreId]?.settings;
+                if (isConfirmItEnabled(storeSettings)) {
+                    try {
+                        const ciRes = await fetch('/api/v1/confirmit/sync-statuses', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ storeId: activeStoreId })
+                        });
+                        if (ciRes.ok) {
+                            const ciData = await ciRes.json().catch(() => null);
+                            if (ciData?.updatedCount > 0) {
+                                console.log(`[AUTO-SYNC] Confirm It synced ${ciData.updatedCount} order status update(s)`);
+                                isRefreshing.current = true;
+                                await refreshStoreDataRef.current(activeStoreId);
+                            }
+                        }
+                    } catch (ciErr) {
+                        console.warn('[AUTO-SYNC] Confirm It status sync skipped:', ciErr);
                     }
                 }
             }
@@ -3773,7 +3798,7 @@ export const AppComponent = () => {
 
         pageProps.setCart([]); // Clear cart
         try { localStorage.removeItem('storefront_cart'); } catch (e) {}
-        triggerWebhooks(newOrder, pageProps.settings);
+        triggerWebhooks(newOrder, pageProps.settings, activeStoreId || newOrder.store_id);
         return newOrder.id;
     };
 

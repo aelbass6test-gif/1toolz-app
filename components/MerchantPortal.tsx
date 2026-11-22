@@ -26,6 +26,8 @@ import { DEFAULT_BOSTA_BUSINESS_LOCATIONS } from '../utils/bostaService';
 import { getProductsForMerchant, normalizeMerchantLabel, checkOrderBelongsToMerchant } from '../utils/merchantProducts';
 import { generateUniqueOrderId, generateDisplayOrderNumber } from '../utils/syncIntegrity';
 import { getCachedPlatformSupportPhone, buildSupportWhatsAppUrl, fetchPlatformSupportConfig } from '../utils/platformSupport';
+import { isConfirmItEnabled } from '../utils/confirmit';
+import { triggerWebhooks } from '../utils/webhook';
 import { motion, AnimatePresence } from 'motion/react';
 import * as db from '../services/databaseService';
 import { 
@@ -2676,6 +2678,9 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
 
       setDirectStoreData(updatedPayload);
       pendingRetryOrderRef.current = null;
+      if (activeStoreData?.settings) {
+        void triggerWebhooks(newOrder, activeStoreData.settings as any, targetStoreId);
+      }
 
       showToast(
         `تم حفظ وتسجيل الأوردر على الخادم بنجاح! رقم الشحنة: #${displayOrderNumber}`,
@@ -4791,7 +4796,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     ? 'bg-white/20 text-white'
                     : 'bg-emerald-500/15 text-[#00ab84]'
                 }`}>
-                  نشط 4
+                  نشط {isConfirmItEnabled(settings as any) ? 5 : 4}
                 </span>
               </button>
 
@@ -5207,7 +5212,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             { id: 'create_order', label: planUsage.managerPlanActive ? 'إنشاء أوردر 🔒' : '+ إنشاء أوردر', icon: PlusCircle },
             { id: 'inventory', label: `مخزون بضاعتي (${totalStockUnits})`, icon: Layers },
             { id: 'customers', label: `العملاء (${uniqueCustomersCount})`, icon: Users },
-            { id: 'apps', label: 'التطبيقات (4)', icon: LayoutGrid },
+            { id: 'apps', label: `التطبيقات (${isConfirmItEnabled(settings as any) ? 5 : 4})`, icon: LayoutGrid },
             { id: 'analytics', label: 'الأصناف والمحافظات', icon: TrendingUp },
             { id: 'transparency', label: 'حركة البضاعة', icon: Sparkles },
             { id: 'statement', label: 'كشف الحساب والـ P&L', icon: FileText },
@@ -7275,12 +7280,18 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                   </div>
 
                   {/* Applications Indicator Pill (Matching Reference Screenshot) */}
-                  <div className="flex items-center gap-2 pt-1 text-xs font-bold text-zinc-500">
+                  <div className="flex items-center flex-wrap gap-2 pt-1 text-xs font-bold text-zinc-500">
                     <span>التطبيقات:</span>
                     <span className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-[#00ab84] dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 flex items-center gap-1.5 font-black text-[11px]">
                       <ShoppingBag size={13} />
                       <span>تأكيد الطلبات</span>
                     </span>
+                    {isConfirmItEnabled(settings as any) && (
+                      <span className="px-2.5 py-1 rounded-xl bg-emerald-600/10 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 font-black text-[11px]">
+                        <CheckCircle2 size={13} />
+                        <span>Confirm It - تأكيد آلي</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Multi-Filter Bar (Search + Date + Tags Dropdown + All Filters Button) */}
@@ -9094,7 +9105,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
               <div className="flex items-center gap-2">
                 <span className="px-3.5 py-1.5 rounded-full bg-emerald-500/15 text-[#00ab84] font-black text-xs flex items-center gap-1.5 border border-emerald-500/20">
                   <span className="w-2 h-2 rounded-full bg-[#00ab84] animate-pulse" />
-                  <span>{planUsage.managerPlanActive ? 'تحت إدارة المدير المخصص 🔒' : '4 تطبيقات نشطة ومتصلة'}</span>
+                  <span>{planUsage.managerPlanActive ? 'تحت إدارة المدير المخصص 🔒' : `${isConfirmItEnabled(settings as any) ? 5 : 4} تطبيقات نشطة ومتصلة`}</span>
                 </span>
               </div>
             </div>
@@ -9102,6 +9113,54 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
             {/* Apps Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
               
+              {/* DYNAMIC APP (ONLY WHEN ENABLED): Confirm It Order API */}
+              {isConfirmItEnabled(settings as any) && (
+                <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
+                  isDark ? 'bg-zinc-900 border-emerald-800/60' : 'bg-white border-emerald-200/90 shadow-xs'
+                }`}>
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 flex items-center justify-center font-black">
+                          <CheckCircle2 size={22} />
+                        </div>
+                        <div>
+                          <h4 className="font-black text-sm text-zinc-900 dark:text-white">Confirm It (تأكيد الطلبات)</h4>
+                          <span className="text-[10px] text-zinc-400 font-bold">Automated Order Confirmation API</span>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 text-[#00ab84] text-[10px] font-black flex items-center gap-1">
+                        <CheckCircle2 size={12} />
+                        <span>مفعّل ونشط</span>
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed font-bold">
+                      يرسل كل طلب جديد تلقائياً عبر بوابة المتجر المؤمنة للتأكيد على الواتساب ومتابعة المكالمات الآلية مع العملاء قبل الشحن.
+                    </p>
+
+                    <div className={`p-3 rounded-2xl border text-[11px] font-bold space-y-1.5 ${
+                      isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-400' : 'bg-zinc-50 border-zinc-200/70 text-zinc-600'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span>وضع الإرسال الآلي:</span>
+                        <span className="text-zinc-900 dark:text-white font-black">
+                          {(settings as any)?.confirmItConfig?.autoSendOnNewOrder !== false ? 'فوري عند إنشاء الأوردر' : 'يدوي من المتجر'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>توحيد المحافظات المصرية:</span>
+                        <span className="text-[#00ab84] font-black">29 محافظة مفعلة</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 text-[10px] text-emerald-700 dark:text-emerald-400 font-black text-center bg-emerald-500/10 rounded-xl py-2 border border-emerald-500/20">
+                    متصل ومؤمّن عبر خادم المتجر السحابي
+                  </div>
+                </div>
+              )}
+
               {/* APP 1: Bosta Express */}
               <div className={`rounded-3xl border p-5 sm:p-6 space-y-4 flex flex-col justify-between ${
                 isDark ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200/80 shadow-xs'
@@ -10722,7 +10781,7 @@ export default function MerchantPortal({ allStoresData, updateSettings, showToas
                     <span>التطبيقات والربط الآلي (بوسطة وواتساب)</span>
                   </div>
                   <span className="text-[10px] font-black text-[#00ab84] bg-emerald-500/15 px-2 py-0.5 rounded-full">
-                    4 تطبيقات
+                    {isConfirmItEnabled(settings as any) ? 5 : 4} تطبيقات
                   </span>
                 </button>
 

@@ -11,7 +11,7 @@ import {
 import { Wallet, Transaction, Order, Settings, TransactionCategory, WithdrawRequest, WalletSettings, BankAccount, Treasury, GovernanceCorrectionRequest, QuotaWalletTransaction } from '../types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConfirmationModal } from './ConfirmationModal';
-import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getAdvancePaymentCustodyName } from '../utils/financials';
+import { calculateOrderProfitLoss, calculateOrderShippingAndFees, getAdvancePaymentCustodyName, stripConfidentialSheetDetailsFromNote } from '../utils/financials';
 import { getStoreOwnedOrders } from '../utils/merchantProducts';
 import { CustodyLedger } from './AccountingReports';
 import { triggerCelebration } from '../utils/celebration';
@@ -554,7 +554,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
             cleanedTxs.push({
               ...tx,
               amount: expectedActualFee,
-              note: `مصاريف شحن بوسطة الفعلية أوردر #${ord.orderNumber} (تحصيل 0 - شامل الضريبة والرسوم)`
+              note: `مصاريف شحن أوردر #${ord.orderNumber} (تحصيل 0 - شامل الضريبة والرسوم)`
             });
             continue;
           }
@@ -584,7 +584,7 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
             type: 'سحب',
             amount: actualFee,
             date: o.updatedAt || o.createdAt || new Date().toISOString(),
-            note: `مصاريف شحن بوسطة الفعلية أوردر #${o.orderNumber} (تحصيل 0 - شامل الضريبة والرسوم)`,
+            note: `مصاريف شحن أوردر #${o.orderNumber} (تحصيل 0 - شامل الضريبة والرسوم)`,
             category: 'shipping',
             status: 'completed',
             orderId: o.id,
@@ -4297,12 +4297,18 @@ const WalletPage: React.FC<WalletPageProps> = ({ wallet, setWallet, setSettings,
                   </div>
                 </div>
 
-                {(inspectedOrder.notes || inspectedOrder.internalNotes) && (
-                  <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/50 text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    <span className="font-black text-amber-800 dark:text-amber-300 block mb-1">ملاحظات الأوردر:</span>
-                    {inspectedOrder.internalNotes || inspectedOrder.notes}
-                  </div>
-                )}
+                {(() => {
+                  const visibleWalletNotes = stripConfidentialSheetDetailsFromNote(
+                    inspectedOrder.notes || inspectedOrder.internalNotes
+                  );
+                  if (!visibleWalletNotes) return null;
+                  return (
+                    <div className="p-3.5 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/50 text-xs text-slate-700 dark:text-slate-300 font-medium whitespace-pre-line">
+                      <span className="font-black text-amber-800 dark:text-amber-300 block mb-1">ملاحظات الأوردر:</span>
+                      {visibleWalletNotes}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
